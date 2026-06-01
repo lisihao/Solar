@@ -42,6 +42,8 @@ KB_PROBE_TIMEOUT_SEC = int(os.environ.get("SOLAR_KB_PROBE_TIMEOUT_SEC", "120"))
 MODEL_DOCTOR_HEALTH = HARNESS / "state" / "model-registry-doctor-health.json"
 MODEL_DOCTOR_INTERVAL_SEC = int(os.environ.get("SOLAR_MODEL_DOCTOR_INTERVAL_SEC", "1800"))
 MODEL_DOCTOR_TIMEOUT_SEC = int(os.environ.get("SOLAR_MODEL_DOCTOR_TIMEOUT_SEC", "120"))
+PM_INBOX_DIR = HARNESS / "run" / "pm-inbox"
+ROLE_HANDOFF_RETRY_COOLDOWN_SEC = int(os.environ.get("SOLAR_ROLE_HANDOFF_RETRY_COOLDOWN_SEC", "30"))
 
 REAL_HARNESS = Path(os.environ.get("REAL_HARNESS_DIR", HARNESS))
 sys.path.insert(0, str(REAL_HARNESS / "lib"))
@@ -114,6 +116,12 @@ BUILDER_QUEUE_FINDINGS = {"ready_for_builder", "active_without_handoff", "pane_i
 
 import sys
 sys.path.insert(0, str(HARNESS / "lib"))
+try:
+    from pane_overlay_state import pane_overlay_detail, prompt_match_is_stale, tail_has_idle_prompt_footer as shared_tail_has_idle_prompt_footer
+except Exception:  # pragma: no cover - monitor must fail open on older installs
+    pane_overlay_detail = None  # type: ignore
+    prompt_match_is_stale = None  # type: ignore
+    shared_tail_has_idle_prompt_footer = None  # type: ignore
 try:
     from graph_scheduler import (
         load_graph,
@@ -670,6 +678,8 @@ def pane_safe_continue_prompt(tail: str) -> bool:
 
 
 def _tail_has_idle_prompt_footer(text: str) -> bool:
+    if shared_tail_has_idle_prompt_footer:
+        return bool(shared_tail_has_idle_prompt_footer(text))
     lines = [line.rstrip() for line in text.splitlines()]
     footer_prefixes = (
         "⏵",
@@ -699,11 +709,32 @@ def _tail_has_idle_prompt_footer(text: str) -> bool:
 
 
 def pane_survey_blocked(tail: str) -> bool:
-    bottom = "\n".join(tail.splitlines()[-40:])
-    return bool(SURVEY_PROMPT_RE.search(bottom))
+    if pane_overlay_detail:
+        detail = pane_overlay_detail(tail)
+        return detail.get("state") == "pane_overlay_blocked" and detail.get("type") == "survey"
+    # Survey text can remain in tmux scrollback after it has been dismissed.
+    # Treat it as blocking only when it is still near the live prompt/footer.
+    lines = tail.splitlines()[-16:]
+    bottom = "\n".join(lines)
+    if not SURVEY_PROMPT_RE.search(bottom):
+        return False
+    survey_idx = -1
+    prompt_idx = -1
+    for idx, line in enumerate(lines):
+        if "How is Claude doing this session?" in line or re.search(r"1:\s*Bad\s+2:\s*Fine\s+3:\s*Good\s+0:", line):
+            survey_idx = idx
+        if line.strip().startswith("❯"):
+            prompt_idx = idx
+    return not (prompt_idx > survey_idx >= 0)
 
 
 def pane_permissions_prompt_blocked(tail: str) -> bool:
+    if pane_overlay_detail:
+        detail = pane_overlay_detail(tail)
+        if detail.get("state") == "stale_scrollback_ignored":
+            return False
+        if detail.get("state") == "pane_overlay_blocked" and detail.get("type") in {"permission", "proceed", "queued_input"}:
+            return True
     bottom = "\n".join(tail.splitlines()[-40:])
     if _tail_has_idle_prompt_footer(bottom):
         return False
@@ -1367,6 +1398,93 @@ def _append_status_history_once(status: dict, event: str, note: str = "", **extr
     return True
 
 
+def _pm_status_is_terminal(status: str) -> bool:
+    value = str(status or "").strip().lower()
+    if not value:
+        return False
+    return value in {"completed", "cancelled"} or value.startswith("failed")
+
+
+def _active_pm_task_ids() -> set[str]:
+    active: set[str] = set()
+    for directory in (HARNESS / "run" / "operator-status", HARNESS / "run" / "operator-leases"):
+        for path in directory.glob("*.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for key in ("task_id", "current_task_id", "lease_id"):
+                value = str(payload.get(key) or "").strip()
+                if value.startswith("pm-"):
+                    active.add(value)
+            lease = payload.get("lease")
+            if isinstance(lease, dict):
+                value = str(lease.get("task_id") or "").strip()
+                if value.startswith("pm-"):
+                    active.add(value)
+    return active
+
+
+def _pm_record_age_seconds(record: dict) -> float:
+    for key in ("submitted_at", "created_at", "updated_at", "ts"):
+        parsed = parse_utc(str(record.get(key) or ""))
+        if parsed:
+            return max(0.0, time.time() - parsed)
+    return 0.0
+
+
+def _pm_inbox_records_for_sprint_role(sid: str, role: str) -> list[dict]:
+    if not sid or not role or not PM_INBOX_DIR.exists():
+        return []
+    records: list[dict] = []
+    for path in PM_INBOX_DIR.glob("pm-*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if str(payload.get("sprint_id") or "") != sid:
+            continue
+        if str(payload.get("requested_role") or "").strip().lower() != role:
+            continue
+        payload["_path"] = str(path)
+        records.append(payload)
+    records.sort(key=lambda item: str(item.get("submitted_at") or item.get("created_at") or item.get("updated_at") or ""), reverse=True)
+    return records
+
+
+def _live_pm_task_for_sprint_role(sid: str, role: str) -> dict | None:
+    active_ids = _active_pm_task_ids()
+    for record in _pm_inbox_records_for_sprint_role(sid, role):
+        task_id = str(record.get("task_id") or "")
+        status = str(record.get("status") or "")
+        age_sec = _pm_record_age_seconds(record)
+        if task_id and task_id in active_ids:
+            return record
+        if not _pm_status_is_terminal(status) and age_sec <= 300:
+            return record
+    return None
+
+
+def _latest_pm_record_for_sprint_role(sid: str, role: str) -> dict | None:
+    records = _pm_inbox_records_for_sprint_role(sid, role)
+    return records[0] if records else None
+
+
+def _role_handoff_action_cooldown(finding: dict, default_cooldown: int) -> int:
+    role = role_for_handoff_finding(str(finding.get("type") or ""))
+    sid = str(finding.get("sid") or "")
+    if not sid or not role:
+        return default_cooldown
+    if _live_pm_task_for_sprint_role(sid, role):
+        return default_cooldown
+    latest = _latest_pm_record_for_sprint_role(sid, role)
+    if not latest:
+        return default_cooldown
+    if str(latest.get("status") or "").startswith("failed"):
+        return min(default_cooldown, ROLE_HANDOFF_RETRY_COOLDOWN_SEC)
+    return default_cooldown
+
+
 def finding_uses_operator_role_pool(ftype: str) -> bool:
     """PM handoffs should consume physical operator pools, not fixed panes.
 
@@ -1495,6 +1613,16 @@ def recover_pane_blocker(target: str) -> bool:
     bottom40 = "\n".join(tail.splitlines()[-40:])
     bottom12 = "\n".join(tail.splitlines()[-12:])
     try:
+        if SURVEY_PROMPT_RE.search("\n".join(tail.splitlines()[-16:])):
+            for keys in (("0", "Enter"), ("Escape",), ("C-u",)):
+                subprocess.run(["tmux", "send-keys", "-t", target, *keys], timeout=2)
+                time.sleep(0.4)
+                after = tmux_capture(target)
+                if not pane_survey_blocked(after):
+                    append_event("", "autopilot_pane_recover_succeeded", "info", {"pane": target, "reason": "survey_prompt"})
+                    return True
+            append_event("", "autopilot_pane_recover_failed", "warn", {"pane": target, "reason": "survey_prompt"})
+            return False
         if RATE_LIMIT_OPTIONS_MODAL_RE.search(bottom40):
             for keys in (("Escape",), ("C-c",)):
                 subprocess.run(["tmux", "send-keys", "-t", target, *keys], timeout=2)
@@ -1799,8 +1927,72 @@ def sprint_status_payload(sid: str) -> dict:
     return load_json(path)
 
 
+def sprint_has_terminal_evidence(sid: str) -> bool:
+    status = sprint_status_payload(sid)
+    state = str(status.get("status", "")).lower()
+    if state in {"passed", "completed", "eval_passed"}:
+        return True
+    handoff = (SPRINTS / f"{sid}.handoff.md").exists() or any(SPRINTS.glob(f"{sid}.*-handoff.md"))
+    eval_exists = (
+        (SPRINTS / f"{sid}.eval.md").exists()
+        or (SPRINTS / f"{sid}.eval.json").exists()
+        or any(SPRINTS.glob(f"{sid}.*-eval.md"))
+        or any(SPRINTS.glob(f"{sid}.*-eval.json"))
+    )
+    return handoff and eval_exists
+
+
 def sprint_passed(sid: str) -> bool:
     return str(sprint_status_payload(sid).get("status", "")).lower() in {"passed", "completed", "eval_passed"}
+
+
+def _child_state_to_epic_node_projection(child_state: str) -> tuple[str | None, str | None]:
+    state = str(child_state or "").lower()
+    if state in {"passed", "completed", "eval_passed"}:
+        return "passed", "passed"
+    if state in {"active", "approved", "planning", "reviewing", "ready_for_review", "needs_human_review"}:
+        return "active", None
+    if state in {"queued", "drafting"}:
+        return "pending", None
+    if state in {"failed", "failed_review", "blocked"}:
+        return "failed", None
+    if state in {"cancelled", "archived"}:
+        return "cancelled", None
+    return None, None
+
+
+def sync_epic_child_projection(epic_id: str, graph: dict | None = None) -> tuple[dict, bool]:
+    graph_path = SPRINTS / f"{epic_id}.task_graph.json"
+    if graph is None:
+        if not graph_path.exists():
+            return {}, False
+        graph = load_json(graph_path)
+    changed = False
+    for node in graph.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        child_sid = str(node.get("child_sprint_id") or "")
+        if not child_sid:
+            continue
+        child_state = str(sprint_status_payload(child_sid).get("status", "")).lower()
+        desired_status, desired_gate = _child_state_to_epic_node_projection(child_state)
+        if desired_status and str(node.get("status") or "") != desired_status:
+            node["status"] = desired_status
+            node["updated_at"] = utc_now()
+            changed = True
+        current_gate = node.get("gate_status")
+        if desired_gate:
+            if str(current_gate or "") != desired_gate:
+                node["gate_status"] = desired_gate
+                node["updated_at"] = utc_now()
+                changed = True
+        elif current_gate is not None:
+            node["gate_status"] = None
+            node["updated_at"] = utc_now()
+            changed = True
+    if changed and graph_path.exists():
+        save_json(graph_path, graph)
+    return graph, changed
 
 
 def epic_dep_passed(dep_node: dict) -> bool:
@@ -1818,6 +2010,7 @@ def epic_child_dependency_ready(sid: str) -> tuple[bool, list[str]]:
     if not graph_path.exists():
         return True, []
     graph = load_json(graph_path)
+    graph, _changed = sync_epic_child_projection(epic_id, graph)
     nodes = [n for n in graph.get("nodes", []) if isinstance(n, dict)]
     by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
     child_node = None
@@ -1938,6 +2131,7 @@ def inspect_epics() -> list[dict]:
         if not graph_path.exists():
             continue
         graph = load_json(graph_path)
+        graph, _changed = sync_epic_child_projection(str(epic_id), graph)
         nodes = [n for n in graph.get("nodes", []) if isinstance(n, dict)]
         by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
         ready = []
@@ -1992,6 +2186,7 @@ def inspect_epic_child_state_drift() -> list[dict]:
         if not graph_path.exists():
             continue
         graph = load_json(graph_path)
+        graph, _changed = sync_epic_child_projection(epic_id, graph)
         nodes = [n for n in graph.get("nodes", []) if isinstance(n, dict)]
         by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
         for node in nodes:
@@ -2050,7 +2245,7 @@ def graph_status(sid: str) -> dict:
         return {"exists": True, "ready": False, "path": str(path), "valid": False, "error": str(exc)}
 
 
-def inspect_deepresearch_quality_gates() -> list[dict]:
+def inspect_deepresearch_quality_gates(epic_filter: str = "") -> list[dict]:
     """Find DeepResearch nodes whose completed gate state needs repair.
 
     Missing gates on pending/reviewing nodes are visibility signals, not bugs.
@@ -2061,6 +2256,8 @@ def inspect_deepresearch_quality_gates() -> list[dict]:
     for status in active_statuses():
         sid = str(status.get("_sid") or status.get("sprint_id") or status.get("id") or "")
         if not sid:
+            continue
+        if epic_filter and str(status.get("epic_id") or "") != epic_filter:
             continue
         graph_path = graph_path_for(sid)
         if not graph_path.exists():
@@ -2352,9 +2549,9 @@ def instruction_for(status: dict, files: dict[str, bool]) -> str:
             f"输出 {sid}.prd.md，必须包含用户目标、范围边界、验收标准、风险、拆分建议。"
             "完成后把 status 更新为 phase=prd_ready handoff_to=planner target_role=planner。"
         )
-    if handoff == "planner" and files["prd"] and not files["plan"]:
+    if handoff == "planner" and files["prd"] and planner_outputs_missing(files):
         return (
-            f"请接手 {sid}：读取 .prd.md 和 .contract.md，产出 {sid}.plan.md 和 {sid}.task_graph.json。"
+            f"请接手 {sid}：读取 .prd.md 和 .contract.md，产出 {sid}.design.md、{sid}.plan.md 和 {sid}.task_graph.json。"
             "task_graph 必须通过 solar-harness graph-scheduler validate。不要问用户拍板；这是 P0 reliability 默认推进。"
         )
     if (
@@ -2370,6 +2567,17 @@ def instruction_for(status: dict, files: dict[str, bool]) -> str:
     if handoff in ("evaluator", "reviewer") and files["handoff"] and not files["eval"]:
         return f"请评审 {sid}：读取 handoff/contract，产出 eval.md/eval.json。"
     return ""
+
+
+def planner_outputs_missing(files: dict[str, bool]) -> bool:
+    """Planner handoff remains active until architecture outputs are complete.
+
+    Multi-task operator routing now owns planner execution capacity.  The old
+    fixed-pane mental model only retriggered planner when `plan.md` was absent,
+    which silently stalled architecture slices that were still missing
+    `design.md` or `task_graph.json`.
+    """
+    return not files["design"] or not files["plan"] or not files["task_graph"]
 
 
 def workflow_guard_route(sid: str) -> dict:
@@ -2440,12 +2648,14 @@ def normalize_status_to_workflow_route(sid: str, status: dict, route: dict) -> b
     return True
 
 
-def inspect_sprints() -> list[dict]:
+def inspect_sprints(epic_filter: str = "") -> list[dict]:
     _ensure_graph_status_caches()
     raw_findings = []
     for path in sorted(SPRINTS.glob("sprint-*.status.json")):
         status = load_json(path)
         sid = status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json")
+        if epic_filter and str(status.get("epic_id") or "") != epic_filter:
+            continue
         files = sprint_files(sid)
         st = status.get("status", "")
         phase = status.get("phase", "")
@@ -2511,7 +2721,7 @@ def inspect_sprints() -> list[dict]:
                     "message": "P0 has contract/evidence but no PRD.",
                 }
             )
-        if files["prd"] and handoff == "planner" and not files["plan"]:
+        if files["prd"] and handoff == "planner" and planner_outputs_missing(files):
             raw_findings.append(
                 {
                     "sid": sid,
@@ -2920,7 +3130,8 @@ def inspect_model_registry(state: dict) -> list[dict]:
 def should_act(state: dict, finding: dict, cooldown: int) -> bool:
     key = f"{finding.get('sid','')}:{finding.get('type','')}:{finding.get('target','')}"
     last = float(state["actions"].get(key, {}).get("at", 0))
-    return (time.time() - last) >= cooldown
+    effective_cooldown = _role_handoff_action_cooldown(finding, cooldown)
+    return (time.time() - last) >= effective_cooldown
 
 
 def mark_action(state: dict, finding: dict, result: dict) -> None:
@@ -3158,6 +3369,24 @@ def apply_findings(findings: list[dict], dispatch: bool, state: dict, cooldown: 
         elif ftype == "epic_child_dependency_blocked":
             status_path = SPRINTS / f"{sid}.status.json"
             status = load_json(status_path)
+            if sprint_has_terminal_evidence(sid):
+                append_event(
+                    sid,
+                    "autopilot_epic_child_dependency_blocked_skipped_terminal",
+                    "info",
+                    {"blocked_by": f.get("blocked_by", [])},
+                )
+                result = {
+                    "sid": sid,
+                    "action": ftype,
+                    "queued": False,
+                    "skipped": True,
+                    "reason": "terminal_evidence_present",
+                    "blocked_by": f.get("blocked_by", []),
+                }
+                mark_action(state, f, result)
+                actions.append(result)
+                continue
             status.update({
                 "status": "queued",
                 "phase": "epic_waiting_dependency",
@@ -3277,6 +3506,9 @@ def apply_findings(findings: list[dict], dispatch: bool, state: dict, cooldown: 
                 current_phase = str(status.get("phase") or "")
                 if not current_phase:
                     desired["phase"] = "prd_ready"
+                is_epic_child = bool(status.get("epic_id")) or str(status.get("dependency_policy") or "") == "activated_by_epic_dag"
+                if is_epic_child and str(status.get("status") or "").lower() == "drafting":
+                    desired["status"] = "active"
                 for key, value in desired.items():
                     if status.get(key) != value:
                         status[key] = value
@@ -3290,6 +3522,19 @@ def apply_findings(findings: list[dict], dispatch: bool, state: dict, cooldown: 
             sent = False
             role_dispatch_detail: dict = {}
             if dispatch and sid and role_pool_handoff:
+                live_task = _live_pm_task_for_sprint_role(sid, role_for_handoff_finding(ftype))
+                if live_task is not None:
+                    result = {
+                        "sid": sid,
+                        "action": ftype,
+                        "skipped": "live_pm_task_exists",
+                        "target": f.get("target", ""),
+                        "task_id": str(live_task.get("task_id") or ""),
+                        "pm_status": str(live_task.get("status") or ""),
+                    }
+                    mark_action(state, f, result)
+                    actions.append(result)
+                    continue
                 sent, role_dispatch_detail = dispatch_role_handoff(sid, ftype)
                 if not sent:
                     append_event(sid, "autopilot_role_pool_dispatch_failed", "warn", {"target": target, "type": ftype, **role_dispatch_detail})
@@ -3410,15 +3655,23 @@ def scan_once(args: argparse.Namespace, state: dict) -> dict:
     epic_filter = str(getattr(args, "epic", "") or "")
     reconcile_action = reconcile_pm_inbox() if args.apply else {}
     queue_actions = retry_queue(state, args.dispatch, args.cooldown, epic_filter=epic_filter) if args.apply else []
-    findings = (
-        inspect_epics()
-        + inspect_epic_child_state_drift()
-        + inspect_sprints()
-        + inspect_deepresearch_quality_gates()
-        + inspect_panes(state, args.stall_seconds)
-        + inspect_knowledge_context(state)
-        + inspect_model_registry(state)
-    )
+    if epic_filter:
+        findings = (
+            inspect_epics()
+            + inspect_epic_child_state_drift()
+            + inspect_sprints(epic_filter=epic_filter)
+            + inspect_deepresearch_quality_gates(epic_filter=epic_filter)
+        )
+    else:
+        findings = (
+            inspect_epics()
+            + inspect_epic_child_state_drift()
+            + inspect_sprints()
+            + inspect_deepresearch_quality_gates()
+            + inspect_panes(state, args.stall_seconds)
+            + inspect_knowledge_context(state)
+            + inspect_model_registry(state)
+        )
     findings_before_epic_filter = len(findings)
     if epic_filter:
         findings = filter_findings_by_epic(findings, epic_filter)
