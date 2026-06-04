@@ -239,6 +239,266 @@ Codex bridge should capture RawIntent and auto consume into sprint package.
     assert "RawIntent Consumer Request" not in prd
 
 
+def test_build_pm_intake_prefers_enhanced_requirement_design_section():
+    router = _load_router()
+    consumer_text = """# RawIntent Consumer Request - research implementation
+
+## Rewritten Objective
+
+把研究类需求编译成 sprint package。
+
+## Problem
+
+用户想做研究实现链路，但原始文本很短。
+
+## Enhanced Requirement Design
+
+# 需求概述
+
+需要把研究实现类需求先走章节化增强，再进入 requirement compiler，输出更完整的 IR、PRD、contract 和 task_graph。
+
+## 功能需求
+
+- 必须支持显式启动词 `研究实现`
+- 必须保留 raw user intent provenance
+
+## Raw User Intent
+
+研究实现 一个需求编译链路。
+"""
+    payload = router.build_pm_intake(consumer_text, sprint_id="sprint-test", target_system="solar-harness")
+    requirement_ir = payload["requirement_ir"]
+    assert "章节化增强" in requirement_ir["normalized_goal"]
+    assert requirement_ir["user_intent"] == "研究实现 一个需求编译链路。"
+    assert requirement_ir["source_inputs"]["enhanced_requirement_sections"][0]["heading"] == "需求概述"
+    assert requirement_ir["source_inputs"]["compile_segments"][0]["kind"] == "enhanced_requirement_section"
+    assert requirement_ir["source_inputs"]["compile_segments"][0]["semantic_label"] == "architecture_and_scope"
+
+
+def test_build_pm_intake_maps_enhanced_requirement_sections_to_dag_semantics():
+    router = _load_router()
+    consumer_text = """# RawIntent Consumer Request - section semantic mapping
+
+## Rewritten Objective
+
+把研究实现需求编译成更细粒度的 DAG 提示。
+
+## Problem
+
+用户需要按章节语义把需求拆进不同 node family。
+
+## Enhanced Requirement Design
+
+# 需求概述
+
+需要把增强需求的章节语义映射到 requirement compiler DAG。
+
+## 功能需求
+
+- 生成 GPTRequirementWriter 增强需求
+- 把章节喂给 requirement compiler
+
+## 非功能需求
+
+- 保持 provenance
+- 保持可验证
+
+## 风险与约束
+
+- 不能破坏现有 DAG 主骨架
+
+## 验收标准
+
+- ImplementationWorker / Verifier 能看到章节语义提示
+
+## Raw User Intent
+
+研究实现 一个章节语义到 DAG 模板的链路。
+"""
+    payload = router.build_pm_intake(consumer_text, sprint_id="sprint-test", target_system="solar-harness")
+    requirement_ir = payload["requirement_ir"]
+    semantic_hints = requirement_ir["source_inputs"]["enhanced_requirement_semantic_hints"]
+    assert [item["node_family"] for item in semantic_hints[:4]] == [
+        "design",
+        "implementation",
+        "quality",
+        "risk_review",
+    ]
+    compile_segments = requirement_ir["source_inputs"]["compile_segments"]
+    assert compile_segments[1]["semantic_label"] == "functional_requirements"
+    assert compile_segments[2]["node_family"] == "quality"
+    assert compile_segments[3]["node_family"] == "risk_review"
+    by_id = {node["id"]: node for node in payload["compiled_artifacts"]["task_dag"]["nodes"]}
+    assert "implementation" in by_id["S2"]["semantic_focus"]
+    assert any(item["heading"] == "功能需求" for item in by_id["S2"]["section_semantic_hints"])
+    assert "implementation-plan.md" in by_id["S2"]["outputs"]
+    assert "section-functional-requirements" in by_id["S2"]["signals"]
+    assert any(item["target"] == "implementation-plan.md" for item in by_id["S2"]["validation"])
+    assert "quality" in by_id["S3"]["semantic_focus"]
+    assert "quality-checklist.md" in by_id["S3"]["outputs"]
+    assert any(item["target"] == "quality-checklist.md" for item in by_id["S3"]["validation"])
+    assert "verification" in by_id["S4"]["semantic_focus"]
+    assert any(item["heading"] == "验收标准" for item in by_id["S4"]["section_semantic_hints"])
+    assert "acceptance-matrix.json" in by_id["S4"]["outputs"]
+    assert "acceptance-traceability" in by_id["S4"]["signals"]
+    assert any(item["target"] == "acceptance-matrix.json" for item in by_id["S4"]["validation"])
+    assert "risk_review" in by_id["S1"]["semantic_focus"]
+    assert "risk-register.md" in by_id["S1"]["outputs"]
+    assert any(item["target"] == "risk-register.md" for item in by_id["S1"]["validation"])
+    assert "verification" in by_id["S4"]["semantic_template_overrides"]["applied"]
+    assert requirement_ir["section_semantic_plan"]["section_count"] == 5
+
+
+def test_build_pm_intake_upgrades_standard_dag_when_semantic_families_are_heavy():
+    router = _load_router()
+    consumer_text = """# RawIntent Consumer Request - semantic dag upgrade
+
+## Rewritten Objective
+
+把研究实现需求编译成更宽的并行交付 DAG。
+
+## Problem
+
+需求同时包含接口、风险、非功能和验收章节，标准串行 DAG 太窄。
+
+## Enhanced Requirement Design
+
+# 需求概述
+
+这是一条研究实现链路，需要在进入实现前把接口、风险和验证分支准备好。
+
+## 接口与数据契约
+
+- 定义 IR 输入输出边界
+- 声明 contract 和 schema 兼容要求
+
+## 风险与约束
+
+- 不能破坏现有 requirement compiler 主链
+- 不能丢失 raw provenance
+
+## 非功能需求
+
+- 需要可验证
+- 需要回归证据
+
+## 验收标准
+
+- 必须有 acceptance matrix
+- 必须有 closeout decision
+
+## 功能需求
+
+- 最终把增强需求编译进 DAG 和 PRD
+
+## Raw User Intent
+
+研究实现 一个语义驱动 DAG 升级链路。
+"""
+    payload = router.build_pm_intake(consumer_text, sprint_id="sprint-test", target_system="solar-harness")
+    requirement_ir = payload["requirement_ir"]
+    dag = payload["compiled_artifacts"]["task_dag"]
+    by_id = {node["id"]: node for node in dag["nodes"]}
+    assert payload["classification"] == router.FULL_SPEC
+    assert payload["dag_variant"] == "parallel_delivery"
+    assert dag["semantic_upgrade"]["enabled"] is True
+    assert dag["semantic_upgrade"]["mode"] == "section_family_parallel_delivery"
+    assert dag["quality_gates"]["parallelism"]["min_ready_width"] == 3
+    source_nodes = [node["id"] for node in dag["nodes"] if not node["depends_on"]]
+    assert source_nodes == ["S1", "S2", "S3"]
+    assert by_id["S4"]["depends_on"] == ["S1", "S2", "S3"]
+    assert "interface_contract" in by_id["S1"]["semantic_focus"]
+    assert "risk_review" in by_id["S2"]["semantic_focus"]
+    assert "verification" in by_id["S3"]["semantic_focus"]
+    assert "quality" in by_id["S3"]["semantic_focus"]
+    assert "implementation" in by_id["S4"]["semantic_focus"]
+    assert "acceptance-matrix.json" in by_id["S5"]["outputs"]
+    assert requirement_ir["dag_view"]["semantic_upgrade"]["trigger_families"] == [
+        "interface_contract",
+        "quality",
+        "risk_review",
+        "verification",
+    ]
+
+
+def test_build_pm_intake_upgrades_research_dag_when_semantic_families_are_heavy():
+    router = _load_router()
+    consumer_text = """# RawIntent Consumer Request - research semantic dag upgrade
+
+## Rewritten Objective
+
+把研究实现需求编译成更细粒度的 research DAG。
+
+## Problem
+
+当前 research DAG 对接口、验证和实现含义的拆分不够细。
+
+## Enhanced Requirement Design
+
+# 需求概述
+
+需要基于论文研究，形成可落地的实现建议与验证闭环。
+
+## 接口与数据契约
+
+- 输出 IR、contract、task_graph 的边界
+- 明确接口兼容和数据约束
+
+## 风险与约束
+
+- 研究结论不能越过证据边界
+- 落地前必须显式暴露风险
+
+## 验收标准
+
+- 要有 adoption decision
+- 要有 verifier closeout
+
+## 非功能需求
+
+- 结果必须可验证
+- 结果必须留有证据链
+
+## 功能需求
+
+- 输出实现建议、PRD 含义和 DAG 含义
+
+## Raw User Intent
+
+研究实现 某篇论文的系统设计并落地。
+"""
+    payload = router.build_pm_intake(
+        consumer_text,
+        papers=["paper-a"],
+        sprint_id="sprint-test",
+        target_system="solar-harness",
+    )
+    dag = payload["compiled_artifacts"]["task_dag"]
+    by_id = {node["id"]: node for node in dag["nodes"]}
+    assert payload["classification"] == router.RESEARCH
+    assert payload["dag_variant"] == "research_parallel_implications"
+    assert dag["research_mode"] is True
+    assert dag["semantic_upgrade"]["enabled"] is True
+    assert dag["semantic_upgrade"]["mode"] == "section_family_research_parallel"
+    assert dag["quality_gates"]["parallelism"]["min_ready_width"] == 1
+    assert by_id["R4"]["depends_on"] == ["R2", "R3"]
+    assert by_id["R5"]["depends_on"] == ["R2", "R3"]
+    assert by_id["R6"]["depends_on"] == ["R3", "R4", "R5"]
+    assert by_id["R7"]["depends_on"] == ["R4", "R5", "R6"]
+    assert by_id["R8"]["depends_on"] == ["R7"]
+    assert by_id["R5"]["logical_operator"] == "ResearchSynthesizer"
+    assert by_id["R6"]["logical_operator"] == "Critic"
+    assert by_id["R7"]["logical_operator"] == "Verifier"
+    assert by_id["R8"]["logical_operator"] == "ArtifactCurator"
+    assert "interface_contract" in by_id["R5"]["semantic_focus"]
+    assert "risk_review" in by_id["R6"]["semantic_focus"]
+    assert "verification" in by_id["R7"]["semantic_focus"]
+    assert "interface_implications.md" in by_id["R5"]["outputs"]
+    assert "research_risk_review.md" in by_id["R6"]["outputs"]
+    assert "research_verifier_decision.yaml" in by_id["R7"]["outputs"]
+    assert "final_prd_implications.md" in by_id["R8"]["outputs"]
+
+
 def test_validate_compiled_package_rejects_raw_metadata_pollution():
     router = _load_router()
     payload = router.build_pm_intake("正常需求：补齐 requirement compiler 的 closeout gate。", sprint_id="sprint-test")

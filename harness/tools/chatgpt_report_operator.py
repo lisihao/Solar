@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import signal
+import re
 import shlex
 import subprocess
 import sys
@@ -50,6 +51,18 @@ def wrapper_cmd() -> list[str]:
     if DEFAULT_WRAPPER.exists() and DEFAULT_BROWSER_USE_PYTHON.exists():
         return [str(DEFAULT_BROWSER_USE_PYTHON), str(DEFAULT_WRAPPER)]
     return []
+
+
+def _slug(value: str, limit: int = 96) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.:-]+", "-", str(value or "").strip()).strip("-")
+    return (text or "default")[:limit]
+
+
+def _default_session_lineage(*, purpose: str, kind: str) -> str:
+    clean_purpose = str(purpose or "").strip()
+    if not clean_purpose:
+        return f"chatgpt-report:{kind or 'auto'}"
+    return f"chatgpt-report:{_slug(clean_purpose)}"
 
 
 def _profile_policy_path() -> Path | None:
@@ -205,12 +218,11 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         env["BROWSER_AGENT_CHATGPT_PROFILE_STRATEGY"] = profile_strategy
     if user_data_dir and not env.get("BROWSER_AGENT_USER_DATA_DIR"):
         env["BROWSER_AGENT_USER_DATA_DIR"] = user_data_dir
-    if _is_protected_scoped_chatgpt(key) and not bool(policy.get("allow_headless")):
-        env["BROWSER_AGENT_HEADLESS"] = "false"
-        env["TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS"] = "false"
-        env["BROWSER_AGENT_CHATGPT_ALLOW_HEADED"] = "true"
-        env["TECH_HOTSPOT_BROWSER_CHATGPT_ALLOW_HEADED"] = "true"
-        env["BROWSER_AGENT_ALLOW_HEADED"] = "true"
+    headed_recovery_allowed = _is_protected_scoped_chatgpt(key) and not bool(policy.get("allow_headless"))
+    if headed_recovery_allowed:
+        env.setdefault("BROWSER_AGENT_CHATGPT_ALLOW_HEADED", "true")
+        env.setdefault("TECH_HOTSPOT_BROWSER_CHATGPT_ALLOW_HEADED", "true")
+        env.setdefault("BROWSER_AGENT_ALLOW_HEADED", "true")
     env["BROWSER_AGENT_CHATGPT_PROFILE_POLICY_KEY"] = key
 
     return {
@@ -223,7 +235,8 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         "selection": selection,
         "profile_strategy": profile_strategy,
         "user_data_dir_set": bool(env.get("BROWSER_AGENT_USER_DATA_DIR")),
-        "headless_forced": _is_protected_scoped_chatgpt(key) and not bool(policy.get("allow_headless")),
+        "headless_forced": False,
+        "headed_recovery_allowed": headed_recovery_allowed,
     }
 
 
@@ -348,6 +361,12 @@ def main() -> int:
         return 2
 
     env = os.environ.copy()
+    env.setdefault("BROWSER_AGENT_HEADLESS", "true")
+    env.setdefault("BROWSER_AGENT_SESSION_REUSE", "true")
+    env.setdefault("SOLAR_BROWSER_SESSION_REUSE", env["BROWSER_AGENT_SESSION_REUSE"])
+    default_lineage = _default_session_lineage(purpose=purpose, kind=kind)
+    env.setdefault("BROWSER_AGENT_SESSION_LINEAGE", default_lineage)
+    env.setdefault("SOLAR_BROWSER_SESSION_LINEAGE", env["BROWSER_AGENT_SESSION_LINEAGE"])
     env.update(
         {
             "CHATGPT_MODEL": str(policy["model"]),

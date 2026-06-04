@@ -82,6 +82,7 @@ RAWINTENT_SECTION_HEADERS = (
     "Problem",
     "Constraints",
     "Acceptance",
+    "Enhanced Requirement Design",
     "Raw User Intent",
 )
 RAWINTENT_METADATA_PREFIXES = (
@@ -98,6 +99,95 @@ RAWINTENT_METADATA_PREFIXES = (
     "node_id:",
     "role:",
 )
+
+REQUIREMENT_SECTION_SEMANTIC_RULES = (
+    {
+        "semantic_label": "non_functional_requirements",
+        "node_family": "quality",
+        "tokens": ("非功能需求", "non-functional", "non functional", "performance", "latency", "reliability", "security", "observability", "scalability", "可用性", "性能", "稳定性", "安全"),
+        "preferred_logical_operators": ["TestRunner", "Verifier", "ImplementationWorker"],
+    },
+    {
+        "semantic_label": "functional_requirements",
+        "node_family": "implementation",
+        "tokens": ("功能需求", "functional requirement", "functional requirements", "feature", "features", "use case", "用户场景", "场景"),
+        "preferred_logical_operators": ["ImplementationWorker", "DeepArchitect"],
+    },
+    {
+        "semantic_label": "acceptance_and_validation",
+        "node_family": "verification",
+        "tokens": ("验收", "acceptance", "validation", "验证", "成功标准", "success criteria", "done definition", "完成定义"),
+        "preferred_logical_operators": ["TestRunner", "Verifier", "Critic"],
+    },
+    {
+        "semantic_label": "risk_and_constraints",
+        "node_family": "risk_review",
+        "tokens": ("风险", "约束", "限制", "constraint", "constraints", "risk", "risks", "open question", "open questions", "假设", "assumption"),
+        "preferred_logical_operators": ["DeepArchitect", "Verifier", "Critic"],
+    },
+    {
+        "semantic_label": "interfaces_and_data",
+        "node_family": "interface_contract",
+        "tokens": ("接口", "api", "apis", "integration", "integrations", "schema", "schemas", "data model", "数据模型", "contract", "contracts"),
+        "preferred_logical_operators": ["DeepArchitect", "ImplementationWorker", "Verifier"],
+    },
+    {
+        "semantic_label": "architecture_and_scope",
+        "node_family": "design",
+        "tokens": ("概述", "scope", "范围", "architecture", "架构", "design", "设计", "目标", "goal", "problem", "问题定义", "研究边界"),
+        "preferred_logical_operators": ["DeepArchitect", "ArtifactCurator"],
+    },
+)
+
+NODE_FAMILY_HINTS = {
+    "DeepArchitect": {"design", "risk_review", "interface_contract", "implementation"},
+    "ImplementationWorker": {"implementation", "interface_contract", "quality"},
+    "TestRunner": {"quality", "verification"},
+    "Verifier": {"verification", "quality", "risk_review", "interface_contract"},
+    "Critic": {"verification", "risk_review", "design"},
+    "ResearchScout": {"design", "risk_review"},
+    "ResearchSynthesizer": {"design", "implementation", "interface_contract"},
+    "ArtifactCurator": {"design", "verification", "risk_review"},
+}
+
+SEMANTIC_NODE_TEMPLATE_OVERRIDES = {
+    "implementation": {
+        "signals": ["section-functional-requirements", "implementation-coverage"],
+        "outputs": ["implementation-plan.md"],
+        "validation": [{"kind": "artifact", "target": "implementation-plan.md", "required": True}],
+        "acceptance": ["Functional requirement coverage is explicit and mapped into execution scope."],
+    },
+    "quality": {
+        "signals": ["section-non-functional-requirements", "quality-constraints"],
+        "outputs": ["quality-checklist.md"],
+        "validation": [{"kind": "artifact", "target": "quality-checklist.md", "required": True}],
+        "acceptance": ["Non-functional requirements are translated into verifiable quality checks."],
+    },
+    "verification": {
+        "signals": ["section-acceptance", "acceptance-traceability"],
+        "outputs": ["acceptance-matrix.json"],
+        "validation": [{"kind": "artifact", "target": "acceptance-matrix.json", "required": True}],
+        "acceptance": ["Acceptance criteria are traceable to explicit verification evidence."],
+    },
+    "risk_review": {
+        "signals": ["section-risk", "constraint-review"],
+        "outputs": ["risk-register.md"],
+        "validation": [{"kind": "artifact", "target": "risk-register.md", "required": True}],
+        "acceptance": ["Risk, constraints, and open questions are explicitly reviewed."],
+    },
+    "interface_contract": {
+        "signals": ["section-interface-contract", "schema-boundary"],
+        "outputs": ["interface-contract-notes.md"],
+        "validation": [{"kind": "artifact", "target": "interface-contract-notes.md", "required": True}],
+        "acceptance": ["Interface and data-contract implications are explicit."],
+    },
+    "design": {
+        "signals": ["section-design-context", "scope-structure"],
+        "outputs": ["design-brief.md"],
+        "validation": [{"kind": "artifact", "target": "design-brief.md", "required": True}],
+        "acceptance": ["Sectioned design intent and scope boundaries are explicit."],
+    },
+}
 
 
 def _now() -> str:
@@ -147,7 +237,8 @@ def _strip_yaml_frontmatter(text: str) -> str:
 
 
 def _extract_markdown_section(text: str, heading: str) -> str:
-    pattern = rf"(?ims)^\s*##\s+{re.escape(heading)}\s*$\n(.*?)(?=^\s*##\s+|\Z)"
+    headers_pattern = "|".join(re.escape(item) for item in RAWINTENT_SECTION_HEADERS)
+    pattern = rf"(?ims)^\s*##\s+{re.escape(heading)}\s*$\n(.*?)(?=^\s*##\s+(?:{headers_pattern})\s*$|\Z)"
     match = re.search(pattern, text)
     return match.group(1).strip() if match else ""
 
@@ -183,19 +274,132 @@ def _extract_effective_request_text(text: str) -> dict[str, str]:
             "goal_text": whole,
             "problem_text": whole,
             "raw_user_text": whole,
+            "enhanced_requirement_text": "",
+            "enhanced_requirement_sections": [],
         }
 
     objective = _collapse_goal_text(_extract_markdown_section(text, "Rewritten Objective"))
     problem = _collapse_goal_text(_extract_markdown_section(text, "Problem"))
+    enhanced_requirement_block = _extract_markdown_section(text, "Enhanced Requirement Design")
+    enhanced_requirement = _collapse_goal_text(enhanced_requirement_block)
     raw_user_intent = _collapse_goal_text(_extract_markdown_section(text, "Raw User Intent"))
-    effective = raw_user_intent or problem or objective or whole
-    goal = objective or problem or raw_user_intent or effective
+    effective = enhanced_requirement or raw_user_intent or problem or objective or whole
+    goal = enhanced_requirement or objective or problem or raw_user_intent or effective
+    sections: list[dict[str, str]] = []
+    current_heading = ""
+    body_lines: list[str] = []
+    for line in enhanced_requirement_block.splitlines():
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if match:
+            if current_heading:
+                sections.append(
+                    {
+                        "heading": current_heading,
+                        "content": _collapse_goal_text("\n".join(body_lines)),
+                    }
+                )
+            current_heading = match.group(2).strip()
+            body_lines = []
+            continue
+        body_lines.append(line)
+    if current_heading:
+        sections.append(
+            {
+                "heading": current_heading,
+                "content": _collapse_goal_text("\n".join(body_lines)),
+            }
+        )
     return {
         "effective_text": effective,
         "goal_text": goal,
         "problem_text": problem or effective,
         "raw_user_text": raw_user_intent or effective,
+        "enhanced_requirement_text": enhanced_requirement,
+        "enhanced_requirement_sections": sections,
     }
+
+
+def _normalize_semantic_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def _infer_requirement_section_semantics(heading: str, content: str = "") -> dict[str, Any]:
+    heading_text = _normalize_semantic_text(heading)
+    content_text = _normalize_semantic_text(content)
+    for rule in REQUIREMENT_SECTION_SEMANTIC_RULES:
+        if any(token in heading_text for token in rule["tokens"]):
+            return {
+                "semantic_label": rule["semantic_label"],
+                "node_family": rule["node_family"],
+                "preferred_logical_operators": list(rule["preferred_logical_operators"]),
+                "matched_tokens": [token for token in rule["tokens"] if token in heading_text],
+            }
+    for rule in REQUIREMENT_SECTION_SEMANTIC_RULES:
+        if any(token in content_text for token in rule["tokens"]):
+            return {
+                "semantic_label": rule["semantic_label"],
+                "node_family": rule["node_family"],
+                "preferred_logical_operators": list(rule["preferred_logical_operators"]),
+                "matched_tokens": [token for token in rule["tokens"] if token in content_text],
+            }
+    return {
+        "semantic_label": "general_requirement_context",
+        "node_family": "design",
+        "preferred_logical_operators": ["DeepArchitect", "ArtifactCurator"],
+        "matched_tokens": [],
+    }
+
+
+def _build_section_semantic_hints(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    for index, section in enumerate(sections, start=1):
+        heading = str(section.get("heading") or "").strip()
+        if not heading:
+            continue
+        content = str(section.get("content") or "").strip()
+        semantic = _infer_requirement_section_semantics(heading, content)
+        hints.append(
+            {
+                "section_id": f"ERS-{index:03d}",
+                "heading": heading,
+                "content": content,
+                **semantic,
+            }
+        )
+    return hints
+
+
+def _section_family_counts(section_hints: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for hint in section_hints:
+        family = str(hint.get("node_family") or "").strip()
+        if not family:
+            continue
+        counts[family] = counts.get(family, 0) + 1
+    return counts
+
+
+def _append_unique_items(target: list[Any], additions: list[Any]) -> list[Any]:
+    existing = {json.dumps(item, ensure_ascii=False, sort_keys=True) for item in target}
+    merged = list(target)
+    for item in additions:
+        key = json.dumps(item, ensure_ascii=False, sort_keys=True)
+        if key in existing:
+            continue
+        merged.append(item)
+        existing.add(key)
+    return merged
+
+
+def _append_unique_strings(target: list[str], additions: list[str]) -> list[str]:
+    existing = set(target)
+    merged = list(target)
+    for item in additions:
+        if item in existing:
+            continue
+        merged.append(item)
+        existing.add(item)
+    return merged
 
 
 def _looks_like_raw_metadata_pollution(text: str) -> bool:
@@ -414,6 +618,8 @@ def _node_enrichment(request_type: str, lane_hint: str, node: dict[str, Any]) ->
         "R4": "synthesis.md",
         "R5": "critique.md",
         "R6": "final_prd_implications.md",
+        "R7": "research_verifier_decision.yaml",
+        "R8": "final_prd_implications.md",
     }.get(node["id"], "artifact.md")
     enriched = dict(node)
     enriched.setdefault("type", node_type_map.get(node["logical_operator"], "spec"))
@@ -519,6 +725,81 @@ def _apply_requirement_mapping(
             node["requirement_ids"] = goal_req_ids
     mapped["nodes"] = nodes
     return mapped
+
+
+def _annotate_task_graph_with_section_semantics(
+    graph: dict[str, Any],
+    section_hints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not section_hints:
+        return graph
+    annotated = dict(graph)
+    nodes: list[dict[str, Any]] = []
+    for node in annotated.get("nodes") or []:
+        enriched = dict(node)
+        operator = str(enriched.get("logical_operator") or "")
+        supported_families = NODE_FAMILY_HINTS.get(operator, {"design"})
+        matches = [
+            {
+                "section_id": hint["section_id"],
+                "heading": hint["heading"],
+                "semantic_label": hint["semantic_label"],
+                "node_family": hint["node_family"],
+            }
+            for hint in section_hints
+            if hint["node_family"] in supported_families
+            or operator in set(hint.get("preferred_logical_operators") or [])
+        ]
+        if matches:
+            enriched["section_semantic_hints"] = matches
+            focus_families = sorted({item["node_family"] for item in matches})
+            enriched["semantic_focus"] = focus_families
+            enriched["semantic_template_applied"] = True
+            template_overrides: dict[str, Any] = {
+                "families": focus_families,
+                "applied": [],
+            }
+            for family in focus_families:
+                override = SEMANTIC_NODE_TEMPLATE_OVERRIDES.get(family)
+                if not override:
+                    continue
+                template_overrides["applied"].append(family)
+                enriched["signals"] = _append_unique_strings(
+                    [str(item) for item in (enriched.get("signals") or [])],
+                    list(override.get("signals") or []),
+                )
+                enriched["outputs"] = _append_unique_strings(
+                    [str(item) for item in (enriched.get("outputs") or [])],
+                    list(override.get("outputs") or []),
+                )
+                enriched["validation"] = _append_unique_items(
+                    [item for item in (enriched.get("validation") or []) if isinstance(item, dict)],
+                    [item for item in (override.get("validation") or []) if isinstance(item, dict)],
+                )
+                enriched["acceptance"] = _append_unique_strings(
+                    [str(item) for item in (enriched.get("acceptance") or [])],
+                    list(override.get("acceptance") or []),
+                )
+            if template_overrides["applied"]:
+                enriched["semantic_template_overrides"] = template_overrides
+        nodes.append(enriched)
+    annotated["nodes"] = nodes
+    annotated["section_semantic_plan"] = {
+        "enabled": True,
+        "families": sorted({hint["node_family"] for hint in section_hints}),
+        "section_count": len(section_hints),
+        "sections": [
+            {
+                "section_id": hint["section_id"],
+                "heading": hint["heading"],
+                "semantic_label": hint["semantic_label"],
+                "node_family": hint["node_family"],
+                "preferred_logical_operators": hint["preferred_logical_operators"],
+            }
+            for hint in section_hints
+        ],
+    }
+    return annotated
 
 
 def _make_prd_view(
@@ -1314,6 +1595,190 @@ def build_task_graph_skeleton(request_type: str, lane_hint: str, request_text: s
     return _apply_default_gate_assignments(_standard_task_graph(strategy_lane=lane_hint == "strategy"))
 
 
+def _upgrade_standard_graph_for_section_semantics(
+    graph: dict[str, Any],
+    section_hints: list[dict[str, Any]],
+    request_type: str,
+) -> dict[str, Any]:
+    if request_type != FULL_SPEC:
+        return graph
+    if str(graph.get("dag_variant") or "").strip().lower() != "standard":
+        return graph
+    family_counts = _section_family_counts(section_hints)
+    if not family_counts.get("verification"):
+        return graph
+    if not family_counts.get("interface_contract"):
+        return graph
+    branch_families = [family for family in ("risk_review", "interface_contract", "quality") if family_counts.get(family)]
+    if not (family_counts.get("risk_review") or family_counts.get("quality")):
+        return graph
+
+    upgraded = _apply_default_gate_assignments(_parallel_delivery_task_graph())
+    upgraded["semantic_upgrade"] = {
+        "enabled": True,
+        "mode": "section_family_parallel_delivery",
+        "trigger_families": sorted(branch_families + ["verification"]),
+        "family_counts": family_counts,
+    }
+    upgraded["quality_gates"] = {
+        "parallelism": {
+            "min_ready_width": 3,
+        }
+    }
+
+    customized_nodes: list[dict[str, Any]] = []
+    for node in upgraded.get("nodes") or []:
+        enriched = dict(node)
+        node_id = str(enriched.get("id") or "")
+        if node_id == "S1":
+            enriched["goal"] = "Lock implementation scope, interface boundaries, architecture constraints, and write-scope policy."
+            enriched["acceptance"] = ["Scope, interface boundaries, and implementation constraints are explicit."]
+        elif node_id == "S2":
+            enriched["goal"] = "Inspect risk, constraints, and failure evidence before implementation begins."
+            enriched["acceptance"] = ["Risk and constraint review is explicit and grounded in requirement sections."]
+        elif node_id == "S3":
+            enriched["goal"] = "Prepare acceptance, non-functional verification plan, and regression probes."
+            enriched["acceptance"] = ["Acceptance matrix, quality checklist, and regression probes are ready."]
+        elif node_id == "S4":
+            enriched["goal"] = "Implement the functional scope using the approved interface, risk, and verification constraints."
+            enriched["acceptance"] = ["Patch is linked to functional requirements and semantic branch outputs."]
+        elif node_id == "S5":
+            enriched["goal"] = "Run release verification, review branch evidence, and record the closeout decision."
+            enriched["acceptance"] = ["Verifier decision is grounded in implementation, quality, and risk evidence."]
+        customized_nodes.append(enriched)
+    upgraded["nodes"] = customized_nodes
+    return upgraded
+
+
+def _upgrade_research_graph_for_section_semantics(
+    graph: dict[str, Any],
+    section_hints: list[dict[str, Any]],
+    request_type: str,
+) -> dict[str, Any]:
+    if request_type != RESEARCH:
+        return graph
+    if str(graph.get("dag_variant") or "").strip().lower() != "research":
+        return graph
+    family_counts = _section_family_counts(section_hints)
+    if not family_counts.get("verification"):
+        return graph
+    if not family_counts.get("interface_contract"):
+        return graph
+    if not (family_counts.get("risk_review") or family_counts.get("quality")):
+        return graph
+
+    upgraded = {
+        "dag_variant": "research_parallel_implications",
+        "research_mode": True,
+        "semantic_upgrade": {
+            "enabled": True,
+            "mode": "section_family_research_parallel",
+            "trigger_families": sorted(
+                [
+                    family
+                    for family in ("interface_contract", "quality", "risk_review", "verification")
+                    if family_counts.get(family)
+                ]
+            ),
+            "family_counts": family_counts,
+        },
+        "evidence_policy": {
+            "ledger_required": True,
+            "unsupported_claim_guard": True,
+            "citation_required": True,
+        },
+        "required_gates": ["G_SOURCE", "G_EVIDENCE", "G_SYNTHESIS", "G_REVIEW"],
+        "quality_gates": {
+            "parallelism": {
+                "min_ready_width": 1,
+            }
+        },
+        "nodes": [
+            {
+                "id": "R1",
+                "goal": "Ingest papers, links, and source metadata into the research run.",
+                "logical_operator": "ResearchScout",
+                "depends_on": [],
+                "gate": "G_SOURCE",
+                "acceptance": ["Source manifest is recorded."],
+                "estimated_cost": 1,
+            },
+            {
+                "id": "R2",
+                "goal": "Extract claims, findings, and technical levers from the research corpus.",
+                "logical_operator": "ResearchScout",
+                "depends_on": ["R1"],
+                "gate": "G_EVIDENCE",
+                "acceptance": ["Claims ledger is produced."],
+                "estimated_cost": 2,
+            },
+            {
+                "id": "R3",
+                "goal": "Scan contradictions, risk boundaries, and unsupported assumptions across the corpus.",
+                "logical_operator": "Critic",
+                "depends_on": ["R2"],
+                "gate": "G_EVIDENCE",
+                "acceptance": ["Contradictions, risk boundaries, and evidence gaps are enumerated."],
+                "estimated_cost": 2,
+            },
+            {
+                "id": "R4",
+                "goal": "Synthesize core research findings into actionable system and implementation insights.",
+                "logical_operator": "ResearchSynthesizer",
+                "depends_on": ["R2", "R3"],
+                "gate": "G_SYNTHESIS",
+                "acceptance": ["Core synthesis is drafted with evidence-backed implications."],
+                "estimated_cost": 3,
+            },
+            {
+                "id": "R5",
+                "goal": "Derive interface, contract, and implementation-implication slices from the research evidence.",
+                "logical_operator": "ResearchSynthesizer",
+                "depends_on": ["R2", "R3"],
+                "gate": "G_SYNTHESIS",
+                "outputs": ["interface_implications.md"],
+                "validation": [{"kind": "artifact", "target": "interface_implications.md", "required": True}],
+                "acceptance": ["Interface and implementation implication slices are explicit."],
+                "estimated_cost": 2,
+            },
+            {
+                "id": "R6",
+                "goal": "Perform explicit risk, verification, and adoption critique across all synthesis branches.",
+                "logical_operator": "Critic",
+                "depends_on": ["R3", "R4", "R5"],
+                "gate": "G_REVIEW",
+                "outputs": ["research_risk_review.md"],
+                "validation": [{"kind": "artifact", "target": "research_risk_review.md", "required": True}],
+                "acceptance": ["Risk, verification, and adoption critique is explicit and evidence-backed."],
+                "estimated_cost": 2,
+            },
+            {
+                "id": "R7",
+                "goal": "Perform independent verifier review and record the adoption decision.",
+                "logical_operator": "Verifier",
+                "depends_on": ["R4", "R5", "R6"],
+                "gate": "G_REVIEW",
+                "outputs": ["research_verifier_decision.yaml"],
+                "validation": [{"kind": "artifact", "target": "research_verifier_decision.yaml", "required": True}],
+                "acceptance": ["Verifier decision is grounded in synthesis, interface, and critique branches."],
+                "estimated_cost": 2,
+            },
+            {
+                "id": "R8",
+                "goal": "Compile final PRD, DAG, and implementation implications after research closeout.",
+                "logical_operator": "ArtifactCurator",
+                "depends_on": ["R7"],
+                "gate": "G_REVIEW",
+                "outputs": ["final_prd_implications.md"],
+                "validation": [{"kind": "artifact", "target": "final_prd_implications.md", "required": True}],
+                "acceptance": ["Final implementation implications package is produced."],
+                "estimated_cost": 1,
+            },
+        ],
+    }
+    return upgraded
+
+
 def build_pm_intake(
     text: str,
     *,
@@ -1331,12 +1796,17 @@ def build_pm_intake(
     goal_text = effective_text["goal_text"] or compile_text
     problem_text = effective_text["problem_text"] or compile_text
     raw_user_text = effective_text["raw_user_text"] or compile_text
+    enhanced_requirement_text = effective_text.get("enhanced_requirement_text") or ""
+    enhanced_requirement_sections = effective_text.get("enhanced_requirement_sections") or []
+    section_semantic_hints = _build_section_semantic_hints(enhanced_requirement_sections)
     request_type = classify_request_type(compile_text, papers)
     canonical_request_type = CLASS_TO_CANONICAL[request_type]
     lane_hint = choose_lane_hint(request_type, compile_text)
     output_mode = choose_output_mode(request_type)
     priority = choose_priority(compile_text, request_type)
     task_graph = build_task_graph_skeleton(request_type, lane_hint, compile_text)
+    task_graph = _upgrade_standard_graph_for_section_semantics(task_graph, section_semantic_hints, request_type)
+    task_graph = _upgrade_research_graph_for_section_semantics(task_graph, section_semantic_hints, request_type)
     if _is_code_understanding_request(compile_text, repo_context):
         task_graph = _adapt_graph_for_code_understanding(task_graph, request_type)
     task_graph["nodes"] = [_node_enrichment(request_type, lane_hint, node) for node in task_graph["nodes"]]
@@ -1357,6 +1827,26 @@ def build_pm_intake(
         "logs": logs,
         "repo_context": repo_context,
     }
+    if enhanced_requirement_text:
+        source_inputs["enhanced_requirement_text"] = enhanced_requirement_text
+    if enhanced_requirement_sections:
+        source_inputs["enhanced_requirement_sections"] = enhanced_requirement_sections
+        source_inputs["compile_segments"] = [
+            {
+                "kind": "enhanced_requirement_section",
+                "section_id": hint.get("section_id"),
+                "heading": str(section.get("heading") or ""),
+                "text": (
+                    f"{section.get('heading')}\n{section.get('content')}".strip()
+                ),
+                "semantic_label": hint.get("semantic_label"),
+                "node_family": hint.get("node_family"),
+                "preferred_logical_operators": hint.get("preferred_logical_operators") or [],
+            }
+            for section, hint in zip(enhanced_requirement_sections, section_semantic_hints)
+        ]
+    if section_semantic_hints:
+        source_inputs["enhanced_requirement_semantic_hints"] = section_semantic_hints
     prd_view = _make_prd_view(
         canonical_request_type,
         normalized_goal,
@@ -1416,8 +1906,11 @@ def build_pm_intake(
         "evidence_policy": task_graph.get("evidence_policy", {}),
     }
     task_graph = _apply_requirement_mapping(task_graph, requirements, request_type)
+    task_graph = _annotate_task_graph_with_section_semantics(task_graph, section_semantic_hints)
     task_graph = enrich_task_graph_defaults(task_graph, requirement_ir, sprint_id=sprint_id or "N/A")
     requirement_ir["dag_view"] = task_graph
+    if section_semantic_hints:
+        requirement_ir["section_semantic_plan"] = task_graph.get("section_semantic_plan", {})
     product_brief = {
         "title": title,
         "source": "codex-pm-router",

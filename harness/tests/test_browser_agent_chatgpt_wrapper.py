@@ -176,3 +176,25 @@ def test_browser_user_agent_defaults_to_non_headless_chrome(monkeypatch):
     ua = ns["_browser_user_agent"](browser_channel="chrome")
     assert "Chrome/" in ua
     assert "HeadlessChrome/" not in ua
+
+
+def test_open_project_js_targets_sidebar_project_group():
+    ns = _load_namespace()
+    script = ns["OPEN_PROJECT_JS"]
+    assert "nav,aside,section" in script
+    assert "项目" in script
+    assert "Open sidebar" in script
+    assert "role='treeitem'" in script
+
+
+def test_chatgpt_wrapper_defaults_to_headless_true():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '_env_flag("BROWSER_AGENT_HEADLESS", default=True)' in source
+    assert "await asyncio.wait_for(browser.kill(), timeout=20)" in source
+
+
+def test_chatgpt_wrapper_reads_and_writes_active_session_broker():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "brtc.read_active_session(control_ctx, require_lineage_match=False)" in source
+    assert "brtc.activate_reusable_session(" in source
+    assert "await asyncio.wait_for(browser.stop(), timeout=20)" in source

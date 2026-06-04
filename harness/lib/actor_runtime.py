@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,6 +27,8 @@ from apo_plan_compiler import compile_execution_plan_for_node, materialize_execu
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
+BROWSER_AGENT_SESSION_ACTOR_ID = "browser_agent_session"
+BROWSER_AGENT_SESSION_WORKER = Path(__file__).resolve().parents[1] / "tools" / "browser_agent_session_actor.py"
 
 
 class SubmitResult:
@@ -80,6 +84,26 @@ class ActorRuntime:
         self.ctx_store = context_store or ContextStore()
         self.profiles = load_profiles(profiles_path)
         self.router = LogicalOperatorRouter(bindings_path)
+
+    def _kick_browser_agent_session_once(self) -> int:
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                str(BROWSER_AGENT_SESSION_WORKER),
+                "--actor-id",
+                BROWSER_AGENT_SESSION_ACTOR_ID,
+                "--mailbox-base",
+                str(self.mailbox_base),
+                "--lease-dir",
+                str(self.harness_dir / "run" / "actor-leases"),
+                "--once",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env={**os.environ, "HARNESS_DIR": str(self.harness_dir)},
+        )
+        return int(proc.pid)
 
     def _ensure_execution_plan_metadata(
         self,
@@ -170,23 +194,17 @@ class ActorRuntime:
 
         # Resolve actor
         if not actor_id and logical_operator:
-            is_browser_op = (
-                logical_operator in ("DeepResearchBrowser", "WebwrightPlaywright", "BrowserUseMcp") or
+            browser_override_actor_id: str | None = None
+            if (
                 task_envelope.get("requires_replayable_evidence") or
-                task_envelope.get("is_long_horizon_web_task") or
-                task_envelope.get("is_localhost_smoke_or_quick_extract")
-            )
-            if is_browser_op:
-                if (
-                    task_envelope.get("requires_replayable_evidence") or
-                    task_envelope.get("is_long_horizon_web_task")
-                ):
-                    actor_id = "op.browser.webwright.playwright.01"
-                elif task_envelope.get("is_localhost_smoke_or_quick_extract"):
-                    actor_id = "op.browser.browser_use_mcp.quick.01"
-                else:
-                    # Default Fallback: Webwright
-                    actor_id = "op.browser.webwright.playwright.01"
+                task_envelope.get("is_long_horizon_web_task")
+            ):
+                browser_override_actor_id = "op.browser.webwright.playwright.01"
+            elif task_envelope.get("is_localhost_smoke_or_quick_extract"):
+                browser_override_actor_id = "op.browser.browser_use_mcp.quick.01"
+
+            if browser_override_actor_id:
+                actor_id = browser_override_actor_id
             else:
                 selected, rejected = self.router.select_actor(logical_operator)
                 if not selected:
@@ -230,6 +248,16 @@ class ActorRuntime:
 
         inbox_path = mailbox.submit_task(task_envelope)
         outbox_dir = str(mailbox.outbox)
+        if actor_id == BROWSER_AGENT_SESSION_ACTOR_ID:
+            try:
+                self._kick_browser_agent_session_once()
+            except Exception as exc:
+                try:
+                    Path(inbox_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                self.broker.transition(actor_id, READY)
+                return SubmitResult(success=False, error=f"browser_agent_session_kick_failed:{type(exc).__name__}:{exc}")
 
         # Build scheduler decision
         sched_decision = build_scheduler_decision(

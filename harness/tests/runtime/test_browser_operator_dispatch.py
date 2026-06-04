@@ -21,8 +21,8 @@ def _make_mock_configs(tmpdir):
             "DeepResearchBrowser": {
                 "operator_type": "DeepResearchBrowser",
                 "candidates": [
-                    {"actor_id": "op.browser.webwright.playwright.01", "priority": 1, "condition": "always"},
-                    {"actor_id": "browser_agent_session", "priority": 2, "condition": "always"}
+                    {"actor_id": "browser_agent_session", "priority": 1, "condition": "always"},
+                    {"actor_id": "op.browser.webwright.playwright.01", "priority": 2, "condition": "always"}
                 ]
             },
             "WebwrightPlaywright": {
@@ -133,11 +133,47 @@ def test_custom_routing():
         assert res3.success is True
         assert res3.lease.actor_id == "op.browser.browser_use_mcp.quick.01"
 
-        # 4. Fallback Default to Webwright for browser ops if no specific flag is set
+        # 4. Default DeepResearchBrowser should respect logical binding first
         env4 = {"objective": "Read news article"}
         res4 = runtime.submit(env4, logical_operator="DeepResearchBrowser")
         assert res4.success is True
-        assert res4.lease.actor_id == "op.browser.webwright.playwright.01"
+        assert res4.lease.actor_id == "browser_agent_session"
+
+        # 5. Explicit browser logical operators still resolve through bindings
+        env5 = {"objective": "Long-form replayable browser task"}
+        res5 = runtime.submit(env5, logical_operator="WebwrightPlaywright")
+        assert res5.success is True
+        assert res5.lease.actor_id == "op.browser.webwright.playwright.01"
+
+        env6 = {"objective": "Quick localhost extract"}
+        res6 = runtime.submit(env6, logical_operator="BrowserUseMcp")
+        assert res6.success is True
+        assert res6.lease.actor_id == "op.browser.browser_use_mcp.quick.01"
+
+
+def test_browser_agent_session_submit_kicks_worker(monkeypatch):
+    with tempfile.TemporaryDirectory() as td:
+        bp, ap = _make_mock_configs(td)
+        runtime = ActorRuntime(
+            harness_dir=Path(td),
+            lease_broker=DummyLeaseBroker(),
+            mailbox_base=Path(td),
+            evidence_ledger=DummyEvidenceLedger(),
+            context_store=DummyContextStore(),
+            profiles_path=ap,
+            bindings_path=bp,
+        )
+        kicked: list[int] = []
+
+        def _fake_kick():
+            kicked.append(1)
+            return 12345
+
+        monkeypatch.setattr(runtime, "_kick_browser_agent_session_once", _fake_kick)
+        res = runtime.submit({"objective": "Read browser page"}, logical_operator="DeepResearchBrowser")
+        assert res.success is True
+        assert res.lease.actor_id == "browser_agent_session"
+        assert kicked == [1]
 
 
 def test_security_gates():
