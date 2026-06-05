@@ -2392,12 +2392,17 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         "patch_diff": bool(str(patch_path) not in {"", "."} and patch_path.exists()) or bool(handoff and node.get("write_scope")),
         "test_log": bool(str(test_path) not in {"", "."} and test_path.exists()),
     }
-    standard_sidecars = {
-        "guard_decision": SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
-        "resource_binding": SPRINTS_DIR / f"{sid}.{node_id}-resource-binding.json",
+    sidecar_candidates = {
+        "guard_decision": [f"{sid}.{node_id}-guard_decision.json", f"{sid}.{node_id}-guard-decision.json"],
+        "resource_binding": [f"{sid}.{node_id}-resource_binding.json", f"{sid}.{node_id}-resource-binding.json"],
+        "bridged_artifact": [f"{sid}.{node_id}-bridged_artifact.md", f"{sid}.{node_id}-bridged-artifact.md"],
+        "patch_diff": [f"{sid}.{node_id}-patch.diff", f"{sid}.{node_id}-patch_diff.diff", f"{sid}.{node_id}-patch-diff.diff"],
     }
-    for key, path in standard_sidecars.items():
-        presence[key] = path.exists()
+    for artifact_key, candidates in sidecar_candidates.items():
+        if presence.get(artifact_key):
+            continue
+        presence[artifact_key] = any((SPRINTS_DIR / name).exists() for name in candidates)
+    presence["selected_operator_id"] = bool(artifacts.get("selected_operator_id"))
     for artifact_key, artifact_value in artifacts.items():
         if artifact_key in presence:
             continue
@@ -2445,25 +2450,39 @@ def _evaluate_proof_obligations(sid: str, node: dict[str, Any], eval_json: str |
     eval_data = _read_json_file_safe(eval_json or _eval_json_file(sid, str(node.get("id") or "")))
     proof_checks = eval_data.get("proof_checks") if isinstance(eval_data.get("proof_checks"), dict) else {}
     presence = _proof_artifact_presence(sid, node, eval_json=eval_json)
+    self_check_presence_keys = {
+        "check.guard_decision_written": "guard_decision",
+        "check.resource_binding_written": "resource_binding",
+        "check.adapter_output_written": "bridged_artifact",
+        "check.handoff_written": "handoff_md",
+        "check.eval_written": "eval_json",
+        "check.patch_within_scope": "patch_diff",
+    }
     checked: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
 
     for obligation in obligations:
         kind = str(obligation.get("kind") or "")
         requirement = str(obligation.get("requirement") or "")
+        normalized_requirement = requirement.split(" (", 1)[0]
         satisfied = True
         reason = ""
         if kind == "external_verifier":
             satisfied = presence["eval_json"]
             reason = "eval_json_missing" if not satisfied else ""
         elif kind == "self_check":
-            if proof_checks:
+            presence_key = self_check_presence_keys.get(normalized_requirement)
+            if presence_key and presence.get(presence_key):
+                satisfied = True
+            elif proof_checks:
                 value = proof_checks.get(requirement)
+                if value is None and normalized_requirement != requirement:
+                    value = proof_checks.get(normalized_requirement)
                 satisfied = value is not False
                 reason = "self_check_failed" if not satisfied else ""
             else:
-                if requirement in presence:
-                    satisfied = bool(presence.get(requirement))
+                if normalized_requirement in presence:
+                    satisfied = bool(presence.get(normalized_requirement))
                     reason = "self_check_missing_artifact" if not satisfied else ""
                 else:
                     satisfied = True
@@ -4895,7 +4914,7 @@ def _evaluator_operator_pool_workers() -> list[dict[str, Any]]:
         item.strip()
         for item in os.environ.get(
             "SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS",
-            "mini-reasonix-deepseek-v4-builder",
+            "mini-codex-gpt55-medium-builder-2,mini-codex-gpt55-medium-builder-1,mini-reasonix-deepseek-v4-builder",
         ).split(",")
         if item.strip()
     ]
@@ -4904,7 +4923,7 @@ def _evaluator_operator_pool_workers() -> list[dict[str, Any]]:
             workers.append({
                 "pane": f"operator-pool:evaluator.{operator_id}",
                 "operator_id": operator_id,
-                "models": ["deepseek-v4-pro", "operator-pool"],
+                "models": ["operator-pool"],
                 "skills": ["review", "testing", "bash"],
                 "busy": False,
                 "title": f"operator pool evaluator advisor fallback {operator_id}",

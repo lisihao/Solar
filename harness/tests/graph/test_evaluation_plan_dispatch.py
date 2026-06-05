@@ -100,6 +100,29 @@ def test_standard_guard_and_resource_sidecars_satisfy_output_present(monkeypatch
     assert result["artifact_presence"]["resource_binding"] is True
 
 
+def test_evaluator_operator_pool_workers_default_to_gpt55_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS", raising=False)
+    monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(
+        gnd,
+        "_operator_pool_operator_available_for_role",
+        lambda operator_id, role: operator_id in {
+            "mini-codex-gpt55-medium-builder-2",
+            "mini-reasonix-deepseek-v4-builder",
+        },
+    )
+
+    workers = gnd._evaluator_operator_pool_workers()
+
+    assert [worker["operator_id"] for worker in workers] == [
+        "mini-codex-gpt55-medium-builder-2",
+        "mini-reasonix-deepseek-v4-builder",
+    ]
+    assert workers[0]["pane"] == "operator-pool:evaluator.mini-codex-gpt55-medium-builder-2"
+    assert workers[0]["evaluator_host_role"] == "operator_pool_advisor_fallback"
+
+
 def test_dispatch_node_evals_falls_back_dual_plan_to_staged_with_single_evaluator(monkeypatch) -> None:
     graph = {
         "sprint_id": "sid-eval-plan",
