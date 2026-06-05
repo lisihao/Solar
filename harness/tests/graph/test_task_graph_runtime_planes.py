@@ -179,3 +179,55 @@ def test_save_graph_rebuilds_state_projection_and_clears_terminal_leases(tmp_pat
     assert saved_state["gate_results"]["G1"]["status"] == "passed"
     assert saved_state["leases"] == {}
     assert saved_state["dispatch_ids"] == {}
+
+
+def test_save_graph_preserves_newer_disk_node_contract_fields(tmp_path, monkeypatch):
+    gs = _load_local_graph_scheduler()
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-contract-preserve"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    base_graph = {
+        "sprint_id": sid,
+        "required_gates": ["G1"],
+        "nodes": [
+            {
+                "id": "S1",
+                "goal": "Implement",
+                "depends_on": [],
+                "gate": "G1",
+                "status": "reviewing",
+                "write_scope": ["packages/requirement-ir/**"],
+            },
+        ],
+    }
+    graph_path.write_text(json.dumps(base_graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    stale_graph = gs.load_graph(graph_path)
+
+    repaired_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    repaired_node = repaired_graph["nodes"][0]
+    repaired_node["write_scope"].append("harness/lib/intent_gateway.py")
+    repaired_node["read_scope"] = ["harness/**"]
+    repaired_node["architecture_policy"] = {
+        "core_patch_allowed": True,
+        "reason": "real call-chain repair",
+    }
+    graph_path.write_text(json.dumps(repaired_graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    gs.mark_node_result(stale_graph, "S1", "failed", note="old evaluator verdict")
+    gs.save_graph(graph_path, stale_graph)
+
+    saved_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    saved_node = saved_graph["nodes"][0]
+    assert saved_node["status"] == "failed"
+    assert saved_node["write_scope"] == [
+        "packages/requirement-ir/**",
+        "harness/lib/intent_gateway.py",
+    ]
+    assert saved_node["read_scope"] == ["harness/**"]
+    assert saved_node["architecture_policy"]["core_patch_allowed"] is True
+    assert saved_node["architecture_policy"]["reason"] == "real call-chain repair"

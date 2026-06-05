@@ -228,6 +228,7 @@ def save_graph(path: str | Path, graph: dict[str, Any]) -> None:
     _save_graph_state(_state_path_for_graph(graph, p), state)
     _save_closure_projection(_closure_path_for_graph(graph, p), graph, state)
     spec_graph = _graph_spec_payload(graph)
+    spec_graph = _merge_latest_spec_contract_fields(spec_graph, p)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(spec_graph, indent=2, ensure_ascii=False) + "\n")
     os.replace(tmp, p)
@@ -363,6 +364,56 @@ def _graph_spec_payload(graph: dict[str, Any]) -> dict[str, Any]:
     spec.pop("_solar_runtime", None)
     spec.pop("node_results", None)
     spec.pop("gate_results", None)
+    return spec
+
+
+def _merge_unique_scope(current: Any, latest: Any) -> Any:
+    if not isinstance(current, list) or not isinstance(latest, list):
+        return current if current not in (None, [], "") else deepcopy(latest)
+    merged = list(current)
+    for item in latest:
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _merge_latest_spec_contract_fields(spec: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Prevent runtime status writes from erasing newer node contracts.
+
+    Long-running evaluator/dispatcher processes can load a graph, while a
+    repair process narrows or expands a node contract on disk. When the older
+    process later calls save_graph for a status-only update, it must not revert
+    write_scope/read_scope/architecture_policy back to its stale snapshot.
+    """
+    if not path.exists():
+        return spec
+    try:
+        latest = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return spec
+    latest_nodes = {
+        str(node.get("id") or ""): node
+        for node in latest.get("nodes", [])
+        if isinstance(node, dict) and str(node.get("id") or "")
+    }
+    for node in spec.get("nodes", []):
+        if not isinstance(node, dict):
+            continue
+        latest_node = latest_nodes.get(str(node.get("id") or ""))
+        if not latest_node:
+            continue
+        for field in ("write_scope", "read_scope"):
+            if field in latest_node:
+                node[field] = _merge_unique_scope(node.get(field), latest_node.get(field))
+        latest_policy = latest_node.get("architecture_policy")
+        current_policy = node.get("architecture_policy")
+        if isinstance(latest_policy, dict) and latest_policy:
+            if isinstance(current_policy, dict):
+                merged_policy = deepcopy(latest_policy)
+                merged_policy.update(current_policy)
+                node["architecture_policy"] = merged_policy
+            else:
+                node["architecture_policy"] = deepcopy(latest_policy)
     return spec
 
 
