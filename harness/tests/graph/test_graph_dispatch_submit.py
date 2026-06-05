@@ -75,6 +75,39 @@ def tmp_harness(tmp_path, monkeypatch):
     return tmp_path, sprints, sid, graph
 
 
+def test_dispatch_text_requires_proof_sidecars_for_capsule_obligations(tmp_harness):
+    tmp_path, sprints, sid, graph = tmp_harness
+    import graph_node_dispatcher as gnd
+
+    node = {
+        "id": "N1",
+        "goal": "Review implementation and evidence before closeout.",
+        "write_scope": [f"harness/sprints/{sid}.review_decision.yaml"],
+        "acceptance": ["Independent verifier decision recorded."],
+        "proof_obligations": [
+            {"kind": "self_check", "requirement": "check.guard_decision_written"},
+            {"kind": "self_check", "requirement": "check.resource_binding_written"},
+            {"kind": "self_check", "requirement": "check.adapter_output_written"},
+            {"kind": "postcondition", "requirement": "output_present", "field": "bridged_artifact"},
+        ],
+    }
+    text = gnd.build_dispatch_text(
+        {
+            "sprint_id": sid,
+            "node": node,
+            "graph": str(sprints / f"{sid}.task_graph.json"),
+            "dispatch_id": "dispatch-proof",
+        },
+        "operator-pool:evaluator",
+    )
+
+    assert "写 proof sidecars" in text
+    assert f"{sid}.N1-guard-decision.json" in text
+    assert f"{sid}.N1-resource-binding.json" in text
+    assert f"{sid}.N1-bridged-artifact.md" in text
+    assert "不能只写 handoff 后等待 evaluator 代补" in text
+
+
 # ---------------------------------------------------------------------------
 # Test: send_to_pane uses literal input and explicit submit
 # ---------------------------------------------------------------------------

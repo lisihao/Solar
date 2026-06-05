@@ -2544,6 +2544,59 @@ def _proof_checks_template(obligations: list[dict[str, Any]]) -> dict[str, Any]:
     return template
 
 
+def _proof_sidecar_dispatch_block(sid: str, node_id: str, proof_obligations: list[dict[str, Any]]) -> str:
+    requirements = {
+        str(item.get("requirement") or "").split(" (", 1)[0]
+        for item in proof_obligations
+        if isinstance(item, dict)
+    }
+    fields = {
+        str(item.get("field") or "")
+        for item in proof_obligations
+        if isinstance(item, dict) and str(item.get("field") or "")
+    }
+    sidecars: list[tuple[str, Path, str]] = []
+    if "check.guard_decision_written" in requirements or "guard_decision exists" in requirements or "guard_decision" in fields:
+        sidecars.append(
+            (
+                "guard_decision",
+                SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
+                '{"status":"PASS","summary":"guard checks completed","checked_at":"<UTC_ISO>"}',
+            )
+        )
+    if "check.resource_binding_written" in requirements or "resource_binding exists" in requirements or "resource_binding" in fields:
+        sidecars.append(
+            (
+                "resource_binding",
+                SPRINTS_DIR / f"{sid}.{node_id}-resource-binding.json",
+                '{"status":"PASS","read_scope":[],"write_scope":[],"checked_at":"<UTC_ISO>"}',
+            )
+        )
+    if "check.adapter_output_written" in requirements or "adapter output exists" in requirements or "bridged_artifact" in fields:
+        sidecars.append(
+            (
+                "bridged_artifact",
+                SPRINTS_DIR / f"{sid}.{node_id}-bridged-artifact.md",
+                "# Bridged Artifact\\n\\n- source_artifacts: ...\\n- adapter_result: ...",
+            )
+        )
+    if not sidecars:
+        return "N/A"
+
+    lines = [
+        "这些 proof sidecar 是本节点完成契约的一部分；不能只写 handoff 后等待 evaluator 代补。",
+        "",
+    ]
+    for label, path, template in sidecars:
+        lines.extend(
+            [
+                f"- `{label}` -> `{path}`",
+                f"  - 最小内容模板: `{template}`",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _proof_obligations_block(obligations: list[dict[str, Any]]) -> str:
     if not obligations:
         return "- `N/A`"
@@ -2986,6 +3039,13 @@ def build_dispatch_text(payload: dict[str, Any], pane: str) -> str:
         ]
     )
     write_scope_preflight = _write_scope_preflight_block(str(sid), node)
+    proof_obligations = _node_proof_obligations(str(sid), node)
+    if not proof_obligations:
+        for plan in (capsule_plan_ir, physical_plan_ir):
+            if isinstance(plan.get("proof_obligations"), list):
+                proof_obligations = [item for item in plan.get("proof_obligations", []) if isinstance(item, dict)]
+                break
+    proof_sidecar_block = _proof_sidecar_dispatch_block(str(sid), str(node_id), proof_obligations)
 
     return f"""{STATE_READ_PREFLIGHT}
 {DEFINITION_OF_DONE_POLICY}
@@ -3067,7 +3127,11 @@ Graph: `{graph_path}`
 
 3. 运行本节点相关验证；把命令和结果写入 handoff。
 
-4. 写节点 handoff：
+4. 写 proof sidecars（如适用）：
+
+{proof_sidecar_block}
+
+5. 写节点 handoff：
    ```bash
    cat > "{SPRINTS_DIR / f'{sid}.{node_id}-handoff.md'}" <<'EOF'
    # Handoff — {sid} / {node_id}
@@ -3091,7 +3155,7 @@ Graph: `{graph_path}`
    EOF
    ```
 
-5. 将节点状态置为 reviewing，等待 evaluator：
+6. 将节点状态置为 reviewing，等待 evaluator：
    ```bash
    {HARNESS_DIR}/solar-harness.sh graph-scheduler mark --graph "{graph_path}" --node "{node_id}" --status reviewing --in-place
    ```
