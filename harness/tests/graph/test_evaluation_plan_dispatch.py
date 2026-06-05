@@ -30,6 +30,76 @@ def test_plan_node_evaluation_derives_staged_mode_for_code_impl() -> None:
     assert "test_report" in plan["evidence_requirements"]
 
 
+def test_eval_dispatch_text_documents_harness_scope_normalization() -> None:
+    graph = {"sprint_id": "sid-scope-normalize", "nodes": []}
+    node = {
+        "id": "S1",
+        "goal": "review scope normalization",
+        "status": "reviewing",
+        "write_scope": ["harness/lib/intent_gateway.py"],
+    }
+
+    text = gnd.build_eval_dispatch_text(
+        graph,
+        "/tmp/sid-scope-normalize.task_graph.json",
+        node,
+        "operator-pool:evaluator.0",
+        "graph-eval-sid-scope-normalize-S1",
+    )
+
+    assert "## Scope Matching Rules" in text
+    assert "Treat `harness/path/to/file` and `path/to/file` as equivalent" in text
+    assert "removing one leading `harness/` prefix" in text
+
+
+def test_force_eval_does_not_duplicate_active_pm_evaluator(monkeypatch, tmp_path) -> None:
+    sid = "sid-active-eval"
+    node = {"id": "S1", "status": "reviewing"}
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"S1": {"status": "reviewing"}}}
+    active_task = {
+        "task_id": "pm-sid-active-eval-S1-live",
+        "operator_id": "mini-codex-gpt55-medium-builder-2",
+        "submitted_at": "2026-06-05T22:00:00Z",
+        "_pm_task_json": str(tmp_path / "task.json"),
+    }
+
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sprint_id, node_id: tmp_path / f"{sprint_id}.{node_id}-eval.json")
+    monkeypatch.setattr(gnd, "_eval_md_file", lambda sprint_id, node_id: tmp_path / f"{sprint_id}.{node_id}-eval.md")
+    monkeypatch.setattr(gnd, "_active_pm_evaluator_task_record_for", lambda sprint_id, node_id: active_task)
+
+    assert gnd._node_eval_needed(graph, sid, node, force=True) is False
+    assert node["eval_recovered_from_pm_task"] is True
+    assert node["eval_assignments"][0]["task_id"] == "pm-sid-active-eval-S1-live"
+    assert node["eval_assignments"][0]["operator_id"] == "mini-codex-gpt55-medium-builder-2"
+
+
+def test_standard_guard_and_resource_sidecars_satisfy_output_present(monkeypatch, tmp_path) -> None:
+    sid = "sprint-standard-proof-sidecars"
+    node = {
+        "id": "S1",
+        "status": "reviewing",
+        "write_scope": ["harness/lib/intent_gateway.py"],
+        "proof_obligations": [
+            {"kind": "pass_condition", "requirement": "guard_decision exists"},
+            {"kind": "postcondition", "requirement": "output_present", "field": "guard_decision"},
+            {"kind": "pass_condition", "requirement": "resource_binding exists"},
+            {"kind": "postcondition", "requirement": "output_present", "field": "resource_binding"},
+        ],
+    }
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path)
+    (tmp_path / f"{sid}.S1-eval.json").write_text(json.dumps({"verdict": "PASS"}), encoding="utf-8")
+    (tmp_path / f"{sid}.S1-eval.md").write_text("PASS", encoding="utf-8")
+    (tmp_path / f"{sid}.S1-handoff.md").write_text("# Handoff", encoding="utf-8")
+    (tmp_path / f"{sid}.S1-guard-decision.json").write_text(json.dumps({"decision": "pass"}), encoding="utf-8")
+    (tmp_path / f"{sid}.S1-resource-binding.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    result = gnd._evaluate_proof_obligations(sid, node, tmp_path / f"{sid}.S1-eval.json")
+
+    assert result["ok"] is True
+    assert result["artifact_presence"]["guard_decision"] is True
+    assert result["artifact_presence"]["resource_binding"] is True
+
+
 def test_dispatch_node_evals_falls_back_dual_plan_to_staged_with_single_evaluator(monkeypatch) -> None:
     graph = {
         "sprint_id": "sid-eval-plan",

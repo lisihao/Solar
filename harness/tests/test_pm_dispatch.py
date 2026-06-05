@@ -1087,6 +1087,58 @@ def test_transient_builder_release_allows_pm_graph_dispatch_id_skew(monkeypatch,
     assert "dispatch_id" not in node
 
 
+def test_pm_graph_save_preserves_newer_disk_contract_fields(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    graph_path = sprints / "sprint-contract.task_graph.json"
+    stale_graph = {
+        "sprint_id": "sprint-contract",
+        "nodes": [
+            {
+                "id": "S1",
+                "status": "reviewing",
+                "write_scope": ["packages/requirement-ir/**"],
+            }
+        ],
+        "node_results": {},
+    }
+    latest_graph = {
+        "sprint_id": "sprint-contract",
+        "nodes": [
+            {
+                "id": "S1",
+                "status": "reviewing",
+                "write_scope": [
+                    "packages/requirement-ir/**",
+                    "harness/lib/intent_gateway.py",
+                ],
+                "architecture_policy": {
+                    "core_patch_allowed": True,
+                    "reason": "real call-chain repair",
+                },
+            }
+        ],
+        "node_results": {},
+    }
+    graph_path.write_text(json.dumps(latest_graph), encoding="utf-8")
+
+    stale_graph["nodes"][0]["status"] = "failed"
+    pm_dispatch._save_graph_preserving_contract(graph_path, stale_graph)
+
+    saved = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = saved["nodes"][0]
+    assert node["status"] == "failed"
+    assert node["write_scope"] == [
+        "packages/requirement-ir/**",
+        "harness/lib/intent_gateway.py",
+    ]
+    assert node["architecture_policy"]["core_patch_allowed"] is True
+
+
 def test_cmd_complete_marks_builder_graph_node_reviewing(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"

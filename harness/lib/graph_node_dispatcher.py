@@ -2392,6 +2392,12 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         "patch_diff": bool(str(patch_path) not in {"", "."} and patch_path.exists()) or bool(handoff and node.get("write_scope")),
         "test_log": bool(str(test_path) not in {"", "."} and test_path.exists()),
     }
+    standard_sidecars = {
+        "guard_decision": SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
+        "resource_binding": SPRINTS_DIR / f"{sid}.{node_id}-resource-binding.json",
+    }
+    for key, path in standard_sidecars.items():
+        presence[key] = path.exists()
     for artifact_key, artifact_value in artifacts.items():
         if artifact_key in presence:
             continue
@@ -2974,6 +2980,12 @@ Graph: `{graph_path}`
 
 {_scope_lines(node.get("write_scope"))}
 
+## Scope Matching Rules
+
+- Treat `harness/path/to/file` and `path/to/file` as equivalent when comparing patch paths to `Write Scope`.
+- For exact-file scope entries, normalize both the patch path and the scope entry by removing one leading `harness/` prefix before comparing.
+- For glob entries, perform the same normalization before applying glob matching.
+
 {write_scope_preflight}
 
 {architecture_block}
@@ -3129,6 +3141,12 @@ Handoff: `{handoff}`
 ## Write Scope
 
 {_scope_lines(node.get("write_scope"))}
+
+## Scope Matching Rules
+
+- Treat `harness/path/to/file` and `path/to/file` as equivalent when comparing patch paths to `Write Scope`.
+- For exact-file scope entries, normalize both the patch path and the scope entry by removing one leading `harness/` prefix before comparing.
+- For glob entries, perform the same normalization before applying glob matching.
 
 {architecture_block}
 
@@ -5835,6 +5853,47 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
         return False
     if _eval_json_file(sid, node_id).exists() and not force and not repair_mode:
         return False
+    active_pm_task = _active_pm_evaluator_task_record_for(sid, node_id)
+    if active_pm_task:
+        task_id = str(active_pm_task.get("task_id") or active_pm_task.get("id") or "").strip()
+        operator_id = str(active_pm_task.get("operator_id") or "").strip()
+        graph_dispatch_id = str(
+            active_pm_task.get("graph_dispatch_id")
+            or active_pm_task.get("graph_eval_dispatch_id")
+            or active_pm_task.get("dispatch_id")
+            or ""
+        ).strip()
+        pane = str(active_pm_task.get("pane") or "").strip()
+        if not pane and operator_id:
+            pane = f"operator:{operator_id}"
+        if task_id and pane:
+            _store_eval_assignments(
+                node,
+                [
+                    {
+                        "pane": pane,
+                        "dispatch_id": task_id,
+                        "task_id": task_id,
+                        "graph_dispatch_id": graph_dispatch_id,
+                        "operator_id": operator_id,
+                        "role": "primary",
+                        "eval_md_path": str(_eval_md_file(sid, node_id)),
+                        "eval_json_path": str(_eval_json_file(sid, node_id)),
+                    }
+                ],
+                str(
+                    active_pm_task.get("submitted_at")
+                    or active_pm_task.get("started_at")
+                    or active_pm_task.get("updated_at")
+                    or _utc_now()
+                ),
+                sprint_id=sid,
+            )
+            node["eval_recovered_from_pm_task"] = True
+            node["eval_recovered_pm_task_json"] = str(active_pm_task.get("_pm_task_json") or "")
+            node.pop("eval_retry_reason", None)
+            node.pop("eval_retry_detail", None)
+            return False
     if not force:
         recovered: list[dict[str, Any]] = []
         recovered_at = ""
@@ -5861,47 +5920,6 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
             _store_eval_assignments(node, recovered, recovered_at or _utc_now(), sprint_id=sid)
             node["eval_recovered_from_lease"] = True
             return False
-        active_pm_task = _active_pm_evaluator_task_record_for(sid, node_id)
-        if active_pm_task:
-            task_id = str(active_pm_task.get("task_id") or active_pm_task.get("id") or "").strip()
-            operator_id = str(active_pm_task.get("operator_id") or "").strip()
-            graph_dispatch_id = str(
-                active_pm_task.get("graph_dispatch_id")
-                or active_pm_task.get("graph_eval_dispatch_id")
-                or active_pm_task.get("dispatch_id")
-                or ""
-            ).strip()
-            pane = str(active_pm_task.get("pane") or "").strip()
-            if not pane and operator_id:
-                pane = f"operator:{operator_id}"
-            if task_id and pane:
-                _store_eval_assignments(
-                    node,
-                    [
-                        {
-                            "pane": pane,
-                            "dispatch_id": task_id,
-                            "task_id": task_id,
-                            "graph_dispatch_id": graph_dispatch_id,
-                            "operator_id": operator_id,
-                            "role": "primary",
-                            "eval_md_path": str(_eval_md_file(sid, node_id)),
-                            "eval_json_path": str(_eval_json_file(sid, node_id)),
-                        }
-                    ],
-                    str(
-                        active_pm_task.get("submitted_at")
-                        or active_pm_task.get("started_at")
-                        or active_pm_task.get("updated_at")
-                        or _utc_now()
-                    ),
-                    sprint_id=sid,
-                )
-                node["eval_recovered_from_pm_task"] = True
-                node["eval_recovered_pm_task_json"] = str(active_pm_task.get("_pm_task_json") or "")
-                node.pop("eval_retry_reason", None)
-                node.pop("eval_retry_detail", None)
-                return False
     if node.get("eval_dispatched_at") and not force:
         assignments = _node_eval_assignments(node)
         dispatched_at = _parse_utc(str(node.get("eval_dispatched_at") or ""))

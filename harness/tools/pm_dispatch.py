@@ -1373,6 +1373,44 @@ def _load_graph_scheduler_module() -> Any | None:
         return None
 
 
+def _merge_unique_scope(current: object, latest: object) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for value in list(current or []) + list(latest or []):
+        key = str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(value)
+    return merged
+
+
+def _save_graph_preserving_contract(graph_path: Path, graph: dict[str, Any]) -> None:
+    """Save PM graph mutations without letting stale writers erase node contracts."""
+    try:
+        latest = json.loads(graph_path.read_text(encoding="utf-8")) if graph_path.exists() else {}
+    except Exception:
+        latest = {}
+    latest_nodes = {
+        str(node.get("id") or node.get("node_id") or ""): node
+        for node in latest.get("nodes", []) or []
+        if isinstance(node, dict)
+    }
+    for node in graph.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        latest_node = latest_nodes.get(str(node.get("id") or node.get("node_id") or ""))
+        if not isinstance(latest_node, dict):
+            continue
+        for key in ("write_scope", "read_scope"):
+            merged = _merge_unique_scope(node.get(key), latest_node.get(key))
+            if merged:
+                node[key] = merged
+        if node.get("architecture_policy") in (None, {}, "") and latest_node.get("architecture_policy") not in (None, {}, ""):
+            node["architecture_policy"] = latest_node.get("architecture_policy")
+    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def _load_task_graph_state_io_module() -> Any | None:
     for lib_dir in (HARNESS_DIR / "lib", REPO_HARNESS_DIR / "lib"):
         if str(lib_dir) not in sys.path:
@@ -2721,7 +2759,7 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
         for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
             result_entry.pop(key, None)
 
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _save_graph_preserving_contract(graph_path, graph)
     state_sync = _sync_task_dag_state_node(
         sprint_id,
         node_id,
@@ -2793,7 +2831,7 @@ def _mark_graph_node_evaluation_dispatched(record: dict[str, Any]) -> dict[str, 
     result_entry["eval_operator_id"] = operator_id
     result_entry["updated_at"] = now
 
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _save_graph_preserving_contract(graph_path, graph)
     state_sync = _sync_task_dag_state_node(
         sprint_id,
         node_id,
@@ -2874,7 +2912,7 @@ def _release_graph_eval_on_transient_operator_failure(record: dict[str, Any]) ->
                 result_entry.pop(key, None)
         result_entry["updated_at"] = now
 
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _save_graph_preserving_contract(graph_path, graph)
     return {"ok": True, "released": True, "graph": str(graph_path), "sprint_id": sprint_id, "node_id": node_id}
 
 
@@ -3048,7 +3086,7 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
         result_entry.pop(key, None)
 
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _save_graph_preserving_contract(graph_path, graph)
 
     status_path = SPRINTS_DIR / f"{sprint_id}.status.json"
     status_payload: dict[str, Any] = {}
