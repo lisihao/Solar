@@ -71,6 +71,8 @@ def test_force_eval_does_not_duplicate_active_pm_evaluator(monkeypatch, tmp_path
     assert node["eval_recovered_from_pm_task"] is True
     assert node["eval_assignments"][0]["task_id"] == "pm-sid-active-eval-S1-live"
     assert node["eval_assignments"][0]["operator_id"] == "mini-codex-gpt55-medium-builder-2"
+    assert graph["node_results"]["S1"]["status"] == "reviewing"
+    assert graph["node_results"]["S1"]["dispatch_id"] == "pm-sid-active-eval-S1-live"
 
 
 def test_standard_guard_and_resource_sidecars_satisfy_output_present(monkeypatch, tmp_path) -> None:
@@ -355,6 +357,8 @@ def test_dispatch_node_evals_operator_pool_uses_pm_task_id_as_durable_eval_dispa
     assert node["eval_dispatch_id"] == "pm-sid-eval-pool-success-N2-test"
     assert node["eval_task_id"] == "pm-sid-eval-pool-success-N2-test"
     assert node["eval_graph_dispatch_id"].startswith("graph-eval-sid-eval-pool-success-N2-")
+    assert graph["node_results"]["N2"]["status"] == "reviewing"
+    assert graph["node_results"]["N2"]["dispatch_id"] == "pm-sid-eval-pool-success-N2-test"
     assert assignment["task_id"] == "pm-sid-eval-pool-success-N2-test"
     assert assignment["dispatch_id"].startswith("graph-eval-sid-eval-pool-success-N2-")
     assert assignment["graph_dispatch_id"] == assignment["dispatch_id"]

@@ -2606,6 +2606,39 @@ def _store_eval_assignments(
         )
 
 
+def _sync_eval_reviewing_result(
+    graph: dict[str, Any],
+    node: dict[str, Any],
+    *,
+    node_id: str,
+    note: str = "graph_node_dispatcher evaluator dispatch",
+) -> None:
+    """Mirror evaluator dispatch state into node_results before save_graph()."""
+
+    primary = next((item for item in _node_eval_assignments(node) if item.get("role") == "primary"), {})
+    dispatch_id = str(primary.get("task_id") or primary.get("dispatch_id") or node.get("eval_dispatch_id") or "")
+    assigned_to = str(primary.get("pane") or node.get("eval_assigned_to") or "")
+    updated_at = _utc_now()
+    node["status"] = "reviewing"
+    node["updated_at"] = updated_at
+    graph.setdefault("node_results", {})
+    result = graph["node_results"].setdefault(node_id, {})
+    result["status"] = "reviewing"
+    result["updated_at"] = updated_at
+    if dispatch_id:
+        result["dispatch_id"] = dispatch_id
+    if assigned_to:
+        result["assigned_to"] = assigned_to
+    if note:
+        result["note"] = note
+    artifacts = result.setdefault("artifacts", {})
+    node_artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+    if isinstance(artifacts, dict):
+        for key in ("handoff_md", "eval_json", "eval_md"):
+            if node_artifacts.get(key):
+                artifacts[key] = node_artifacts[key]
+
+
 def _clear_eval_assignments(node: dict[str, Any]) -> None:
     node.pop("eval_assignments", None)
     node.pop("eval_assigned_to", None)
@@ -5908,6 +5941,12 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
                 ),
                 sprint_id=sid,
             )
+            _sync_eval_reviewing_result(
+                graph,
+                node,
+                node_id=node_id,
+                note="recovered active PM evaluator task",
+            )
             node["eval_recovered_from_pm_task"] = True
             node["eval_recovered_pm_task_json"] = str(active_pm_task.get("_pm_task_json") or "")
             node.pop("eval_retry_reason", None)
@@ -5937,6 +5976,12 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
             if recovered:
                 recovered[0]["role"] = "primary"
             _store_eval_assignments(node, recovered, recovered_at or _utc_now(), sprint_id=sid)
+            _sync_eval_reviewing_result(
+                graph,
+                node,
+                node_id=node_id,
+                note="recovered active evaluator lease",
+            )
             node["eval_recovered_from_lease"] = True
             return False
     if node.get("eval_dispatched_at") and not force:
@@ -6270,6 +6315,7 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
         node["status"] = "reviewing"
         node["eval_dispatch_group_id"] = dispatch_group_id
         _store_eval_assignments(node, planned_assignments, _utc_now(), sprint_id=sid)
+        _sync_eval_reviewing_result(graph, node, node_id=node_id)
         for item in sent_records:
             dispatched.append(item)
 
