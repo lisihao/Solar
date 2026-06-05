@@ -1631,10 +1631,12 @@ def _builder_ready_nodes_for_sprint(sprint_id: str) -> tuple[list[dict[str, Any]
             continue
         if _node_has_non_latent_status(node):
             continue
-        if _node_has_pm_dispatch_marker(graph, node_id, node):
+        active_pm_record = _active_pm_record_for_node(sprint_id, node_id)
+        if active_pm_record:
             continue
-        if _active_pm_record_for_node(sprint_id, node_id):
-            continue
+        # A pending ready node can retain stale pm_task_id/dispatch markers after
+        # the PM record was terminally reconciled or pruned. Do not let that
+        # marker suppress the node forever when there is no active PM task.
         nodes.append(dict(node))
     return nodes, {"ok": True, "graph": str(graph_path), "ready_count": len(nodes)}
 

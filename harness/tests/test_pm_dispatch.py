@@ -1001,6 +1001,39 @@ def test_drain_builder_ready_submits_and_marks_graph(monkeypatch, tmp_path):
     assert graph["nodes"][0]["pm_task_id"] == "pm-sprint-drain-B1-test"
 
 
+def test_latent_builder_ready_ignores_stale_pm_marker_without_active_record(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "run" / "pm-inbox"
+    sprints.mkdir(parents=True)
+    inbox.mkdir(parents=True)
+    _write_builder_ready_graph(sprints, "sprint-stale-marker")
+    graph_path = sprints / "sprint-stale-marker.task_graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    graph["nodes"][0]["pm_task_id"] = "pm-sprint-stale-marker-B1-old"
+    graph["nodes"][0]["dispatched_via"] = "pm_dispatch"
+    graph["nodes"][0]["operator_id"] = "mini-codex-gpt53-spark-builder-3"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    (inbox / "pm-sprint-stale-marker-B1-old.json").write_text(
+        json.dumps(
+            {
+                "task_id": "pm-sprint-stale-marker-B1-old",
+                "status": "failed_contract_closeout",
+                "sprint_id": "sprint-stale-marker",
+                "node_id": "B1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    items = pm_dispatch._latent_builder_ready_items()
+
+    assert [item["node_id"] for item in items] == ["B1"]
+
+
 def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
