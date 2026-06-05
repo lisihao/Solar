@@ -1751,11 +1751,103 @@ def _pm_expected_artifacts(record: dict[str, Any]) -> list[Path]:
     if role == "builder" and node_id:
         return [SPRINTS_DIR / f"{sprint_id}.{node_id}-handoff.md"]
     if role == "evaluator" and node_id:
+        graph_verifier_artifacts = _pm_graph_verifier_expected_artifacts(record)
+        if graph_verifier_artifacts:
+            return graph_verifier_artifacts
         return [
             SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.md",
             SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.json",
         ]
     return []
+
+
+def _pm_record_context(record: dict[str, Any]) -> dict[str, Any]:
+    raw = record.get("pm_context")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _path_from_write_scope_entry(entry: str) -> Path | None:
+    text = str(entry or "").strip()
+    if not text or any(ch in text for ch in "*?[]"):
+        return None
+    path = Path(text).expanduser()
+    if path.is_absolute():
+        return path
+    while path.parts and path.parts[0] == "harness":
+        path = Path(*path.parts[1:])
+    return HARNESS_DIR / path
+
+
+def _pm_graph_node_from_record(record: dict[str, Any]) -> dict[str, Any]:
+    context = _pm_record_context(record)
+    if str(context.get("source") or "") != "graph_node_dispatcher":
+        return {}
+    graph_path = str(context.get("graph") or "").strip()
+    node_id = str(record.get("node_id") or "").strip()
+    if not graph_path or not node_id:
+        return {}
+    try:
+        graph = json.loads(Path(graph_path).expanduser().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    for node in graph.get("nodes", []) or []:
+        if isinstance(node, dict) and str(node.get("id") or "") == node_id:
+            return node
+    return {}
+
+
+def _pm_graph_verifier_expected_artifacts(record: dict[str, Any]) -> list[Path]:
+    """Use graph verifier decision artifacts instead of generic eval sidecars.
+
+    Graph-dispatch review/verifier nodes write a verifier decision into their
+    node write scope. Their task-level completion artifact is that decision,
+    while the decision verdict may still be FAIL and should be handled by graph
+    verdict logic. Requiring ``<node>-eval.md/json`` here conflates task
+    closeout with evaluator sidecar closeout and leaves valid verifier nodes
+    stuck in failed_contract_closeout.
+    """
+    context = _pm_record_context(record)
+    node = _pm_graph_node_from_record(record)
+    logical = str(record.get("logical_operator") or node.get("logical_operator") or "").strip().lower()
+    node_kind = str(node.get("type") or node.get("kind") or "").strip().lower()
+    capsule = str(record.get("capability_capsule_id") or "").strip()
+    objective = str(record.get("objective") or "")
+    graph_dispatched = (
+        str(context.get("source") or "") == "graph_node_dispatcher"
+        or "graph-dispatch evaluator" in objective
+        or "DAG Node Dispatch" in objective
+    )
+    verifier_like = (
+        logical in {"verifier", "verifierlite"}
+        or node_kind in {"review", "verification", "verifier"}
+        or capsule == "cap.requirement-compiler-verification"
+    )
+    if not graph_dispatched or not verifier_like:
+        return []
+
+    artifacts: list[Path] = []
+    for item in node.get("write_scope", []) or []:
+        path = _path_from_write_scope_entry(str(item))
+        if path and path.name in {"review_decision.yaml", "acceptance_verdict.json"}:
+            artifacts.append(path)
+    if artifacts:
+        return artifacts
+
+    sprint_id = str(record.get("sprint_id") or "").strip()
+    if not sprint_id:
+        return []
+    return [
+        SPRINTS_DIR / f"{sprint_id}.review_decision.yaml",
+        SPRINTS_DIR / f"{sprint_id}.acceptance_verdict.json",
+    ]
 
 
 def _pm_closeout_status(record: dict[str, Any]) -> dict[str, Any]:

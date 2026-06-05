@@ -606,6 +606,100 @@ def test_pending_pm_backlog_count_ignores_failed_variants(monkeypatch, tmp_path)
     assert pm_dispatch._pending_pm_backlog_count() == 1
 
 
+def test_pm_closeout_accepts_graph_verifier_decision_artifacts(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    harness = tmp_path / "harness"
+    sprints = harness / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", harness)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    sprint_id = "sprint-review"
+    graph_path = sprints / f"{sprint_id}.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sprint_id,
+                "nodes": [
+                    {
+                        "id": "S3",
+                        "type": "review",
+                        "logical_operator": "Verifier",
+                        "write_scope": [
+                            f"harness/sprints/{sprint_id}.review_decision.yaml",
+                            f"harness/sprints/{sprint_id}.acceptance_verdict.json",
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / f"{sprint_id}.review_decision.yaml").write_text("verdict: FAIL\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.acceptance_verdict.json").write_text('{"verdict":"FAIL"}\n', encoding="utf-8")
+
+    closeout = pm_dispatch._pm_closeout_status(
+        {
+            "requested_role": "evaluator",
+            "sprint_id": sprint_id,
+            "node_id": "S3",
+            "logical_operator": "Verifier",
+            "pm_context": json.dumps({"source": "graph_node_dispatcher", "graph": str(graph_path)}),
+        }
+    )
+
+    assert closeout["ok"] is True
+    assert closeout["missing_artifacts"] == []
+    assert closeout["expected_artifacts"] == [
+        str(sprints / f"{sprint_id}.review_decision.yaml"),
+        str(sprints / f"{sprint_id}.acceptance_verdict.json"),
+    ]
+
+
+def test_pm_closeout_accepts_graph_verifier_when_context_was_pruned(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    sprint_id = "sprint-pruned-context"
+    (sprints / f"{sprint_id}.review_decision.yaml").write_text("verdict: FAIL\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.acceptance_verdict.json").write_text('{"verdict":"FAIL"}\n', encoding="utf-8")
+
+    closeout = pm_dispatch._pm_closeout_status(
+        {
+            "requested_role": "evaluator",
+            "sprint_id": sprint_id,
+            "node_id": "S3",
+            "logical_operator": "Verifier",
+            "capability_capsule_id": "cap.requirement-compiler-verification",
+            "objective": "你是 graph-dispatch evaluator。请严格执行 DAG Node Dispatch。",
+        }
+    )
+
+    assert closeout["ok"] is True
+    assert closeout["missing_artifacts"] == []
+
+
+def test_pm_closeout_still_requires_eval_sidecars_for_regular_evaluator(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", tmp_path / "sprints")
+
+    closeout = pm_dispatch._pm_closeout_status(
+        {
+            "requested_role": "evaluator",
+            "sprint_id": "sprint-eval",
+            "node_id": "B1",
+        }
+    )
+
+    assert closeout["ok"] is False
+    assert closeout["expected_artifacts"] == [
+        str(tmp_path / "sprints" / "sprint-eval.B1-eval.md"),
+        str(tmp_path / "sprints" / "sprint-eval.B1-eval.json"),
+    ]
+
+
 def _write_builder_ready_graph(sprints: Path, sprint_id: str) -> None:
     (sprints / f"{sprint_id}.status.json").write_text(
         json.dumps({"status": "active", "phase": "planning_complete"}),
