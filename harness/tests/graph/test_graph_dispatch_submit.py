@@ -106,6 +106,7 @@ def test_dispatch_text_requires_proof_sidecars_for_capsule_obligations(tmp_harne
     assert f"{sid}.N1-resource-binding.json" in text
     assert f"{sid}.N1-bridged-artifact.md" in text
     assert "不能只写 handoff 后等待 evaluator 代补" in text
+    assert "视为本节点允许写入的 proof sidecar scope" in text
 
 
 # ---------------------------------------------------------------------------

@@ -1900,6 +1900,7 @@ def _proof_sidecar_dispatch_block(sid: str, node_id: str, proof_obligations: lis
 
     lines = [
         "这些 proof sidecar 是本节点完成契约的一部分；不能只写 handoff 后等待 evaluator 代补。",
+        "这些路径是 capsule proof expansion 生成的必需输出，即使旧 graph.write_scope 未显式列出，也视为本节点允许写入的 proof sidecar scope。",
         "",
     ]
     for label, path, template in sidecars:
