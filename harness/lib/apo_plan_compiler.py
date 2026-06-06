@@ -23,6 +23,10 @@ from capability_capsules import (
     load_capability_capsule_manifest,
     query_capability_capsules,
 )
+from skill_operator_registry import (
+    resolve_skill_plan_with_states,
+    resolve_mcp_plan_with_states,
+)
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
@@ -618,6 +622,9 @@ def build_capsule_plan_node(
         "required_guard_capsules": list(bindings.get("required_guard_capsules", []) or []),
         "required_resource_capsules": list(bindings.get("required_resource_capsules", []) or []),
         "selected_skills": list(base_plan.get("selected_skills") or bindings.get("skills", {}).get("required", []) or []),
+        "selection_mode": base_plan.get("selection_mode"),
+        "fallback_used": base_plan.get("fallback_used", False),
+        "fallback_reason": base_plan.get("fallback_reason"),
         "artifact_types": node_artifact_types,
         "effect_union": effect_union,
         "proof_obligations": proof_obligations,
@@ -755,12 +762,142 @@ def enumerate_physical_candidates(
     return candidates
 
 
+def _get_operator_lease_safe(operator_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from operator_runtime import get_operator_lease
+        return get_operator_lease(operator_id)
+    except Exception:
+        return None
+
+
+def _get_operator_runtime_state_safe(operator_id: str) -> str:
+    try:
+        from operator_runtime import get_operator_runtime_state
+        return get_operator_runtime_state(operator_id)
+    except Exception:
+        return "idle"
+
+
+def _get_block_state_safe(operator_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from operator_flow_control import current_block_state
+        return current_block_state(operator_id, allow_unregistered=True)
+    except Exception:
+        return None
+
+
+def enumerate_physical_candidates_v2(
+    *,
+    role: str,
+    task_type: str = "",
+    logical_operator: str = "",
+    operator_constraints: Optional[Dict[str, Any]] = None,
+    prefer_operator: str = "",
+    task_risk_level: str = "medium",
+    feedback_records: Optional[List[Dict[str, Any]]] = None,
+    writer_operator_id: str = "",
+    operators_path: Optional[Path] = None,
+    weights_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Lease/quota-aware candidate enumeration with cost scoring.
+
+    Returns dict with 'candidates' (scored, accepted) and 'rejected_candidates'.
+    """
+    from apo_cost_model import (
+        load_weights,
+        compute_all_factors,
+        compute_score,
+        hard_exclusion_reason,
+        map_runtime_state_to_apo,
+    )
+
+    registry = _load_json(operators_path or PHYSICAL_OPERATORS_PATH)
+    operators = registry.get("operators", {}) or {}
+    constraints = dict(operator_constraints or {})
+    preferred_ops = set(constraints.get("preferred", []) or [])
+    forbidden_ops = set(constraints.get("forbidden", []) or [])
+
+    candidates: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    weights = load_weights(weights_path)
+
+    for op_id, spec in operators.items():
+        if prefer_operator and op_id != prefer_operator:
+            continue
+        if op_id in forbidden_ops:
+            continue
+        if not spec.get("enabled", False) or not spec.get("available", False):
+            continue
+
+        roles = [str(r).lower() for r in spec.get("roles", [spec.get("role", "")])]
+        if role and role.lower() not in roles:
+            continue
+
+        # Lease check
+        lease = _get_operator_lease_safe(op_id)
+        runtime_state = _get_operator_runtime_state_safe(op_id)
+        apo_state = map_runtime_state_to_apo(runtime_state)
+        block_state = _get_block_state_safe(op_id)
+
+        reject_reason = hard_exclusion_reason(
+            operator_id=op_id,
+            lease=lease,
+            runtime_state=runtime_state,
+            block_state=block_state,
+        )
+        if reject_reason:
+            details: Dict[str, Any] = {"apo_state": apo_state, "runtime_state": runtime_state}
+            if lease:
+                details["lease_id"] = f"{op_id}:{lease.get('task_id', '')}:{lease.get('leased_at', '')}"
+                details["expires_at"] = lease.get("expires_at", "")
+                details["task_id"] = lease.get("task_id", "")
+            rejected.append({"operator_id": op_id, "reason": reject_reason, "details": details})
+            continue
+
+        # Cost scoring
+        factors = compute_all_factors(
+            op_id, spec,
+            role=role, task_type=task_type, logical_operator=logical_operator,
+            task_risk_level=task_risk_level,
+            block_state=block_state,
+            feedback_records=feedback_records,
+            writer_operator_id=writer_operator_id,
+        )
+        result = compute_score(factors, weights)
+
+        candidates.append({
+            "operator_id": op_id,
+            "score": result["score"],
+            "score_breakdown": result["score_breakdown"],
+            "role": role,
+            "task_type": task_type,
+            "profile": spec.get("profile"),
+            "model": spec.get("model"),
+            "preferred_for": spec.get("preferred_for", []),
+            "apo_state": apo_state,
+        })
+
+    candidates.sort(key=lambda item: (-item["score"], item["operator_id"]))
+    if candidates:
+        candidates[0]["decision"] = "selected"
+
+    return {
+        "candidates": candidates,
+        "rejected_candidates": rejected,
+        "selected_operator_id": candidates[0]["operator_id"] if candidates else "",
+    }
+
+
 def build_physical_plan_for_capsule_node(
     capsule_plan_node: Dict[str, Any],
     *,
     prefer_operator: str = "",
     require_dispatchable: bool = False,
     operators_path: Optional[Path] = None,
+    enable_v2_scoring: bool = False,
+    task_risk_level: str = "medium",
+    feedback_records: Optional[List[Dict[str, Any]]] = None,
+    weights_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     execute_stage = next((stage for stage in capsule_plan_node.get("stages", []) if stage.get("stage_kind") == "capability"), None)
     verifier_stages = [
@@ -774,40 +911,80 @@ def build_physical_plan_for_capsule_node(
 
     selected_operator_id = ""
     execution_candidates: List[Dict[str, Any]] = []
+    rejected_candidates: List[Dict[str, Any]] = []
+    writer_operator_id = ""
+
     if execute_stage:
-        execution_candidates = enumerate_physical_candidates(
-            role=str(execute_stage.get("role") or capsule_plan_node.get("role") or ""),
-            task_type=str(execute_stage.get("task_type") or capsule_plan_node.get("dispatch_task_type") or ""),
-            logical_operator=str(capsule_plan_node.get("logical_operator") or ""),
-            operator_constraints=dict(execute_stage.get("operator_constraints") or {}),
-            prefer_operator=prefer_operator,
-            require_dispatchable=require_dispatchable,
-            operators_path=operators_path,
-        )
-        if execution_candidates:
-            selected_operator_id = str(execution_candidates[0]["operator_id"])
+        if enable_v2_scoring:
+            v2_result = enumerate_physical_candidates_v2(
+                role=str(execute_stage.get("role") or capsule_plan_node.get("role") or ""),
+                task_type=str(execute_stage.get("task_type") or capsule_plan_node.get("dispatch_task_type") or ""),
+                logical_operator=str(capsule_plan_node.get("logical_operator") or ""),
+                operator_constraints=dict(execute_stage.get("operator_constraints") or {}),
+                prefer_operator=prefer_operator,
+                task_risk_level=task_risk_level,
+                feedback_records=feedback_records,
+                operators_path=operators_path,
+                weights_path=weights_path,
+            )
+            execution_candidates = v2_result["candidates"]
+            rejected_candidates = v2_result["rejected_candidates"]
+            selected_operator_id = v2_result["selected_operator_id"]
+            writer_operator_id = selected_operator_id
+        else:
+            execution_candidates = enumerate_physical_candidates(
+                role=str(execute_stage.get("role") or capsule_plan_node.get("role") or ""),
+                task_type=str(execute_stage.get("task_type") or capsule_plan_node.get("dispatch_task_type") or ""),
+                logical_operator=str(capsule_plan_node.get("logical_operator") or ""),
+                operator_constraints=dict(execute_stage.get("operator_constraints") or {}),
+                prefer_operator=prefer_operator,
+                require_dispatchable=require_dispatchable,
+                operators_path=operators_path,
+            )
+            if execution_candidates:
+                selected_operator_id = str(execution_candidates[0]["operator_id"])
+                writer_operator_id = selected_operator_id
 
     verifier_plans = []
     for stage in verifier_stages:
-        candidates = enumerate_physical_candidates(
-            role=str(stage.get("role") or "evaluator"),
-            task_type=str(stage.get("task_type") or "verification"),
-            logical_operator="Verifier",
-            operator_constraints=dict(stage.get("operator_constraints") or {}),
-            require_dispatchable=require_dispatchable,
-            operators_path=operators_path,
-        )
-        verifier_plans.append(
-            {
+        if enable_v2_scoring:
+            v2_verifier = enumerate_physical_candidates_v2(
+                role=str(stage.get("role") or "evaluator"),
+                task_type=str(stage.get("task_type") or "verification"),
+                logical_operator="Verifier",
+                operator_constraints=dict(stage.get("operator_constraints") or {}),
+                task_risk_level=task_risk_level,
+                feedback_records=feedback_records,
+                writer_operator_id=writer_operator_id,
+                operators_path=operators_path,
+                weights_path=weights_path,
+            )
+            verifier_plans.append({
+                "stage_id": stage.get("stage_id"),
+                "capability_capsule_id": stage.get("capability_capsule_id"),
+                "candidates": v2_verifier["candidates"],
+                "rejected_candidates": v2_verifier["rejected_candidates"],
+                "selected_operator_id": v2_verifier["selected_operator_id"],
+            })
+        else:
+            candidates = enumerate_physical_candidates(
+                role=str(stage.get("role") or "evaluator"),
+                task_type=str(stage.get("task_type") or "verification"),
+                logical_operator="Verifier",
+                operator_constraints=dict(stage.get("operator_constraints") or {}),
+                require_dispatchable=require_dispatchable,
+                operators_path=operators_path,
+            )
+            verifier_plans.append({
                 "stage_id": stage.get("stage_id"),
                 "capability_capsule_id": stage.get("capability_capsule_id"),
                 "candidates": candidates,
                 "selected_operator_id": str(candidates[0]["operator_id"]) if candidates else "",
-            }
-        )
+            })
 
-    return {
-        "schema_version": "solar.physical_plan_node.v1",
+    schema_version = "solar.physical_plan_node.v2" if enable_v2_scoring else "solar.physical_plan_node.v1"
+    result: Dict[str, Any] = {
+        "schema_version": schema_version,
         "node_id": capsule_plan_node.get("node_id"),
         "logical_operator": capsule_plan_node.get("logical_operator"),
         "capability_capsule_id": capsule_plan_node.get("capability_capsule_id"),
@@ -820,6 +997,11 @@ def build_physical_plan_for_capsule_node(
         "attached_capsules": attached_stages,
         "verifier_plans": verifier_plans,
     }
+    if enable_v2_scoring:
+        result["rejected_candidates"] = rejected_candidates
+        result["plan_valid"] = True
+        result["invalidation_reasons"] = []
+    return result
 
 
 def execution_plan_artifact_paths(
@@ -861,6 +1043,7 @@ def compile_execution_plan_for_node(
     registry_path: Optional[Path] = None,
     require_dispatchable: bool = False,
     operators_path: Optional[Path] = None,
+    enable_v2_scoring: bool = False,
 ) -> Dict[str, Any]:
     goal_text = str(node.get("goal") or request_type or "")
 
@@ -885,6 +1068,7 @@ def compile_execution_plan_for_node(
         prefer_operator=prefer_operator,
         require_dispatchable=require_dispatchable,
         operators_path=operators_path,
+        enable_v2_scoring=enable_v2_scoring,
     )
 
     # ── Stage 5: Skill plan + MCP plan (use capsule manifest if available) ────
@@ -902,6 +1086,25 @@ def compile_execution_plan_for_node(
 
     skill_plan = resolve_skill_plan(logical_workflow, capsule_manifest)
     mcp_plan = resolve_mcp_plan(skill_plan, capsule_manifest)
+
+    # ── Stage 5b: Enrich skill/mcp plans with registry state resolution ──────
+    selected_skill_ids = [
+        entry.get("selected") or entry.get("skill_id")
+        for stage_data in (skill_plan.values() if isinstance(skill_plan, dict) else [])
+        for entry in ([stage_data] if isinstance(stage_data, dict) else [])
+        if entry.get("selected") or entry.get("skill_id")
+    ]
+    enriched_skill_entries = resolve_skill_plan_with_states(selected_skill_ids)
+    enriched_mcp_entries = resolve_mcp_plan_with_states(selected_skill_ids)
+
+    # Backward-compatible skill_plan: keep flat per-stage keys at top level,
+    # add registry_states as extra key so existing consumers continue working.
+    skill_plan_out = dict(skill_plan)
+    skill_plan_out["registry_states"] = [e.to_dict() for e in enriched_skill_entries]
+
+    # Backward-compatible mcp_plan: keep existing keys, add registry_states.
+    mcp_plan_out = dict(mcp_plan)
+    mcp_plan_out["registry_states"] = [e.to_dict() for e in enriched_mcp_entries]
 
     # ── Build capsule_plan selection_rationale for artifact ───────────────────
     all_capsule_candidates = []
@@ -959,6 +1162,50 @@ def compile_execution_plan_for_node(
             f"apo.node.{node.get('id', 'unknown')}.plan_compiled",
         ]
 
+    # ── Evidence refs ───────────────────────────────────────────────────────
+    evidence_refs: List[Dict[str, Any]] = []
+    if capsule_plan_artifact.get("selected_capsule_id"):
+        evidence_refs.append({
+            "ref_type": "capsule_selection",
+            "capsule_id": capsule_plan_artifact["selected_capsule_id"],
+            "rationale": capsule_plan_artifact.get("rationale", ""),
+            "fallback_used": capsule_plan_artifact.get("fallback_used", False),
+        })
+    for candidate in capsule_plan_artifact.get("candidates", []):
+        evidence_refs.append({
+            "ref_type": "capsule_candidate",
+            "capsule_id": candidate.get("capsule_id"),
+            "score": candidate.get("score"),
+            "selected": candidate.get("selected", False),
+        })
+    for stage_name, stage_data in (skill_plan.items() if isinstance(skill_plan, dict) else []):
+        if isinstance(stage_data, dict) and stage_data.get("selected"):
+            evidence_refs.append({
+                "ref_type": "skill_selection",
+                "stage": stage_name,
+                "skill_id": stage_data["selected"],
+            })
+    for mcp_entry in mcp_plan_out.get("required_mcp", []):
+        evidence_refs.append({
+            "ref_type": "mcp_requirement",
+            "capability": mcp_entry.get("capability"),
+            "why_needed": mcp_entry.get("why_needed"),
+        })
+    for enriched_entry in enriched_skill_entries:
+        evidence_refs.append({
+            "ref_type": "skill_registry_state",
+            "skill_id": enriched_entry.skill_id,
+            "state": enriched_entry.state,
+            "reason": enriched_entry.reason,
+        })
+    for mcp_entry in enriched_mcp_entries:
+        evidence_refs.append({
+            "ref_type": "mcp_registry_state",
+            "capability": mcp_entry.capability,
+            "state": mcp_entry.state,
+            "provider_candidates": mcp_entry.provider_candidates,
+        })
+
     return {
         "logical_plan_node": {
             "node_id": node.get("id"),
@@ -968,13 +1215,14 @@ def compile_execution_plan_for_node(
         },
         "task_classification": task_classification,
         "logical_workflow": logical_workflow,
-        "skill_plan": skill_plan,
-        "mcp_plan": mcp_plan,
+        "skill_plan": skill_plan_out,
+        "mcp_plan": mcp_plan_out,
         "capsule_plan": capsule_plan,
         "capsule_plan_artifact": capsule_plan_artifact,
         "physical_plan": physical_plan,
         "physical_plan_artifact": physical_plan_artifact,
         "evidence_policy": evidence_policy,
+        "evidence_refs": evidence_refs,
         "selection_rationale": {
             "classification_confidence": task_classification.get("confidence"),
             "primary_class": task_classification.get("primary_class"),
