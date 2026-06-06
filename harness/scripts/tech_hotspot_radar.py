@@ -13822,7 +13822,7 @@ def build_ai_influence_video_grouping_prompt(materials: list[dict[str, Any]], *,
         }
         for item in materials
     ]
-    return f"""你是 AI Influence 的 YouTube 素材总编和研究策展人。
+    body = f"""你是 AI Influence 的 YouTube 素材总编和研究策展人。
 
 你现在使用 Browser Agent 算子打开 ChatGPT，模型必须是 {model_name}，Thinking high。
 
@@ -13881,6 +13881,20 @@ def build_ai_influence_video_grouping_prompt(materials: list[dict[str, Any]], *,
 视频 transcript 材料 JSON：
 {json.dumps(safe_materials, ensure_ascii=False, indent=2)}
 """
+    return wrap_ai_influence_scratch_chat_prompt(
+        body,
+        lane="ai_influence_planned_report",
+        task_type="grouping",
+        run_id=f"ai-influence-grouping:{date_str}:{days}d",
+        report_date=date_str,
+        extra_guard=(
+            "[GROUPING_SCOPE_GUARD]\n"
+            "你当前只做素材语义分组，不做报告规划，不做章节写作。\n"
+            "禁止沿用历史对话中的旧 group、旧趋势桶、旧事件归类；除非本次 payload 再次给出。\n"
+            "如果当前 transcript 材料不足，就输出 weak_misc / ungrouped_materials，不要用历史聊天补完。\n"
+            "[/GROUPING_SCOPE_GUARD]"
+        ),
+    )
 
 
 def normalize_ai_influence_video_groups(group_plan: dict[str, Any], catalog: list[dict[str, Any]]) -> dict[str, Any]:
@@ -13940,7 +13954,7 @@ def build_ai_influence_report_plan_prompt(catalog: list[dict[str, Any]], *,
         for item in catalog
     ]
     group_plan = video_group_plan or {"video_groups": [], "planning_guidance": []}
-    return f"""你是 AI Influence 的总编辑、研究主编和技术趋势报告规划师。
+    body = f"""你是 AI Influence 的总编辑、研究主编和技术趋势报告规划师。
 
 你现在使用的是 Browser Agent 算子打开 ChatGPT，模型必须是 {model_name}，Thinking high。
 
@@ -14042,6 +14056,78 @@ def build_ai_influence_report_plan_prompt(catalog: list[dict[str, Any]], *,
 视频目录 JSON：
 {json.dumps(safe_catalog, ensure_ascii=False, indent=2)}
 """
+    return wrap_ai_influence_scratch_chat_prompt(
+        body,
+        lane="ai_influence_planned_report",
+        task_type="planner",
+        run_id=f"ai-influence-planner:{date_str}:{days}d",
+        report_date=date_str,
+        extra_guard=(
+            "[PLANNER_SCOPE_GUARD]\n"
+            "你现在不是在续写旧报告，也不是在修订之前的 report plan。\n"
+            "你只能基于当前消息提供的 `video_group_plan` 和 `video catalog` 重新规划。\n"
+            "禁止沿用任何历史报告标题、趋势结构、章节树、figure slots，除非它们在当前 payload 中再次明确给出。\n"
+            "如果当前素材不足以支撑多份报告，就减少 reports 数量；不要因为历史习惯维持旧数量。\n"
+            "[/PLANNER_SCOPE_GUARD]"
+        ),
+    )
+
+
+def _ai_influence_scratch_identity(*,
+                                   lane: str,
+                                   task_type: str,
+                                   run_id: str,
+                                   report_date: str,
+                                   report_id: str | None = None,
+                                   chapter_id: str | None = None) -> str:
+    return "\n".join([
+        "当前任务身份：",
+        f"- lane: {lane}",
+        f"- task_type: {task_type}",
+        f"- run_id: {run_id}",
+        f"- report_date: {report_date}",
+        f"- report_id: {str(report_id or 'N/A').strip() or 'N/A'}",
+        f"- chapter_id: {str(chapter_id or 'N/A').strip() or 'N/A'}",
+    ])
+
+
+def wrap_ai_influence_scratch_chat_prompt(body: str, *,
+                                          lane: str,
+                                          task_type: str,
+                                          run_id: str,
+                                          report_date: str,
+                                          report_id: str | None = None,
+                                          chapter_id: str | None = None,
+                                          extra_guard: str | None = None) -> str:
+    parts = [
+        "[SCRATCH_CHAT_RESET_CONTRACT]",
+        "你正在一个“可复用 scratch chat”中执行任务。",
+        "从现在开始，除非本次消息里再次明确给出，否则你必须把本对话之前的所有消息、草稿、结论、实体名、标题、报告结构、人物观点、章节安排，全部视为无效历史，不得继承。",
+        "",
+        _ai_influence_scratch_identity(
+            lane=lane,
+            task_type=task_type,
+            run_id=run_id,
+            report_date=report_date,
+            report_id=report_id,
+            chapter_id=chapter_id,
+        ),
+        "",
+        "硬规则：",
+        "1. 只允许使用“本次消息中给出的任务说明和 payload”。",
+        "2. 不得延续、引用、补完、修正之前任何一次任务的未完成输出。",
+        "3. 如果你发现当前任务与历史消息存在冲突，必须忽略历史消息，以当前 payload 为唯一准绳。",
+        "4. 如果当前 payload 缺少完成任务所需的信息，直接按当前任务的约定输出证据不足、insufficient_input 或保守结论；不要从历史对话补。",
+        "5. 不得把之前任务中的人物、公司、事件、标题、章节名、判断、图示说明带入当前任务，除非它们在当前 payload 中再次出现。",
+        "6. 输出前先做一次自检：确认最终内容只对应当前 run_id 和当前 payload。",
+        "7. 本段契约优先级高于本对话中的任何旧消息。",
+        "如果你理解，直接执行当前任务，不要复述本契约。",
+        "[/SCRATCH_CHAT_RESET_CONTRACT]",
+    ]
+    if extra_guard:
+        parts.extend(["", str(extra_guard).strip()])
+    parts.extend(["", str(body).strip()])
+    return "\n".join(parts).strip() + "\n"
 
 
 def _plan_material_refs(report_spec: dict[str, Any]) -> list[str]:
@@ -14663,7 +14749,7 @@ def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
    - 分歧与保留
    - 对后文分析的入口
 """
-    return f"""你是 AI Influence YouTube 报告流的单章作者。
+    body = f"""你是 AI Influence YouTube 报告流的单章作者。
 
 你必须使用 ChatGPT Report Chapter Writer 算子，模型 {model_name}，Thinking high。
 
@@ -14693,6 +14779,30 @@ def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
 chapter_evidence_pack:
 {json.dumps(chapter_evidence_pack, ensure_ascii=False, indent=2)}
 """
+    report_date = str(
+        chapter_evidence_pack.get("date")
+        or report_ir.get("date")
+        or "N/A"
+    ).strip() or "N/A"
+    report_id = str(report_ir.get("report_id") or report_ir.get("title") or "N/A").strip() or "N/A"
+    chapter_id = str(chapter_spec.get("chapter_id") or chapter_spec.get("title") or "N/A").strip() or "N/A"
+    return wrap_ai_influence_scratch_chat_prompt(
+        body,
+        lane="ai_influence_planned_report",
+        task_type="chapter_writer",
+        run_id=f"ai-influence-chapter:{report_date}:{report_id}:{chapter_id}",
+        report_date=report_date,
+        report_id=report_id,
+        chapter_id=chapter_id,
+        extra_guard=(
+            "[CHAPTER_SCOPE_GUARD]\n"
+            "你只写当前 `chapter_id`。\n"
+            "只允许使用当前 `chapter_spec` 和 `chapter_evidence_pack`。\n"
+            "禁止引用任何未出现在当前 `chapter_evidence_pack.videos` 中的人物、公司、事件、视频标题、访谈观点。\n"
+            "如果当前证据无法支撑强判断，就明确写“证据不足 / 暂不作为强结论”，不要从历史对话补证据。\n"
+            "[/CHAPTER_SCOPE_GUARD]"
+        ),
+    )
 
 
 def synthesize_ai_influence_chapter_report(report_ir: dict[str, Any],
@@ -14735,6 +14845,7 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                                                  purpose: str,
                                                  model_name: str,
                                                  chapter_id: str,
+                                                 scratch_profile_id: str | None = None,
                                                  min_chars: int = 120,
                                                  max_attempts: int = 3) -> dict[str, Any]:
     """Run ChatGPT Report Chapter Writer with a bounded repair loop.
@@ -14764,6 +14875,11 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                 purpose=purpose if attempt == 1 else f"{purpose}-repair-{attempt}",
                 requested_model=model_name,
                 operator_kind="chapter_writer",
+                scratch_profile_id=scratch_profile_id,
+                open_project_first=False,
+                require_project=False,
+                force_new_chat=False,
+                require_isolated_conversation=False,
             )
             markdown = str(result.get("markdown") or "").strip()
             if len(markdown) >= min_chars:
@@ -14896,13 +15012,108 @@ evidence_pack:
 
 
 def _browser_agent_request_dir(config: dict[str, Any], purpose: str) -> Path:
-    state_dir = Path((config.get("output") or {}).get(
-        "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    state_dir = _expand_runtime_path(
+        (config.get("output") or {}).get(
+            "state_dir",
+            str(Path.home() / ".solar/harness/state/tech-hotspot-radar"),
+        )
+    )
     stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = state_dir / "browser-agent-requests" / f"{stamp}-{slugify(purpose)[:60]}"
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def _browser_agent_state_dir(config: dict[str, Any]) -> Path:
+    return _expand_runtime_path(
+        (config.get("output") or {}).get(
+            "state_dir",
+            str(Path.home() / ".solar/harness/state/tech-hotspot-radar"),
+        )
+    )
+
+
+def _browser_agent_scratch_session_path(config: dict[str, Any], scratch_profile_id: str) -> Path:
+    normalized = Path(str(scratch_profile_id).strip())
+    return _browser_agent_state_dir(config) / "browser-agent-scratch-pool" / normalized / "session.json"
+
+
+def _load_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str) -> dict[str, Any]:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str, payload: dict[str, Any]) -> None:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _conversation_state_from_request_dir(request_dir: Path) -> dict[str, Any]:
+    candidates = [
+        request_dir / "page.json",
+        request_dir / "conversation.json",
+        request_dir / "submitted-run.json",
+        request_dir / "post-submit-state.json",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def _persist_browser_agent_scratch_session_from_request_dir(
+    config: dict[str, Any],
+    *,
+    scratch_profile_id: str | None,
+    purpose: str,
+    request_dir: Path,
+) -> bool:
+    if not scratch_profile_id:
+        return False
+    conversation_state = _conversation_state_from_request_dir(request_dir)
+    conversation_url = str(
+        conversation_state.get("url")
+        or conversation_state.get("conversation_url")
+        or ""
+    ).strip()
+    conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+    has_conversation_path = "/c/" in conversation_url
+    if not conversation_url or (not conversation_id and not has_conversation_path):
+        return False
+    _write_browser_agent_scratch_session(
+        config,
+        scratch_profile_id,
+        {
+            "scratch_profile_id": scratch_profile_id,
+            "purpose": purpose,
+            "conversation_url": conversation_url,
+            "conversation_id": conversation_id,
+            "updated_at": iso_z(),
+            "request_dir": str(request_dir),
+        },
+    )
+    return True
+
+
+def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = None) -> str:
+    clean_task = slugify(str(task_type or "").strip())[:40] or "default"
+    if clean_task == "chapter_writer":
+        clean_report = slugify(str(report_id or "").strip())[:80] or "shared"
+        return f"chatgpt/ai-influence-planned/chapter/{clean_report}"
+    return f"chatgpt/ai-influence-planned/{clean_task}"
 
 
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:
@@ -15003,7 +15214,8 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     reasoner_cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = (flow_cfg.get("report_writer") or {})
@@ -15028,6 +15240,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "created_at": iso_z(),
         "status": "pending_executor",
         "note": "AI Influence high-judgment stages must use DeepResearchChatGPT/chatgpt_thinking_high via Browser Agent + ChatGPT 5.5 Thinking high. No Codex/local fallback is allowed.",
+        "scratch_profile_id": str(scratch_profile_id or "").strip(),
     }
     (req_dir / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     cmd = browser_agent_chatgpt_cmd(config)
@@ -15051,6 +15264,18 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         env["CHATGPT_REPORT_OPERATOR_KIND"] = operator_kind
     if target_url:
         env["BROWSER_AGENT_CHATGPT_URL"] = str(target_url)
+    resumed_target_url = ""
+    if scratch_profile_id:
+        env["BROWSER_AGENT_PROFILE_ID"] = str(scratch_profile_id)
+        scratch_session = _load_browser_agent_scratch_session(config, scratch_profile_id)
+        resumed_target_url = str(
+            scratch_session.get("conversation_url")
+            or scratch_session.get("url")
+            or ""
+        ).strip()
+        if resumed_target_url and not target_url:
+            env["BROWSER_AGENT_CHATGPT_URL"] = resumed_target_url
+            meta["scratch_resume_url"] = resumed_target_url
     resolved_headless = headless
     if resolved_headless is None:
         resolved_headless = _env_override_bool("BROWSER_AGENT_HEADLESS", "TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS")
@@ -15155,21 +15380,77 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
     if project_name:
         env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
     started = time.time()
-    run = subprocess.run(
+    proc = subprocess.Popen(
         cmd,
-        input=prompt,
-        text=True,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=timeout,
+        text=True,
         env=env,
     )
-    output = _strip_browser_agent_noise(run.stdout or "")
+    if proc.stdin is not None:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+
+    scratch_session_persisted = False
+    timeout_deadline = started + timeout
+    while True:
+        if not scratch_session_persisted:
+            scratch_session_persisted = _persist_browser_agent_scratch_session_from_request_dir(
+                config,
+                scratch_profile_id=scratch_profile_id,
+                purpose=purpose,
+                request_dir=req_dir,
+            )
+        try:
+            proc.wait(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            if time.time() >= timeout_deadline:
+                if not scratch_session_persisted:
+                    scratch_session_persisted = _persist_browser_agent_scratch_session_from_request_dir(
+                        config,
+                        scratch_profile_id=scratch_profile_id,
+                        purpose=purpose,
+                        request_dir=req_dir,
+                    )
+                proc.kill()
+                output = ""
+                if proc.stdout is not None:
+                    output = proc.stdout.read() or ""
+                output = _strip_browser_agent_noise(output)
+                (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=output)
+    output = ""
+    if proc.stdout is not None:
+        output = proc.stdout.read() or ""
+    output = _strip_browser_agent_noise(output)
     (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
-    if run.returncode != 0:
-        raise RuntimeError(f"browser_agent_chatgpt failed rc={run.returncode}: {output[-2000:]}")
+    if proc.returncode != 0:
+        if not scratch_session_persisted:
+            scratch_session_persisted = _persist_browser_agent_scratch_session_from_request_dir(
+                config,
+                scratch_profile_id=scratch_profile_id,
+                purpose=purpose,
+                request_dir=req_dir,
+            )
+        raise RuntimeError(f"browser_agent_chatgpt failed rc={proc.returncode}: {output[-2000:]}")
     if len(output) < (500 if expected == "json" else 1000):
+        if not scratch_session_persisted:
+            scratch_session_persisted = _persist_browser_agent_scratch_session_from_request_dir(
+                config,
+                scratch_profile_id=scratch_profile_id,
+                purpose=purpose,
+                request_dir=req_dir,
+            )
         raise ValueError(f"browser_agent_chatgpt output too short: {len(output)} chars")
+    if not scratch_session_persisted:
+        _persist_browser_agent_scratch_session_from_request_dir(
+            config,
+            scratch_profile_id=scratch_profile_id,
+            purpose=purpose,
+            request_dir=req_dir,
+        )
     meta.update({
         "status": "completed",
         "latency_ms": int((time.time() - started) * 1000),
@@ -15251,7 +15532,12 @@ def extract_json_payload_lenient(text: str) -> dict[str, Any]:
 def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
                                         purpose: str,
                                         requested_model: str | None = None,
-                                        operator_kind: str | None = None) -> dict[str, Any]:
+                                        operator_kind: str | None = None,
+                                        scratch_profile_id: str | None = None,
+                                        force_new_chat: bool | None = None,
+                                        require_isolated_conversation: bool | None = None,
+                                        open_project_first: bool | None = None,
+                                        require_project: bool | None = None) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -15259,6 +15545,11 @@ def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
         expected="markdown",
         requested_model=requested_model,
         operator_kind=operator_kind,
+        scratch_profile_id=scratch_profile_id,
+        force_new_chat=force_new_chat,
+        require_isolated_conversation=require_isolated_conversation,
+        open_project_first=open_project_first,
+        require_project=require_project,
     )
     markdown = str(result.pop("text") or "").strip()
     result["markdown"] = markdown
@@ -15630,7 +15921,8 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -15650,6 +15942,7 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
         require_project=require_project,
         force_new_chat=force_new_chat,
         require_isolated_conversation=require_isolated_conversation,
+        scratch_profile_id=scratch_profile_id,
     )
     payload = extract_json_payload_lenient(str(result.pop("text") or ""))
     payload["_backend"] = result["backend"]
@@ -17163,16 +17456,29 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
         return 1
 
 
+def _expand_runtime_path(value: str | Path) -> Path:
+    raw = str(value)
+    defaults = {
+        "${SOLAR_KNOWLEDGE_DIR}": str(Path.home() / "Knowledge"),
+        "${HARNESS_DIR}": str(Path.home() / ".solar" / "harness"),
+        "${SOLAR_REPO}": str(Path.home() / "Solar"),
+    }
+    for token, replacement in defaults.items():
+        if token in raw and token.replace("${", "").replace("}", "") not in os.environ:
+            raw = raw.replace(token, replacement)
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
 def _ai_influence_planned_base(config: dict[str, Any], args: argparse.Namespace, date_str: str) -> Path:
-    raw_base = Path(
+    raw_base = _expand_runtime_path(
         getattr(args, "output_base", None)
         or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
-    ).expanduser()
+    )
     return raw_base / "ai-influence-planned" / date_str
 
 
 def _ai_influence_canonical_planned_base(config: dict[str, Any], date_str: str) -> Path:
-    raw_base = Path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     return raw_base / "ai-influence-planned" / date_str
 
 
@@ -17367,6 +17673,11 @@ def cmd_plan_ai_influence_reports(args: argparse.Namespace) -> int:
             purpose=f"ai-influence-video-grouping-{date_str}",
             requested_model=model_name,
             operator_kind="planner",
+            scratch_profile_id=ai_influence_scratch_profile_id(task_type="grouping"),
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
         )
         group_plan = normalize_ai_influence_video_groups(raw_group_plan, catalog)
         group_plan["catalog_video_count"] = len(catalog)
@@ -17408,6 +17719,11 @@ def cmd_plan_ai_influence_reports(args: argparse.Namespace) -> int:
             purpose=f"ai-influence-report-plan-{date_str}",
             requested_model=model_name,
             operator_kind="planner",
+            scratch_profile_id=ai_influence_scratch_profile_id(task_type="planner"),
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
         )
         plan["catalog_video_count"] = len(catalog)
         plan["video_group_count"] = len(group_plan.get("video_groups") or [])
@@ -17576,6 +17892,7 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=writer_model,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(task_type="chapter_writer", report_id=report_id),
                 )
 
             for job in jobs:
@@ -17824,6 +18141,7 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=model_name,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(task_type="chapter_writer", report_id=report_id),
                 )
                 chapter_markdown = str(chapter_result.get("markdown") or "").strip()
                 if len(chapter_markdown) < 120:
