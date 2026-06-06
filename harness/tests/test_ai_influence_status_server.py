@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 
-_STATUS_SERVER = Path("${SOLAR_REPO}/harness/lib/symphony/status-server.py")
+_STATUS_SERVER = Path(__file__).resolve().parents[1] / "lib" / "symphony" / "status-server.py"
 
 
 def _load_module():
@@ -75,6 +75,65 @@ def test_save_ai_influence_mail_config(tmp_path, monkeypatch):
     assert saved["to"] == "a@example.com,b@example.com"
     assert "updated_at" in saved
 
+
+def test_report_lock_events_payload_and_render(tmp_path, monkeypatch):
+    mod = _load_module()
+    event_log = tmp_path / "report-lock-events.jsonl"
+    rows = [
+        {
+            "ts": "2026-06-06T12:00:00Z",
+            "action": "acquire",
+            "status": "acquired",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "999999",
+            "other_pid": "",
+            "detail": "new_lock",
+        },
+        {
+            "ts": "2026-06-06T12:01:00Z",
+            "action": "acquire",
+            "status": "busy_skip",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "1000000",
+            "other_pid": "999999",
+            "detail": "existing_pid_alive",
+        },
+        {
+            "ts": "2026-06-06T12:02:00Z",
+            "action": "stale_cleanup",
+            "status": "removed",
+            "label": "youtube-daily-ai-influence-report",
+            "lock_dir": str(tmp_path / "youtube.lockdir"),
+            "pid": "1000001",
+            "other_pid": "999998",
+            "detail": "existing_pid_dead_or_missing",
+        },
+        {
+            "ts": "2026-06-06T12:03:00Z",
+            "action": "release",
+            "status": "released",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "999999",
+            "other_pid": "",
+            "detail": "owner_exit",
+        },
+    ]
+    event_log.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "REPORT_LOCK_EVENTS", event_log)
+
+    payload = mod._report_lock_events_payload(limit=10)
+
+    assert payload["ok"] is True
+    assert payload["summary"]["busy_skip"] == 1
+    assert payload["summary"]["stale_removed"] == 1
+    assert payload["summary"]["active"] == 0
+    rendered = mod._render_report_lock_events_section()
+    assert "运行锁观测" in rendered
+    assert "github-trend-report-daily" in rendered
+    assert "busy_skip" in rendered
 
 def test_ai_influence_send_report_uses_full_html_body_and_attaches_html(tmp_path, monkeypatch):
     mod = _load_module()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,16 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def _slug(value: str) -> str:
     text = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip())
     return text.strip("-._").lower() or "default"
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def default_profile_id(service: str, account_label: str | None = None, profile_directory: str | None = None) -> str:
@@ -52,12 +63,18 @@ def initialize_runtime_contract(
     registry = ProfileRegistry()
     lease_manager = ProfileLease()
     task_ref = str(task_id or request_dir.name or "browser-task").strip()
-    lease_result = lease_manager.acquire(
+    lease_wait_seconds = _env_float("BROWSER_PROFILE_LEASE_WAIT_SECONDS", 600.0)
+    lease_poll_seconds = _env_float("BROWSER_PROFILE_LEASE_POLL_SECONDS", 5.0)
+    lease_jitter_seconds = _env_float("BROWSER_PROFILE_LEASE_JITTER_SECONDS", 1.5)
+    lease_result = lease_manager.acquire_with_wait(
         profile_id=profile_id,
         task_id=task_ref,
         runtime=runtime_owner,
         mode="exclusive",
         allowed_attach=bool((control_modes or {}).get("playwright_cdp_attach")),
+        wait_timeout_seconds=lease_wait_seconds,
+        poll_interval_seconds=lease_poll_seconds,
+        jitter_seconds=lease_jitter_seconds,
     )
     if not lease_result.get("acquired"):
         raise RuntimeError(
@@ -113,6 +130,11 @@ def initialize_runtime_contract(
             "service": service,
             "wrapper_kind": wrapper_kind,
             "control_modes": dict(control_modes or {}),
+            "lease_wait_policy": {
+                "wait_timeout_seconds": lease_wait_seconds,
+                "poll_interval_seconds": lease_poll_seconds,
+                "jitter_seconds": lease_jitter_seconds,
+            },
             **dict(metadata or {}),
         },
     )
@@ -127,6 +149,11 @@ def initialize_runtime_contract(
             "runtime_owner": runtime_owner,
             "profile_id": profile_id,
             "lease": lease_result.get("lease"),
+            "lease_acquire": {
+                key: lease_result.get(key)
+                for key in ("attempts", "waited_seconds", "wait_timeout_seconds")
+                if key in lease_result
+            },
         },
     )
     return {
@@ -140,6 +167,11 @@ def initialize_runtime_contract(
         "registry": registry,
         "lease_manager": lease_manager,
         "lease": lease_result.get("lease") or {},
+        "lease_acquire": {
+            key: lease_result.get(key)
+            for key in ("attempts", "waited_seconds", "wait_timeout_seconds")
+            if key in lease_result
+        },
         "task_id": task_ref,
         "allowed_account_identifiers": stored_meta.get("allowed_account_identifiers") or [],
         "account_identifier": account_identifier or "",

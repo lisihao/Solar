@@ -10,17 +10,14 @@ LOG_DIR="${LOG_DIR:-${HARNESS_DIR}/run}"
 LOCK_DIR="${LOCK_DIR:-$STATE_DIR/youtube-weekly-db-backfill.lockdir}"
 
 mkdir -p "$LOG_DIR" "$STATE_DIR"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  if [[ -f "$LOCK_DIR/pid" ]] && kill -0 "$(cat "$LOCK_DIR/pid" 2>/dev/null)" 2>/dev/null; then
-    echo "[youtube-weekly-db-backfill] already running; skip $(date)"
-    exit 0
-  fi
-  echo "[youtube-weekly-db-backfill] stale lock removed $(date)"
-  rm -rf "$LOCK_DIR"
-  mkdir "$LOCK_DIR"
+source "$HARNESS_DIR/scripts/lib/lockdir.sh"
+solar_acquire_lockdir "$LOCK_DIR" "youtube-weekly-db-backfill"
+rc=$?
+if [[ "$rc" != "0" ]]; then
+  [[ "$rc" == "75" ]] && exit 0
+  exit "$rc"
 fi
-echo "$$" > "$LOCK_DIR/pid"
-trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+trap 'solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
 
 export PYTHONPATH="$HARNESS_DIR/lib:${PYTHONPATH:-}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"

@@ -79,6 +79,7 @@ AI_INFLUENCE_MAIL_CONFIG = HARNESS_DIR / "state" / "ai-influence-mail-config.jso
 AI_INFLUENCE_DELETED_REPORTS = HARNESS_DIR / "state" / "ai-influence-deleted-reports.json"
 AI_INFLUENCE_YOUTUBE_VIDEO_ARCHIVE = HARNESS_DIR / "state" / "ai-influence-youtube-video-archive.json"
 AI_INFLUENCE_YOUTUBE_VIDEO_ACTION_DIR = HARNESS_DIR / "state" / "ai-influence-youtube-video-actions"
+REPORT_LOCK_EVENTS = Path(os.environ.get("SOLAR_LOCK_EVENT_LOG", str(HARNESS_DIR / "state" / "report-lock-events.jsonl")))
 ACCEPTED_ASSETS_DIR = KNOWLEDGE_DIR / "_raw" / "solar-harness" / "accepted"
 ACCEPTED_ASSETS_MANIFEST = KNOWLEDGE_DIR / "_raw" / "solar-harness" / ".manifest" / "accepted-artifacts.json"
 MODEL_DOCTOR_HEALTH = HARNESS_DIR / "state" / "model-registry-doctor-health.json"
@@ -1506,6 +1507,119 @@ def _render_ai_influence_summary_table(summary: dict) -> str:
     if not body_rows:
         body_rows.append(f"<tr><td colspan='{max(1, len(row_map))}'>N/A</td></tr>")
     return f"<div class='summary-table-wrap'><table class='summary-table'><thead><tr>{headers}</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"
+
+
+def _pid_alive_text(pid: str) -> str:
+    value = str(pid or "").strip()
+    if not re.match(r"^\d+$", value):
+        return "N/A"
+    try:
+        os.kill(int(value), 0)
+        return "alive"
+    except OSError:
+        return "dead"
+
+
+def _report_lock_events_payload(limit: int = 60) -> dict:
+    events = _read_jsonl(REPORT_LOCK_EVENTS, limit=max(limit, 1))
+    replay_events = _read_jsonl(REPORT_LOCK_EVENTS, limit=500)
+    active: dict[str, dict] = {}
+    for event in replay_events:
+        if not isinstance(event, dict):
+            continue
+        key = str(event.get("lock_dir") or event.get("label") or "").strip()
+        if not key:
+            continue
+        action = str(event.get("action") or "")
+        status = str(event.get("status") or "")
+        if action == "acquire" and status == "acquired":
+            active[key] = dict(event)
+        elif action == "release" and status == "released":
+            active.pop(key, None)
+        elif action == "stale_cleanup" and status == "removed":
+            active.pop(key, None)
+    active_rows = []
+    for event in active.values():
+        row = dict(event)
+        row["pid_state"] = _pid_alive_text(str(row.get("pid") or ""))
+        active_rows.append(row)
+    active_rows.sort(key=lambda row: str(row.get("ts") or ""), reverse=True)
+    summary = {
+        "events": len(events),
+        "active": len(active_rows),
+        "busy_skip": sum(1 for event in events if str((event or {}).get("status") or "") == "busy_skip"),
+        "stale_removed": sum(1 for event in events if str((event or {}).get("action") or "") == "stale_cleanup"),
+        "errors": sum(1 for event in events if str((event or {}).get("status") or "") == "error"),
+    }
+    return {
+        "ok": REPORT_LOCK_EVENTS.exists(),
+        "path": str(REPORT_LOCK_EVENTS),
+        "summary": summary,
+        "active": active_rows,
+        "events": list(reversed(events[-limit:])),
+    }
+
+
+def _render_report_lock_events_section() -> str:
+    payload = _report_lock_events_payload(limit=12)
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    metric_html = "".join(
+        f"<span class='summary-metric'><b>{html.escape(str(value))}</b><small>{html.escape(str(key))}</small></span>"
+        for key, value in {
+            "最近事件": summary.get("events", 0),
+            "活跃锁": summary.get("active", 0),
+            "跳过": summary.get("busy_skip", 0),
+            "清死锁": summary.get("stale_removed", 0),
+            "错误": summary.get("errors", 0),
+        }.items()
+    )
+    active_rows = []
+    for row in payload.get("active") or []:
+        active_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('label') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('pid') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('pid_state') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('ts') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('lock_dir') or 'N/A'))}</td>"
+            "</tr>"
+        )
+    if not active_rows:
+        active_rows.append("<tr><td colspan='5'>当前账本未推断出活跃报告锁。</td></tr>")
+    event_rows = []
+    for row in payload.get("events") or []:
+        event_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('ts') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('label') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('action') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('status') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('pid') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('other_pid') or 'N/A'))}</td>"
+            f"<td>{html.escape(str(row.get('detail') or 'N/A'))}</td>"
+            "</tr>"
+        )
+    if not event_rows:
+        event_rows.append("<tr><td colspan='7'>暂无锁事件。下一次报告/采集任务运行后会自动出现。</td></tr>")
+    return f"""
+    <div class="group">
+      <div class="group-head">
+        <div>
+          <div class="group-kicker">Runtime Lock Ledger</div>
+          <h2>运行锁观测</h2>
+        </div>
+        <span class="pill">{html.escape('已启用' if payload.get('ok') else '等待首次事件')}</span>
+      </div>
+      <div class="summary-card">
+        <p class="summary-headline">记录报告/采集脚本的锁获取、活进程跳过、死锁清理和释放事件。账本：{html.escape(str(payload.get("path") or "N/A"))}</p>
+        <div class="summary-metrics">{metric_html}</div>
+        <h3 style="margin:14px 0 8px;color:var(--green);font-size:16px;">当前活跃锁</h3>
+        <div class="summary-table-wrap"><table class="summary-table"><thead><tr><th>任务</th><th>PID</th><th>PID 状态</th><th>获取时间</th><th>锁目录</th></tr></thead><tbody>{''.join(active_rows)}</tbody></table></div>
+        <h3 style="margin:16px 0 8px;color:var(--green);font-size:16px;">最近锁事件</h3>
+        <div class="summary-table-wrap"><table class="summary-table"><thead><tr><th>时间</th><th>任务</th><th>动作</th><th>状态</th><th>PID</th><th>关联 PID</th><th>说明</th></tr></thead><tbody>{''.join(event_rows)}</tbody></table></div>
+      </div>
+    </div>
+    """
 
 
 def _sanitize_ai_influence_item(item: dict) -> dict:

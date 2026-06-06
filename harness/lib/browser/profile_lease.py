@@ -9,6 +9,8 @@ import datetime
 import fcntl
 import json
 import os
+import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 import uuid
@@ -31,6 +33,13 @@ def _parse_iso8601(value: str | None) -> datetime.datetime:
         return datetime.datetime.fromisoformat(safe)
     except ValueError:
         return datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
+
+
+def _seconds_until(value: str | None) -> float | None:
+    if not value:
+        return None
+    seconds = (_parse_iso8601(value) - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+    return max(0.0, seconds)
 
 
 def _normalise_profile_id(profile_id: str) -> str:
@@ -217,6 +226,64 @@ class ProfileLease:
         finally:
             fcntl.flock(lock_fh, fcntl.LOCK_UN)
             lock_fh.close()
+
+    def acquire_with_wait(
+        self,
+        profile_id: str,
+        task_id: str,
+        runtime: str,
+        mode: str,
+        *,
+        ttl_seconds: int | None = None,
+        allowed_attach: bool = False,
+        wait_timeout_seconds: float = 0,
+        poll_interval_seconds: float = 5,
+        jitter_seconds: float = 1,
+    ) -> dict[str, Any]:
+        """Acquire a profile lease, waiting for short-lived contention.
+
+        This is the production-safe path for scheduled report jobs. It preserves
+        the exclusive lease protocol, but turns temporary profile occupancy into
+        bounded backoff instead of immediate report failure.
+        """
+        started = time.monotonic()
+        timeout = max(0.0, float(wait_timeout_seconds or 0))
+        poll = max(0.05, float(poll_interval_seconds or 0.05))
+        jitter = max(0.0, float(jitter_seconds or 0))
+        deadline = started + timeout
+        attempts = 0
+
+        while True:
+            self.expire(profile_id)
+            result = self.acquire(
+                profile_id=profile_id,
+                task_id=task_id,
+                runtime=runtime,
+                mode=mode,
+                ttl_seconds=ttl_seconds,
+                allowed_attach=allowed_attach,
+            )
+            attempts += 1
+            result["attempts"] = attempts
+            result["waited_seconds"] = round(time.monotonic() - started, 3)
+            result["wait_timeout_seconds"] = timeout
+            if result.get("acquired"):
+                return result
+
+            remaining = deadline - time.monotonic()
+            if timeout <= 0 or remaining <= 0:
+                result["retry_after_seconds"] = 0
+                return result
+
+            expiry_wait = _seconds_until(result.get("expires_at"))
+            sleep_seconds = poll
+            if expiry_wait is not None:
+                sleep_seconds = min(sleep_seconds, expiry_wait + 0.25)
+            if jitter:
+                sleep_seconds += random.uniform(0, min(jitter, max(0.0, remaining)))
+            sleep_seconds = min(max(0.05, sleep_seconds), max(0.0, remaining))
+            result["retry_after_seconds"] = round(sleep_seconds, 3)
+            time.sleep(sleep_seconds)
 
     def release(self, profile_id: str, task_id: str) -> dict[str, Any]:
         """Release a lease if the task id matches."""

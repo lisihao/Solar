@@ -11,17 +11,15 @@ LOCK_DIR="${SOLAR_YOUTUBE_REPORT_LOCK_DIR:-/tmp/solar-youtube-daily-ai-influence
 LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 ERR_LOG="${SOLAR_YOUTUBE_REPORT_ERR_LOG:-$LOG_DIR/youtube-daily-ai-influence-report.err.log}"
 
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  if [[ -f "$LOCK_DIR/pid" ]] && kill -0 "$(cat "$LOCK_DIR/pid" 2>/dev/null)" 2>/dev/null; then
-    echo "[youtube-daily-ai-influence-report] already running; skip $(date)"
-    exit 0
-  fi
-  echo "[youtube-daily-ai-influence-report] stale lock removed $(date)"
-  rm -rf "$LOCK_DIR"
-  mkdir "$LOCK_DIR"
+mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")"
+source "$HARNESS_DIR/scripts/lib/lockdir.sh"
+solar_acquire_lockdir "$LOCK_DIR" "youtube-daily-ai-influence-report"
+rc=$?
+if [[ "$rc" != "0" ]]; then
+  [[ "$rc" == "75" ]] && exit 0
+  exit "$rc"
 fi
-echo "$$" > "$LOCK_DIR/pid"
-trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+trap 'solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
 
 # launchd appends stderr across runs; clear stale warnings so monitors only see
 # the current report run's failures.

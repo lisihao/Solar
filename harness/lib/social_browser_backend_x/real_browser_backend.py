@@ -45,6 +45,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 class RealBrowserBackend:
     """Synchronous Playwright backend using the shared browser profile registry."""
 
@@ -98,12 +108,15 @@ class RealBrowserBackend:
     def _ensure_started(self) -> None:
         if self._page is not None:
             return
-        lease = self._lease_manager.acquire(
+        lease = self._lease_manager.acquire_with_wait(
             profile_id=self.profile_id,
             task_id=self.task_id,
             runtime="social_browser_backend_x",
             mode="exclusive",
             allowed_attach=True,
+            wait_timeout_seconds=_env_float("BROWSER_PROFILE_LEASE_WAIT_SECONDS", 600.0),
+            poll_interval_seconds=_env_float("BROWSER_PROFILE_LEASE_POLL_SECONDS", 5.0),
+            jitter_seconds=_env_float("BROWSER_PROFILE_LEASE_JITTER_SECONDS", 1.5),
         )
         if not lease.get("acquired"):
             raise RuntimeError("browser_profile_lease_acquire_failed:" + json.dumps(lease, ensure_ascii=False))
