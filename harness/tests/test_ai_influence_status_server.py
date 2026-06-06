@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import sqlite3
@@ -455,6 +456,34 @@ channels:
     monkeypatch.setattr(mod, "TECH_HOTSPOT_DB", db_path)
     monkeypatch.setattr(mod, "AI_INFLUENCE_YOUTUBE_VIDEO_ARCHIVE", archive_path)
     monkeypatch.setattr(mod, "YOUTUBE_DIGEST_CONFIG", youtube_config_path)
+    hotspot_root = tmp_path / "tech-hotspot-radar"
+    planned_report = hotspot_root / "ai-influence-planned" / "2026-06-04" / "reports" / "agent-runtime-report"
+    planned_report.mkdir(parents=True, exist_ok=True)
+    (planned_report / "report.html").write_text("<html>planned</html>", encoding="utf-8")
+    (planned_report / "report.md").write_text("# planned\n", encoding="utf-8")
+    (planned_report / "report-result.json").write_text(
+        json.dumps({"headline": "Agent Runtime 深度洞察"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (planned_report / "evidence-pack.json").write_text(
+        json.dumps(
+            {
+                "videos": [
+                    {
+                        "video_ref": "V001",
+                        "video_id": "abc123",
+                        "channel": "AI Engineer",
+                        "title": "Agent Runtime Talk",
+                        "url": "https://www.youtube.com/watch?v=abc123",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
+    monkeypatch.setattr(mod, "_today_local_date", lambda: datetime.date(2026, 6, 6))
 
     payload = mod._ai_influence_youtube_videos_payload(period="all")
 
@@ -473,21 +502,38 @@ channels:
     assert item["thumbnail"].endswith("/abc123/hqdefault.jpg")
     assert item["summary"] == "Agent runtime 摘要"
     assert item["tags"] == ["Agent", "MCP"]
+    linked = next(video for video in payload["items"] if video["video_id"] == "abc123")
+    assert linked["insight_report_count"] == 1
+    assert linked["insight_report_title"] == "Agent Runtime 深度洞察"
+    assert "/ai-influence/report?id=" in linked["insight_report_url"]
+    assert payload["week_days"][0]["label"] == "周一"
+    assert payload["week_days"][-1]["date"] == "2026-06-07"
 
-    html = mod._ai_influence_youtube_videos_html(period="all")
+    weekday_payload = mod._ai_influence_youtube_videos_payload(period="all", selected_day="2026-06-03")
+    assert weekday_payload["selected_day"] == "2026-06-03"
+    assert weekday_payload["count"] == 1
+    assert weekday_payload["items"][0]["video_id"] == "abc123"
+
+    html = mod._ai_influence_youtube_videos_html(period="week", selected_day="2026-06-03")
     assert "大V/访谈频道" in html
     assert "学术/机构频道" in html
     assert "type-influencer" in html
     assert "type-academic" in html
     assert "channel-tabs" in html
     assert "data-channel-tab" in html
-    assert "data-channel-section hidden" in html
+    assert "data-channel-section" in html
     assert "showChannelSection" in html
     assert "Channel Group" not in html
     assert "频道分组" in html
     assert "影响力" in html
     assert "推荐关注" in html
     assert "addRecommendedChannels" in html
+    assert "已有洞察报告" in html
+    assert "Agent Runtime 深度洞察" in html
+    assert "本周周一到周日筛选" in html
+    assert "周一" in html and "周日" in html
+    assert "2026-06-03" in html
+    assert "weekday-tab active" in html
 
     recommendations = mod._youtube_subscription_recommendations(limit=5)
     assert recommendations

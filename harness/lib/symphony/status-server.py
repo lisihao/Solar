@@ -2383,6 +2383,7 @@ def _youtube_video_influence_score(item: dict) -> float:
 
 def _ai_influence_youtube_video_rows(video_ids: list[str] | None = None, *, include_archived: bool = False, limit: int = 2000) -> list[dict]:
     archived = _youtube_video_archived_ids()
+    report_index = _ai_influence_youtube_video_report_index()
     where = []
     params: list[str] = []
     if video_ids:
@@ -2466,25 +2467,141 @@ def _ai_influence_youtube_video_rows(video_ids: list[str] | None = None, *, incl
             "comments": int(row.get("comment_count") or 0),
             "archived": video_id in archived,
         }
+        linked_report = report_index.get(video_id) or {}
+        item["insight_report_url"] = str(linked_report.get("url") or "")
+        item["insight_report_title"] = str(linked_report.get("title") or "")
+        item["insight_report_id"] = str(linked_report.get("report_id") or "")
+        item["insight_report_count"] = int(linked_report.get("count") or 0)
         item["influence_score"] = _youtube_video_influence_score(item)
         items.append(item)
     return items
 
 
-def _ai_influence_youtube_videos_payload(period: str = "all", *, include_archived: bool = False, limit: int = 2000) -> dict:
+def _ai_influence_youtube_video_report_index() -> dict[str, dict]:
+    planned_root = _tech_hotspot_raw_dir() / "ai-influence-planned"
+    index: dict[str, dict] = {}
+    if not planned_root.exists():
+        return index
+    for date_dir in sorted((p for p in planned_root.iterdir() if p.is_dir()), reverse=True):
+        reports_dir = date_dir / "reports"
+        if not reports_dir.exists():
+            continue
+        for report_dir in sorted((p for p in reports_dir.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True):
+            report_html = report_dir / "report.html"
+            evidence_path = report_dir / "evidence-pack.json"
+            if not report_html.exists() or not evidence_path.exists():
+                continue
+            report_item = _planned_report_item(report_dir)
+            report_url = _ai_influence_artifact_view_url(str(report_item.get("id") or ""), "report_html")
+            report_title = str(report_item.get("title") or report_dir.name).strip() or report_dir.name
+            report_mtime = float(report_item.get("mtime") or report_dir.stat().st_mtime)
+            evidence = _read_json_file(evidence_path)
+            videos = evidence.get("videos") if isinstance(evidence.get("videos"), list) else []
+            for video in videos:
+                if not isinstance(video, dict):
+                    continue
+                video_id = str(video.get("video_id") or "").strip()
+                if not video_id:
+                    continue
+                existing = index.get(video_id)
+                if existing:
+                    existing["count"] = int(existing.get("count") or 0) + 1
+                    if report_mtime <= float(existing.get("mtime") or 0.0):
+                        continue
+                index[video_id] = {
+                    "report_id": str(report_item.get("id") or ""),
+                    "title": report_title,
+                    "url": report_url,
+                    "mtime": report_mtime,
+                    "count": int(existing.get("count") or 0) + 1 if existing else 1,
+                }
+    return index
+
+
+def _safe_date(value: str) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(value or "")[:10])
+    except Exception:
+        return None
+
+
+def _today_local_date() -> datetime.date:
+    return datetime.datetime.now().date()
+
+
+def _current_week_day_options(today: datetime.date | None = None) -> list[dict[str, str]]:
+    reference = today or _today_local_date()
+    week_start = reference - datetime.timedelta(days=reference.weekday())
+    labels = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+    options: list[dict[str, str]] = []
+    for offset, label in enumerate(labels):
+        day_value = week_start + datetime.timedelta(days=offset)
+        options.append(
+            {
+                "label": label,
+                "date": day_value.isoformat(),
+                "short_date": day_value.strftime("%m-%d"),
+            }
+        )
+    return options
+
+
+def _normalize_current_week_day(selected_day: str, today: datetime.date | None = None) -> str:
+    candidate = str(selected_day or "").strip()
+    if not candidate:
+        return ""
+    allowed = {item["date"] for item in _current_week_day_options(today or _today_local_date())}
+    return candidate if candidate in allowed else ""
+
+
+def _ai_influence_youtube_videos_payload(
+    period: str = "all",
+    *,
+    include_archived: bool = False,
+    limit: int = 2000,
+    selected_day: str = "",
+) -> dict:
     try:
         items = _ai_influence_youtube_video_rows(include_archived=include_archived, limit=limit)
     except Exception as exc:
         return {"ok": False, "status": "error", "error": f"{type(exc).__name__}: {exc}", "items": [], "groups": []}
     period = str(period or "all").lower()
-    if period in ("7d", "30d"):
+    now_date = _today_local_date()
+    week_days = _current_week_day_options(now_date)
+    normalized_day = _normalize_current_week_day(selected_day, now_date)
+    if normalized_day:
+        items = [item for item in items if str(item.get("date") or "") == normalized_day]
+    elif period in ("today", "day", "daily"):
+        period = "today"
+        items = [item for item in items if str(item.get("date") or "") == now_date.isoformat()]
+    elif period in ("week", "weekly"):
+        period = "week"
+        week_start = now_date - datetime.timedelta(days=now_date.weekday())
+        items = [
+            item for item in items
+            if _safe_date(str(item.get("date") or "")) and _safe_date(str(item.get("date") or "")) >= week_start
+        ]
+    elif period in ("month", "monthly"):
+        period = "month"
+        month_prefix = now_date.strftime("%Y-%m")
+        items = [item for item in items if str(item.get("date") or "").startswith(month_prefix)]
+    elif period in ("featured", "selected", "精选"):
+        period = "featured"
+        usable_tiers = {"T0", "T1", "T2"}
+        items = [
+            item for item in items
+            if str(item.get("quality_tier") or "").upper() in usable_tiers
+            and str(item.get("transcript_source") or "").lower() not in {"metadata", "missing", "n/a"}
+        ]
+        items.sort(key=lambda item: (float(item.get("influence_score") or 0.0), str(item.get("date") or "")), reverse=True)
+        items = items[:120]
+    elif period in ("7d", "30d"):
         days = 7 if period == "7d" else 30
-        cutoff = datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=days)
+        cutoff = now_date - datetime.timedelta(days=days)
         filtered = []
         for item in items:
-            try:
-                item_date = datetime.date.fromisoformat(str(item.get("date") or ""))
-            except Exception:
+            item_date = _safe_date(str(item.get("date") or ""))
+            if not item_date:
                 continue
             if item_date >= cutoff:
                 filtered.append(item)
@@ -2578,6 +2695,8 @@ def _ai_influence_youtube_videos_payload(period: str = "all", *, include_archive
         "ok": True,
         "status": "ok",
         "period": period,
+        "selected_day": normalized_day,
+        "week_days": week_days,
         "count": len(items),
         "archived_count": len(_youtube_video_archived_ids()),
         "db": str(TECH_HOTSPOT_DB),
@@ -2762,8 +2881,8 @@ def shlex_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def _ai_influence_youtube_videos_html(period: str = "all") -> str:
-    payload = _ai_influence_youtube_videos_payload(period=period)
+def _ai_influence_youtube_videos_html(period: str = "all", selected_day: str = "") -> str:
+    payload = _ai_influence_youtube_videos_payload(period=period, selected_day=selected_day)
     sections = payload.get("channel_sections") or []
     recommendations = _youtube_subscription_recommendations(limit=9)
     section_html = []
@@ -2787,6 +2906,15 @@ def _ai_influence_youtube_videos_html(period: str = "all") -> str:
                     video_cards = []
                     for item in date_group.get("videos") or []:
                         tags = "".join(f"<span class='tag'>{html.escape(str(tag))}</span>" for tag in item.get("tags") or [])
+                        report_link = ""
+                        if str(item.get("insight_report_url") or "").strip():
+                            report_count = max(1, int(item.get("insight_report_count") or 0))
+                            report_label = "已有洞察报告" if report_count == 1 else f"已有洞察报告（{report_count}）"
+                            report_title = str(item.get("insight_report_title") or "打开洞察报告").strip() or "打开洞察报告"
+                            report_link = (
+                                f'<a class="tag report-link" href="{html.escape(str(item.get("insight_report_url") or ""))}" '
+                                f'target="_blank" rel="noreferrer" title="{html.escape(report_title)}">{html.escape(report_label)}</a>'
+                            )
                         video_cards.append(f"""
                         <article class="video-card" data-video-id="{html.escape(str(item.get("video_id") or ""))}">
                           <label class="check"><input type="checkbox" class="video-select" value="{html.escape(str(item.get("video_id") or ""))}"><span></span></label>
@@ -2794,7 +2922,7 @@ def _ai_influence_youtube_videos_html(period: str = "all") -> str:
                           <div class="video-body">
                             <div class="video-meta">{html.escape(str(item.get("date") or "N/A"))} · {html.escape(str(item.get("quality_tier") or "N/A"))} · {html.escape(str(item.get("duration_min") or "0"))} 分钟</div>
                             <h3><a href="{html.escape(str(item.get("url") or "#"))}" target="_blank" rel="noreferrer">{html.escape(str(item.get("title") or "Untitled"))}</a></h3>
-                            <div class="tags">{tags or "<span class='tag muted'>暂无标签</span>"}</div>
+                            <div class="tags">{report_link}{tags or "<span class='tag muted'>暂无标签</span>"}</div>
                             <p>{html.escape(str(item.get("summary") or ""))}</p>
                           </div>
                         </article>
@@ -2865,9 +2993,18 @@ def _ai_influence_youtube_videos_html(period: str = "all") -> str:
     """
     body = "".join(section_html) if section_html else "<div class='empty'>当前没有可展示的 YouTube 视频。</div>"
     current_to = str(_ai_influence_mail_config_payload().get("to") or "")
-    period_links = " ".join(
-        f"<a class='pill {'active' if period == value else ''}' href='/ai-influence/youtube-videos?period={value}'>{label}</a>"
-        for value, label in (("all", "全部"), ("30d", "近 30 天"), ("7d", "近 7 天"))
+    period = str(period or "all").lower()
+    period_alias = {"day": "today", "daily": "today", "weekly": "week", "monthly": "month", "selected": "featured", "精选": "featured"}.get(period, period)
+    selected_day = str(payload.get("selected_day") or "")
+    scope_tabs = " ".join(
+        f"<a class='scope-tab {'active' if period_alias == value else ''}' href='/ai-influence/youtube-videos?period={value}'>{label}</a>"
+        for value, label in (("all", "全部"), ("today", "当日"), ("week", "当周"), ("month", "当月"), ("featured", "精选"))
+    )
+    weekday_tabs = " ".join(
+        f"<a class='weekday-tab {'active' if selected_day == str(item.get('date') or '') else ''}' "
+        f"href='/ai-influence/youtube-videos?period=week&day={urllib.parse.quote(str(item.get('date') or ''))}'>"
+        f"<span>{html.escape(str(item.get('label') or 'N/A'))}</span><small>{html.escape(str(item.get('short_date') or ''))}</small></a>"
+        for item in payload.get("week_days") or []
     )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2887,6 +3024,14 @@ h1{{margin:8px 0 8px;font-size:42px;line-height:1.08;color:var(--green);}}
 .btn.danger{{background:#fff0ed;color:var(--red);}}
 .pill.active{{background:#e6efe5;border-color:#bfd7c7;}}
 .status{{min-height:22px;color:var(--muted);font-size:13px;}}
+.scope-tabs{{margin:18px 0 10px;padding:10px;border:1px solid var(--line);border-radius:26px;background:rgba(255,253,248,.94);display:flex;gap:10px;flex-wrap:wrap;box-shadow:0 10px 28px rgba(49,42,31,.06);}}
+.scope-tab{{text-decoration:none;border:1px solid #e5d8c1;border-radius:999px;background:#fffdf8;color:var(--muted);padding:11px 18px;font-weight:950;letter-spacing:.02em;}}
+.scope-tab.active{{background:linear-gradient(135deg,var(--green),#2f6b58);color:#fff;border-color:var(--green);box-shadow:0 10px 24px rgba(23,63,54,.18);}}
+.weekday-tabs{{margin:0 0 16px;padding:10px;border:1px solid var(--line);border-radius:26px;background:rgba(255,253,248,.94);display:flex;gap:10px;flex-wrap:wrap;box-shadow:0 10px 28px rgba(49,42,31,.06);}}
+.weekday-tab{{text-decoration:none;border:1px solid #e5d8c1;border-radius:18px;background:#fffdf8;color:var(--muted);padding:10px 14px;font-weight:900;display:grid;gap:3px;min-width:92px;text-align:center;}}
+.weekday-tab small{{font-size:11px;color:#9b7c43;font-weight:800;}}
+.weekday-tab.active{{background:linear-gradient(135deg,#efe7d2,#f9f2df);color:var(--green);border-color:#d9c39a;box-shadow:0 10px 24px rgba(155,124,67,.12);}}
+.weekday-tab.active small{{color:#7c612f;}}
 .channel-tabs{{position:sticky;top:76px;z-index:4;margin:18px 0 10px;padding:8px;border:1px solid var(--line);border-radius:999px;background:rgba(255,253,248,.94);backdrop-filter:blur(12px);display:flex;gap:8px;flex-wrap:wrap;box-shadow:0 10px 28px rgba(49,42,31,.06);}}
 .channel-tab{{border:1px solid transparent;border-radius:999px;background:transparent;color:var(--muted);padding:10px 14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}}
 .channel-tab b{{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 6px;border-radius:999px;background:#f1eadf;color:#806b42;font-size:12px;}}
@@ -2953,12 +3098,13 @@ h1{{margin:8px 0 8px;font-size:42px;line-height:1.08;color:var(--green);}}
     <button class="btn warn" onclick="deepAnalyzeSelected()">深度分析</button>
     <button class="btn danger" onclick="archiveSelected()">归档</button>
     <button class="btn primary" onclick="regenerateDaily()">重新生成日报</button>
-    {period_links}
     <span class="pill">视频：{int(payload.get("count") or 0)}</span>
     <span class="pill">已归档：{int(payload.get("archived_count") or 0)}</span>
     <span class="pill">收件人：{html.escape(current_to or 'N/A')}</span>
     <span id="status" class="status"></span>
   </div>
+  <nav class="scope-tabs" aria-label="视频时间范围">{scope_tabs}</nav>
+  <nav class="weekday-tabs" aria-label="本周周一到周日筛选">{weekday_tabs}</nav>
   {recommendations_html}
   {tabs}
   {body}
@@ -12504,7 +12650,8 @@ class StatusHandler(BaseHTTPRequestHandler):
 
         elif path == "/ai-influence/youtube-videos":
             period = params.get("period", ["all"])[0]
-            self._send_text(_ai_influence_youtube_videos_html(period=period), content_type="text/html; charset=utf-8")
+            selected_day = params.get("day", [""])[0]
+            self._send_text(_ai_influence_youtube_videos_html(period=period, selected_day=selected_day), content_type="text/html; charset=utf-8")
 
         elif path == "/ai-influence/youtube-videos/list":
             try:
@@ -12514,7 +12661,8 @@ class StatusHandler(BaseHTTPRequestHandler):
                 limit = 2000
             period = params.get("period", ["all"])[0]
             include_archived = params.get("include_archived", ["0"])[0].lower() in ("1", "true", "yes")
-            self._send_json(_ai_influence_youtube_videos_payload(period=period, include_archived=include_archived, limit=limit))
+            selected_day = params.get("day", [""])[0]
+            self._send_json(_ai_influence_youtube_videos_payload(period=period, include_archived=include_archived, limit=limit, selected_day=selected_day))
 
         elif path == "/ai-influence/list":
             try:
