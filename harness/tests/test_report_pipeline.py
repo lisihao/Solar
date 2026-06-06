@@ -188,10 +188,75 @@ def test_cli_default_pipeline_and_legacy_branch(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(mod, "begin_run", lambda *a, **k: 1)
     monkeypatch.setattr(mod, "finish_run", lambda *a, **k: None)
     monkeypatch.setattr(mod, "record_model_ledgers", lambda *a, **k: None)
-    monkeypatch.setattr(mod, "render_ai_influence_report_html_anything", lambda markdown, evidence, report: f"<html>{markdown}</html>")
+    monkeypatch.setattr(mod, "validate_ai_influence_markdown_report", lambda markdown: None)
+    monkeypatch.setattr(
+        mod,
+        "render_ai_influence_report_html_anything",
+        lambda markdown, evidence, report: (
+            "<html><body>章节与视频素材对应表 "
+            "<span class='ai-material-ref'>V001</span> "
+            "<span class='ai-material-chip'>Mock</span>"
+            f"{markdown}</body></html>"
+        ),
+    )
+    def _mock_synthesis(report_ir, report_dir):
+        synthesis_dir = report_dir / "synthesis"
+        synthesis_dir.mkdir(parents=True, exist_ok=True)
+        synthesis_path = synthesis_dir / "report.synthesized.md"
+        markdown = """# AI Runtime
+
+## 一页结论
+这是结论。
+
+## 核心趋势
+### Runtime Shift
+判断。
+
+## 关键视频证据
+- V001《Agent runtime》
+
+## 产品 / 研究 / 工程启示
+启示。
+
+## Open Questions
+- 待验证。
+
+## Provenance
+- final_reasoner: test-model
+- local_preprocess: ThunderOMLX/Qwen3.6 semantic packets
+- input_videos: 4
+"""
+        synthesis_path.write_text(markdown, encoding="utf-8")
+        return {"path": str(synthesis_path), "markdown": markdown}
+
+    monkeypatch.setattr(mod, "runtime_synthesize_report", _mock_synthesis)
     monkeypatch.setattr(mod, "build_planned_report_evidence_pack", lambda *a, **k: {**_sample_evidence(), "skipped_material_refs": []})
     monkeypatch.setenv("SOLAR_REPORT_CHAPTER_WRITER_MOCK", "1")
-    monkeypatch.setattr(mod, "call_ai_influence_chapter_writer_with_repair", lambda *a, **k: {"markdown": "## Mock Chapter\n\nSome mock text with length more than 120 characters to satisfy the character count validation requirement in the cli logic.", "model": "test-model"})
+    def _mock_writer(*a, **k):
+        chapter_id = str(k.get("chapter_id") or "chapter")
+        request_dir = tmp_path / "browser-requests" / chapter_id
+        request_dir.mkdir(parents=True, exist_ok=True)
+        (request_dir / "post-submit-state.json").write_text(
+            json.dumps(
+                {
+                    "url": f"https://chatgpt.com/c/{chapter_id}",
+                    "conversation_id": f"conv-{chapter_id}",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (request_dir / "project-archive-result.json").write_text(
+            json.dumps({"status": "ok", "project_name": "杂项"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return {
+            "markdown": "## Mock Chapter\n\nSome mock text with length more than 120 characters to satisfy the character count validation requirement in the cli logic.",
+            "model": "test-model",
+            "request_dir": str(request_dir),
+        }
+
+    monkeypatch.setattr(mod, "call_ai_influence_chapter_writer_with_repair", _mock_writer)
 
     args = argparse.Namespace(
         date="2026-06-01",
@@ -210,6 +275,9 @@ def test_cli_default_pipeline_and_legacy_branch(monkeypatch, tmp_path: Path) -> 
     report_dir = out_dir / "reports" / "ai-runtime"
     assert (report_dir / "report-ir.json").exists()
     assert (report_dir / "events.jsonl").exists()
+    assert (report_dir / "evidence_map.json").exists()
+    assert (report_dir / "chatgpt-session.json").exists()
+    assert (report_dir / "archive_manifest.json").exists()
     assert mod.runtime_rebuild_chapter_state(report_dir / "events.jsonl") == {"ch_01": "passed", "ch_02": "passed"}
     assert (report_dir / "synthesis" / "report.synthesized.md").exists()
 

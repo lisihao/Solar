@@ -54,6 +54,7 @@ from report_evidence import run_chapter_writer as runtime_run_chapter_writer
 from report_ir import compile_report_ir as runtime_compile_report_ir
 from report_ir import create_chapter_jobs as runtime_create_chapter_jobs
 from report_synthesis import synthesize_report as runtime_synthesize_report
+from ai_influence_youtube_report.evidence_map import build_evidence_map as ai_influence_build_evidence_map
 
 try:
     import yaml
@@ -15116,6 +15117,128 @@ def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = N
     return f"chatgpt/ai-influence-planned/{clean_task}"
 
 
+def _ai_influence_transcript_grade(video: dict[str, Any]) -> str:
+    quality = video.get("transcript_quality") if isinstance(video.get("transcript_quality"), dict) else {}
+    grade = str(
+        video.get("transcript_quality_tier")
+        or quality.get("tier")
+        or video.get("quality_tier")
+        or video.get("transcript_grade")
+        or "T1"
+    ).strip().upper()
+    return grade or "T1"
+
+
+def _ai_influence_citation_span(video: dict[str, Any], *, max_len: int = 280) -> str:
+    transcript = str(video.get("transcript_clean") or "").strip()
+    if transcript:
+        compact = re.sub(r"\s+", " ", transcript).strip()
+        if len(compact) <= max_len:
+            return compact
+        return compact[: max_len - 1].rstrip() + "…"
+    summary = _compact_text(video.get("summary_zh") or video.get("why_it_matters") or "", default="", max_len=max_len)
+    if summary:
+        return summary
+    title = str(video.get("title") or "N/A").strip()
+    channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
+    return _compact_text(f"{channel} / {title}", default="N/A", max_len=max_len)
+
+
+def build_ai_influence_report_evidence_map(evidence_pack: dict[str, Any]) -> dict[str, Any]:
+    videos = [video for video in (evidence_pack.get("videos") or []) if isinstance(video, dict)]
+    items: list[dict[str, Any]] = []
+    for video in videos:
+        items.append(
+            {
+                "evidence_ref": str(video.get("video_ref") or video.get("video_id") or "N/A"),
+                "channel": str(video.get("channel") or "YouTube").strip() or "YouTube",
+                "title": str(video.get("title") or "公开视频").strip() or "公开视频",
+                "published_at": str(video.get("published_at") or "").split("T", 1)[0] or "N/A",
+                "transcript_grade": _ai_influence_transcript_grade(video),
+                "citation_span": _ai_influence_citation_span(video),
+                "group_type": str(video.get("group_type") or "other").strip() or "other",
+            }
+        )
+    evidence_map = ai_influence_build_evidence_map(items)
+    evidence_map["report_id"] = str((evidence_pack.get("report_spec") or {}).get("report_id") or "")
+    evidence_map["generated_at"] = iso_z()
+    return evidence_map
+
+
+def build_ai_influence_chatgpt_session_metadata(
+    request_dirs: list[str],
+    *,
+    project_name: str,
+    model_name: str,
+) -> dict[str, Any]:
+    chapter_entries: list[dict[str, Any]] = []
+    last_state: dict[str, Any] = {}
+    last_request_dir = ""
+    for raw_request_dir in request_dirs:
+        request_dir = Path(str(raw_request_dir or "").strip())
+        if not request_dir.exists():
+            continue
+        state = _conversation_state_from_request_dir(request_dir)
+        url = str(state.get("url") or state.get("conversation_url") or "").strip()
+        conversation_id = str(state.get("conversation_id") or "").strip()
+        if not url and not conversation_id:
+            continue
+        chapter_entries.append(
+            {
+                "request_dir": str(request_dir),
+                "conversation_id": conversation_id,
+                "url": url,
+            }
+        )
+        last_state = state
+        last_request_dir = str(request_dir)
+    if not chapter_entries:
+        return {}
+    session_id = str(last_state.get("conversation_id") or "").strip()
+    session_url = str(last_state.get("url") or last_state.get("conversation_url") or "").strip()
+    return {
+        "session_id": session_id or "N/A",
+        "url": session_url or "N/A",
+        "project": str(project_name or "杂项").strip() or "杂项",
+        "archived_at": iso_z(),
+        "model": model_name,
+        "request_dir": last_request_dir,
+        "phase_breakdown": {
+            "chapter_write": chapter_entries,
+        },
+    }
+
+
+def build_ai_influence_archive_manifest(
+    report_dir: Path,
+    *,
+    validation_result: dict[str, Any],
+    session_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    artifacts: list[dict[str, Any]] = []
+    artifact_types = {
+        "report.md": "report_md",
+        "report.html": "report_html",
+        "report-result.json": "report_result_json",
+        "validation-result.json": "validation_result_json",
+        "evidence-pack.json": "evidence_pack_json",
+        "evidence_map.json": "evidence_map_json",
+        "chatgpt-session.json": "chatgpt_session_json",
+    }
+    for filename, artifact_type in artifact_types.items():
+        path = report_dir / filename
+        if path.exists():
+            artifacts.append({"type": artifact_type, "path": str(path)})
+    return {
+        "schema_version": "archive_manifest.v1",
+        "report_dir": str(report_dir),
+        "status": str(validation_result.get("status") or "unknown"),
+        "artifacts": artifacts,
+        "chatgpt_session_url": str((session_metadata or {}).get("url") or ""),
+        "created_at": iso_z(),
+    }
+
+
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:
     """Resolve the browser-agent ChatGPT executor command.
 
@@ -15778,6 +15901,8 @@ def validate_ai_influence_planned_report_dir(
     html_text = ""
     result: dict[str, Any] = {}
     evidence_pack: dict[str, Any] = {}
+    evidence_map: dict[str, Any] = {}
+    session_metadata: dict[str, Any] = {}
     if (report_dir / "report.md").exists():
         markdown = (report_dir / "report.md").read_text(encoding="utf-8", errors="replace")
         try:
@@ -15796,6 +15921,22 @@ def validate_ai_influence_planned_report_dir(
             evidence_pack = json.loads((report_dir / "evidence-pack.json").read_text(encoding="utf-8"))
         except Exception as exc:
             errors.append(f"evidence_pack_json:{type(exc).__name__}:{exc}")
+    evidence_map_path = report_dir / "evidence_map.json"
+    if evidence_map_path.exists():
+        try:
+            evidence_map = json.loads(evidence_map_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            errors.append(f"evidence_map_json:{type(exc).__name__}:{exc}")
+    else:
+        errors.append("missing_file:evidence_map.json")
+    session_path = report_dir / "chatgpt-session.json"
+    if session_path.exists():
+        try:
+            session_metadata = json.loads(session_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            errors.append(f"chatgpt_session_json:{type(exc).__name__}:{exc}")
+    else:
+        warnings.append("missing_file:chatgpt-session.json")
 
     videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
     # Public reports should cite reader-facing channel/title links, not internal
@@ -15803,6 +15944,7 @@ def validate_ai_influence_planned_report_dir(
     markdown_visible_text = re.sub(r"\[[^\]]+\]\([^)]*\)", lambda m: m.group(0).split("](", 1)[0].lstrip("["), markdown)
     markdown_visible_text = re.sub(r"https?://\S+", "", markdown_visible_text)
     by_ref = {str(video.get("video_ref") or ""): video for video in videos}
+    raw_video_ids = {str(video.get("video_id") or "").strip() for video in videos if str(video.get("video_id") or "").strip()}
     planned_refs = set(_plan_material_refs(evidence_pack.get("report_spec") or {}))
     missing_refs = sorted(ref for ref in planned_refs if ref and ref not in by_ref)
     if missing_refs:
@@ -15830,6 +15972,67 @@ def validate_ai_influence_planned_report_dir(
                 f"{video.get('video_ref') or raw_video_id or 'N/A'}:"
                 "metadata_only_allowed_as_weak_signal"
             )
+
+    evidence_map_entries = evidence_map.get("entries") if isinstance(evidence_map, dict) else None
+    if evidence_map and not isinstance(evidence_map_entries, list):
+        errors.append("evidence_map_contract:missing_entries")
+    if isinstance(evidence_map_entries, list):
+        seen_refs: set[str] = set()
+        for idx, entry in enumerate(evidence_map_entries, start=1):
+            if not isinstance(entry, dict):
+                errors.append(f"evidence_map_contract:entry_not_object:{idx}")
+                continue
+            ref = str(entry.get("evidence_ref") or "").strip()
+            if not ref:
+                errors.append(f"evidence_map_contract:missing_evidence_ref:{idx}")
+                continue
+            seen_refs.add(ref)
+            if ref in raw_video_ids:
+                errors.append(f"evidence_map_raw_video_id_leaked:{ref}")
+            if by_ref and ref not in by_ref:
+                errors.append(f"evidence_map_unknown_ref:{ref}")
+            if not str(entry.get("channel") or "").strip():
+                errors.append(f"evidence_map_missing_channel:{ref}")
+            if not str(entry.get("title") or "").strip():
+                errors.append(f"evidence_map_missing_title:{ref}")
+            if not str(entry.get("citation_span") or "").strip():
+                errors.append(f"evidence_map_missing_citation_span:{ref}")
+            transcript_grade = str(entry.get("transcript_grade") or "").strip().upper()
+            if transcript_grade == "T3":
+                errors.append(f"evidence_map_forbidden_tier:{ref}:T3")
+        required_map_refs = sorted(
+            ref for ref, video in by_ref.items()
+            if _ai_influence_transcript_grade(video) != "T3"
+        )
+        missing_map_refs = [ref for ref in required_map_refs if ref not in seen_refs]
+        if missing_map_refs:
+            errors.append(f"evidence_map_missing_refs:{','.join(missing_map_refs[:20])}")
+
+    if session_metadata:
+        project_name = str(session_metadata.get("project") or "").strip()
+        if expected_chatgpt_project and project_name != expected_chatgpt_project:
+            errors.append(
+                "chatgpt_session_project_mismatch:"
+                f"expected={expected_chatgpt_project}:actual={project_name or 'N/A'}"
+            )
+        if not str(session_metadata.get("model") or "").strip():
+            errors.append("chatgpt_session_missing_model")
+        phase_breakdown = session_metadata.get("phase_breakdown")
+        chapter_write = phase_breakdown.get("chapter_write") if isinstance(phase_breakdown, dict) else None
+        if not isinstance(chapter_write, list) or not chapter_write:
+            errors.append("chatgpt_session_missing_phase_breakdown:chapter_write")
+        else:
+            for idx, item in enumerate(chapter_write, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"chatgpt_session_invalid_chapter_entry:{idx}")
+                    continue
+                if not str(item.get("request_dir") or "").strip():
+                    errors.append(f"chatgpt_session_missing_request_dir:{idx}")
+                if not (
+                    str(item.get("url") or "").strip()
+                    or str(item.get("conversation_id") or "").strip()
+                ):
+                    errors.append(f"chatgpt_session_missing_conversation_locator:{idx}")
 
     if html_text:
         html_required = [
@@ -15902,6 +16105,8 @@ def validate_ai_influence_planned_report_dir(
         "errors": errors,
         "warnings": warnings,
         "video_count": len(videos),
+        "evidence_map_entries": len(evidence_map_entries) if isinstance(evidence_map_entries, list) else 0,
+        "chatgpt_session_present": bool(session_metadata),
         "expected_chatgpt_project": expected_chatgpt_project or "N/A",
     }
 
@@ -17843,6 +18048,9 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
         report_id = slugify(str(report_ir.get("report_id") or spec.get("report_id") or spec.get("title") or f"report-{ok_count+1}"))[:80]
         report_dir = out_dir / "reports" / report_id
         report_dir.mkdir(parents=True, exist_ok=True)
+        archive_manifest_path = report_dir / "archive_manifest.json"
+        if archive_manifest_path.exists():
+            archive_manifest_path.unlink()
         run_id = begin_run(conn, "youtube", f"ai-influence-planned-report-{report_id}")
         try:
             evidence_pack = build_planned_report_evidence_pack(
@@ -17866,6 +18074,11 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             legacy_prompt = build_planned_report_prompt(evidence_pack, model_name=model_name)
             (report_dir / "writer-prompt.legacy-disabled.md").write_text(legacy_prompt, encoding="utf-8")
             (report_dir / "evidence-pack.json").write_text(json.dumps(evidence_pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            evidence_map = build_ai_influence_report_evidence_map(evidence_pack)
+            (report_dir / "evidence_map.json").write_text(
+                json.dumps(evidence_map, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
             (report_dir / "report-ir.json").write_text(json.dumps(report_ir, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             jobs = runtime_create_chapter_jobs(report_ir)
             (report_dir / "chapter-jobs.json").write_text(json.dumps(jobs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -17946,6 +18159,16 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 render_ai_influence_report_html_anything(markdown, evidence_pack, report),
                 encoding="utf-8",
             )
+            session_metadata = build_ai_influence_chatgpt_session_metadata(
+                request_dirs,
+                project_name=ai_influence_chatgpt_project_name(config),
+                model_name=model_name,
+            )
+            if session_metadata:
+                (report_dir / "chatgpt-session.json").write_text(
+                    json.dumps(session_metadata, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
             result = {
                 "backend": "browser_agent_chatgpt",
                 "model": model_name,
@@ -17958,6 +18181,8 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 "synthesis_path": synthesis.get("path"),
                 "request_dirs": request_dirs,
                 "request_dir": request_dirs[-1] if request_dirs else "",
+                "chatgpt_session_path": str(report_dir / "chatgpt-session.json") if session_metadata else "",
+                "evidence_map_path": str(report_dir / "evidence_map.json"),
                 "latency_ms": aggregate_latency_ms,
                 "input_token_count": aggregate_tokens_in,
                 "output_token_count": aggregate_tokens_out,
@@ -17969,6 +18194,31 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 blocked_path.unlink()
             (report_dir / "transcripts.txt").write_text(phase_transcript_attachment(evidence_pack), encoding="utf-8")
             (report_dir / "transcripts-cleaned.txt").write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
+            validation = validate_ai_influence_planned_report_dir(
+                report_dir,
+                expected_chatgpt_project=ai_influence_chatgpt_project_name(config),
+                require_project_archive=True,
+            )
+            (report_dir / "validation-result.json").write_text(
+                json.dumps(validation, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            if validation["status"] != "ok":
+                raise ValueError(f"ai_influence_report_validation_failed:{validation['errors']}")
+            archive_manifest = build_ai_influence_archive_manifest(
+                report_dir,
+                validation_result=validation,
+                session_metadata=session_metadata if session_metadata else None,
+            )
+            archive_manifest_path.write_text(
+                json.dumps(archive_manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            result["archive_manifest_path"] = str(archive_manifest_path)
+            (report_dir / "report-result.json").write_text(
+                json.dumps({**report, **result}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
             record_model_ledgers(
                 conn,
                 target_id=f"__ai_influence_planned_report__:{date_str}:{report_id}",
@@ -17984,6 +18234,8 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             ok_count += 1
             print(f"[ai-influence-run-plan] ok report_id={report_id} chapters={len(jobs)} pipeline=report_ir_chapter_runtime")
         except Exception as exc:
+            if archive_manifest_path.exists():
+                archive_manifest_path.unlink()
             (report_dir / "report.blocked.json").write_text(json.dumps({
                 "status": "blocked",
                 "error_type": type(exc).__name__,
@@ -18058,6 +18310,9 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
         report_id = slugify(str(spec.get("report_id") or spec.get("title") or f"report-{ok_count+1}"))[:80]
         report_dir = out_dir / "reports" / report_id
         report_dir.mkdir(parents=True, exist_ok=True)
+        archive_manifest_path = report_dir / "archive_manifest.json"
+        if archive_manifest_path.exists():
+            archive_manifest_path.unlink()
         run_id = begin_run(conn, "youtube", f"ai-influence-planned-report-{report_id}")
         try:
             evidence_pack = build_planned_report_evidence_pack(
@@ -18099,6 +18354,11 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 )
                 evidence_pack = attach_notebooklm_context_to_evidence_pack(evidence_pack, notebook_result)
             (report_dir / "evidence-pack.json").write_text(json.dumps(evidence_pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            evidence_map = build_ai_influence_report_evidence_map(evidence_pack)
+            (report_dir / "evidence_map.json").write_text(
+                json.dumps(evidence_map, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
             legacy_prompt = build_planned_report_prompt(evidence_pack, model_name=model_name)
             (report_dir / "writer-prompt.legacy-disabled.md").write_text(legacy_prompt, encoding="utf-8")
             report_ir = build_ai_influence_report_ir(evidence_pack)
@@ -18194,6 +18454,16 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 render_ai_influence_report_html_anything(markdown, evidence_pack, report),
                 encoding="utf-8",
             )
+            session_metadata = build_ai_influence_chatgpt_session_metadata(
+                request_dirs,
+                project_name=ai_influence_chatgpt_project_name(config),
+                model_name=model_name,
+            )
+            if session_metadata:
+                (report_dir / "chatgpt-session.json").write_text(
+                    json.dumps(session_metadata, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
             result = {
                 "backend": "browser_agent_chatgpt",
                 "model": model_name,
@@ -18203,6 +18473,8 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 "chapter_count": len(chapter_outputs),
                 "request_dirs": request_dirs,
                 "request_dir": request_dirs[-1] if request_dirs else "",
+                "chatgpt_session_path": str(report_dir / "chatgpt-session.json") if session_metadata else "",
+                "evidence_map_path": str(report_dir / "evidence_map.json"),
                 "latency_ms": aggregate_latency_ms,
                 "input_token_count": aggregate_tokens_in,
                 "output_token_count": aggregate_tokens_out,
@@ -18225,6 +18497,20 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             (report_dir / "validation-result.json").write_text(json.dumps(validation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             if validation["status"] != "ok":
                 raise ValueError(f"ai_influence_report_validation_failed:{validation['errors']}")
+            archive_manifest = build_ai_influence_archive_manifest(
+                report_dir,
+                validation_result=validation,
+                session_metadata=session_metadata if session_metadata else None,
+            )
+            archive_manifest_path.write_text(
+                json.dumps(archive_manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            result["archive_manifest_path"] = str(archive_manifest_path)
+            (report_dir / "report-result.json").write_text(
+                json.dumps({**report, **result}, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
             status_publish = publish_ai_influence_planned_report_to_status(
                 config,
                 date_str=date_str,
@@ -18265,6 +18551,8 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             ok_count += 1
             print(f"[ai-influence-run-plan] ok report_id={report_id} videos={len(evidence_pack.get('videos') or [])} mail={mail_result.get('status')} status_visible={status_publish.get('status_visible')}")
         except Exception as exc:
+            if archive_manifest_path.exists():
+                archive_manifest_path.unlink()
             (report_dir / "report.blocked.json").write_text(json.dumps({
                 "status": "blocked",
                 "error_type": type(exc).__name__,
@@ -18318,6 +18606,25 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             require_project_archive=require_project_archive,
         )
         (report_dir / "validation-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if result.get("status") == "ok":
+            session_metadata = None
+            session_path = report_dir / "chatgpt-session.json"
+            if session_path.exists():
+                try:
+                    loaded = json.loads(session_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        session_metadata = loaded
+                except Exception:
+                    session_metadata = None
+            archive_manifest = build_ai_influence_archive_manifest(
+                report_dir,
+                validation_result=result,
+                session_metadata=session_metadata,
+            )
+            (report_dir / "archive_manifest.json").write_text(
+                json.dumps(archive_manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
         results.append(result)
     ok_count = sum(1 for item in results if item.get("status") == "ok")
     summary = {
