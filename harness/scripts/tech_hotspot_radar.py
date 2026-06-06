@@ -15375,6 +15375,261 @@ def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, 
     return text
 
 
+def _collapse_nested_ai_influence_youtube_links(text: str) -> str:
+    cleaned = str(text or "")
+    if not cleaned:
+        return cleaned
+
+    html_pattern = re.compile(
+        r"\[([^\]]+)\]\(https://www\.youtube\.com/watch\?v=<a [^>]*href=\"(https://www\.youtube\.com/watch\?v=[^\"]+)\"[^>]*>.*?</a>\)",
+        re.S,
+    )
+    cleaned = html_pattern.sub(lambda m: f"[{m.group(1)}]({html.unescape(m.group(2))})", cleaned)
+
+    prefix = "](https://www.youtube.com/watch?v=["
+    for _ in range(8):
+        idx = cleaned.find(prefix)
+        if idx < 0:
+            break
+        outer_start = cleaned.rfind("[", 0, idx)
+        if outer_start < 0:
+            break
+        outer_label = cleaned[outer_start + 1:idx]
+        inner_start = idx + len(prefix) - 1
+        inner_close = cleaned.find("](", inner_start + 1)
+        if inner_close < 0:
+            break
+        url_end = cleaned.find(")", inner_close + 2)
+        if url_end < 0 or url_end + 1 >= len(cleaned) or cleaned[url_end + 1] != ")":
+            break
+        inner_url = cleaned[inner_close + 2:url_end]
+        replacement = f"[{outer_label}]({html.unescape(inner_url)})"
+        cleaned = cleaned[:outer_start] + replacement + cleaned[url_end + 2:]
+    return cleaned
+
+
+def _section_material_refs_for_title(evidence_pack: dict[str, Any], section_title: str) -> list[str]:
+    report_spec = (evidence_pack or {}).get("report_spec") or {}
+    title_key = re.sub(r"\s+", " ", str(section_title or "").strip())
+    for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
+        if re.sub(r"\s+", " ", chapter_title.strip()) == title_key:
+            return [str(ref).strip() for ref in _plan_material_refs(chapter) if str(ref).strip()]
+    return []
+
+
+def _reader_facing_video_link_markdown(video: dict[str, Any]) -> str:
+    channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
+    title = _compact_text(str(video.get("title") or "公开视频").strip() or "公开视频", max_len=50)
+    label = f"{channel} / {title}"
+    video_url = str(video.get("url") or video.get("video_url") or "").strip()
+    return f"[{label}]({video_url})" if video_url else label
+
+
+def _shorten_ai_influence_material_intro(line: str) -> str:
+    text = _collapse_nested_ai_influence_youtube_links(str(line or "").strip())
+    if not text.startswith("本节素材："):
+        return text
+    links = re.findall(r"\[[^\]]+\]\([^)]+\)", text)
+    if links:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in links:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return "本节素材：" + "；".join(deduped[:4]) + "。"
+    text = re.sub(r"本节素材：\s*", "本节素材：", text)
+    text = re.sub(r"AI Engineer《[^》]+》", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"[；,，]\s*[。]?$", "。", text)
+    return text
+
+
+def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: dict[str, Any]) -> str:
+    raw_lines = _collapse_nested_ai_influence_youtube_links(str(body or "")).splitlines()
+    lines: list[str] = []
+    skip_heading: str | None = None
+    skip_headings = {
+        "#### 当前不能写出的内容",
+        "#### 后续需要验证哪些材料",
+        "#### 本章结论边界",
+    }
+    for raw in raw_lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+        if skip_heading:
+            if stripped.startswith("#### "):
+                skip_heading = None
+            elif not stripped:
+                continue
+            else:
+                continue
+        if stripped in skip_headings:
+            skip_heading = stripped
+            continue
+        if stripped.startswith("本节素材："):
+            lines.append(_shorten_ai_influence_material_intro(stripped))
+            continue
+        lines.append(line)
+    body_text = "\n".join(lines).strip()
+
+    refs = _section_material_refs_for_title(evidence_pack, title)
+    videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+    if len(refs) == 1:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == refs[0]), None)
+        if isinstance(video, dict):
+            link_md = _reader_facing_video_link_markdown(video)
+            occurrences = list(re.finditer(re.escape(link_md), body_text))
+            if len(occurrences) > 2:
+                rebuilt: list[str] = []
+                last = 0
+                for idx, match in enumerate(occurrences):
+                    rebuilt.append(body_text[last:match.start()])
+                    rebuilt.append(link_md if idx < 2 else "该视频")
+                    last = match.end()
+                rebuilt.append(body_text[last:])
+                body_text = "".join(rebuilt)
+                body_text = re.sub(r"该视频\s+([^\s])", r"该视频\1", body_text)
+
+    ref_link_markdown: dict[str, str] = {}
+    for ref in refs:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == ref), None)
+        if isinstance(video, dict):
+            ref_link_markdown[ref] = _reader_facing_video_link_markdown(video)
+    primary_link_md = ref_link_markdown.get(refs[0], "") if refs else ""
+    multi_material = len(refs) > 1
+    repeated_ref_label = "该补充视频" if multi_material else "该视频"
+    link_seen: dict[str, int] = {}
+
+    def _soften_repeated_link(match: re.Match[str]) -> str:
+        link = match.group(0)
+        link_seen[link] = link_seen.get(link, 0) + 1
+        return link if link_seen[link] <= 2 else repeated_ref_label
+
+    body_text = re.sub(r"\[[^\]]+\]\([^)]+\)", _soften_repeated_link, body_text)
+    body_text = re.sub(r"(?m)^关于\s+\[[^\]]+\]\([^)]+\)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    body_text = re.sub(r"(?m)^关于\s+该(?:补充视频|素材)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    if multi_material:
+        if primary_link_md:
+            primary_link_rewrites = {
+                f"{primary_link_md} 明确提出": "主素材明确提出",
+                f"{primary_link_md} 提到": "主素材提到",
+                f"{primary_link_md} 把": "主素材把",
+                f"{primary_link_md} 的观点": "主素材的观点",
+                f"{primary_link_md} 中，": "主素材中，",
+                f"{primary_link_md} 支撑报告主线": "主素材支撑报告主线",
+                f"本章证据主要来自 {primary_link_md}，{repeated_ref_label} 支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            }
+            for source, target in primary_link_rewrites.items():
+                body_text = body_text.replace(source, target)
+        targeted_multi_rewrites = {
+            "当前可用材料中，该素材没有提供": "当前可用材料中，该补充视频没有提供",
+            "该素材可以作为本章问题范围内的相关材料": "该补充视频可以作为本章问题范围内的相关材料",
+            "该素材暂时只能作为": "该补充视频暂时只能作为",
+            "该素材当前缺少": "该补充视频当前缺少",
+            "补齐该素材的内容": "补齐该补充视频的内容",
+            "补齐该素材的可引用内容": "补齐该补充视频的可引用内容",
+            "该素材对 SWE-rebench": "该补充视频对 SWE-rebench",
+            "该素材后半段": "主素材后半段",
+            "该素材AI Engineer": "该补充视频 AI Engineer",
+            "把该素材的材料和该素材的选题放在一起": "把主素材的论证与补充素材的选题放在一起",
+            "该素材和该素材共同证明": "主素材与补充素材共同证明",
+            "由该素材和该素材两条素材共同证明": "由主素材与补充素材两条材料共同证明",
+            "该素材支撑报告主线，该素材支撑后续观察": "主素材支撑报告主线，补充素材支撑后续观察",
+            "本章证据主要来自该补充视频，该补充视频支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            "不能展开说明该补充视频具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "本章不能展开说明该补充视频具体如何批评 vibe check": "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能用主素材的标题去补写 SWE-rebench 的方法和结论": "不能用该补充视频的标题去补写 SWE-rebench 的方法和结论",
+        }
+        for source, target in targeted_multi_rewrites.items():
+            body_text = body_text.replace(source, target)
+        body_text = re.sub(
+            r"\[[^\]]+\]\([^)]+\)\s+可以作为本章问题范围内的相关材料",
+            "该补充视频可以作为本章问题范围内的相关材料",
+            body_text,
+        )
+        body_text = re.sub(
+            r"不能展开说明\s+\[[^\]]+\]\([^)]+\)\s+具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"因此本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(r"(?m)^该素材，", "主素材当前", body_text)
+        generic_material_label = "主素材"
+    else:
+        body_text = re.sub(r"(?m)^该素材，", "该视频当前", body_text)
+        generic_material_label = "该视频"
+    spacing_fixes = {
+        "根据 该素材": f"根据{generic_material_label}",
+        "由 该素材": f"由{generic_material_label}",
+        "把 该素材": f"把{generic_material_label}",
+        "来自 该素材": f"来自{generic_material_label}",
+        "依据 该素材": f"依据{generic_material_label}",
+        "关于 该素材": f"关于{generic_material_label}",
+        "当前可用材料中， 该素材": f"当前可用材料中，{generic_material_label}",
+        "本章证据主要来自 该素材": f"本章证据主要来自{generic_material_label}",
+        "该素材 中": f"{generic_material_label}中",
+        "该素材 的": f"{generic_material_label}的",
+        "该素材 与": f"{generic_material_label}与",
+    }
+    for source, target in spacing_fixes.items():
+        body_text = body_text.replace(source, target)
+    body_text = re.sub(r"该素材", generic_material_label, body_text)
+    body_text = re.sub(rf"{re.escape(generic_material_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{generic_material_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(generic_material_label)}", rf"\1{generic_material_label}", body_text)
+    body_text = re.sub(rf"{re.escape(repeated_ref_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{repeated_ref_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(repeated_ref_label)}", rf"\1{repeated_ref_label}", body_text)
+    body_text = body_text.replace("正文转写", "正文内容")
+    body_text = body_text.replace("可引用的正文内容，因此本章不能展开说明该补充视频具体如何批评 vibe check。", "可引用的正文内容，本章当前还不能判断该补充视频是否批评 vibe check、如何批评。")
+    body_text = re.sub(
+        rf"(?m)^(#### [^\n]{{2,80}}?)({re.escape(generic_material_label)}(?:中|把|提到|明确|当前|暂时|可以|AI Engineer))",
+        r"\1\n\2",
+        body_text,
+    )
+    if multi_material:
+        body_text = body_text.replace("主素材和主素材", "主素材与补充素材")
+        body_text = body_text.replace("本章证据主要来自该补充视频，该补充视频支撑后续观察。", "本章证据主要来自主素材，补充素材支撑后续观察。")
+    return re.sub(r"\n{3,}", "\n\n", body_text).strip()
+
+
+def refine_ai_influence_public_report(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*$\n(?:\s*\n)*(?=^##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
+    sections = _split_ai_influence_sections(text)
+    if not sections:
+        return text
+    rebuilt: list[str] = []
+    for title, body in sections:
+        compact_body = _compress_ai_influence_section_body(title, body, evidence_pack)
+        if title == "摘要" and not compact_body.strip():
+            compact_body = "本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。"
+        compact_body = _collapse_nested_ai_influence_youtube_links(compact_body)
+        rebuilt.append(f"## {title}\n\n{compact_body}".strip())
+    heading = text.splitlines()[0].strip() if text.startswith("# ") else ""
+    prefix = heading + "\n\n" if heading else ""
+    return _collapse_nested_ai_influence_youtube_links((prefix + "\n\n".join(rebuilt).strip()).strip())
+
+
 def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: dict[str, Any]) -> str:
     """Deterministically add a reader-facing evidence section when synthesis omits it."""
     text = str(markdown or "").strip()
@@ -17612,6 +17867,8 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             )
             markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
             markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = refine_ai_influence_public_report(markdown, evidence_pack)
+            validate_ai_influence_markdown_report(markdown)
             report = {
                 "headline": spec.get("title") or report_id,
                 "subheadline": "基于本期公开视频材料的日度观察",
@@ -17858,6 +18115,9 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 model_name=model_name,
                 input_videos=len(evidence_pack.get("videos") or []),
             )
+            markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
+            markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = refine_ai_influence_public_report(markdown, evidence_pack)
             validate_ai_influence_markdown_report(markdown)
             report = {
                 "headline": spec.get("title") or report_id,

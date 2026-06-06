@@ -6,7 +6,8 @@ import sqlite3
 from pathlib import Path
 
 
-_STATUS_SERVER = Path("${SOLAR_REPO}/harness/lib/symphony/status-server.py")
+ROOT = Path(__file__).resolve().parents[2]
+_STATUS_SERVER = ROOT / "harness" / "lib" / "symphony" / "status-server.py"
 
 
 def _load_module():
@@ -61,6 +62,24 @@ def test_ai_influence_payload_discovers_all_report_kinds(tmp_path, monkeypatch):
     assert "raw_dir" not in payload
     assert "legacy_raw_dir" not in payload
     assert all("report_dir" not in item for item in payload["items"])
+
+
+def test_sanitize_ai_influence_report_html_polishes_runtime_wording():
+    mod = _load_module()
+    dirty = (
+        "<p>该补充视频没有提供可引用的正文转写。</p>"
+        "<p>可用 转写 / 转写 字符量 / 转写 规模 / 转写</p>"
+        "<p>标题和归组明确</p>"
+    )
+
+    clean = mod._sanitize_ai_influence_public_markup(dirty)
+
+    assert "可参考的正文内容" in clean
+    assert "正文规模" in clean
+    assert "正文内容" in clean
+    assert "标题与主题明确" in clean
+    assert "会议内容" not in clean
+    assert "正文正文内容" not in clean
 
 
 def test_save_ai_influence_mail_config(tmp_path, monkeypatch):
