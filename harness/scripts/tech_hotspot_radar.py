@@ -8375,7 +8375,7 @@ def cmd_backfill_hf_papers_baseline(args: argparse.Namespace) -> int:
 
 def hf_paper_insight_db_path(config: dict[str, Any]) -> Path:
     output = config.get("output") or {}
-    state_dir = Path(output.get("state_dir") or "${HARNESS_DIR}/state/tech-hotspot-radar").expanduser()
+    state_dir = _expand_runtime_path(output.get("state_dir") or "${HARNESS_DIR}/state/tech-hotspot-radar")
     return state_dir / "hf-paper-insight.sqlite"
 
 

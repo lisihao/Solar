@@ -370,6 +370,16 @@ def test_hf_write_public_report_expands_runtime_raw_dir(tmp_path):
     assert Path(result["report_md"]).parent == Path(monkey_output) / "2026-06-01"
 
 
+def test_hf_paper_insight_db_path_expands_runtime_state_dir():
+    ns = _load_namespace()
+    path = ns["hf_paper_insight_db_path"](
+        {"output": {"state_dir": "${HARNESS_DIR}/state/tech-hotspot-radar"}}
+    )
+    expected = Path.home() / ".solar" / "harness" / "state" / "tech-hotspot-radar" / "hf-paper-insight.sqlite"
+    assert path == expected
+    assert "${HARNESS_DIR}" not in str(path)
+
+
 def test_hf_report_context_weekly_uses_iso_week_not_rolling_window():
     ns = _load_namespace()
     context = ns["hf_report_context"]("2026-05-29", {"hf_paper_insight": {"reporting": {"cadence": "weekly"}}})
