@@ -82,6 +82,19 @@ TRANSIENT_OPERATOR_FAILURE_RE = re.compile(
     r"auth_expired|not logged in|not authenticated",
     re.I,
 )
+LOCAL_CLOSEOUT_FAILURE_RE = re.compile(
+    r"missing[_\s-]*(?:pm[_\s-]*result|handoff|eval(?:uation)?|eval[_\s-]*json|sidecar)|"
+    r"failed[_\s-]*(?:missing[_\s-]*pm[_\s-]*result|contract[_\s-]*closeout)|"
+    r"contract[_\s-]*closeout|sidecar[_\s-]*closeout|"
+    r"\b(?:pm[_\s-]*result|handoff[_\s-]*md|eval[_\s-]*json)\b",
+    re.I,
+)
+PROVIDER_QUOTA_EVIDENCE_RE = re.compile(
+    r"RESOURCE_EXHAUSTED|you(?:'|’)ve hit .*limit|usage limit|monthly usage limit|"
+    r"rate[- ]?limit|quota\s+(?:exhausted|exceeded|limit|reached)|too many requests|\b429\b|"
+    r"individual quota reached|upgrade your plan|resets?\s+(?:in|at|on)",
+    re.I,
+)
 
 
 def _transient_operator_failure_text(record: dict[str, Any]) -> str:
@@ -117,6 +130,42 @@ def _transient_operator_failure_text(record: dict[str, Any]) -> str:
         except Exception:
             continue
     return "\n".join(parts).strip()
+
+
+def _operator_quota_evidence_text(op: dict[str, Any], status: dict[str, Any] | None = None) -> str:
+    """Collect human/provider evidence used to decide whether a quota block is real."""
+    state = op.get("state") if isinstance(op.get("state"), dict) else {}
+    flow = op.get("flow_control") if isinstance(op.get("flow_control"), dict) else {}
+    status = status if isinstance(status, dict) else {}
+    parts: list[str] = []
+    for value in (
+        state.get("last_error"),
+        state.get("last_error_detail"),
+        flow.get("last_block_excerpt"),
+        flow.get("last_block_reason"),
+        flow.get("last_block_source"),
+        status.get("reason"),
+        status.get("message"),
+        status.get("excerpt"),
+    ):
+        if value:
+            parts.append(str(value))
+    return "\n".join(parts)
+
+
+def _is_local_closeout_quota_false_positive(op: dict[str, Any], status: dict[str, Any] | None = None) -> bool:
+    """Return true when a local artifact-closeout failure was persisted as quota cooldown."""
+    evidence = _operator_quota_evidence_text(op, status)
+    if not LOCAL_CLOSEOUT_FAILURE_RE.search(evidence or ""):
+        return False
+    # Prefer concrete closeout artifacts over old generic derived labels such as
+    # last_block_reason=rate_limit, which could be set by a previous classifier.
+    without_derived_reason = "\n".join(
+        part
+        for part in evidence.splitlines()
+        if part.strip().lower() not in {"rate_limit", "cooldown", "quota_guard_state=cooldown"}
+    )
+    return not PROVIDER_QUOTA_EVIDENCE_RE.search(without_derived_reason or "")
 
 RATE_LIMIT_PRUNER_LABEL = os.environ.get("SOLAR_RATE_LIMIT_PRUNER_LABEL", "com.solar.harness-rate-limit-pruner")
 OPERATOR_HEALTH_WATCHDOG_LABEL = os.environ.get("SOLAR_OPERATOR_HEALTH_WATCHDOG_LABEL", "com.solar.harness.operator-health-watchdog")
@@ -480,11 +529,12 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
         or ""
     ).strip()
     block_type = "none"
+    local_closeout_quota_false_positive = _is_local_closeout_quota_false_positive(op, status)
     reason_l = (reason or "").lower()
     state_l = (runtime_state or "").lower()
-    if quota_state in {"cooldown", "quota_exhausted", "auth_expired"}:
+    if quota_state in {"cooldown", "quota_exhausted", "auth_expired"} and not local_closeout_quota_false_positive:
         block_type = quota_state
-    elif state_l in {"cooldown", "quota_exhausted", "auth_expired"}:
+    elif state_l in {"cooldown", "quota_exhausted", "auth_expired"} and not local_closeout_quota_false_positive:
         block_type = state_l
     elif "health_check_failed" in reason_l or "unavailable:" in reason_l:
         block_type = "health"
@@ -496,7 +546,7 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
         block_type = "other"
     return {
         "block_type": block_type,
-        "quota_guard_state": quota_state or "ok",
+        "quota_guard_state": "ok" if local_closeout_quota_false_positive else quota_state or "ok",
         "cooldown_until": expires_at,
         "cooldown_eta": _format_reset_eta(expires_at),
     }
@@ -725,6 +775,8 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
         ).strip().lower()
         if state not in {"cooldown", "quota_exhausted", "auth_expired"}:
             continue
+        if _is_local_closeout_quota_false_positive(peer_spec, status):
+            continue
         expires_at = str(
             status.get("expires_at")
             or peer_spec.get("quota_refresh_at")
@@ -751,26 +803,30 @@ def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
     operator_id = op.get("operator_id", "")
     quota_state = str(op.get("quota_guard_state") or "ok").strip().lower()
     if quota_state not in {"", "ok", "ready"}:
-        expires_at = str(op.get("quota_refresh_at") or (op.get("state") or {}).get("cooldown_until") or "")
-        expires_dt = _parse_utc(expires_at)
-        if expires_dt is not None and expires_dt <= datetime.datetime.now(datetime.timezone.utc):
-            try:
-                lib_dir = HARNESS_DIR / "lib"
-                if str(lib_dir) not in sys.path:
-                    sys.path.insert(0, str(lib_dir))
-                import operator_flow_control as ofc  # type: ignore
-
-                ofc.clear_expired_operator_config_block(str(operator_id))
-            except Exception:
-                pass
+        status = get_operator_status_data(str(operator_id))
+        if _is_local_closeout_quota_false_positive(op, status):
+            quota_state = "ok"
         else:
-            reason = f"quota_guard_state={quota_state}"
-            eta = _format_reset_eta(expires_at)
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            return False, reason
+            expires_at = str(op.get("quota_refresh_at") or (op.get("state") or {}).get("cooldown_until") or "")
+            expires_dt = _parse_utc(expires_at)
+            if expires_dt is not None and expires_dt <= datetime.datetime.now(datetime.timezone.utc):
+                try:
+                    lib_dir = HARNESS_DIR / "lib"
+                    if str(lib_dir) not in sys.path:
+                        sys.path.insert(0, str(lib_dir))
+                    import operator_flow_control as ofc  # type: ignore
+
+                    ofc.clear_expired_operator_config_block(str(operator_id))
+                except Exception:
+                    pass
+            else:
+                reason = f"quota_guard_state={quota_state}"
+                eta = _format_reset_eta(expires_at)
+                if eta:
+                    reason += f", resets {eta}"
+                if expires_at:
+                    reason += f" (until {expires_at})"
+                return False, reason
     shared_block = _shared_quota_block_for_operator(op)
     if shared_block:
         state = shared_block.get("state", "cooldown")
@@ -789,17 +845,23 @@ def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
     state = get_operator_runtime_state(operator_id)
     state = _maybe_clear_stale_runtime(str(operator_id), state)
     if state in NON_DISPATCHABLE_STATES:
-        if state in ("cooldown", "quota_exhausted", "auth_expired"):
-            status = get_operator_status_data(operator_id)
-            expires_at = str(status.get("expires_at") or "")
-            eta = _format_reset_eta(expires_at)
-            reason = f"runtime_state={state}"
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            return False, reason
-        return False, f"runtime_state={state}"
+        if state in ("cooldown", "quota_exhausted") and _is_local_closeout_quota_false_positive(
+            op,
+            get_operator_status_data(str(operator_id)),
+        ):
+            state = "idle"
+        else:
+            if state in ("cooldown", "quota_exhausted", "auth_expired"):
+                status = get_operator_status_data(operator_id)
+                expires_at = str(status.get("expires_at") or "")
+                eta = _format_reset_eta(expires_at)
+                reason = f"runtime_state={state}"
+                if eta:
+                    reason += f", resets {eta}"
+                if expires_at:
+                    reason += f" (until {expires_at})"
+                return False, reason
+            return False, f"runtime_state={state}"
     health_ok, health_reason = _operator_external_health(op)
     if not health_ok:
         return False, f"health_check_failed: {health_reason}"

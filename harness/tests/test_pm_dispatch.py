@@ -165,6 +165,9 @@ def test_is_dispatchable_inherits_shared_billing_pool_cooldown(monkeypatch):
                     "operator_id": "primary-opus-evaluator",
                     "billing_pool": "anthropic_subscription_interactive",
                     "key_ref": "claude_subscription",
+                    "flow_control": {
+                        "last_block_excerpt": "You've hit your limit · resets in 2h",
+                    },
                 },
                 "reserve-opus-print": {
                     "enabled": True,
@@ -200,6 +203,105 @@ def test_is_dispatchable_inherits_shared_billing_pool_cooldown(monkeypatch):
     assert ok is False
     assert "shared_quota_guard_state=cooldown" in reason
     assert "primary-opus-evaluator" in reason
+
+
+def test_is_dispatchable_ignores_shared_cooldown_from_local_closeout_false_positive(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "mini-claude-sonnet-builder-2": {
+                    "enabled": True,
+                    "available": True,
+                    "operator_id": "mini-claude-sonnet-builder-2",
+                    "billing_pool": "anthropic_agent_sdk_credit",
+                    "quota_guard_state": "cooldown",
+                    "quota_refresh_at": "2099-01-01T00:00:00Z",
+                    "state": {
+                        "runtime_state": "cooldown",
+                        "last_error": "rate_limit",
+                    },
+                    "flow_control": {
+                        "last_block_reason": "rate_limit",
+                        "last_block_excerpt": (
+                            "All done. Summary: [ERROR] missing pm_result: "
+                            "/Users/lisihao/.solar/harness/sprints/sprint-x.S02.pm-result.md"
+                        ),
+                    },
+                },
+                "mini-claude-sonnet-builder-3": {
+                    "enabled": True,
+                    "available": True,
+                    "operator_id": "mini-claude-sonnet-builder-3",
+                    "billing_pool": "anthropic_agent_sdk_credit",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        pm_dispatch,
+        "get_operator_status_data",
+        lambda operator_id: {
+            "runtime_state": "cooldown",
+            "expires_at": "2099-01-01T00:00:00Z",
+        }
+        if operator_id == "mini-claude-sonnet-builder-2"
+        else {},
+    )
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "idle")
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "mini-claude-sonnet-builder-3",
+            "billing_pool": "anthropic_agent_sdk_credit",
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_is_dispatchable_ignores_own_cooldown_from_local_closeout_false_positive(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "load_registry", lambda: {"version": 1, "operators": {}})
+    monkeypatch.setattr(
+        pm_dispatch,
+        "get_operator_status_data",
+        lambda operator_id: {
+            "runtime_state": "cooldown",
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "cooldown")
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "mini-claude-sonnet-builder-2",
+            "billing_pool": "anthropic_agent_sdk_credit",
+            "quota_guard_state": "cooldown",
+            "quota_refresh_at": "2099-01-01T00:00:00Z",
+            "state": {
+                "runtime_state": "cooldown",
+                "last_error": "rate_limit",
+            },
+            "flow_control": {
+                "last_block_reason": "rate_limit",
+                "last_block_excerpt": "missing pm_result: /tmp/sprint.S02.pm-result.md",
+            },
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
 
 
 def test_is_dispatchable_does_not_share_key_ref_across_distinct_models(monkeypatch):

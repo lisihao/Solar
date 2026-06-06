@@ -28,6 +28,13 @@ RATE_LIMIT_RE = re.compile(
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
 )
+LOCAL_CLOSEOUT_FAILURE_RE = re.compile(
+    r"missing[_\s-]*(?:pm[_\s-]*result|handoff|eval(?:uation)?|eval[_\s-]*json|sidecar)|"
+    r"failed[_\s-]*(?:missing[_\s-]*pm[_\s-]*result|contract[_\s-]*closeout)|"
+    r"contract[_\s-]*closeout|sidecar[_\s-]*closeout|"
+    r"\b(?:pm[_\s-]*result|handoff[_\s-]*md|eval[_\s-]*json)\b",
+    re.I,
+)
 BROWSER_HISTORY_THROTTLE_RE = re.compile(
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
@@ -356,11 +363,14 @@ def classify_failure_state(text: str) -> str:
     bootstrap_failed is a transient state (recoverable with --continue) and is
     NOT a member of BLOCKING_STATES; it exists only for diagnostics.
     """
-    if auth_failure_is_current(text or ""):
+    raw = text or ""
+    if auth_failure_is_current(raw):
         return "auth_expired"
-    if RATE_LIMIT_RE.search(text or ""):
+    if LOCAL_CLOSEOUT_FAILURE_RE.search(raw):
+        return ""
+    if RATE_LIMIT_RE.search(raw):
         return "cooldown"
-    if NO_ACTIVE_CONVERSATION_RE.search(text or ""):
+    if NO_ACTIVE_CONVERSATION_RE.search(raw):
         return "bootstrap_failed"
     return ""
 
@@ -711,6 +721,12 @@ def persist_operator_block(
     reason_l = str(reason or "").strip().lower()
     source_l = str(source or "").strip().lower()
     evidence_l = str(evidence_text or "").lower()
+    if runtime_state in {"cooldown", "quota_exhausted"} and LOCAL_CLOSEOUT_FAILURE_RE.search(evidence_l):
+        return {
+            "ok": False,
+            "reason": "local_closeout_failure_not_provider_quota",
+            "operator_id": operator_id,
+        }
     if reason_l in {"pane_tui_rate_limit_fallback_ttl", "pane_tui_rate_limit"} and source_l.startswith("tmux_pane:"):
         explicit_rate_limit = any(
             token in evidence_l

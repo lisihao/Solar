@@ -92,6 +92,13 @@ class TestQuotaTextClassification:
     def test_normal_output_not_classified(self, ofc):
         assert ofc.classify_failure_state("Task completed successfully") == ""
 
+    def test_local_closeout_failure_not_classified_as_quota(self, ofc):
+        text = (
+            "All done. Summary: [ERROR] missing pm_result: "
+            "/Users/lisihao/.solar/harness/sprints/sprint-x.S02.pm-result.md"
+        )
+        assert ofc.classify_failure_state(text) == ""
+
 
 # ---------------------------------------------------------------------------
 # 2. quotaProject= must NOT trigger quota classification
@@ -322,6 +329,27 @@ class TestApplyFailureFlowControl:
             task_dir,
             operator_id="op-planner",
             failure_text="quotaProject=my-gcp-project request succeeded",
+            rate_limit_cooldown_seconds=3600,
+            auth_cooldown_seconds=21600,
+        )
+
+        assert result["runtime_state"] == ""
+        assert len(calls) == 0
+
+    def test_local_closeout_failure_does_not_set_cooldown(self, tmp_path, monkeypatch):
+        import operator_flow_control as ofc
+
+        task_dir = tmp_path / "task-closeout"
+        task_dir.mkdir()
+        calls: list[tuple] = []
+
+        import operator_runtime as rt
+        monkeypatch.setattr(rt, "set_operator_status", lambda *a, **kw: calls.append(a) or {})
+
+        result = ofc.apply_failure_flow_control(
+            task_dir,
+            operator_id="mini-claude-sonnet-builder-2",
+            failure_text="failed_contract_closeout: missing pm_result: /tmp/sprint.S02.pm-result.md",
             rate_limit_cooldown_seconds=3600,
             auth_cooldown_seconds=21600,
         )
