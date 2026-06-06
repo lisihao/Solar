@@ -32,6 +32,59 @@ DEFAULT_ALLOWED_DOMAINS = [
     "google.ca",
 ]
 
+
+def _read_request_meta(request_dir: Path) -> dict:
+    path = request_dir / "request.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_status_is_terminal(status: str | None) -> bool:
+    value = str(status or "").strip()
+    return value == "completed" or value.startswith("failed")
+
+
+def _update_request_meta(
+    request_dir: Path,
+    *,
+    status: str | None = None,
+    force: bool = False,
+    **updates,
+) -> dict:
+    payload = _read_request_meta(request_dir)
+    current_status = str(payload.get("status") or "").strip()
+    if _request_status_is_terminal(current_status) and not force:
+        return payload
+    if status is not None:
+        payload["status"] = status
+    payload.update(updates)
+    payload["updated_at"] = bjrt._now()
+    _write_json(request_dir / "request.json", payload)
+    return payload
+
+
+def _record_request_executor_failure(
+    request_dir: Path,
+    *,
+    error_type: str,
+    error_text: str,
+) -> dict:
+    return _update_request_meta(
+        request_dir,
+        status="failed_executor",
+        finished_at=bjrt._now(),
+        closeout_by="browser_agent_notebooklm_wrapper",
+        closeout_reason="wrapper_exception",
+        wrapper_error_type=error_type,
+        wrapper_error=error_text,
+        force=False,
+    )
+
 CAPTURE_JS = r"""() => {
   const clean = (value) => String(value || "")
     .replace(/\u00a0/g, " ")
@@ -688,6 +741,7 @@ async def _generate_artifact(page, artifact_label: str, title: str, prompt_text:
 
 async def _run(payload: dict) -> int:
     request_dir = _request_dir()
+    startup_cleanup = bjrt.cleanup_stale_staged_browser_profiles()
     notebook_name = str(payload.get("notebook_name") or "").strip() or "AI Influence"
     output_dir = Path(str(payload.get("output_dir") or request_dir)).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -699,6 +753,16 @@ async def _run(payload: dict) -> int:
     staged_dir, cleanup_dir = bjrt._stage_browser_profile(user_data_dir, profile_directory)
     if user_data_dir and not staged_dir:
         raise RuntimeError("protected_browser_profile_cache_missing")
+    _write_json(request_dir / "staged-profile-startup-cleanup.json", startup_cleanup)
+    _update_request_meta(
+        request_dir,
+        status="pending_executor",
+        wrapper_started_at=bjrt._now(),
+        wrapper_pid=os.getpid(),
+        wrapper_action="notebooklm_run",
+        startup_staged_profile_cleanup=startup_cleanup,
+        force=False,
+    )
 
     meta = {
         "provider": "browser_agent_notebooklm",
@@ -707,6 +771,7 @@ async def _run(payload: dict) -> int:
         "target_url": target_url,
         "source_files": payload.get("source_files") or [],
         "started_at": bjrt._now(),
+        "startup_staged_profile_cleanup": startup_cleanup,
     }
     _write_json(request_dir / "wrapper-meta.json", meta)
     _mark_progress(request_dir, "wrapper_started", notebook_name=notebook_name)
@@ -719,6 +784,8 @@ async def _run(payload: dict) -> int:
             allowed_domains=DEFAULT_ALLOWED_DOMAINS,
         )
     )
+    final_error_text: str | None = None
+    final_error_type: str | None = None
     try:
         _mark_progress(request_dir, "browser_starting")
         await asyncio.wait_for(browser.start(), timeout=40)
@@ -837,6 +904,10 @@ async def _run(payload: dict) -> int:
         _mark_progress(request_dir, "completed", source_count=final_sources.get("source_count"))
         print(json.dumps(response, ensure_ascii=False))
         return 0
+    except Exception as exc:
+        final_error_text = str(exc)
+        final_error_type = type(exc).__name__
+        raise
     finally:
         try:
             await asyncio.wait_for(browser.stop(), timeout=20)
@@ -844,6 +915,23 @@ async def _run(payload: dict) -> int:
             pass
         if cleanup_dir is not None:
             shutil.rmtree(cleanup_dir, ignore_errors=True)
+        watchdog_cleanup = bjrt.cleanup_stale_staged_browser_profiles(grace_seconds=60)
+        _write_json(request_dir / "staged-profile-watchdog-cleanup.json", watchdog_cleanup)
+        if final_error_text:
+            _record_request_executor_failure(
+                request_dir,
+                error_type=str(final_error_type or "RuntimeError"),
+                error_text=final_error_text,
+            )
+        else:
+            _update_request_meta(
+                request_dir,
+                status=None,
+                wrapper_finished_at=bjrt._now(),
+                wrapper_exit_code=0,
+                watchdog_staged_profile_cleanup=watchdog_cleanup,
+                force=False,
+            )
 
 
 def main() -> int:
@@ -858,6 +946,11 @@ def main() -> int:
             "error": str(exc),
             "failed_at": bjrt._now(),
         })
+        _record_request_executor_failure(
+            request_dir,
+            error_type=type(exc).__name__,
+            error_text=str(exc),
+        )
         print(f"browser_agent_notebooklm_wrapper failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 

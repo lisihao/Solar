@@ -15045,6 +15045,18 @@ def _browser_agent_pending_executor_grace_seconds() -> int:
         return 600
 
 
+def _browser_agent_legacy_repair_grace_seconds() -> int:
+    raw = (
+        os.environ.get("TECH_HOTSPOT_BROWSER_LEGACY_REQUEST_REPAIR_GRACE_SECONDS")
+        or os.environ.get("BROWSER_AGENT_LEGACY_REQUEST_REPAIR_GRACE_SECONDS")
+        or "3600"
+    )
+    try:
+        return max(0, int(str(raw).strip()))
+    except (TypeError, ValueError):
+        return 3600
+
+
 def _read_browser_agent_request_meta(request_dir: Path) -> dict[str, Any]:
     path = request_dir / "request.json"
     if not path.exists():
@@ -15180,6 +15192,78 @@ def _reap_stale_browser_agent_pending_requests(
         "request_root": str(request_root),
         "scanned": scanned,
         "reaped": reaped,
+        "grace_seconds": grace_seconds,
+        "checked_at": iso_z(),
+    }
+
+
+def _repair_legacy_browser_agent_request_ledgers(
+    config: dict[str, Any],
+    *,
+    now_ts: float | None = None,
+) -> dict[str, Any]:
+    request_root = _browser_agent_state_dir(config) / "browser-agent-requests"
+    now_value = time.time() if now_ts is None else float(now_ts)
+    grace_seconds = _browser_agent_legacy_repair_grace_seconds()
+    repaired: list[dict[str, Any]] = []
+    scanned = 0
+    if not request_root.exists():
+        return {
+            "ok": True,
+            "request_root": str(request_root),
+            "scanned": 0,
+            "repaired": [],
+            "grace_seconds": grace_seconds,
+            "checked_at": iso_z(),
+        }
+    for request_dir in sorted(request_root.iterdir()):
+        if not request_dir.is_dir():
+            continue
+        scanned += 1
+        request_json_path = request_dir / "request.json"
+        created_at_epoch = request_dir.stat().st_mtime
+        age_seconds = max(0, int(now_value - created_at_epoch))
+        if age_seconds < grace_seconds:
+            continue
+        if not request_json_path.exists():
+            files = sorted(p.name for p in request_dir.iterdir())
+            payload = {
+                "purpose": request_dir.name,
+                "provider": "browser_agent_unknown_legacy",
+                "created_at": iso_z(dt.datetime.fromtimestamp(created_at_epoch, tz=UTC)),
+                "updated_at": iso_z(),
+                "finished_at": iso_z(),
+                "status": "failed_legacy_missing_request_json",
+                "closeout_by": "browser_agent_legacy_ledger_repair",
+                "closeout_reason": "missing_request_json",
+                "artifact_file_count": len(files),
+                "artifact_files_preview": files[:20],
+            }
+            _write_browser_agent_request_meta(request_dir, payload)
+            repaired.append({"request_dir": str(request_dir), "status": payload["status"]})
+            continue
+        try:
+            payload = json.loads(request_json_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("status") or "").strip():
+            continue
+        payload.update({
+            "status": "failed_legacy_missing_status_field",
+            "updated_at": iso_z(),
+            "finished_at": iso_z(),
+            "closeout_by": "browser_agent_legacy_ledger_repair",
+            "closeout_reason": "missing_status_field",
+        })
+        _write_browser_agent_request_meta(request_dir, payload)
+        repaired.append({"request_dir": str(request_dir), "status": payload["status"]})
+    return {
+        "ok": True,
+        "request_root": str(request_root),
+        "scanned": scanned,
+        "repaired": repaired,
         "grace_seconds": grace_seconds,
         "checked_at": iso_z(),
     }
@@ -15378,6 +15462,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
     max_chars = int(requested_max_prompt_chars or writer_cfg.get("max_prompt_chars") or reasoner_cfg.get("max_prompt_chars") or 180000)
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[TRUNCATED: prompt exceeded configured max_prompt_chars]\n"
+    legacy_repair_result = _repair_legacy_browser_agent_request_ledgers(config)
     reaper_result = _reap_stale_browser_agent_pending_requests(config)
     req_dir = _browser_agent_request_dir(config, purpose)
     (req_dir / "prompt.md").write_text(prompt, encoding="utf-8")
@@ -15396,6 +15481,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "executor_timeout_seconds": timeout,
         "note": "AI Influence high-judgment stages must use DeepResearchChatGPT/chatgpt_thinking_high via Browser Agent + ChatGPT 5.5 Thinking high. No Codex/local fallback is allowed.",
         "scratch_profile_id": str(scratch_profile_id or "").strip(),
+        "startup_legacy_request_ledger_repair": legacy_repair_result,
         "startup_pending_executor_reaper": reaper_result,
     }
     _write_browser_agent_request_meta(req_dir, meta)
@@ -15684,15 +15770,33 @@ def call_browser_agent_notebooklm_json(request_payload: dict[str, Any], config: 
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     notebook_cfg = flow_cfg.get("notebooklm") or {}
     timeout = int(notebook_cfg.get("timeout_seconds") or 1800)
+    legacy_repair_result = _repair_legacy_browser_agent_request_ledgers(config)
+    reaper_result = _reap_stale_browser_agent_pending_requests(config)
     req_dir = _browser_agent_request_dir(config, purpose)
     request_payload = json.loads(json.dumps(request_payload, ensure_ascii=False))
     request_payload["_request_dir"] = str(req_dir)
-    (req_dir / "request.json").write_text(
-        json.dumps(request_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    meta = {
+        "purpose": purpose,
+        "provider": "browser_agent_notebooklm",
+        "created_at": iso_z(),
+        "updated_at": iso_z(),
+        "status": "pending_executor",
+        "executor_timeout_seconds": timeout,
+        "request_payload": request_payload,
+        "startup_legacy_request_ledger_repair": legacy_repair_result,
+        "startup_pending_executor_reaper": reaper_result,
+    }
+    _write_browser_agent_request_meta(req_dir, meta)
     cmd = browser_agent_notebooklm_cmd(config)
     if not cmd:
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_launch",
+            finished_at=iso_z(),
+            closeout_by="tech_hotspot_radar_prelaunch",
+            closeout_reason="executor_not_configured",
+            force=True,
+        )
         raise RuntimeError(
             "browser_agent_notebooklm executor is not configured; "
             f"request written to {req_dir}. Set TECH_HOTSPOT_BROWSER_NOTEBOOKLM_CMD "
@@ -15703,21 +15807,54 @@ def call_browser_agent_notebooklm_json(request_payload: dict[str, Any], config: 
         "BROWSER_AGENT_REQUEST_DIR": str(req_dir),
         "BROWSER_AGENT_NOTEBOOKLM_TIMEOUT": str(timeout),
     })
-    run = subprocess.run(
-        cmd,
-        input=json.dumps(request_payload, ensure_ascii=False),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        env=env,
-    )
+    try:
+        run = subprocess.run(
+            cmd,
+            input=json.dumps(request_payload, ensure_ascii=False),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = _strip_browser_agent_noise(str(exc.output or ""))
+        (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_timeout",
+            finished_at=iso_z(),
+            output_chars=len(output),
+            closeout_by="tech_hotspot_radar_timeout",
+            closeout_reason="executor_timeout",
+            force=True,
+        )
+        raise
     output = _strip_browser_agent_noise(run.stdout or "")
     (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
     if run.returncode != 0:
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_rc",
+            finished_at=iso_z(),
+            output_chars=len(output),
+            executor_returncode=run.returncode,
+            closeout_by="tech_hotspot_radar_rc",
+            closeout_reason="executor_nonzero_exit",
+            force=True,
+        )
         raise RuntimeError(f"browser_agent_notebooklm failed rc={run.returncode}: {output[-2000:]}")
     payload = extract_json_payload_lenient(output)
     payload["_request_dir"] = str(req_dir)
+    _update_browser_agent_request_meta(
+        req_dir,
+        status="completed",
+        finished_at=iso_z(),
+        output_chars=len(output),
+        closeout_by="tech_hotspot_radar_success",
+        closeout_reason="executor_completed",
+        force=True,
+    )
     return payload
 
 

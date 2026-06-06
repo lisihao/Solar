@@ -1253,6 +1253,55 @@ def test_call_browser_agent_chatgpt_text_reaps_stale_pending_executor_before_new
     assert stale_meta["closeout_reason"] == "pending_executor_timeout_reaped"
 
 
+def test_repair_legacy_browser_agent_request_ledgers_classifies_na_dirs(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_LEGACY_REQUEST_REPAIR_GRACE_SECONDS", "0")
+    state_dir = tmp_path / "state"
+    missing_status_dir = state_dir / "browser-agent-requests" / "20240101T000000Z-missing-status"
+    missing_status_dir.mkdir(parents=True, exist_ok=True)
+    (missing_status_dir / "request.json").write_text(
+        json.dumps({"provider": "browser_agent_notebooklm", "created_at": "2024-01-01T00:00:00Z"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    missing_request_dir = state_dir / "browser-agent-requests" / "20240101T000001Z-missing-request"
+    missing_request_dir.mkdir(parents=True, exist_ok=True)
+    (missing_request_dir / "wrapper-meta.json").write_text('{"provider":"browser_agent_notebooklm"}\n', encoding="utf-8")
+    result = ns["_repair_legacy_browser_agent_request_ledgers"](
+        {"output": {"state_dir": str(state_dir)}},
+    )
+    assert len(result["repaired"]) == 2
+    repaired_missing_status = json.loads((missing_status_dir / "request.json").read_text(encoding="utf-8"))
+    repaired_missing_request = json.loads((missing_request_dir / "request.json").read_text(encoding="utf-8"))
+    assert repaired_missing_status["status"] == "failed_legacy_missing_status_field"
+    assert repaired_missing_request["status"] == "failed_legacy_missing_request_json"
+
+
+def test_call_browser_agent_notebooklm_json_marks_request_completed(monkeypatch, tmp_path):
+    wrapper = tmp_path / "fake_notebooklm_wrapper.py"
+    wrapper.write_text(
+        "import json\n"
+        "print(json.dumps({'ok': True, 'source_count': 2, 'notebook_name': 'AI Influence'}, ensure_ascii=False))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_NOTEBOOKLM_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    state_dir = tmp_path / "state"
+    result = ns["call_browser_agent_notebooklm_json"](
+        {"source_files": ["/tmp/a.md"], "notebook_name": "AI Influence"},
+        {
+            "output": {"state_dir": str(state_dir)},
+            "youtube": {"ai_influence_report_flow": {"notebooklm": {"timeout_seconds": 5}}},
+        },
+        purpose="notebooklm-request-closeout",
+    )
+    assert result["ok"] is True
+    request_dirs = sorted((state_dir / "browser-agent-requests").iterdir())
+    assert len(request_dirs) == 1
+    request_meta = json.loads((request_dirs[0] / "request.json").read_text(encoding="utf-8"))
+    assert request_meta["status"] == "completed"
+    assert request_meta["closeout_reason"] == "executor_completed"
+
+
 def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch, tmp_path):
     wrapper = tmp_path / "root_wrapper.py"
     wrapper.write_text(
