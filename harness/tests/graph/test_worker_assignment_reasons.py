@@ -245,6 +245,36 @@ def test_code_impl_and_test_generation_aliases_bind_general_builder_workers() ->
     assert result["assigned"][0]["node"] == "N1"
 
 
+def test_rawintent_requirement_compiler_aliases_bind_general_builder_workers() -> None:
+    worker = _worker("pane-a")
+    worker["skills"] = ["backend-development", "api-integration-specialist", "testing"]
+    worker["capabilities"] = [
+        "rawintent",
+        "requirement-compiler",
+        "codex.bridge",
+        "codex.contract_ingest",
+        "codex.review_handoff",
+        "pane3.bridge",
+    ]
+    node = {
+        "id": "N1",
+        "required_skills": ["backend-development", "api-integration-specialist", "testing"],
+        "required_capabilities": [
+            "rawintent",
+            "requirement-compiler",
+            "codex.bridge",
+            "codex.contract_ingest",
+            "codex.review_handoff",
+            "pane3.bridge",
+        ],
+    }
+
+    result = assign_workers([node], [worker])
+
+    assert result["queued"] == []
+    assert result["assigned"][0]["node"] == "N1"
+
+
 def test_enqueue_ready_marks_no_matching_worker_nodes_as_worker_blocked(tmp_path: Path, monkeypatch) -> None:
     graph = {
         "sprint_id": "sid",

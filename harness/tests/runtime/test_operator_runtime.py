@@ -282,6 +282,37 @@ def test_submit_rejects_cooldown_operator():
         optime.submit(envelope)
 
 
+def test_submit_allows_local_closeout_false_positive_cooldown(monkeypatch, tmp_path):
+    """Closeout artifacts misclassified as cooldown must not globally block submit."""
+    operator_id = "mini-claude-sonnet-builder"
+    registry = optime.load_registry()
+    operator = dict(registry["operators"][operator_id])
+    operator["quota_guard_state"] = "cooldown"
+    operator["quota_refresh_at"] = "2099-01-01T00:00:00Z"
+    operator["state"] = {
+        "availability": "enabled",
+        "runtime_state": "cooldown",
+        "cooldown_until": "2099-01-01T00:00:00Z",
+        "last_error": "rate_limit",
+    }
+    operator["flow_control"] = {
+        "last_block_reason": "rate_limit",
+        "last_block_source": "failure_flow_control",
+        "last_block_excerpt": "missing pm_result: /tmp/sprint.S02.pm-result.md",
+    }
+    registry_path = tmp_path / "physical-operators.json"
+    registry_path.write_text(json.dumps({"version": 1, "operators": {operator_id: operator}}), encoding="utf-8")
+    monkeypatch.setattr(optime, "PHYSICAL_OPERATORS_PATH", registry_path)
+
+    optime.set_operator_status(operator_id, "cooldown", ttl_seconds=30)
+    assert optime.get_operator_runtime_state(operator_id) == "idle"
+
+    result = optime.submit(_make_envelope(operator_id=operator_id))
+
+    assert result["status"] == "submitted"
+    assert result["operator_id"] == operator_id
+
+
 def test_submit_rejects_missing_required_keys():
     """Envelope missing required keys raises ValueError."""
     bad_envelope = {"task_id": "T001", "operator_id": "mini-claude-sonnet-builder"}

@@ -318,7 +318,7 @@ def run_graph_drain(
                     }
                 )
 
-        builder_budget = max(0, int(max_builders) - counters["builder_attempts"])
+        builder_budget = max(0, int(max_builders) - counters["builders_dispatched"])
         if has_builder_ready and builder_budget > 0:
             counters["builder_attempts"] += 1
             try:
@@ -377,7 +377,7 @@ def run_graph_drain(
                     }
                 )
 
-        if counters["eval_attempts"] >= max_evals and counters["builder_attempts"] >= max_builders:
+        if counters["eval_attempts"] >= max_evals and counters["builders_dispatched"] >= max_builders:
             break
 
     counters["drain_submitted"] = counters["evals_dispatched"] + counters["builders_dispatched"]

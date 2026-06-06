@@ -39,6 +39,19 @@ VALID_STATES = {
     "auth_expired",
     "disabled"
 }
+LOCAL_CLOSEOUT_FAILURE_RE = re.compile(
+    r"missing[_\s-]*(?:pm[_\s-]*result|handoff|eval(?:uation)?|eval[_\s-]*json|sidecar)|"
+    r"failed[_\s-]*(?:missing[_\s-]*pm[_\s-]*result|contract[_\s-]*closeout)|"
+    r"contract[_\s-]*closeout|sidecar[_\s-]*closeout|"
+    r"\b(?:pm[_\s-]*result|handoff[_\s-]*md|eval[_\s-]*json)\b",
+    re.I,
+)
+PROVIDER_QUOTA_EVIDENCE_RE = re.compile(
+    r"RESOURCE_EXHAUSTED|you(?:'|’)ve hit .*limit|usage limit|monthly usage limit|"
+    r"rate[- ]?limit|quota\s+(?:exhausted|exceeded|limit|reached)|too many requests|\b429\b|"
+    r"individual quota reached|upgrade your plan|resets?\s+(?:in|at|on)",
+    re.I,
+)
 
 
 def _now() -> str:
@@ -84,6 +97,38 @@ def get_operator_config(operator_id: str) -> Optional[Dict[str, Any]]:
     if operator_id in operators:
         return dict(operators[operator_id])
     return None
+
+
+def _operator_quota_evidence_text(config: Dict[str, Any], status: Optional[Dict[str, Any]] = None) -> str:
+    state = config.get("state") if isinstance(config.get("state"), dict) else {}
+    flow = config.get("flow_control") if isinstance(config.get("flow_control"), dict) else {}
+    status = status if isinstance(status, dict) else {}
+    parts: list[str] = []
+    for value in (
+        state.get("last_error"),
+        state.get("last_error_detail"),
+        flow.get("last_block_excerpt"),
+        flow.get("last_block_reason"),
+        flow.get("last_block_source"),
+        status.get("reason"),
+        status.get("message"),
+        status.get("excerpt"),
+    ):
+        if value:
+            parts.append(str(value))
+    return "\n".join(parts)
+
+
+def _is_local_closeout_quota_false_positive(config: Dict[str, Any], status: Optional[Dict[str, Any]] = None) -> bool:
+    evidence = _operator_quota_evidence_text(config, status)
+    if not LOCAL_CLOSEOUT_FAILURE_RE.search(evidence or ""):
+        return False
+    without_derived_reason = "\n".join(
+        part
+        for part in evidence.splitlines()
+        if part.strip().lower() not in {"rate_limit", "cooldown", "quota_guard_state=cooldown"}
+    )
+    return not PROVIDER_QUOTA_EVIDENCE_RE.search(without_derived_reason or "")
 
 
 # ── Dynamic Status/Override Management ────────────────────────────────────────
@@ -350,6 +395,8 @@ def get_operator_runtime_state(operator_id: str) -> str:
     status = get_operator_status(operator_id)
     if status:
         r_state = status.get("runtime_state")
+        if r_state in {"cooldown", "quota_exhausted"} and _is_local_closeout_quota_false_positive(config, status):
+            return "idle"
         if r_state in VALID_STATES:
             return r_state
             
@@ -360,6 +407,8 @@ def get_operator_runtime_state(operator_id: str) -> str:
         if baseline in {"cooldown", "quota_exhausted", "auth_expired"} and blocked_until is not None:
             if blocked_until <= datetime.datetime.now(datetime.timezone.utc):
                 baseline = ""
+        if baseline in {"cooldown", "quota_exhausted"} and _is_local_closeout_quota_false_positive(config, None):
+            return "idle"
         if baseline in VALID_STATES:
             return baseline
             
