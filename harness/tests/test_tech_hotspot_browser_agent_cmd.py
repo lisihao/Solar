@@ -353,6 +353,23 @@ def test_hf_write_public_report_sanitizes_reader_facing_tokens(tmp_path):
     assert "（证据:" not in html
 
 
+def test_hf_write_public_report_expands_runtime_raw_dir(tmp_path):
+    ns = _load_namespace()
+    monkey_output = str(tmp_path / "out")
+    ns["hf_paper_insight_db_path"] = lambda config: tmp_path / "dummy.sqlite"
+    ns["hf_load_report_candidates"] = lambda store_path, limit, date_str, config, reasoning_mode: []
+    result = ns["hf_write_public_report"](
+        {"output": {"raw_dir": "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"}},
+        date_str="2026-06-01",
+        limit=1,
+        output_base=monkey_output,
+        reasoning_mode="browser_agent",
+    )
+    assert "${SOLAR_KNOWLEDGE_DIR}" not in result["report_md"]
+    assert "${SOLAR_KNOWLEDGE_DIR}" not in result["report_html"]
+    assert Path(result["report_md"]).parent == Path(monkey_output) / "2026-06-01"
+
+
 def test_hf_report_context_weekly_uses_iso_week_not_rolling_window():
     ns = _load_namespace()
     context = ns["hf_report_context"]("2026-05-29", {"hf_paper_insight": {"reporting": {"cadence": "weekly"}}})

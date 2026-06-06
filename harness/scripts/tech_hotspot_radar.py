@@ -11293,7 +11293,10 @@ def hf_write_public_report(
         except Exception as exc:
             grouped_report_error_kind = type(exc).__name__
     report_variant = "premium_insight_report" if grouped_report else base_report_variant
-    raw_base = Path(output_base or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(
+        output_base
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     out_dir = raw_base / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = out_dir / "hf-paper-insight-assets"
