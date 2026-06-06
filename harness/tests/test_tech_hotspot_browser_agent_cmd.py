@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "harness" / "scripts" / "tech_hotspot_radar.py"
@@ -952,6 +956,9 @@ def test_grouping_prompt_uses_transcript_and_material_type_contract():
     assert "tutorial_demo" in prompt
     assert "transcript_excerpt" in prompt
     assert "不要只按关键词或发布时间聚类" in prompt
+    assert "[SCRATCH_CHAT_RESET_CONTRACT]" in prompt
+    assert "task_type: grouping" in prompt
+    assert "[GROUPING_SCOPE_GUARD]" in prompt
 
 
 def test_plan_prompt_consumes_video_groups_and_requires_hierarchy():
@@ -989,6 +996,9 @@ def test_plan_prompt_consumes_video_groups_and_requires_hierarchy():
     assert '"trends"' in prompt
     assert '"subsections"' in prompt
     assert "趋势 X → 章节 Y → 小结 Z" in prompt
+    assert "[SCRATCH_CHAT_RESET_CONTRACT]" in prompt
+    assert "task_type: planner" in prompt
+    assert "[PLANNER_SCOPE_GUARD]" in prompt
 
 
 def test_plan_material_refs_recurses_trends_chapters_subsections():
@@ -1010,6 +1020,252 @@ def test_plan_material_refs_recurses_trends_chapters_subsections():
         ],
     })
     assert refs == ["V001", "V002", "V003", "V004", "V005"]
+
+
+def test_ai_influence_scratch_profile_id_partitions_task_types():
+    ns = _load_namespace()
+    assert ns["ai_influence_scratch_profile_id"](task_type="grouping") == "chatgpt/ai-influence-planned/grouping"
+    assert ns["ai_influence_scratch_profile_id"](task_type="planner") == "chatgpt/ai-influence-planned/planner"
+    assert ns["ai_influence_scratch_profile_id"](
+        task_type="chapter_writer",
+        report_id="edge-ai-physical-ai",
+    ) == "chatgpt/ai-influence-planned/chapter/edge-ai-physical-ai"
+
+
+def test_browser_agent_state_dir_expands_harness_placeholder():
+    ns = _load_namespace()
+    config = {"output": {"state_dir": "${HARNESS_DIR}/state/tech-hotspot-radar"}}
+    state_dir = ns["_browser_agent_state_dir"](config)
+    request_dir = ns["_browser_agent_request_dir"](config, "planner smoke")
+    expected_root = Path.home() / ".solar" / "harness" / "state" / "tech-hotspot-radar"
+
+    assert state_dir == expected_root
+    assert request_dir.parent == expected_root / "browser-agent-requests"
+    assert "${HARNESS_DIR}" not in str(request_dir)
+
+
+def test_call_browser_agent_chatgpt_text_reuses_ai_influence_scratch_conversation(monkeypatch, tmp_path):
+    wrapper = tmp_path / "fake_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            env_dump = {
+                "profile_id": os.environ.get("BROWSER_AGENT_PROFILE_ID"),
+                "chatgpt_url": os.environ.get("BROWSER_AGENT_CHATGPT_URL"),
+                "force_new_chat": os.environ.get("BROWSER_AGENT_CHATGPT_FORCE_NEW_CHAT"),
+                "require_isolated": os.environ.get("BROWSER_AGENT_CHATGPT_REQUIRE_ISOLATED_CONVERSATION"),
+                "open_project_first": os.environ.get("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST"),
+                "require_project": os.environ.get("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT"),
+            }
+            (req / "fake-env.json").write_text(json.dumps(env_dump, ensure_ascii=False), encoding="utf-8")
+            target_url = os.environ.get("BROWSER_AGENT_CHATGPT_URL") or "https://chatgpt.com/c/scratch-shared-001"
+            (req / "page.json").write_text(
+                json.dumps({"url": target_url, "conversation_id": "scratch-conv-001"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            sys.stdout.write("x" * 1200)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+            "ai_influence_report_flow": {
+                "report_writer": {
+                    "model": "chatgpt-5.5",
+                    "headless": True,
+                    "open_project_first": False,
+                    "require_project": False,
+                    "force_new_chat": False,
+                    "require_isolated_conversation": False,
+                }
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    first = ns["call_browser_agent_chatgpt_text"](
+        "first prompt",
+        config,
+        purpose="ai-influence-report-plan-2026-06-05",
+        expected="markdown",
+        scratch_profile_id=scratch_profile_id,
+        open_project_first=False,
+        require_project=False,
+        force_new_chat=False,
+        require_isolated_conversation=False,
+    )
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_payload = json.loads(session_path.read_text(encoding="utf-8"))
+    assert session_payload["conversation_url"] == "https://chatgpt.com/c/scratch-shared-001"
+
+    second = ns["call_browser_agent_chatgpt_text"](
+        "second prompt",
+        config,
+        purpose="ai-influence-report-plan-2026-06-05",
+        expected="markdown",
+        scratch_profile_id=scratch_profile_id,
+        open_project_first=False,
+        require_project=False,
+        force_new_chat=False,
+        require_isolated_conversation=False,
+    )
+    env_dump = json.loads((Path(second["request_dir"]) / "fake-env.json").read_text(encoding="utf-8"))
+    assert env_dump["profile_id"] == scratch_profile_id
+    assert env_dump["chatgpt_url"] == "https://chatgpt.com/c/scratch-shared-001"
+    assert env_dump["force_new_chat"] == "false"
+    assert env_dump["require_isolated"] == "false"
+    assert env_dump["open_project_first"] == "false"
+    assert env_dump["require_project"] == "false"
+
+
+def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout(monkeypatch, tmp_path):
+    wrapper = tmp_path / "slow_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import time
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            (req / "post-submit-state.json").write_text(
+                json.dumps(
+                    {
+                        "url": "https://chatgpt.com/c/scratch-timeout-001",
+                        "conversation_id": "scratch-timeout-001",
+                        "is_generating": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            time.sleep(5)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    with pytest.raises(subprocess.TimeoutExpired):
+        ns["call_browser_agent_chatgpt_text"](
+            "slow prompt",
+            config,
+            purpose="ai-influence-timeout-persist-2026-06-05",
+            expected="json",
+            requested_timeout_seconds=1,
+            scratch_profile_id=scratch_profile_id,
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
+        )
+
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_payload = json.loads(session_path.read_text(encoding="utf-8"))
+    assert session_payload["conversation_url"] == "https://chatgpt.com/c/scratch-timeout-001"
+    assert session_payload["conversation_id"] == "scratch-timeout-001"
+
+
+def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch, tmp_path):
+    wrapper = tmp_path / "root_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import time
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            (req / "post-submit-state.json").write_text(
+                json.dumps(
+                    {
+                        "url": "https://chatgpt.com/",
+                        "conversation_id": "",
+                        "is_generating": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            time.sleep(5)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    with pytest.raises(subprocess.TimeoutExpired):
+        ns["call_browser_agent_chatgpt_text"](
+            "slow prompt",
+            config,
+            purpose="ai-influence-timeout-root-skip-2026-06-05",
+            expected="json",
+            requested_timeout_seconds=1,
+            scratch_profile_id=scratch_profile_id,
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
+        )
+
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    assert not session_path.exists()
 
 
 def test_planned_report_ir_builds_per_chapter_contract():
@@ -1048,6 +1304,7 @@ def test_planned_report_ir_builds_per_chapter_contract():
 def test_chapter_prompt_requires_chapter_writer_only():
     ns = _load_namespace()
     report_ir = {
+        "report_id": "agent-platform",
         "title": "Agent 平台化报告",
         "global_scope": "分析 agent runtime",
         "reader_value": "帮助判断趋势",
@@ -1060,6 +1317,7 @@ def test_chapter_prompt_requires_chapter_writer_only():
         "material_video_refs": ["V001"],
     }
     evidence = {
+        "date": "2026-05-31",
         "videos": [
             {
                 "video_ref": "V001",
@@ -1080,6 +1338,11 @@ def test_chapter_prompt_requires_chapter_writer_only():
     assert "不写整份报告" in prompt
     assert "### 工具接口协议化" in prompt
     assert "chapter_evidence_pack" in prompt
+    assert "[SCRATCH_CHAT_RESET_CONTRACT]" in prompt
+    assert "task_type: chapter_writer" in prompt
+    assert "report_id: agent-platform" in prompt
+    assert "chapter_id: ch_01" in prompt
+    assert "[CHAPTER_SCOPE_GUARD]" in prompt
 
 
 def test_build_planned_report_evidence_pack_skips_missing_status_transcript(tmp_path):
