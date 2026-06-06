@@ -1281,6 +1281,63 @@ def test_ai_influence_validation_rejects_raw_video_id_leak(tmp_path):
     assert "raw_video_id_leaked:SSe1VmVrtw0" in result["errors"]
 
 
+def test_refine_ai_influence_public_report_polishes_multi_material_placeholder_phrasing():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第二章：评测体系如何构成
+
+本节素材：[AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001)；[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002)。
+
+[AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001) 明确提出，缩小 agent evaluation gap 需要一套工具组合。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 可以作为本章问题范围内的相关材料，但当前可用材料中，[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 没有提供可引用的正文转写。
+
+本章证据主要来自 [AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001)，[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 支撑后续观察。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 没有提供可引用的正文转写，因此本章不能展开说明 [AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 具体如何批评 vibe check。
+
+主素材的标题显示它与 coding agent evaluation 和 SWE-rebench 有关。
+"""
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V001",
+                "video_id": "main001",
+                "channel": "AI Engineer",
+                "title": "Benchmarking Agents",
+                "url": "https://www.youtube.com/watch?v=main001",
+            },
+            {
+                "video_ref": "V002",
+                "video_id": "supp002",
+                "channel": "AI Engineer",
+                "title": "SWE-rebench",
+                "url": "https://www.youtube.com/watch?v=supp002",
+            },
+        ],
+        "report_spec": {
+            "chapters": [
+                {
+                    "title": "第二章：评测体系如何构成",
+                    "material_video_refs": ["V001", "V002"],
+                }
+            ]
+        },
+    }
+
+    refined = ns["refine_ai_influence_public_report"](markdown, evidence_pack)
+
+    assert "该素材" not in refined
+    assert "主素材明确提出" in refined
+    assert "该补充视频可以作为本章问题范围内的相关材料" in refined
+    assert "当前可用材料中，该补充视频没有提供可引用的正文内容" in refined
+    assert "本章证据主要来自主素材，补充素材支撑后续观察。" in refined
+    assert "本章当前还不能判断该补充视频是否批评 vibe check、如何批评" in refined
+    assert "主素材的标题显示它与 coding agent evaluation 和 SWE-rebench 有关" in refined
+    assert "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关" not in refined
+
+
 def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tmp_path):
     ns = _load_namespace()
     report_dir = tmp_path / "report"
