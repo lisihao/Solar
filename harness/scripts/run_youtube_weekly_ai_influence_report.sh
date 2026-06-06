@@ -8,10 +8,12 @@ STATE_DIR="${SOLAR_YOUTUBE_WEEKLY_REPORT_STATE_DIR:-${SOLAR_HOME:-$HOME/.solar}/
 CONFIG="${CONFIG:-$HARNESS_DIR/config/tech-hotspot-radar.yaml}"
 LOG_DIR="${SOLAR_YOUTUBE_WEEKLY_REPORT_LOG_DIR:-${SOLAR_HOME:-$HOME/.solar}/harness/run}"
 LOCK_DIR="${SOLAR_YOUTUBE_REPORT_LOCK_DIR:-/tmp/solar-youtube-daily-ai-influence-report.lockdir}"
+DB_WRITER_LOCK_DIR="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_DIR:-$(dirname "$DB")/db-writer.lockdir}"
+DB_WRITER_LOCK_WAIT_SECONDS="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_WAIT_SECONDS:-2400}"
 LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 ERR_LOG="${SOLAR_YOUTUBE_REPORT_ERR_LOG:-$LOG_DIR/youtube-daily-ai-influence-report.err.log}"
 
-mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")"
+mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")" "$(dirname "$DB_WRITER_LOCK_DIR")"
 source "$HARNESS_DIR/scripts/lib/lockdir.sh"
 solar_acquire_lockdir "$LOCK_DIR" "youtube-daily-ai-influence-report"
 rc=$?
@@ -19,11 +21,17 @@ if [[ "$rc" != "0" ]]; then
   [[ "$rc" == "75" ]] && exit 0
   exit "$rc"
 fi
-trap 'solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
+solar_wait_for_lockdir "$DB_WRITER_LOCK_DIR" "youtube-daily-ai-influence-report-db-writer" "$DB_WRITER_LOCK_WAIT_SECONDS" 10
+rc=$?
+if [[ "$rc" != "0" ]]; then
+  solar_release_lockdir "$LOCK_DIR"
+  [[ "$rc" == "75" ]] && exit 0
+  exit "$rc"
+fi
+trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
 
 # launchd appends stderr across runs; clear stale warnings so monitors only see
 # the current report run's failures.
-mkdir -p "$LOG_DIR"
 : > "$ERR_LOG" 2>/dev/null || true
 
 export PYTHONPATH="$HARNESS_DIR/lib:${PYTHONPATH:-}"

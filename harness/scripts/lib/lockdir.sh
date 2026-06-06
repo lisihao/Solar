@@ -112,3 +112,32 @@ solar_release_lockdir() {
     rm -rf "$lock_dir"
   fi
 }
+
+solar_wait_for_lockdir() {
+  local lock_dir="$1"
+  local label="${2:-solar-lockdir}"
+  local timeout_seconds="${3:-0}"
+  local sleep_seconds="${4:-5}"
+  local start_ts now_ts rc
+
+  start_ts="$(date +%s)"
+  while true; do
+    solar_acquire_lockdir "$lock_dir" "$label"
+    rc=$?
+    if [[ "$rc" == "0" ]]; then
+      return 0
+    fi
+    if [[ "$rc" != "75" ]]; then
+      return "$rc"
+    fi
+    if [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && (( timeout_seconds > 0 )); then
+      now_ts="$(date +%s)"
+      if (( now_ts - start_ts >= timeout_seconds )); then
+        echo "[$label] timed out waiting for lock_dir=$lock_dir after ${timeout_seconds}s" >&2
+        solar_lockdir_emit_event "acquire" "wait_timeout" "$lock_dir" "$label" "" "timeout=${timeout_seconds}s"
+        return 75
+      fi
+    fi
+    sleep "$sleep_seconds"
+  done
+}

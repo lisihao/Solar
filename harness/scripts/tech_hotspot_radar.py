@@ -11334,11 +11334,14 @@ def hf_write_public_report(
             **render_kwargs,
         )
     )
-    report_md = "\n".join(lines)
-    report_html = render_html(**render_kwargs)
+    report_md = hf_sanitize_public_report_text("\n".join(lines))
+    report_html = hf_sanitize_public_report_text(render_html(**render_kwargs))
     leaked = hf_internal_report_tokens(report_md)
     if leaked:
         raise ValueError(f"public HF paper report contains internal tokens: {leaked}")
+    public_leaks = hf_public_report_leak_tokens(report_md, report_html)
+    if public_leaks:
+        raise ValueError(f"public HF paper report leaked reader-facing tokens: {public_leaks}")
 
     report_path = out_dir / "hf-paper-report.md"
     report_html_path = out_dir / "hf-paper-report.html"
@@ -12491,6 +12494,8 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         purpose=f"github-trend-report-{pack.get('date') or iso_z().split('T', 1)[0]}",
         requested_model=model,
         operator_kind="chapter_writer",
+        open_project_first=False,
+        require_project=False,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
@@ -15377,6 +15382,14 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
         or "杂项"
     ).strip()
+    if purpose.startswith("github-trend-report") and (
+        bool(resolved_open_project_first) or bool(resolved_require_project)
+    ):
+        raise RuntimeError(
+            "github_trend_report_requires_no_project_mode:"
+            f"open_project_first={bool(resolved_open_project_first)}:"
+            f"require_project={bool(resolved_require_project)}"
+        )
     if project_name:
         env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
     started = time.time()

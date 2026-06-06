@@ -310,6 +310,49 @@ def test_hf_write_public_report_prefers_grouped_flow_outputs(tmp_path):
     assert "日 / 周 / 月热度总览" in html
 
 
+def test_hf_write_public_report_sanitizes_reader_facing_tokens(tmp_path):
+    ns = _load_namespace()
+    candidates = [
+        {
+            "public": {
+                "paper_id": "p1",
+                "packet_id": "pkt-123",
+                "title": "Leak Check",
+                "summary": "（证据: packet）这是一条测试摘要。",
+                "taxonomy": {"domain": "systems", "stack_layer": "inference", "research_route": "applied_research"},
+                "scores": {"insight_report": 0.7, "experiment": 0.8},
+                "assets": {"linked_models": [], "linked_datasets": [], "linked_spaces": [], "total_assets": 1},
+                "github": {"full_name": "org/repo1", "url": "https://github.com/org/repo1"},
+                "reasoning": {"mode": "fallback_report", "trend_type": "watchlist", "premium_insight_available": False},
+                "why_matters": "依据: 内部线索不应进入公开稿。",
+                "recommended_action": "继续观察 packet_id 字样是否被清理。",
+            },
+            "compiled": {"chapter": "公开摘要 A"},
+        }
+    ]
+    ns["hf_paper_insight_db_path"] = lambda config: tmp_path / "dummy.sqlite"
+    ns["hf_load_report_candidates"] = lambda store_path, limit, date_str, config, reasoning_mode: candidates
+    ns["hf_call_grouped_report_flow"] = lambda *args, **kwargs: None
+    result = ns["hf_write_public_report"](
+        {"output": {"raw_dir": str(tmp_path)}},
+        date_str="2026-06-01",
+        limit=5,
+        output_base=str(tmp_path),
+        reasoning_mode="browser_agent",
+    )
+    markdown = Path(result["report_md"]).read_text(encoding="utf-8")
+    html = Path(result["report_html"]).read_text(encoding="utf-8")
+    assert "evidence_ids" not in markdown
+    assert "packet_id" not in markdown
+    assert "paper_id" not in markdown
+    assert "（证据:" not in markdown
+    assert "依据:" not in markdown
+    assert "evidence_ids" not in html
+    assert "packet_id" not in html
+    assert "paper_id" not in html
+    assert "（证据:" not in html
+
+
 def test_hf_report_context_weekly_uses_iso_week_not_rolling_window():
     ns = _load_namespace()
     context = ns["hf_report_context"]("2026-05-29", {"hf_paper_insight": {"reporting": {"cadence": "weekly"}}})
@@ -1136,6 +1179,49 @@ def test_call_browser_agent_chatgpt_text_reuses_ai_influence_scratch_conversatio
     assert env_dump["require_isolated"] == "false"
     assert env_dump["open_project_first"] == "false"
     assert env_dump["require_project"] == "false"
+
+
+def test_call_github_trend_report_chapter_writer_forces_no_project(monkeypatch):
+    ns = _load_namespace()
+    captured: dict[str, object] = {}
+
+    def fake_call(prompt, config, **kwargs):
+        captured["kwargs"] = kwargs
+        return {
+            "markdown": "# 标题\n\n" + ("正文" * 800),
+            "model": "chatgpt-5.5",
+            "reasoning_effort": "high",
+            "latency_ms": 123,
+            "input_token_count": 10,
+            "output_token_count": 20,
+            "request_dir": "/tmp/request",
+        }
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", fake_call)
+    result = ns["call_github_trend_report_chapter_writer"](
+        {"date": "2026-06-05", "highlights": ["x"]},
+        {"youtube": {"phase_report_reasoner": {"model": "chatgpt-5.5"}}},
+    )
+    assert result["ok"] is True
+    kwargs = captured["kwargs"]
+    assert kwargs["open_project_first"] is False
+    assert kwargs["require_project"] is False
+
+
+def test_scheduler_shell_scripts_parse():
+    scripts = [
+        ROOT / "harness" / "scripts" / "lib" / "lockdir.sh",
+        ROOT / "harness" / "scripts" / "run_tech_hotspot_radar.sh",
+        ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh",
+        ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_daily_ai_influence_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_weekly_ai_influence_report.sh",
+    ]
+    for script in scripts:
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
+    github_script = (ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh").read_text(encoding="utf-8")
+    assert 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"' in github_script
 
 
 def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout(monkeypatch, tmp_path):
