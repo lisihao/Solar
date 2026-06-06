@@ -674,9 +674,14 @@ def build_capsule_plan_ir(
 
 def _is_dispatchable_runtime(operator_id: str) -> bool:
     try:
-        from operator_runtime import get_operator_runtime_state
+        from operator_runtime import get_operator_lease, get_operator_runtime_state
     except Exception:
         return True
+    try:
+        if get_operator_lease(operator_id):
+            return False
+    except Exception:
+        pass
     return get_operator_runtime_state(operator_id) == "idle"
 
 

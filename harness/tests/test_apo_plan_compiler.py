@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
+import types
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -83,3 +85,40 @@ def test_build_physical_plan_for_capsule_node_prefers_capsule_operator():
     assert plan["selected_operator_id"] == "mini-claude-sonnet-builder"
     assert plan["execution_candidates"][0]["operator_id"] == "mini-claude-sonnet-builder"
 
+
+def test_enumerate_physical_candidates_rejects_leased_operator_even_when_runtime_idle(monkeypatch, tmp_path):
+    operators_path = tmp_path / "physical-operators.json"
+    operators_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "op.leased": {
+                        "enabled": True,
+                        "available": True,
+                        "roles": ["builder"],
+                        "launch_cmd_kind": "command",
+                    },
+                    "op.free": {
+                        "enabled": True,
+                        "available": True,
+                        "roles": ["builder"],
+                        "launch_cmd_kind": "command",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_runtime = types.SimpleNamespace(
+        get_operator_runtime_state=lambda operator_id: "idle",
+        get_operator_lease=lambda operator_id: {"operator_id": operator_id} if operator_id == "op.leased" else None,
+    )
+    monkeypatch.setitem(sys.modules, "operator_runtime", fake_runtime)
+
+    candidates = apo.enumerate_physical_candidates(
+        role="builder",
+        require_dispatchable=True,
+        operators_path=operators_path,
+    )
+
+    assert [candidate["operator_id"] for candidate in candidates] == ["op.free"]
