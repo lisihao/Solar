@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -56,6 +57,23 @@ def _browser_channel() -> str:
         or DEFAULT_BROWSER_CHANNEL
     ).strip().lower()
     return value or DEFAULT_BROWSER_CHANNEL
+
+
+def _disable_browser_extensions() -> bool:
+    return _env_flag(
+        "BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS",
+        "BROWSER_AGENT_DISABLE_EXTENSIONS",
+        default=True,
+    )
+
+
+def _should_archive_to_project(*, project_name: str, require_project: bool, open_project_first: bool) -> bool:
+    name = str(project_name or "").strip()
+    if not name:
+        return False
+    # No-project routes should not pay the extra archive step or emit noisy
+    # project_not_found artifacts after a successful answer.
+    return bool(require_project or open_project_first)
 
 
 def _system_chrome_version() -> str:
@@ -114,6 +132,97 @@ def _challenge_persisted_too_long(challenge_since: float | None, *, now: float |
         return False
     deadline = challenge_since + (grace_s if grace_s is not None else _challenge_grace_seconds())
     return (now if now is not None else time.time()) >= deadline
+
+
+def _reasoning_retry_after_submit_seconds() -> float:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_REASONING_RETRY_AFTER_SECONDS")
+        or os.environ.get("BROWSER_AGENT_REASONING_RETRY_AFTER_SECONDS")
+        or "20"
+    ).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 20.0
+    return max(0.0, value)
+
+
+def _minimum_answer_chars() -> int:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS")
+        or os.environ.get("BROWSER_AGENT_MIN_ANSWER_CHARS")
+        or "0"
+    ).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    return max(0, value)
+
+
+_LOW_SIGNAL_ASSISTANT_PATTERNS = (
+    re.compile(r"^正在思考(?:中)?[.。…]*$", re.I),
+    re.compile(r"^thinking[. .…]*$", re.I),
+    re.compile(r"^已思考\s*\d+\s*[smh秒分钟小时:：]*[.。…]*$", re.I),
+    re.compile(r"^thought\s+for\s+[\d\s\w:：]+[.。…]*$", re.I),
+    re.compile(r"^深入[，,]?\s*点击以重试[.。…]*$", re.I),
+    re.compile(r"^deep(er)?\s*,?\s*click to retry[.。…]*$", re.I),
+)
+
+
+def _is_low_signal_assistant_text(text: str) -> bool:
+    candidate = str(text or "").strip()
+    if not candidate:
+        return True
+    if len(candidate) > 64:
+        return False
+    for pattern in _LOW_SIGNAL_ASSISTANT_PATTERNS:
+        if pattern.fullmatch(candidate):
+            return True
+    return False
+
+
+def _latest_substantive_assistant_text(messages: list[dict] | None, fallback: str = "") -> str:
+    for item in reversed(messages or []):
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        text = str(item.get("text") or "").strip()
+        if text and not _is_low_signal_assistant_text(text):
+            return text
+    fallback_text = str(fallback or "").strip()
+    return "" if _is_low_signal_assistant_text(fallback_text) else fallback_text
+
+
+def _normalize_capture_payload(data: dict | None) -> dict:
+    payload = dict(data or {})
+    raw_latest = str(payload.get("latest_assistant_text") or "").strip()
+    normalized_latest = _latest_substantive_assistant_text(payload.get("messages") or [], raw_latest)
+    payload["latest_assistant_text_raw"] = raw_latest
+    payload["latest_assistant_text"] = normalized_latest
+    return payload
+
+
+def _should_attempt_reasoning_retry(data: dict | None, *, elapsed_s: float, retried: bool) -> bool:
+    if retried:
+        return False
+    payload = dict(data or {})
+    if not payload.get("is_generating"):
+        return False
+    if int(payload.get("message_count") or 0) <= 0:
+        return False
+    raw_latest = str(payload.get("latest_assistant_text_raw") or payload.get("latest_assistant_text") or "").strip()
+    if raw_latest and not _is_low_signal_assistant_text(raw_latest):
+        return False
+    conversation_id = str(payload.get("conversation_id") or "").strip()
+    url = str(payload.get("url") or "").strip()
+    root_or_conversation = bool(conversation_id) or "/c/" in url or url.rstrip("/") == "https://chatgpt.com"
+    if not root_or_conversation:
+        return False
+    return elapsed_s >= _reasoning_retry_after_submit_seconds()
+
+
+async def _capture_page_state(page) -> dict:
+    return _normalize_capture_payload(json.loads(await page.evaluate(CAPTURE_JS)))
 
 CAPTURE_JS = r"""() => {
   const clean = (value) => String(value || "")
@@ -185,6 +294,43 @@ CAPTURE_JS = r"""() => {
     assistant_count: messages.filter((item) => item.role === "assistant").length,
     latest_assistant_text: latestAssistant ? latestAssistant.text : "",
     messages
+  });
+}"""
+
+RETRY_REASONING_JS = r"""() => {
+  const clean = (value) => String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const candidates = Array.from(document.querySelectorAll("button,[role='button'],a,[role='menuitem']"))
+    .filter(visible);
+  const node = candidates.find((el) => {
+    const text = clean(el.innerText || el.textContent || "");
+    const aria = clean(el.getAttribute("aria-label") || "");
+    const joined = `${text} ${aria}`;
+    return /(深入[，,]?\s*点击以重试|Deep(er)?\s*,?\s*click to retry)/i.test(joined);
+  });
+  if (!node) {
+    return JSON.stringify({ ok: false, error: "retry_button_not_found" });
+  }
+  node.scrollIntoView({ block: "center", inline: "center" });
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+    node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+  }
+  node.click();
+  return JSON.stringify({
+    ok: true,
+    clicked: {
+      text: clean(node.innerText || node.textContent || ""),
+      aria: clean(node.getAttribute("aria-label") || ""),
+      tag: node.tagName,
+    },
   });
 }"""
 
@@ -748,7 +894,7 @@ async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
     challenge_since: float | None = None
     challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_page_state(page)
         last_data = data
         if data.get("login_wall"):
             raise RuntimeError("chatgpt_login_wall_detected")
@@ -809,9 +955,9 @@ async def _ensure_prompt_visible(page, prompt: str) -> dict:
 
 async def _wait_for_prompt_submission(page, baseline_message_count: int, *, timeout_s: float = 12.0) -> dict:
     deadline = time.time() + timeout_s
-    last_data = json.loads(await page.evaluate(CAPTURE_JS))
+    last_data = await _capture_page_state(page)
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_page_state(page)
         last_data = data
         if int(data.get("message_count") or 0) > baseline_message_count or data.get("is_generating"):
             return data
@@ -820,7 +966,7 @@ async def _wait_for_prompt_submission(page, baseline_message_count: int, *, time
 
 
 async def _submit_prompt(page, prompt: str) -> dict:
-    baseline = json.loads(await page.evaluate(CAPTURE_JS))
+    baseline = await _capture_page_state(page)
     baseline_message_count = int(baseline.get("message_count") or 0)
     if len(prompt) > 1000 or "\n" in prompt:
         try:
@@ -1008,16 +1154,19 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
             pass
 
 
-async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: int = 900) -> dict:
+async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: int = 900, request_dir: Path | None = None) -> dict:
     deadline = time.time() + timeout_s
+    start_time = time.time()
     last_text = ""
     stable = 0
     first_response_seen = False
+    reasoning_retry_attempted = False
     stable_required = int(os.environ.get("BROWSER_AGENT_STABLE_POLLS") or "8")
+    min_answer_chars = _minimum_answer_chars()
     challenge_since: float | None = None
     challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_page_state(page)
         if data.get("login_wall"):
             raise RuntimeError("chatgpt_login_wall_detected")
         if data.get("challenge_wall"):
@@ -1030,18 +1179,38 @@ async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: in
         challenge_since = None
         assistant_count = int(data.get("assistant_count") or 0)
         latest_text = str(data.get("latest_assistant_text") or "").strip()
+        if _should_attempt_reasoning_retry(data, elapsed_s=time.time() - start_time, retried=reasoning_retry_attempted):
+            retry_result = json.loads(await page.evaluate(RETRY_REASONING_JS))
+            reasoning_retry_attempted = True
+            if request_dir is not None:
+                _write_json(request_dir / "reasoning-retry-result.json", {
+                    **retry_result,
+                    "attempted_at": bjrt._now(),
+                    "elapsed_seconds": round(time.time() - start_time, 3),
+                    "state": {
+                        "url": data.get("url"),
+                        "conversation_id": data.get("conversation_id"),
+                        "message_count": data.get("message_count"),
+                        "assistant_count": data.get("assistant_count"),
+                        "is_generating": data.get("is_generating"),
+                        "latest_assistant_text_raw": data.get("latest_assistant_text_raw"),
+                    },
+                })
+            await asyncio.sleep(3)
+            continue
         if assistant_count > baseline_assistant_count and latest_text:
             first_response_seen = True
+            enough_content = len(latest_text) >= min_answer_chars
             if latest_text == last_text:
                 stable += 1
             else:
                 stable = 0
                 last_text = latest_text
-            if not data.get("is_generating") and stable >= stable_required:
+            if not data.get("is_generating") and enough_content and stable >= stable_required:
                 return data
         await asyncio.sleep(3)
     if first_response_seen:
-        return json.loads(await page.evaluate(CAPTURE_JS))
+        return await _capture_page_state(page)
     raise TimeoutError("chatgpt_response_timeout")
 
 
@@ -1349,6 +1518,7 @@ async def _run(prompt: str) -> int:
         profile_strategy = "persistent"
     browser_channel = _browser_channel()
     browser_user_agent = _browser_user_agent(browser_channel=browser_channel)
+    disable_extensions = _disable_browser_extensions()
     allowed_domains = [
         item.strip()
         for item in str(os.environ.get("BROWSER_AGENT_ALLOWED_DOMAINS") or ",".join(DEFAULT_ALLOWED_DOMAINS)).split(",")
@@ -1379,6 +1549,7 @@ async def _run(prompt: str) -> int:
         "profile_strategy": profile_strategy,
         "browser_channel": browser_channel,
         "browser_user_agent": browser_user_agent,
+        "disable_extensions": disable_extensions,
         "headless": headless,
         "headed_allowed": headed_allowed,
         "allowed_domains": allowed_domains,
@@ -1435,6 +1606,8 @@ async def _run(prompt: str) -> int:
             allowed_domains=allowed_domains,
             channel=browser_channel,
             user_agent=browser_user_agent,
+            enable_default_extensions=not disable_extensions,
+            args=["--disable-extensions"] if disable_extensions else [],
         )
     )
     try:
@@ -1491,7 +1664,7 @@ async def _run(prompt: str) -> int:
             if int(ready.get("message_count") or 0) > 0:
                 raise RuntimeError("chatgpt_new_chat_did_not_clear_existing_conversation")
         if action in {"poll", "collect"}:
-            final_data = json.loads(await page.evaluate(CAPTURE_JS))
+            final_data = await _capture_page_state(page)
             if final_data.get("is_generating") or not str(final_data.get("latest_assistant_text") or "").strip():
                 _write_json(request_dir / f"{action}-state.json", {
                     "ok": True,
@@ -1522,9 +1695,10 @@ async def _run(prompt: str) -> int:
                         page,
                         -1,
                         timeout_s=int(os.environ.get("BROWSER_AGENT_CHATGPT_COLLECT_TIMEOUT") or "45"),
+                        request_dir=request_dir,
                     )
                 except TimeoutError:
-                    final_data = json.loads(await page.evaluate(CAPTURE_JS))
+                    final_data = await _capture_page_state(page)
             latest = await _write_conversation_artifacts(
                 page,
                 request_dir,
@@ -1686,7 +1860,7 @@ async def _run(prompt: str) -> int:
             logged_in_verified = True
             print(json.dumps(submitted, ensure_ascii=False))
             return 0
-        final_data = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
+        final_data = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s, request_dir=request_dir)
         final_page_state = {
             "url": final_data.get("url"),
             "conversation_id": final_data.get("conversation_id"),
@@ -1706,7 +1880,11 @@ async def _run(prompt: str) -> int:
         if not latest:
             raise RuntimeError("chatgpt_latest_assistant_text_empty")
 
-        if project_name:
+        if _should_archive_to_project(
+            project_name=project_name,
+            require_project=bool(require_project),
+            open_project_first=bool(open_project_first),
+        ):
             project_result = await _move_current_conversation_to_project(page, project_name)
             _write_json(request_dir / "project-archive-result.json", project_result)
             if require_project and not project_result.get("ok"):

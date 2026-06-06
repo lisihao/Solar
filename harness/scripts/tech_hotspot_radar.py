@@ -10465,7 +10465,20 @@ def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required
     return None
 
 
-def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purpose: str, model_name: str, chapter_id: str, required_keys: list[str], max_attempts: int = 2) -> dict[str, Any]:
+def hf_call_report_json_with_repair(
+    prompt: str,
+    config: dict[str, Any],
+    *,
+    purpose: str,
+    model_name: str,
+    chapter_id: str,
+    required_keys: list[str],
+    operator_kind: str = "chapter_writer",
+    scratch_profile_id: str | None = None,
+    force_new_chat: bool | None = None,
+    require_isolated_conversation: bool | None = None,
+    max_attempts: int = 2,
+) -> dict[str, Any]:
     high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
     timeout_seconds = int(
         os.environ.get("HF_PAPER_BROWSER_AGENT_TIMEOUT_SECONDS")
@@ -10497,7 +10510,7 @@ def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purp
                 config,
                 purpose=purpose if attempt == 1 else f"{purpose}-repair-{attempt}",
                 requested_model=model_name,
-                operator_kind="chapter_writer",
+                operator_kind=operator_kind,
                 requested_reasoning_effort=str(high_cfg.get("reasoning_effort") or "high"),
                 requested_timeout_seconds=timeout_seconds,
                 requested_max_prompt_chars=int(high_cfg.get("max_prompt_chars") or 120000),
@@ -10515,8 +10528,13 @@ def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purp
                 scrub_client_state=bool(high_cfg.get("scrub_client_state", False)),
                 open_project_first=bool(high_cfg.get("open_project_first", False)),
                 require_project=bool(high_cfg.get("require_project", False)),
-                force_new_chat=bool(high_cfg.get("force_new_chat", True)),
-                require_isolated_conversation=bool(high_cfg.get("require_isolated_conversation", True)),
+                force_new_chat=bool(high_cfg.get("force_new_chat", True)) if force_new_chat is None else bool(force_new_chat),
+                require_isolated_conversation=(
+                    bool(high_cfg.get("require_isolated_conversation", True))
+                    if require_isolated_conversation is None
+                    else bool(require_isolated_conversation)
+                ),
+                scratch_profile_id=scratch_profile_id,
             )
         except Exception as exc:
             errors.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
@@ -10560,6 +10578,10 @@ def hf_call_grouped_report_flow(
         model_name=model_name,
         chapter_id="hf-report-plan",
         required_keys=["headline", "executive_summary", "sections"],
+        operator_kind="planner",
+        scratch_profile_id=hf_paper_scratch_profile_id(task_type="plan"),
+        force_new_chat=False,
+        require_isolated_conversation=False,
     )
     plan = hf_normalize_report_plan(raw_plan, public_records, date_str=date_str, report_context=context)
     record_map = {str(item.get("paper_id") or "").strip(): item for item in public_records}
@@ -10576,6 +10598,13 @@ def hf_call_grouped_report_flow(
                 model_name=model_name,
                 chapter_id=str(section.get("section_id") or f"section-{idx}"),
                 required_keys=["title", "section_summary", "trend_description", "insight_analysis", "planning_recommendations", "paper_commentary"],
+                operator_kind="chapter_writer",
+                scratch_profile_id=hf_paper_scratch_profile_id(
+                    task_type="section",
+                    section_id=str(section.get("section_id") or idx),
+                ),
+                force_new_chat=False,
+                require_isolated_conversation=False,
             )
         except Exception:
             continue
@@ -15122,6 +15151,14 @@ def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = N
         clean_report = slugify(str(report_id or "").strip())[:80] or "shared"
         return f"chatgpt/ai-influence-planned/chapter/{clean_report}"
     return f"chatgpt/ai-influence-planned/{clean_task}"
+
+
+def hf_paper_scratch_profile_id(*, task_type: str, section_id: str | None = None) -> str:
+    clean_task = slugify(str(task_type or "").strip())[:40] or "default"
+    if clean_task == "section":
+        clean_section = slugify(str(section_id or "").strip())[:80] or "shared"
+        return f"chatgpt/hf-paper-insight/section/{clean_section}"
+    return f"chatgpt/hf-paper-insight/{clean_task}"
 
 
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:

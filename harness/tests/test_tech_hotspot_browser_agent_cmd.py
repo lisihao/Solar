@@ -482,6 +482,74 @@ def test_hf_candidate_reasoning_plan_allows_weekly_per_paper_override():
     assert support_plan["strategy"] == "per_paper"
 
 
+def test_hf_grouped_report_flow_uses_planner_and_scratch_profiles():
+    ns = _load_namespace()
+    calls = []
+
+    def fake_call(prompt, config, **kwargs):
+        calls.append(kwargs)
+        if kwargs["chapter_id"] == "hf-report-plan":
+            return {
+                "headline": "AI Influence HF Paper 高级洞察周报 — 2026-W23 · 2026-06-01 ~ 2026-06-07",
+                "executive_summary": "本周可以拆成一条主线。",
+                "sections": [
+                    {
+                        "section_id": "doc-intel",
+                        "title": "文档智能自动化",
+                        "trend_label": "文档智能",
+                        "thesis": "主线判断",
+                        "why_now": "现在值得看",
+                        "priority": "high",
+                        "paper_ids": ["p1"],
+                    }
+                ],
+                "closing_watchpoints": ["观察点"],
+            }
+        return {
+            "title": "文档智能自动化",
+            "section_summary": "摘要",
+            "trend_description": "趋势描述",
+            "insight_analysis": "洞察分析",
+            "planning_recommendations": ["建议"],
+            "paper_commentary": [
+                {
+                    "paper_id": "p1",
+                    "title": "MinerU2.5",
+                    "role": "样本",
+                    "takeaway": "看点",
+                    "evidence_ids": ["p1", "pkt-1"],
+                }
+            ],
+        }
+
+    ns["hf_call_report_json_with_repair"] = fake_call
+    result = ns["hf_call_grouped_report_flow"](
+        [
+            {
+                "paper_id": "p1",
+                "packet_id": "pkt-1",
+                "title": "MinerU2.5",
+                "summary": "摘要",
+            }
+        ],
+        {"hf_paper_insight": {"high_reasoning": {"mode": "browser_agent", "model": "chatgpt-5.5"}}},
+        date_str="2026-06-01",
+        report_context={"cadence": "weekly", "window_label": "2026-W23 · 2026-06-01 ~ 2026-06-07"},
+        heat_overview={"daily_heat": []},
+    )
+
+    assert result["ok"] is True
+    assert len(result["sections"]) == 1
+    assert calls[0]["operator_kind"] == "planner"
+    assert calls[0]["scratch_profile_id"] == "chatgpt/hf-paper-insight/plan"
+    assert calls[0]["force_new_chat"] is False
+    assert calls[0]["require_isolated_conversation"] is False
+    assert calls[1]["operator_kind"] == "chapter_writer"
+    assert calls[1]["scratch_profile_id"] == "chatgpt/hf-paper-insight/section/doc-intel"
+    assert calls[1]["force_new_chat"] is False
+    assert calls[1]["require_isolated_conversation"] is False
+
+
 def test_hf_report_collection_summary_uses_weekly_source_tables(tmp_path):
     ns = _load_namespace()
     db_path = tmp_path / "tech-hotspot-radar.sqlite"

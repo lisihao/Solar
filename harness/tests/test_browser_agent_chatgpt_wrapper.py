@@ -160,6 +160,38 @@ def test_chatgpt_wrapper_defaults_to_chrome_channel(monkeypatch):
     assert ns["_browser_channel"]() == "chrome"
 
 
+def test_chatgpt_wrapper_disables_extensions_by_default(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.delenv("BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_DISABLE_EXTENSIONS", raising=False)
+    assert ns["_disable_browser_extensions"]() is True
+
+
+def test_chatgpt_wrapper_can_reenable_extensions(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS", "false")
+    assert ns["_disable_browser_extensions"]() is False
+
+
+def test_project_archive_only_runs_for_project_routed_flows():
+    ns = _load_namespace()
+    assert ns["_should_archive_to_project"](
+        project_name="杂项",
+        require_project=False,
+        open_project_first=False,
+    ) is False
+    assert ns["_should_archive_to_project"](
+        project_name="杂项",
+        require_project=True,
+        open_project_first=False,
+    ) is True
+    assert ns["_should_archive_to_project"](
+        project_name="杂项",
+        require_project=False,
+        open_project_first=True,
+    ) is True
+
+
 def test_cloudflare_challenge_grace_defaults_and_expires(monkeypatch):
     ns = _load_namespace()
     monkeypatch.delenv("BROWSER_AGENT_CHATGPT_CHALLENGE_GRACE_SECONDS", raising=False)
@@ -167,6 +199,71 @@ def test_cloudflare_challenge_grace_defaults_and_expires(monkeypatch):
     assert ns["_challenge_grace_seconds"]() == 20.0
     assert ns["_challenge_persisted_too_long"](100.0, now=119.9, grace_s=20.0) is False
     assert ns["_challenge_persisted_too_long"](100.0, now=120.0, grace_s=20.0) is True
+
+
+def test_reasoning_retry_triggers_for_root_page_stuck_on_low_signal_status(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.delenv("BROWSER_AGENT_CHATGPT_REASONING_RETRY_AFTER_SECONDS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_REASONING_RETRY_AFTER_SECONDS", raising=False)
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 1,
+            "message_count": 2,
+            "conversation_id": "",
+            "url": "https://chatgpt.com/",
+            "latest_assistant_text_raw": "正在思考",
+            "latest_assistant_text": "",
+        },
+        elapsed_s=25.0,
+        retried=False,
+    ) is True
+
+
+def test_reasoning_retry_skips_after_real_answer_or_second_attempt():
+    ns = _load_namespace()
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 1,
+            "message_count": 2,
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+            "latest_assistant_text_raw": '{"accepted": true, "summary": "ready"}',
+            "latest_assistant_text": '{"accepted": true, "summary": "ready"}',
+        },
+        elapsed_s=25.0,
+        retried=False,
+    ) is False
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 0,
+            "message_count": 1,
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+            "latest_assistant_text_raw": "正在思考",
+            "latest_assistant_text": "",
+        },
+        elapsed_s=25.0,
+        retried=True,
+    ) is False
+
+
+def test_normalize_capture_payload_prefers_substantive_assistant_text():
+    ns = _load_namespace()
+    payload = ns["_normalize_capture_payload"](
+        {
+            "latest_assistant_text": "已思考 9s",
+            "messages": [
+                {"role": "user", "text": "prompt"},
+                {"role": "assistant", "text": '{"date": "2026-06-05", "accepted": true}'},
+                {"role": "assistant", "text": "已思考 9s"},
+            ],
+        }
+    )
+    assert payload["latest_assistant_text_raw"] == "已思考 9s"
+    assert payload["latest_assistant_text"] == '{"date": "2026-06-05", "accepted": true}'
 
 
 def test_browser_user_agent_defaults_to_non_headless_chrome(monkeypatch):
