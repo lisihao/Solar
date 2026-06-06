@@ -1202,6 +1202,55 @@ def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout
     session_payload = json.loads(session_path.read_text(encoding="utf-8"))
     assert session_payload["conversation_url"] == "https://chatgpt.com/c/scratch-timeout-001"
     assert session_payload["conversation_id"] == "scratch-timeout-001"
+    request_root = tmp_path / "state" / "browser-agent-requests"
+    request_dirs = sorted(request_root.iterdir())
+    assert len(request_dirs) == 1
+    request_meta = json.loads((request_dirs[0] / "request.json").read_text(encoding="utf-8"))
+    assert request_meta["status"] == "failed_executor_timeout"
+    assert request_meta["closeout_reason"] == "executor_timeout"
+    assert int(request_meta["executor_timeout_seconds"]) == 1
+    assert int(request_meta["executor_pid"]) > 0
+
+
+def test_call_browser_agent_chatgpt_text_reaps_stale_pending_executor_before_new_run(monkeypatch, tmp_path):
+    wrapper = tmp_path / "fast_wrapper.py"
+    wrapper.write_text(
+        "print('x' * 1200)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_PENDING_EXECUTOR_GRACE_SECONDS", "0")
+    ns = _load_namespace()
+    state_dir = tmp_path / "state"
+    stale_request = state_dir / "browser-agent-requests" / "20240101T000000Z-stale"
+    stale_request.mkdir(parents=True, exist_ok=True)
+    (stale_request / "request.json").write_text(
+        json.dumps(
+                {
+                    "purpose": "stale",
+                    "status": "pending_executor",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "executor_started_at": "2024-01-01T00:00:00Z",
+                    "executor_timeout_seconds": 1,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+        encoding="utf-8",
+    )
+    result = ns["call_browser_agent_chatgpt_text"](
+        "fresh prompt",
+        {
+            "output": {"raw_dir": str(tmp_path / "raw"), "state_dir": str(state_dir)},
+            "youtube": {"phase_report_reasoner": {"headless": True}},
+        },
+        purpose="fresh-run-after-stale-pending",
+        expected="markdown",
+    )
+    assert result["ok"] is True
+    stale_meta = json.loads((stale_request / "request.json").read_text(encoding="utf-8"))
+    assert stale_meta["status"] == "failed_pending_executor_timeout"
+    assert stale_meta["closeout_reason"] == "pending_executor_timeout_reaped"
 
 
 def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch, tmp_path):

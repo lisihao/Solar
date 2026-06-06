@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import types
@@ -176,3 +177,39 @@ def test_browser_user_agent_defaults_to_non_headless_chrome(monkeypatch):
     ua = ns["_browser_user_agent"](browser_channel="chrome")
     assert "Chrome/" in ua
     assert "HeadlessChrome/" not in ua
+
+
+def test_record_request_executor_failure_marks_pending_request(tmp_path):
+    ns = _load_namespace()
+    request_dir = tmp_path / "request"
+    request_dir.mkdir()
+    (request_dir / "request.json").write_text(
+        json.dumps({"status": "pending_executor", "created_at": "2026-06-06T00:00:00Z"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    payload = ns["_record_request_executor_failure"](
+        request_dir,
+        error_type="RuntimeError",
+        error_text="boom",
+    )
+    assert payload["status"] == "failed_executor"
+    assert payload["wrapper_error_type"] == "RuntimeError"
+    assert payload["closeout_reason"] == "wrapper_exception"
+
+
+def test_record_request_executor_failure_does_not_override_completed_request(tmp_path):
+    ns = _load_namespace()
+    request_dir = tmp_path / "request"
+    request_dir.mkdir()
+    (request_dir / "request.json").write_text(
+        json.dumps({"status": "completed", "created_at": "2026-06-06T00:00:00Z"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    payload = ns["_record_request_executor_failure"](
+        request_dir,
+        error_type="RuntimeError",
+        error_text="boom",
+    )
+    assert payload["status"] == "completed"
+    stored = json.loads((request_dir / "request.json").read_text(encoding="utf-8"))
+    assert stored["status"] == "completed"

@@ -15033,6 +15033,158 @@ def _browser_agent_state_dir(config: dict[str, Any]) -> Path:
     )
 
 
+def _browser_agent_pending_executor_grace_seconds() -> int:
+    raw = (
+        os.environ.get("TECH_HOTSPOT_BROWSER_PENDING_EXECUTOR_GRACE_SECONDS")
+        or os.environ.get("BROWSER_AGENT_PENDING_EXECUTOR_GRACE_SECONDS")
+        or "600"
+    )
+    try:
+        return max(0, int(str(raw).strip()))
+    except (TypeError, ValueError):
+        return 600
+
+
+def _read_browser_agent_request_meta(request_dir: Path) -> dict[str, Any]:
+    path = request_dir / "request.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_browser_agent_request_meta(request_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    path = request_dir / "request.json"
+    request_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return payload
+
+
+def _browser_agent_request_status_is_terminal(status: str | None) -> bool:
+    value = str(status or "").strip().lower()
+    return value == "completed" or value.startswith("failed")
+
+
+def _update_browser_agent_request_meta(
+    request_dir: Path,
+    *,
+    status: str | None = None,
+    force: bool = False,
+    **updates: Any,
+) -> dict[str, Any]:
+    payload = _read_browser_agent_request_meta(request_dir)
+    current_status = str(payload.get("status") or "").strip()
+    if _browser_agent_request_status_is_terminal(current_status) and not force:
+        return payload
+    if status is not None:
+        payload["status"] = status
+    payload.update(updates)
+    payload["updated_at"] = iso_z()
+    return _write_browser_agent_request_meta(request_dir, payload)
+
+
+def _browser_agent_executor_pid_alive(pid_value: Any) -> bool:
+    try:
+        pid = int(pid_value)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _browser_agent_request_started_at_epoch(meta: dict[str, Any], request_dir: Path) -> float:
+    for key in ("executor_started_at", "wrapper_started_at", "created_at"):
+        raw = str(meta.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(UTC).timestamp()
+        except Exception:
+            continue
+    try:
+        return request_dir.stat().st_mtime
+    except OSError:
+        return time.time()
+
+
+def _reap_stale_browser_agent_pending_requests(
+    config: dict[str, Any],
+    *,
+    now_ts: float | None = None,
+) -> dict[str, Any]:
+    request_root = _browser_agent_state_dir(config) / "browser-agent-requests"
+    now_value = time.time() if now_ts is None else float(now_ts)
+    grace_seconds = _browser_agent_pending_executor_grace_seconds()
+    reaped: list[dict[str, Any]] = []
+    scanned = 0
+    if not request_root.exists():
+        return {
+            "ok": True,
+            "request_root": str(request_root),
+            "scanned": 0,
+            "reaped": [],
+            "grace_seconds": grace_seconds,
+            "checked_at": iso_z(),
+        }
+    for request_dir in sorted(request_root.iterdir()):
+        if not request_dir.is_dir():
+            continue
+        meta = _read_browser_agent_request_meta(request_dir)
+        if not meta:
+            continue
+        if str(meta.get("status") or "").strip() != "pending_executor":
+            continue
+        scanned += 1
+        started_at_epoch = _browser_agent_request_started_at_epoch(meta, request_dir)
+        age_seconds = max(0, int(now_value - started_at_epoch))
+        timeout_seconds = int(meta.get("executor_timeout_seconds") or 0)
+        stale_after_seconds = max(0, timeout_seconds) + grace_seconds
+        if age_seconds < stale_after_seconds:
+            continue
+        executor_pid = meta.get("executor_pid") or meta.get("wrapper_pid")
+        if _browser_agent_executor_pid_alive(executor_pid):
+            continue
+        updated = _update_browser_agent_request_meta(
+            request_dir,
+            status="failed_pending_executor_timeout",
+            finished_at=iso_z(),
+            closeout_by="tech_hotspot_radar_pending_executor_reaper",
+            closeout_reason="pending_executor_timeout_reaped",
+            pending_executor_age_seconds=age_seconds,
+            pending_executor_stale_after_seconds=stale_after_seconds,
+            executor_pid_alive=False,
+            force=True,
+        )
+        reaped.append(
+            {
+                "request_dir": str(request_dir),
+                "status": updated.get("status"),
+                "age_seconds": age_seconds,
+                "stale_after_seconds": stale_after_seconds,
+            }
+        )
+    return {
+        "ok": True,
+        "request_root": str(request_root),
+        "scanned": scanned,
+        "reaped": reaped,
+        "grace_seconds": grace_seconds,
+        "checked_at": iso_z(),
+    }
+
+
 def _browser_agent_scratch_session_path(config: dict[str, Any], scratch_profile_id: str) -> Path:
     normalized = Path(str(scratch_profile_id).strip())
     return _browser_agent_state_dir(config) / "browser-agent-scratch-pool" / normalized / "session.json"
@@ -15226,6 +15378,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
     max_chars = int(requested_max_prompt_chars or writer_cfg.get("max_prompt_chars") or reasoner_cfg.get("max_prompt_chars") or 180000)
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[TRUNCATED: prompt exceeded configured max_prompt_chars]\n"
+    reaper_result = _reap_stale_browser_agent_pending_requests(config)
     req_dir = _browser_agent_request_dir(config, purpose)
     (req_dir / "prompt.md").write_text(prompt, encoding="utf-8")
     meta = {
@@ -15238,13 +15391,24 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "model": model,
         "reasoning_effort": reasoning_effort,
         "created_at": iso_z(),
+        "updated_at": iso_z(),
         "status": "pending_executor",
+        "executor_timeout_seconds": timeout,
         "note": "AI Influence high-judgment stages must use DeepResearchChatGPT/chatgpt_thinking_high via Browser Agent + ChatGPT 5.5 Thinking high. No Codex/local fallback is allowed.",
         "scratch_profile_id": str(scratch_profile_id or "").strip(),
+        "startup_pending_executor_reaper": reaper_result,
     }
-    (req_dir / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_browser_agent_request_meta(req_dir, meta)
     cmd = browser_agent_chatgpt_cmd(config)
     if not cmd:
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_launch",
+            finished_at=iso_z(),
+            closeout_by="tech_hotspot_radar_prelaunch",
+            closeout_reason="executor_not_configured",
+            force=True,
+        )
         raise RuntimeError(
             "browser_agent_chatgpt executor is not configured; "
             f"request written to {req_dir}. Set TECH_HOTSPOT_BROWSER_CHATGPT_CMD "
@@ -15388,6 +15552,15 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         text=True,
         env=env,
     )
+    meta = _update_browser_agent_request_meta(
+        req_dir,
+        status="pending_executor",
+        executor_started_at=iso_z(),
+        executor_pid=proc.pid,
+        executor_cmd=cmd,
+        closeout_by=None,
+        force=True,
+    )
     if proc.stdin is not None:
         proc.stdin.write(prompt)
         proc.stdin.close()
@@ -15420,6 +15593,16 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                     output = proc.stdout.read() or ""
                 output = _strip_browser_agent_noise(output)
                 (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+                _update_browser_agent_request_meta(
+                    req_dir,
+                    status="failed_executor_timeout",
+                    finished_at=iso_z(),
+                    latency_ms=int((time.time() - started) * 1000),
+                    output_chars=len(output),
+                    closeout_by="tech_hotspot_radar_timeout",
+                    closeout_reason="executor_timeout",
+                    force=True,
+                )
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=output)
     output = ""
     if proc.stdout is not None:
@@ -15434,6 +15617,17 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                 purpose=purpose,
                 request_dir=req_dir,
             )
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_rc",
+            finished_at=iso_z(),
+            latency_ms=int((time.time() - started) * 1000),
+            output_chars=len(output),
+            executor_returncode=proc.returncode,
+            closeout_by="tech_hotspot_radar_rc",
+            closeout_reason="executor_nonzero_exit",
+            force=True,
+        )
         raise RuntimeError(f"browser_agent_chatgpt failed rc={proc.returncode}: {output[-2000:]}")
     if len(output) < (500 if expected == "json" else 1000):
         if not scratch_session_persisted:
@@ -15443,6 +15637,16 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                 purpose=purpose,
                 request_dir=req_dir,
             )
+        _update_browser_agent_request_meta(
+            req_dir,
+            status="failed_executor_output_short",
+            finished_at=iso_z(),
+            latency_ms=int((time.time() - started) * 1000),
+            output_chars=len(output),
+            closeout_by="tech_hotspot_radar_output_guard",
+            closeout_reason="executor_output_too_short",
+            force=True,
+        )
         raise ValueError(f"browser_agent_chatgpt output too short: {len(output)} chars")
     if not scratch_session_persisted:
         _persist_browser_agent_scratch_session_from_request_dir(
@@ -15451,12 +15655,16 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
             purpose=purpose,
             request_dir=req_dir,
         )
-    meta.update({
-        "status": "completed",
-        "latency_ms": int((time.time() - started) * 1000),
-        "output_chars": len(output),
-    })
-    (req_dir / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    meta = _update_browser_agent_request_meta(
+        req_dir,
+        status="completed",
+        finished_at=iso_z(),
+        latency_ms=int((time.time() - started) * 1000),
+        output_chars=len(output),
+        closeout_by="tech_hotspot_radar_success",
+        closeout_reason="executor_completed",
+        force=True,
+    )
     return {
         "ok": True,
         "backend": "browser_agent_chatgpt",

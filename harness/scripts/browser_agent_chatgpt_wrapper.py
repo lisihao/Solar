@@ -40,6 +40,59 @@ def _env_flag(*names: str, default: bool = False) -> bool:
     return default
 
 
+def _read_request_meta(request_dir: Path) -> dict:
+    path = request_dir / "request.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_status_is_terminal(status: str | None) -> bool:
+    value = str(status or "").strip()
+    return value == "completed" or value.startswith("failed")
+
+
+def _update_request_meta(
+    request_dir: Path,
+    *,
+    status: str | None = None,
+    force: bool = False,
+    **updates,
+) -> dict:
+    payload = _read_request_meta(request_dir)
+    current_status = str(payload.get("status") or "").strip()
+    if _request_status_is_terminal(current_status) and not force:
+        return payload
+    if status is not None:
+        payload["status"] = status
+    payload.update(updates)
+    payload["updated_at"] = bjrt._now()
+    _write_json(request_dir / "request.json", payload)
+    return payload
+
+
+def _record_request_executor_failure(
+    request_dir: Path,
+    *,
+    error_type: str,
+    error_text: str,
+) -> dict:
+    return _update_request_meta(
+        request_dir,
+        status="failed_executor",
+        finished_at=bjrt._now(),
+        closeout_by="browser_agent_chatgpt_wrapper",
+        closeout_reason="wrapper_exception",
+        wrapper_error_type=error_type,
+        wrapper_error=error_text,
+        force=False,
+    )
+
+
 def _headed_run_allowed() -> bool:
     return _env_flag(
         "BROWSER_AGENT_CHATGPT_ALLOW_HEADED",
@@ -1312,6 +1365,7 @@ def _scrub_chatgpt_client_state(staged_dir: str | Path | None, profile_directory
 
 async def _run(prompt: str) -> int:
     request_dir = _request_dir()
+    startup_cleanup = bjrt.cleanup_stale_staged_browser_profiles()
     expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
     model = str(os.environ.get("CHATGPT_MODEL") or "chatgpt-5.5").strip()
     reasoning_effort = str(os.environ.get("CHATGPT_REASONING_EFFORT") or "high").strip().lower()
@@ -1396,8 +1450,20 @@ async def _run(prompt: str) -> int:
         "account_email_hint_present": bool(account_email),
         "request_dir": str(request_dir),
         "started_at": bjrt._now(),
+        "startup_staged_profile_cleanup": startup_cleanup,
     }
     _write_json(request_dir / "wrapper-meta.json", meta)
+    _write_json(request_dir / "staged-profile-startup-cleanup.json", startup_cleanup)
+    _update_request_meta(
+        request_dir,
+        status="pending_executor",
+        wrapper_started_at=bjrt._now(),
+        wrapper_pid=os.getpid(),
+        wrapper_action=action,
+        wrapper_profile_strategy=profile_strategy,
+        startup_staged_profile_cleanup=startup_cleanup,
+        force=False,
+    )
     if not headless and not headed_allowed:
         raise RuntimeError("browser_agent_headed_run_requires_explicit_opt_in")
     control_ctx = brtc.initialize_runtime_contract(
@@ -1424,6 +1490,7 @@ async def _run(prompt: str) -> int:
         },
     )
     final_error_text: str | None = None
+    final_error_type: str | None = None
     final_page_state: dict | None = None
     logged_in_verified = False
 
@@ -1717,6 +1784,7 @@ async def _run(prompt: str) -> int:
         return 0
     except Exception as exc:
         final_error_text = str(exc)
+        final_error_type = type(exc).__name__
         raise
     finally:
         try:
@@ -1726,6 +1794,23 @@ async def _run(prompt: str) -> int:
         _kill_browser_profile_processes(staged_dir)
         if cleanup_dir is not None:
             shutil.rmtree(cleanup_dir, ignore_errors=True)
+        watchdog_cleanup = bjrt.cleanup_stale_staged_browser_profiles(grace_seconds=60)
+        _write_json(request_dir / "staged-profile-watchdog-cleanup.json", watchdog_cleanup)
+        if final_error_text:
+            _record_request_executor_failure(
+                request_dir,
+                error_type=str(final_error_type or "RuntimeError"),
+                error_text=final_error_text,
+            )
+        else:
+            _update_request_meta(
+                request_dir,
+                status=None,
+                wrapper_finished_at=bjrt._now(),
+                wrapper_exit_code=0,
+                watchdog_staged_profile_cleanup=watchdog_cleanup,
+                force=False,
+            )
         brtc.finalize_runtime_contract(
             control_ctx,
             success=logged_in_verified and not final_error_text,
@@ -1760,6 +1845,11 @@ def main() -> int:
             "error": str(exc),
             "failed_at": bjrt._now(),
         })
+        _record_request_executor_failure(
+            request_dir,
+            error_type=type(exc).__name__,
+            error_text=str(exc),
+        )
         print(f"browser_agent_chatgpt_wrapper failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
