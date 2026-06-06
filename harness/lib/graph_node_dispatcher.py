@@ -5483,7 +5483,6 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             )
             if str(pane).startswith("operator-pool:"):
                 if not dry_run:
-                    enqueue(sid, item.get("intent", f"graph_node|node_id={node_id}"), item.get("priority", 80), payload)
                     _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
                 return {
                     "ok": False,
@@ -5491,7 +5490,7 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
                     "node": node_id,
                     "pane": pane,
                     "operator_pool": pool_result,
-                    "requeued": not dry_run,
+                    "requeued": False,
                 }
     if not pane:
         return {"ok": False, "reason": "missing_assigned_pane", "node": node_id}

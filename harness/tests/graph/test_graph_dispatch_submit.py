@@ -729,6 +729,63 @@ class TestSubmitFailureRecovery:
         assert result["reason"] == "pane_missing"
         assert result["requeued"] is True
 
+    def test_operator_pool_builder_queue_item_releases_graph_without_requeue(self, tmp_harness, monkeypatch):
+        """Virtual operator-pool builder assignments are not tmux-dispatchable."""
+        import graph_node_dispatcher as gnd
+
+        tmp_path, sprints, sid, graph = tmp_harness
+
+        mark_calls = []
+        enqueue_calls = []
+
+        def fail_pane_exists(_pane):
+            raise AssertionError("operator-pool builder must not probe tmux panes")
+
+        def fail_ensure_lease(*_args, **_kwargs):
+            raise AssertionError("operator-pool builder must not acquire pane leases")
+
+        def mock_mark(graph_path, node_id, status, **kwargs):
+            mark_calls.append({
+                "graph_path": graph_path,
+                "node_id": node_id,
+                "status": status,
+                **kwargs,
+            })
+            return True
+
+        monkeypatch.setattr(gnd, "_pane_exists", fail_pane_exists)
+        monkeypatch.setattr(gnd, "_ensure_lease", fail_ensure_lease)
+        monkeypatch.setattr(gnd, "_mark_graph_node", mock_mark)
+        monkeypatch.setattr(
+            gnd,
+            "_submit_builder_to_operator_pool",
+            lambda **_kwargs: {"ok": False, "reason": "operator_pool_submit_failed"},
+        )
+        monkeypatch.setattr(gnd, "enqueue", lambda *a, **kw: enqueue_calls.append(a) or {"ok": True})
+
+        item = {
+            "intent": "graph_node|node_id=N1",
+            "priority": 80,
+            "payload": {
+                "sprint_id": sid,
+                "node": {"id": "N1", "goal": "Test"},
+                "assignment": {"pane": "operator-pool:builder.0"},
+                "dispatch_id": "graph-sid-N1",
+            },
+        }
+
+        result = gnd.dispatch_queue_item(item, dry_run=False)
+        assert result["ok"] is False
+        assert result["reason"] == "operator_pool_submit_failed"
+        assert result["requeued"] is False
+        assert enqueue_calls == []
+        assert mark_calls == [{
+            "graph_path": str(sprints / f"{sid}.task_graph.json"),
+            "node_id": "N1",
+            "status": "pending",
+            "clear_assignment": True,
+        }]
+
 
 class TestQueueStateSemantics:
     """Queue assignment is distinct from confirmed pane dispatch."""

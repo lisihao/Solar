@@ -3691,6 +3691,227 @@ def _ensure_lease(pane: str, sid: str, dispatch_id: str, ttl: int, dry_run: bool
     return acquire_lease(pane, sid, dispatch_id, ttl)
 
 
+def _builder_operator_pool_enabled() -> bool:
+    return str(os.environ.get("SOLAR_GRAPH_BUILDER_OPERATOR_POOL", "1")).strip().lower() not in {
+        "0",
+        "false",
+        "off",
+        "no",
+    }
+
+
+def _builder_operator_pool_allowed_for_pane(pane: str) -> bool:
+    if str(os.environ.get("SOLAR_GRAPH_BUILDER_OPERATOR_POOL_ALL_PANES", "")).strip().lower() in {
+        "1",
+        "true",
+        "on",
+        "yes",
+    }:
+        return True
+    return (
+        pane.startswith("operator-pool:builder")
+        or pane.startswith("solar-harness-lab:")
+        or pane.startswith("solar-harness-multi-task:")
+    )
+
+
+def _graph_queue_dispatch_role(payload: dict[str, Any], node: dict[str, Any], assignment: dict[str, Any]) -> str:
+    raw = (
+        assignment.get("dispatch_role")
+        or payload.get("dispatch_role")
+        or node.get("dispatch_role")
+        or node.get("role")
+        or "builder"
+    )
+    role = str(raw or "builder").strip().lower().replace("-", "_")
+    if role in {"builder_main", "builder_worker", "implementation"}:
+        return "builder"
+    return role
+
+
+def _graph_node_task_type(node: dict[str, Any]) -> str:
+    for key in ("dispatch_task_type", "task_type", "type", "logical_operator"):
+        value = str(node.get(key) or "").strip()
+        if value:
+            return value
+    return "implementation"
+
+
+def _submit_builder_to_operator_pool(
+    *,
+    item: dict[str, Any],
+    payload: dict[str, Any],
+    sid: str,
+    node: dict[str, Any],
+    node_id: str,
+    graph_path: str,
+    pane: str,
+    dispatch_id: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    if not _builder_operator_pool_enabled():
+        return {"ok": False, "reason": "operator_pool_disabled"}
+
+    assignment = payload.get("assignment") or {}
+    dispatch_role = _graph_queue_dispatch_role(payload, node, assignment)
+    if dispatch_role not in {"builder", "evaluator", "planner"}:
+        return {"ok": False, "reason": "unsupported_operator_pool_role", "role": dispatch_role}
+    if pane and not _builder_operator_pool_allowed_for_pane(pane):
+        return {"ok": False, "reason": "operator_pool_not_enabled_for_pane"}
+
+    instruction_file = _dispatch_file(sid, node_id)
+    text_payload = dict(payload, dispatch_id=dispatch_id, sprint_id=sid)
+    text_payload = _ensure_execution_plan_payload(text_payload, graph_path=graph_path, sid=sid, node=node)
+    if node_id.startswith("R"):
+        text_payload["research_node"] = True
+        if node.get("fan_out_parent"):
+            text_payload["section_isolation"] = True
+            text_payload["section_id"] = node.get("section_id", "")
+    instruction_file.parent.mkdir(parents=True, exist_ok=True)
+    instruction_file.write_text(build_dispatch_text(text_payload, f"operator-pool:{dispatch_role}"), encoding="utf-8")
+    if not dry_run:
+        _inject_dispatch_context(instruction_file, sid=sid, pane=f"operator-pool:{dispatch_role}", dispatch_id=dispatch_id)
+
+    dispatch_preview = instruction_file.read_text(encoding="utf-8")
+    if len(dispatch_preview) > 60000:
+        dispatch_preview = (
+            dispatch_preview[:60000]
+            + "\n\n[TRUNCATED] Full graph dispatch instructions are in the file path above; read the file before acting."
+        )
+    objective = (
+        f"你是 graph-dispatch {dispatch_role}。请严格执行下面这个 DAG 节点分发文件；"
+        "不要只总结，必须完成节点要求并按文件内的 graph node verdict/closeout 规则回写。\n\n"
+        f"Graph dispatch file: {instruction_file}\n"
+        f"Sprint: {sid}\n"
+        f"Node: {node_id}\n"
+        f"Original assigned pane fallback: {pane or 'N/A'}\n\n"
+        "--- BEGIN GRAPH DISPATCH FILE ---\n"
+        f"{dispatch_preview}"
+        "\n--- END GRAPH DISPATCH FILE ---"
+    )
+    context = json.dumps(
+        {
+            "source": "graph_node_dispatcher",
+            "graph": graph_path,
+            "dispatch_id": dispatch_id,
+            "original_assigned_pane": pane,
+            "queue_item_id": item.get("id", ""),
+        },
+        ensure_ascii=False,
+    )
+    cmd = [
+        sys.executable,
+        str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
+        "submit",
+        "--role",
+        dispatch_role,
+        "--sprint",
+        sid,
+        "--node",
+        node_id,
+        "--task-type",
+        _graph_node_task_type(node),
+        "--objective",
+        objective,
+        "--context",
+        context,
+    ]
+    if dry_run:
+        cmd.append("--dry-run")
+    env = _broker_env(sid)
+    env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
+    env.setdefault("SOLAR_PM_DISPATCH_SOURCE", "graph_node_dispatcher")
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=45, env=env)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "reason": "operator_pool_submit_exception",
+            "error": str(exc),
+            "instruction_file": str(instruction_file),
+        }
+    if completed.returncode != 0:
+        return {
+            "ok": False,
+            "reason": "operator_pool_submit_failed",
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-1200:],
+            "stderr": completed.stderr[-1200:],
+            "instruction_file": str(instruction_file),
+        }
+
+    parsed = _parse_pm_submit_output(completed.stdout)
+    operator_id = parsed.get("operator_id") or "unknown"
+    operator_pane = f"operator:{operator_id}"
+    if dry_run:
+        return {
+            "ok": True,
+            "node": node_id,
+            "pane": operator_pane,
+            "dispatch_id": dispatch_id,
+            "instruction_file": str(instruction_file),
+            "dispatch_mode": f"operator_pool_{dispatch_role}",
+            "pm_dispatch": parsed,
+            "dry_run": True,
+            "graph_updated": False,
+        }
+
+    if pane:
+        release_lease(pane, dispatch_id, "graph_dispatch_reassigned_to_operator_pool")
+    _write_submit_ack(sid, node_id, operator_pane, dispatch_id)
+    graph_updated = _mark_graph_node(graph_path, node_id, "dispatched", pane=operator_pane, dispatch_id=dispatch_id)
+    try:
+        graph = load_graph(graph_path)
+        graph_node = _node_by_id(graph, node_id)
+        if graph_node is not None:
+            graph_node["operator_id"] = operator_id
+            graph_node["pm_task_id"] = parsed.get("pm_task_id", "")
+            graph_node["dispatched_via"] = "pm_dispatch"
+            graph_node["updated_at"] = _utc_now()
+            save_graph(graph_path, graph)
+            graph_updated = True
+    except Exception:
+        pass
+    _append_dispatch_ledger(
+        "operator_pool_dispatched",
+        sid,
+        operator_pane,
+        dispatch_id,
+        {
+            "node": node_id,
+            "graph": graph_path,
+            "pm_dispatch": parsed,
+            "instruction_file": str(instruction_file),
+            "fallback_pane": pane,
+        },
+    )
+    _append_event(
+        sid,
+        {
+            "event": "graph_operator_pool_dispatched",
+            "by": "graph-dispatch",
+            "data": {
+                "node": node_id,
+                "operator_id": operator_id,
+                "pm_task_id": parsed.get("pm_task_id", ""),
+                "fallback_pane": pane,
+                "dispatch_id": dispatch_id,
+            },
+        },
+    )
+    return {
+        "ok": True,
+        "node": node_id,
+        "pane": operator_pane,
+        "operator_id": operator_id,
+        "dispatch_id": dispatch_id,
+        "instruction_file": str(instruction_file),
+        "dispatch_mode": f"operator_pool_{dispatch_role}",
+        "pm_dispatch": parsed,
+        "graph_updated": graph_updated,
+    }
+
+
 def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 900) -> dict[str, Any]:
     payload = item.get("payload") or {}
     sid = payload.get("sprint_id") or item.get("sprint_id") or item.get("sid") or ""
@@ -3703,11 +3924,53 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
 
     if not sid or not node_id:
         return {"ok": False, "reason": "invalid_graph_queue_item", "item": item}
-    if not pane:
-        return {"ok": False, "reason": "missing_assigned_pane", "node": node_id}
     runtime_state = _graph_node_runtime_state(graph_path, node_id)
     current_status = str(runtime_state.get("status") or "")
     current_dispatch_id = str(runtime_state.get("dispatch_id") or "")
+    use_operator_pool = (
+        current_status in {"assigned", "pending", "queued"}
+        and (not current_dispatch_id or current_dispatch_id == dispatch_id)
+        and (not pane or str(pane).startswith("operator-pool:"))
+    )
+    if use_operator_pool:
+        pool_result = _submit_builder_to_operator_pool(
+            item=item,
+            payload=payload,
+            sid=sid,
+            node=node,
+            node_id=node_id,
+            graph_path=graph_path,
+            pane=pane,
+            dispatch_id=dispatch_id,
+            dry_run=dry_run,
+        )
+        if pool_result.get("ok"):
+            return pool_result
+        if pool_result.get("reason") not in {
+            "operator_pool_disabled",
+            "operator_pool_not_enabled_for_pane",
+            "not_builder_role",
+        }:
+            _append_dispatch_ledger(
+                "operator_pool_fallback_to_pane",
+                sid,
+                pane or "unknown",
+                dispatch_id,
+                {"node": node_id, "reason": pool_result.get("reason"), "detail": pool_result},
+            )
+            if str(pane).startswith("operator-pool:"):
+                if not dry_run:
+                    _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
+                return {
+                    "ok": False,
+                    "reason": str(pool_result.get("reason") or "operator_pool_submit_failed"),
+                    "node": node_id,
+                    "pane": pane,
+                    "operator_pool": pool_result,
+                    "requeued": False,
+                }
+    if not pane:
+        return {"ok": False, "reason": "missing_assigned_pane", "node": node_id}
     if current_status in {"assigned", "dispatched", "in_progress", "running"} and current_dispatch_id == dispatch_id:
         instruction_file = _dispatch_file(sid, node_id)
         if _pane_tui_busy(pane):
