@@ -6,11 +6,13 @@ import base64
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 import sys
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
@@ -115,6 +117,124 @@ def _challenge_persisted_too_long(challenge_since: float | None, *, now: float |
     deadline = challenge_since + (grace_s if grace_s is not None else _challenge_grace_seconds())
     return (now if now is not None else time.time()) >= deadline
 
+
+def _conversation_id_from_url(url: str) -> str:
+    match = re.search(r"/c/([^/?#]+)", str(url or "").strip())
+    if not match:
+        return ""
+    return unquote(match.group(1)).strip()
+
+
+def _is_prompt_like_chatgpt_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return False
+    prompt_markers = (
+        "ChatGPT Report Chapter Writer",
+        "[SCRATCH_CHAT_RESET_CONTRACT]",
+        "[CHAPTER_SCOPE_GUARD]",
+        "operator_kind:",
+        "expected_output:",
+        "chapter_evidence_pack:",
+        "当前报告：",
+        "输出硬规则：",
+        "当前任务身份：",
+        "只允许使用“本次消息中给出的任务说明和 payload”",
+    )
+    return any(marker in normalized for marker in prompt_markers)
+
+
+def _is_capture_noise_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return False
+    noise_patterns = (
+        r"^window\.__oai_",
+        r"requestAnimationFrame\s*\(",
+        r"Date\.now\(\)",
+        r"function\s*\(\)\s*\{",
+        r"window\.__oai_logHTML",
+        r"window\.__oai_logTTI",
+    )
+    return any(re.search(pattern, normalized) for pattern in noise_patterns)
+
+
+def _recover_assistant_from_visible_blocks(normalized: dict) -> dict:
+    messages = normalized.get("messages")
+    if not isinstance(messages, list):
+        messages = []
+    assistant_count = int(normalized.get("assistant_count") or 0)
+    latest_assistant_text = str(normalized.get("latest_assistant_text") or "").strip()
+    if assistant_count > 0 and _has_substantive_assistant_text(latest_assistant_text):
+        return normalized
+    visible_blocks = normalized.get("visible_blocks")
+    if not isinstance(visible_blocks, list):
+        return normalized
+    seen = {
+        re.sub(r"\s+", " ", str(item.get("text") or item)).strip()
+        for item in messages
+        if isinstance(item, dict)
+    }
+    candidates: list[tuple[str, str]] = []
+    for item in visible_blocks:
+        if isinstance(item, dict):
+            text = str(item.get("text") or "").strip()
+            source = str(item.get("source") or "").strip()
+        else:
+            text = str(item or "").strip()
+            source = ""
+        compact = re.sub(r"\s+", " ", text).strip()
+        if len(compact) < 120:
+            continue
+        if compact in seen:
+            continue
+        if _is_placeholder_assistant_text(compact):
+            continue
+        if _is_prompt_like_chatgpt_text(compact):
+            continue
+        if _is_capture_noise_text(compact):
+            continue
+        candidates.append((text, source))
+    if not candidates:
+        return normalized
+    text, source = max(candidates, key=lambda item: len(re.sub(r"\s+", " ", item[0]).strip()))
+    recovered = dict(normalized)
+    recovered_messages = list(messages)
+    recovered_messages.append({
+        "role": "assistant",
+        "text": text,
+        "turn_index": len(recovered_messages) + 1,
+        "_synthetic_capture_fallback": True,
+        "_source": source,
+    })
+    recovered["messages"] = recovered_messages
+    recovered["assistant_count"] = max(assistant_count, 1)
+    recovered["message_count"] = max(int(normalized.get("message_count") or 0), len(recovered_messages))
+    recovered["latest_assistant_text"] = text
+    recovered["_assistant_capture_fallback"] = {
+        "used": True,
+        "source": source,
+        "text_length": len(text),
+    }
+    return recovered
+
+
+def _normalize_capture_state(data: dict | None) -> dict:
+    normalized = dict(data or {})
+    canonical_url = str(normalized.get("canonical_url") or "").strip()
+    current_url = str(normalized.get("url") or "").strip()
+    conversation_id = str(normalized.get("conversation_id") or "").strip()
+    if not conversation_id:
+        conversation_id = _conversation_id_from_url(canonical_url) or _conversation_id_from_url(current_url)
+    if conversation_id:
+        normalized["conversation_id"] = conversation_id
+        if not _conversation_id_from_url(current_url):
+            preferred = canonical_url if _conversation_id_from_url(canonical_url) else current_url
+            if preferred:
+                normalized["url"] = preferred
+                normalized["canonical_url"] = preferred
+    return _recover_assistant_from_visible_blocks(normalized)
+
 CAPTURE_JS = r"""() => {
   const clean = (value) => String(value || "")
     .replace(/\u00a0/g, " ")
@@ -147,6 +267,31 @@ CAPTURE_JS = r"""() => {
     if (!text || seen.has(key)) continue;
     seen.add(key);
     messages.push({ role, text, turn_index: messages.length + 1 });
+  }
+  const visibleBlocks = [];
+  const visibleSeen = new Set();
+  const visibleSelectors = [
+    "[data-message-content]",
+    ".prose",
+    "[class*='prose']",
+    ".markdown",
+    "[class*='markdown']",
+    "article",
+    "[role='article']",
+    "main section",
+    "main div"
+  ];
+  for (const selector of visibleSelectors) {
+    for (const node of Array.from(document.querySelectorAll(selector))) {
+      const text = stripNoise(textFrom(node));
+      const compact = text.replace(/\s+/g, " ").trim();
+      if (!compact || compact.length < 40 || visibleSeen.has(compact)) continue;
+      visibleSeen.add(compact);
+      visibleBlocks.push({
+        source: selector,
+        text,
+      });
+    }
   }
   const latestAssistant = [...messages].reverse().find((item) => item.role === "assistant") || null;
   const composer = document.querySelector("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea']");
@@ -184,7 +329,8 @@ CAPTURE_JS = r"""() => {
     message_count: messages.length,
     assistant_count: messages.filter((item) => item.role === "assistant").length,
     latest_assistant_text: latestAssistant ? latestAssistant.text : "",
-    messages
+    messages,
+    visible_blocks: visibleBlocks.slice(0, 40)
   });
 }"""
 
@@ -715,6 +861,200 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _write_startup_stage(request_dir: Path, stage: str, *, status: str = "running", **extra: object) -> None:
+    payload = {
+        "stage": stage,
+        "status": status,
+        "updated_at": bjrt._now(),
+    }
+    payload.update(extra)
+    _write_json(request_dir / "startup-stage.json", payload)
+
+
+def _read_request_meta(request_dir: Path) -> dict[str, object]:
+    path = request_dir / "request.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _update_request_meta(request_dir: Path, **updates: object) -> None:
+    meta = _read_request_meta(request_dir)
+    meta.update(updates)
+    _write_json(request_dir / "request.json", meta)
+
+
+def _read_json_if_exists(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _best_effort_page_state(request_dir: Path) -> dict[str, object]:
+    for name in (
+        "thinking-stall-state.json",
+        "answer-poll-state.json",
+        "post-submit-state.json",
+        "ready-state.json",
+        "request.json",
+    ):
+        payload = _read_json_if_exists(request_dir / name)
+        if not payload:
+            continue
+        if any(payload.get(key) for key in ("conversation_id", "url", "latest_assistant_text")):
+            return payload
+    return {}
+
+
+def _is_placeholder_assistant_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not normalized:
+        return False
+    if normalized in {"正在思考", "思考中", "thinking", "thinking..."}:
+        return True
+    return bool(
+        re.match(
+            r"^(thought for \d+\s*(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes)|已思考\s*\d+\s*秒)$",
+            normalized,
+        )
+    )
+
+
+def _has_substantive_assistant_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    return bool(normalized) and not _is_placeholder_assistant_text(normalized)
+
+
+def _normalize_chat_text_for_compare(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _assistant_response_advanced(
+    *,
+    assistant_count: int,
+    baseline_assistant_count: int,
+    latest_text: str,
+    baseline_latest_assistant_text: str,
+) -> bool:
+    if not _has_substantive_assistant_text(latest_text):
+        return False
+    if assistant_count > baseline_assistant_count:
+        return True
+    latest_norm = _normalize_chat_text_for_compare(latest_text)
+    baseline_norm = _normalize_chat_text_for_compare(baseline_latest_assistant_text)
+    if not baseline_norm:
+        return True
+    return latest_norm != baseline_norm
+
+
+def _capture_evaluate_timeout_seconds() -> float:
+    raw = str(os.environ.get("BROWSER_AGENT_CHATGPT_CAPTURE_EVALUATE_TIMEOUT_SECONDS") or "12").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 12.0
+    return max(1.0, value)
+
+
+def _no_assistant_reload_confirm_seconds() -> float:
+    raw = str(os.environ.get("BROWSER_AGENT_CHATGPT_NO_ASSISTANT_RELOAD_CONFIRM_SECONDS") or "18").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 18.0
+    return max(3.0, value)
+
+
+async def _capture_state(
+    page,
+    *,
+    request_dir: Path | None = None,
+    phase: str,
+    retries: int = 2,
+    timeout_s: float | None = None,
+    retry_sleep_s: float = 1.0,
+) -> dict:
+    timeout_value = timeout_s if timeout_s is not None else _capture_evaluate_timeout_seconds()
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 2):
+        try:
+            raw = await asyncio.wait_for(page.evaluate(CAPTURE_JS), timeout=timeout_value)
+            return _normalize_capture_state(json.loads(raw))
+        except Exception as exc:
+            last_error = exc
+            if request_dir is not None:
+                _write_json(request_dir / "capture-evaluate-timeout.json", {
+                    "phase": phase,
+                    "attempt": attempt,
+                    "max_attempts": retries + 1,
+                    "timeout_seconds": timeout_value,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "failed_at": bjrt._now(),
+                })
+            if attempt > retries:
+                raise RuntimeError(
+                    f"chatgpt_capture_state_failed:{phase}:{type(exc).__name__}:{exc}"
+                ) from exc
+            await asyncio.sleep(retry_sleep_s)
+    raise RuntimeError(f"chatgpt_capture_state_failed:{phase}:{type(last_error).__name__ if last_error else 'UnknownError'}")
+
+
+async def _refresh_conversation_before_no_assistant_failure(
+    page,
+    data: dict,
+    *,
+    request_dir: Path | None = None,
+) -> bool:
+    conversation_url = str(data.get("url") or "").strip()
+    conversation_id = str(data.get("conversation_id") or "").strip()
+    if not conversation_id:
+        return False
+    try:
+        await asyncio.wait_for(page.reload(), timeout=20)
+    except Exception as reload_exc:
+        if conversation_url:
+            try:
+                await asyncio.wait_for(page.goto(conversation_url), timeout=20)
+            except Exception as goto_exc:
+                if request_dir is not None:
+                    _write_json(request_dir / "no-assistant-refresh-attempt.json", {
+                        "status": "reload_failed",
+                        "attempted_at": bjrt._now(),
+                        "conversation_id": conversation_id,
+                        "url": conversation_url,
+                        "reload_error_type": type(reload_exc).__name__,
+                        "reload_error": str(reload_exc),
+                        "goto_error_type": type(goto_exc).__name__,
+                        "goto_error": str(goto_exc),
+                    })
+                return False
+        else:
+            if request_dir is not None:
+                _write_json(request_dir / "no-assistant-refresh-attempt.json", {
+                    "status": "reload_failed",
+                    "attempted_at": bjrt._now(),
+                    "conversation_id": conversation_id,
+                    "url": conversation_url,
+                    "reload_error_type": type(reload_exc).__name__,
+                    "reload_error": str(reload_exc),
+                })
+            return False
+    await asyncio.sleep(2.0)
+    if request_dir is not None:
+        _write_json(request_dir / "no-assistant-refresh-attempt.json", {
+            "status": "reloaded",
+            "attempted_at": bjrt._now(),
+            "conversation_id": conversation_id,
+            "url": conversation_url,
+        })
+    return True
+
+
 def _kill_browser_profile_processes(profile_dir: Path | None) -> None:
     if not profile_dir:
         return
@@ -748,7 +1088,7 @@ async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
     challenge_since: float | None = None
     challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_state(page, phase="ready", retries=1)
         last_data = data
         if data.get("login_wall"):
             raise RuntimeError("chatgpt_login_wall_detected")
@@ -809,14 +1149,27 @@ async def _ensure_prompt_visible(page, prompt: str) -> dict:
 
 async def _wait_for_prompt_submission(page, baseline_message_count: int, *, timeout_s: float = 12.0) -> dict:
     deadline = time.time() + timeout_s
-    last_data = json.loads(await page.evaluate(CAPTURE_JS))
+    last_data = await _capture_state(page, phase="prompt_submission", retries=1)
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_state(page, phase="prompt_submission", retries=1)
         last_data = data
         if int(data.get("message_count") or 0) > baseline_message_count or data.get("is_generating"):
             return data
         await asyncio.sleep(1.0)
     return last_data
+
+
+async def _await_conversation_capture(page, snapshot: dict, *, timeout_s: float = 15.0) -> dict:
+    current = _normalize_capture_state(snapshot)
+    if str(current.get("conversation_id") or "").strip():
+        return current
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        await asyncio.sleep(1.0)
+        current = await _capture_state(page, phase="conversation_capture", retries=1)
+        if str(current.get("conversation_id") or "").strip():
+            return current
+    return current
 
 
 async def _submit_prompt(page, prompt: str) -> dict:
@@ -833,6 +1186,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
                     await page.press("Enter")
                     submit_note = {"mode": "enter_key_after_keyboard_insert", "js_error": submit_note.get("error")}
                 post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+                post_submit = await _await_conversation_capture(page, post_submit)
                 post_submit["_submit_note"] = {
                     "mode": "keyboard_insert_submit",
                     "keyboard": keyboard_note,
@@ -854,6 +1208,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
                 else:
                     submit_note = {"mode": "js_submit_after_native_setter", **submit_result}
                 post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+                post_submit = await _await_conversation_capture(page, post_submit)
                 post_submit["_submit_note"] = {
                     "mode": "native_setter_submit",
                     "keyboard_first": keyboard_note,
@@ -865,18 +1220,21 @@ async def _submit_prompt(page, prompt: str) -> dict:
                     return post_submit
             clipboard_note = await _clipboard_paste_and_submit(page, prompt)
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+            post_submit = await _await_conversation_capture(page, post_submit)
             post_submit["_submit_note"] = {"mode": "clipboard_paste_enter", "clipboard": clipboard_note}
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
             if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
                 return post_submit
             await page.press("Meta+Enter")
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+            post_submit = await _await_conversation_capture(page, post_submit)
             post_submit["_submit_note"] = {"mode": "clipboard_paste_meta_enter_retry", "clipboard": clipboard_note}
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
             if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
                 return post_submit
             submit_retry = json.loads(await page.evaluate(SUBMIT_JS))
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+            post_submit = await _await_conversation_capture(page, post_submit)
             post_submit["_submit_note"] = {
                 "mode": "clipboard_paste_submit_retry",
                 "clipboard": clipboard_note,
@@ -907,11 +1265,13 @@ async def _submit_prompt(page, prompt: str) -> dict:
     if "clipboard_first_error" in locals():
         submit_note["clipboard_first_error"] = clipboard_first_error
     post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+    post_submit = await _await_conversation_capture(page, post_submit)
     if int(post_submit.get("message_count") or 0) <= baseline_message_count and not post_submit.get("is_generating"):
         try:
             clipboard_note = await _clipboard_paste_and_submit(page, prompt)
             submit_note = {**submit_note, "retry": "clipboard_paste_enter_after_no_message", "clipboard": clipboard_note}
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+            post_submit = await _await_conversation_capture(page, post_submit)
         except Exception as exc:
             submit_note = {**submit_note, "retry_error": f"{type(exc).__name__}: {exc}"}
     post_submit["_submit_note"] = submit_note
@@ -1008,16 +1368,40 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
             pass
 
 
-async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: int = 900) -> dict:
+async def _wait_for_answer(
+    page,
+    baseline_assistant_count: int,
+    *,
+    baseline_latest_assistant_text: str = "",
+    timeout_s: int = 900,
+    request_dir: Path | None = None,
+) -> dict:
     deadline = time.time() + timeout_s
     last_text = ""
     stable = 0
     first_response_seen = False
+    first_response_seen_at: float | None = None
+    substantive_response_seen = False
     stable_required = int(os.environ.get("BROWSER_AGENT_STABLE_POLLS") or "8")
+    thinking_stall_s = max(30, int(os.environ.get("BROWSER_AGENT_CHATGPT_THINKING_STALL_SECONDS") or "90"))
+    no_assistant_stall_s = max(15, int(os.environ.get("BROWSER_AGENT_CHATGPT_NO_ASSISTANT_STALL_SECONDS") or "45"))
+    no_assistant_quiet_s = max(3, int(os.environ.get("BROWSER_AGENT_CHATGPT_NO_ASSISTANT_QUIET_SECONDS") or "9"))
     challenge_since: float | None = None
+    placeholder_since: float | None = None
+    no_assistant_since: float | None = None
+    no_assistant_quiet_since: float | None = None
+    no_assistant_reload_attempted = False
+    no_assistant_reload_confirm_until: float | None = None
+    thinking_refresh_attempted = False
+    thinking_refresh_confirm_until: float | None = None
     challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
-        data = json.loads(await page.evaluate(CAPTURE_JS))
+        data = await _capture_state(
+            page,
+            request_dir=request_dir,
+            phase="answer_poll",
+            retries=2,
+        )
         if data.get("login_wall"):
             raise RuntimeError("chatgpt_login_wall_detected")
         if data.get("challenge_wall"):
@@ -1030,8 +1414,146 @@ async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: in
         challenge_since = None
         assistant_count = int(data.get("assistant_count") or 0)
         latest_text = str(data.get("latest_assistant_text") or "").strip()
-        if assistant_count > baseline_assistant_count and latest_text:
+        if request_dir is not None:
+            _write_json(request_dir / "answer-poll-state.json", {
+                "checked_at": bjrt._now(),
+                "conversation_id": data.get("conversation_id"),
+                "url": data.get("url"),
+                "assistant_count": assistant_count,
+                "message_count": data.get("message_count"),
+                "is_generating": data.get("is_generating"),
+                "latest_assistant_text": latest_text,
+                "baseline_assistant_count": baseline_assistant_count,
+                "baseline_latest_assistant_text": str(baseline_latest_assistant_text or "")[:400],
+                "first_response_seen": first_response_seen,
+                "substantive_response_seen": substantive_response_seen,
+            })
+        assistant_bubble_seen = assistant_count > baseline_assistant_count
+        if assistant_bubble_seen:
             first_response_seen = True
+            first_response_seen_at = first_response_seen_at or time.time()
+        if _assistant_response_advanced(
+            assistant_count=assistant_count,
+            baseline_assistant_count=baseline_assistant_count,
+            latest_text=latest_text,
+            baseline_latest_assistant_text=baseline_latest_assistant_text,
+        ):
+            substantive_response_seen = True
+            first_response_seen = True
+            first_response_seen_at = first_response_seen_at or time.time()
+            no_assistant_since = None
+            no_assistant_quiet_since = None
+            no_assistant_reload_confirm_until = None
+        message_count = int(data.get("message_count") or 0)
+        is_generating = bool(data.get("is_generating"))
+        if not substantive_response_seen and message_count > 0 and assistant_count <= baseline_assistant_count:
+            now = time.time()
+            no_assistant_since = no_assistant_since or now
+            if no_assistant_reload_confirm_until is not None and now < no_assistant_reload_confirm_until:
+                await asyncio.sleep(3)
+                continue
+            if not is_generating:
+                no_assistant_quiet_since = no_assistant_quiet_since or now
+                if now - no_assistant_quiet_since >= no_assistant_quiet_s:
+                    if not no_assistant_reload_attempted:
+                        refreshed = await _refresh_conversation_before_no_assistant_failure(
+                            page,
+                            data,
+                            request_dir=request_dir,
+                        )
+                        no_assistant_reload_attempted = True
+                        if refreshed:
+                            no_assistant_quiet_since = None
+                            no_assistant_reload_confirm_until = time.time() + _no_assistant_reload_confirm_seconds()
+                            await asyncio.sleep(2)
+                            continue
+                    if request_dir is not None:
+                        _write_json(request_dir / "no-assistant-response-state.json", {
+                            "status": "no_assistant_response_after_submit",
+                            "detected_at": bjrt._now(),
+                            "reason": "generation_stopped_before_first_assistant",
+                            "stall_seconds": round(now - no_assistant_since, 1),
+                            "quiet_seconds": round(now - no_assistant_quiet_since, 1),
+                            "conversation_id": data.get("conversation_id"),
+                            "url": data.get("url"),
+                            "assistant_count": data.get("assistant_count"),
+                            "message_count": data.get("message_count"),
+                            "latest_assistant_text": latest_text,
+                            "is_generating": data.get("is_generating"),
+                            "baseline_assistant_count": baseline_assistant_count,
+                            "first_response_seen": first_response_seen,
+                            "substantive_response_seen": substantive_response_seen,
+                        })
+                    raise TimeoutError("chatgpt_no_assistant_response_after_submit")
+            else:
+                no_assistant_quiet_since = None
+                if now - no_assistant_since >= no_assistant_stall_s:
+                    if not no_assistant_reload_attempted:
+                        refreshed = await _refresh_conversation_before_no_assistant_failure(
+                            page,
+                            data,
+                            request_dir=request_dir,
+                        )
+                        no_assistant_reload_attempted = True
+                        if refreshed:
+                            no_assistant_reload_confirm_until = time.time() + _no_assistant_reload_confirm_seconds()
+                            await asyncio.sleep(2)
+                            continue
+                    if request_dir is not None:
+                        _write_json(request_dir / "no-assistant-response-state.json", {
+                            "status": "no_assistant_response_after_submit",
+                            "detected_at": bjrt._now(),
+                            "reason": "generation_never_showed_first_assistant",
+                            "stall_seconds": round(now - no_assistant_since, 1),
+                            "conversation_id": data.get("conversation_id"),
+                            "url": data.get("url"),
+                            "assistant_count": data.get("assistant_count"),
+                            "message_count": data.get("message_count"),
+                            "latest_assistant_text": latest_text,
+                            "is_generating": data.get("is_generating"),
+                            "baseline_assistant_count": baseline_assistant_count,
+                            "first_response_seen": first_response_seen,
+                            "substantive_response_seen": substantive_response_seen,
+                        })
+                    raise TimeoutError("chatgpt_no_assistant_response_after_submit")
+        if first_response_seen and not substantive_response_seen and not _has_substantive_assistant_text(latest_text):
+            placeholder_since = placeholder_since or first_response_seen_at or time.time()
+            if thinking_refresh_confirm_until is not None and time.time() < thinking_refresh_confirm_until:
+                await asyncio.sleep(3)
+                continue
+            if time.time() - placeholder_since >= thinking_stall_s:
+                if not thinking_refresh_attempted:
+                    refreshed = await _refresh_conversation_before_no_assistant_failure(
+                        page,
+                        data,
+                        request_dir=request_dir,
+                    )
+                    thinking_refresh_attempted = True
+                    if refreshed:
+                        placeholder_since = time.time()
+                        thinking_refresh_confirm_until = time.time() + _no_assistant_reload_confirm_seconds()
+                        await asyncio.sleep(2)
+                        continue
+                if request_dir is not None:
+                    _write_json(request_dir / "thinking-stall-state.json", {
+                        "status": "thinking_only_stall",
+                        "detected_at": bjrt._now(),
+                        "stall_seconds": round(time.time() - placeholder_since, 1),
+                        "conversation_id": data.get("conversation_id"),
+                        "url": data.get("url"),
+                        "assistant_count": data.get("assistant_count"),
+                        "message_count": data.get("message_count"),
+                        "latest_assistant_text": latest_text,
+                        "is_generating": data.get("is_generating"),
+                        "baseline_assistant_count": baseline_assistant_count,
+                        "substantive_response_seen": substantive_response_seen,
+                    })
+                raise TimeoutError("chatgpt_generation_stalled_thinking_only")
+            await asyncio.sleep(3)
+            continue
+        if substantive_response_seen:
+            placeholder_since = None
+            thinking_refresh_confirm_until = None
             if latest_text == last_text:
                 stable += 1
             else:
@@ -1040,9 +1562,46 @@ async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: in
             if not data.get("is_generating") and stable >= stable_required:
                 return data
         await asyncio.sleep(3)
-    if first_response_seen:
-        return json.loads(await page.evaluate(CAPTURE_JS))
+    if substantive_response_seen:
+        return await _capture_state(
+            page,
+            request_dir=request_dir,
+            phase="answer_poll_final",
+            retries=1,
+        )
+    if no_assistant_since is not None:
+        final_data = await _capture_state(
+            page,
+            request_dir=request_dir,
+            phase="answer_poll_final",
+            retries=1,
+        )
+        if request_dir is not None:
+            _write_json(request_dir / "no-assistant-response-state.json", {
+                "status": "no_assistant_response_after_submit",
+                "detected_at": bjrt._now(),
+                "reason": "timeout_before_first_assistant",
+                "stall_seconds": round(time.time() - no_assistant_since, 1),
+                "conversation_id": final_data.get("conversation_id"),
+                "url": final_data.get("url"),
+                "assistant_count": final_data.get("assistant_count"),
+                "message_count": final_data.get("message_count"),
+                "latest_assistant_text": str(final_data.get("latest_assistant_text") or "").strip(),
+                "is_generating": final_data.get("is_generating"),
+                "baseline_assistant_count": baseline_assistant_count,
+                "first_response_seen": first_response_seen,
+            })
+        raise TimeoutError("chatgpt_no_assistant_response_after_submit")
     raise TimeoutError("chatgpt_response_timeout")
+
+
+def _failed_executor_status_for_error(error_text: str | None) -> str:
+    text = str(error_text or "").strip()
+    if "chatgpt_no_assistant_response_after_submit" in text:
+        return "failed_no_assistant_response_after_submit"
+    if "chatgpt_generation_stalled_thinking_only" in text:
+        return "failed_chatgpt_generation_stalled_thinking_only"
+    return "failed_executor"
 
 
 async def _write_conversation_artifacts(
@@ -1426,6 +1985,13 @@ async def _run(prompt: str) -> int:
     final_error_text: str | None = None
     final_page_state: dict | None = None
     logged_in_verified = False
+    current_stage = "init"
+    _update_request_meta(
+        request_dir,
+        status="running",
+        wrapper_pid=os.getpid(),
+        wrapper_started_at=bjrt._now(),
+    )
 
     browser = BrowserSession(
         browser_profile=BrowserProfile(
@@ -1438,24 +2004,52 @@ async def _run(prompt: str) -> int:
         )
     )
     try:
+        current_stage = "browser.start"
+        _write_startup_stage(request_dir, current_stage)
         await asyncio.wait_for(browser.start(), timeout=40)
+        _write_startup_stage(request_dir, current_stage, status="ok")
         brtc.update_runtime_endpoint(
             control_ctx,
             cdp_url=str(getattr(browser, "cdp_url", "") or ""),
             browser_session_ref=f"browser-use-session://chatgpt/{control_ctx['profile_id']}",
         )
         if action in {"run", "submit"}:
+            current_stage = "browser.new_page"
+            _write_startup_stage(request_dir, current_stage)
             page = await asyncio.wait_for(browser.new_page(), timeout=15)
+            _write_startup_stage(request_dir, current_stage, status="ok")
         else:
+            current_stage = "browser.get_current_page"
+            _write_startup_stage(request_dir, current_stage)
             page = await asyncio.wait_for(browser.get_current_page(), timeout=15)
+            _write_startup_stage(request_dir, current_stage, status="ok", page_found=page is not None)
             if page is None:
+                current_stage = "browser.fallback_new_page"
+                _write_startup_stage(request_dir, current_stage)
                 page = await asyncio.wait_for(browser.new_page(), timeout=15)
+                _write_startup_stage(request_dir, current_stage, status="ok")
         try:
+            current_stage = "page.goto"
+            _write_startup_stage(request_dir, current_stage, target_url=target_url, via="goto")
             await asyncio.wait_for(page.goto(target_url), timeout=30)
+            _write_startup_stage(request_dir, current_stage, status="ok", target_url=target_url, via="goto")
         except Exception:
+            _write_startup_stage(request_dir, current_stage, status="retry", target_url=target_url, via="navigate")
             await asyncio.wait_for(page.navigate(target_url), timeout=30)
+            _write_startup_stage(request_dir, current_stage, status="ok", target_url=target_url, via="navigate")
         try:
+            current_stage = "page.wait_for_ready"
+            _write_startup_stage(request_dir, current_stage)
             ready = await _wait_for_ready(page, timeout_s=90)
+            _write_startup_stage(
+                request_dir,
+                current_stage,
+                status="ok",
+                url=ready.get("url"),
+                conversation_id=ready.get("conversation_id"),
+                message_count=ready.get("message_count"),
+                assistant_count=ready.get("assistant_count"),
+            )
         except Exception:
             try:
                 html = await page.evaluate(HTML_JS)
@@ -1472,6 +2066,14 @@ async def _run(prompt: str) -> int:
                 pass
             raise
         _write_json(request_dir / "ready-state.json", ready)
+        _update_request_meta(
+            request_dir,
+            status="running",
+            url=ready.get("url"),
+            conversation_id=ready.get("conversation_id"),
+            message_count=ready.get("message_count"),
+            assistant_count=ready.get("assistant_count"),
+        )
         final_page_state = {
             "url": ready.get("url"),
             "conversation_id": ready.get("conversation_id"),
@@ -1627,8 +2229,26 @@ async def _run(prompt: str) -> int:
                     + json.dumps(deep_research_state, ensure_ascii=False)
                 )
         baseline_assistant_count = int(ready.get("assistant_count") or 0)
+        baseline_latest_assistant_text = str(ready.get("latest_assistant_text") or "").strip()
         post_submit = await _submit_prompt(page, prompt)
         _write_json(request_dir / "post-submit-state.json", post_submit)
+        _update_request_meta(
+            request_dir,
+            status="running" if post_submit.get("is_generating") else "submitted",
+            url=post_submit.get("url"),
+            conversation_id=post_submit.get("conversation_id"),
+            message_count=post_submit.get("message_count"),
+            assistant_count=post_submit.get("assistant_count"),
+            latest_assistant_text=post_submit.get("latest_assistant_text"),
+        )
+        final_page_state = {
+            "url": post_submit.get("url"),
+            "conversation_id": post_submit.get("conversation_id"),
+            "message_count": post_submit.get("message_count"),
+            "assistant_count": post_submit.get("assistant_count"),
+            "is_generating": post_submit.get("is_generating"),
+            "latest_assistant_text": post_submit.get("latest_assistant_text"),
+        }
         if require_isolated_conversation and not _post_submit_is_isolated_current_prompt(post_submit, prompt):
             raise RuntimeError(
                 "chatgpt_prompt_submitted_to_non_isolated_conversation: "
@@ -1686,7 +2306,13 @@ async def _run(prompt: str) -> int:
             logged_in_verified = True
             print(json.dumps(submitted, ensure_ascii=False))
             return 0
-        final_data = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
+        final_data = await _wait_for_answer(
+            page,
+            baseline_assistant_count,
+            baseline_latest_assistant_text=baseline_latest_assistant_text,
+            timeout_s=timeout_s,
+            request_dir=request_dir,
+        )
         final_page_state = {
             "url": final_data.get("url"),
             "conversation_id": final_data.get("conversation_id"),
@@ -1706,7 +2332,7 @@ async def _run(prompt: str) -> int:
         if not latest:
             raise RuntimeError("chatgpt_latest_assistant_text_empty")
 
-        if project_name:
+        if project_name and require_project:
             project_result = await _move_current_conversation_to_project(page, project_name)
             _write_json(request_dir / "project-archive-result.json", project_result)
             if require_project and not project_result.get("ok"):
@@ -1714,9 +2340,36 @@ async def _run(prompt: str) -> int:
 
         print(latest)
         logged_in_verified = True
+        _update_request_meta(
+            request_dir,
+            status="completed",
+            wrapper_finished_at=bjrt._now(),
+            completed_at=bjrt._now(),
+            url=final_data.get("url"),
+            conversation_id=final_data.get("conversation_id"),
+            message_count=final_data.get("message_count"),
+            assistant_count=final_data.get("assistant_count"),
+            is_generating=final_data.get("is_generating"),
+            latest_assistant_text=latest,
+        )
         return 0
     except Exception as exc:
         final_error_text = str(exc)
+        _write_startup_stage(request_dir, current_stage, status="error", error=str(exc))
+        failure_state = _best_effort_page_state(request_dir)
+        _update_request_meta(
+            request_dir,
+            status=_failed_executor_status_for_error(exc),
+            failed_at=bjrt._now(),
+            wrapper_finished_at=bjrt._now(),
+            url=(failure_state or final_page_state or {}).get("url"),
+            conversation_id=(failure_state or final_page_state or {}).get("conversation_id"),
+            message_count=(failure_state or final_page_state or {}).get("message_count"),
+            assistant_count=(failure_state or final_page_state or {}).get("assistant_count"),
+            is_generating=(failure_state or final_page_state or {}).get("is_generating"),
+            latest_assistant_text=(failure_state or final_page_state or {}).get("latest_assistant_text"),
+            error=str(exc),
+        )
         raise
     finally:
         try:

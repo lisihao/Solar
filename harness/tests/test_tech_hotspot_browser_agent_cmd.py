@@ -83,6 +83,252 @@ def test_call_browser_agent_chatgpt_text_prefers_process_env_over_config(monkeyp
     assert payload["profile_directory"] == "Default"
     assert payload["headless"] == "true"
     assert payload["account_email"] == "browser-agent@example.com"
+    request_meta = json.loads((Path(result["request_dir"]) / "request.json").read_text(encoding="utf-8"))
+    assert request_meta["status"] == "completed"
+    assert int(request_meta["executor_pid"]) > 0
+    assert request_meta["executor_started_at"]
+    assert request_meta["completed_at"]
+
+
+def test_call_browser_agent_chatgpt_text_preserves_wrapper_failure_status(monkeypatch, tmp_path):
+    wrapper = tmp_path / "failing_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            meta = json.loads((req / "request.json").read_text(encoding="utf-8"))
+            meta.update({
+                "status": "failed_executor",
+                "failed_at": "2026-06-06T00:00:00Z",
+                "error": "chatgpt_capture_state_failed:answer_poll:TimeoutError",
+            })
+            (req / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+            sys.stdout.write("wrapper failed after capture timeout")
+            sys.exit(1)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {"output": {"raw_dir": str(tmp_path / "raw"), "state_dir": str(tmp_path / "state")}}
+    with pytest.raises(RuntimeError):
+        ns["call_browser_agent_chatgpt_text"](
+            "prompt",
+            config,
+            purpose="capture-timeout-preserve-status",
+            expected="markdown",
+        )
+    req_root = Path(config["output"]["state_dir"]) / "browser-agent-requests"
+    req_dir = sorted(req_root.glob("*-capture-timeout-preserve-status"))[-1]
+    meta = json.loads((req_dir / "request.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "failed_executor"
+    assert meta["returncode"] == 1
+
+
+def test_call_browser_agent_chatgpt_text_allows_ai_influence_chapter_summary_below_legacy_floor(monkeypatch, tmp_path):
+    wrapper = tmp_path / "chapter_wrapper.py"
+    wrapper.write_text(
+        "print('x' * 722)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {"output": {"raw_dir": str(tmp_path / "raw"), "state_dir": str(tmp_path / "state")}}
+    result = ns["call_browser_agent_chatgpt_text"](
+        "prompt",
+        config,
+        purpose="ai-influence-report-chapter-2026-06-04-report-chapter-a",
+        expected="markdown",
+        operator_kind="chapter_writer",
+    )
+    assert len(result["text"]) == 722
+    req_root = Path(config["output"]["state_dir"]) / "browser-agent-requests"
+    req_dir = sorted(req_root.glob("*-ai-influence-report-chapter-2026-06-04-report-chapter-a"))[-1]
+    meta = json.loads((req_dir / "request.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "completed"
+    assert meta["min_output_chars"] == 600
+
+
+def test_merge_browser_agent_request_meta_keeps_runtime_conversation_fields():
+    ns = _load_namespace()
+    merged = ns["_merge_browser_agent_request_meta"](
+        {
+            "status": "failed_executor",
+            "url": "https://chatgpt.com/c/conv-123",
+            "conversation_id": "conv-123",
+            "message_count": 1,
+            "assistant_count": 0,
+            "latest_assistant_text": "正在思考",
+        },
+        {
+            "status": "pending_executor",
+            "url": "https://chatgpt.com/",
+            "conversation_id": "",
+            "message_count": 0,
+            "assistant_count": 0,
+            "latest_assistant_text": "",
+        },
+    )
+    assert merged["url"] == "https://chatgpt.com/c/conv-123"
+    assert merged["conversation_id"] == "conv-123"
+    assert merged["message_count"] == 1
+    assert merged["latest_assistant_text"] == "正在思考"
+
+
+def test_ai_influence_chapter_writer_repair_prompt_avoids_raw_failure_reasons(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    prompts: list[str] = []
+
+    def _fake_writer(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return {"markdown": ""}
+        return {"markdown": "## 标题\n这是补写后的完整章节正文。" * 20}
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    result = ns["call_ai_influence_chapter_writer_with_repair"](
+        "原始章节任务正文",
+        {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+        purpose="repair-prompt-shape",
+        model_name="chatgpt-5.5",
+        chapter_id="chapter-1",
+        max_attempts=2,
+    )
+    assert result["markdown"]
+    assert len(prompts) == 2
+    assert "最近失败原因" not in prompts[1]
+    assert "补充要求：上一次没有产出可用章节正文。" in prompts[1]
+    assert prompts[1].startswith("原始章节任务正文")
+
+
+def test_ai_influence_chapter_writer_rejects_cross_chapter_heading_mismatch(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    prompts: list[str] = []
+
+    def _fake_writer(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return {"markdown": "## 趋势分析：模型外系统成为 AI 应用生产化主战场\n正文。"}
+        return {"markdown": "## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题\n这是补写后的完整章节正文。" * 8}
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    result = ns["call_ai_influence_chapter_writer_with_repair"](
+        "输出硬规则：\n1. 第一行必须是这个章节标题：## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题\n原始章节任务正文",
+        {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+        purpose="repair-heading-mismatch",
+        model_name="chatgpt-5.5",
+        chapter_id="conference-keynote-ai-engineer-2026",
+        max_attempts=2,
+    )
+    assert len(prompts) == 2
+    assert result["markdown"].startswith("## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题")
+    assert "repair_attempt" in result
+
+
+def test_ai_influence_chapter_writer_uses_force_new_chat_and_isolated_conversation(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    captured: dict[str, object] = {}
+
+    def _fake_writer(prompt, *_args, **kwargs):
+        captured.update(kwargs)
+        return {"markdown": "## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题\n这是完整章节正文。" * 8}
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    ns["call_ai_influence_chapter_writer_with_repair"](
+        "输出硬规则：\n1. 第一行必须是这个章节标题：## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题\n原始章节任务正文",
+        {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+        purpose="chapter-writer-isolated",
+        model_name="chatgpt-5.5",
+        chapter_id="conference-keynote-ai-engineer-2026",
+        max_attempts=1,
+    )
+    assert captured["force_new_chat"] is True
+    assert captured["require_isolated_conversation"] is True
+
+
+def test_ai_influence_chapter_writer_repair_stops_after_single_report_no_assistant_failure(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    prompts: list[str] = []
+
+    def _fake_writer(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        raise RuntimeError("browser_agent_chatgpt failed rc=1: chatgpt_no_assistant_response_after_submit")
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    monkeypatch.setitem(
+        ns,
+        "_latest_browser_agent_request_meta_for_purpose",
+        lambda *_args, **_kwargs: {"status": "failed_no_assistant_response_after_submit"},
+    )
+    with pytest.raises(ValueError) as excinfo:
+        ns["call_ai_influence_chapter_writer_with_repair"](
+            "原始章节任务正文",
+            {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+            purpose="single-report-no-assistant",
+            model_name="chatgpt-5.5",
+            chapter_id="chapter-1",
+            max_attempts=3,
+            stop_repair_failed_statuses={"failed_no_assistant_response_after_submit"},
+        )
+    assert len(prompts) == 1
+    assert "stop repair after terminal status failed_no_assistant_response_after_submit" in str(excinfo.value)
+
+
+def test_ai_influence_chapter_writer_repair_stops_after_single_report_thinking_stall_failure(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    prompts: list[str] = []
+
+    def _fake_writer(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        raise RuntimeError("browser_agent_chatgpt failed rc=1: chatgpt_generation_stalled_thinking_only")
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    monkeypatch.setitem(
+        ns,
+        "_latest_browser_agent_request_meta_for_purpose",
+        lambda *_args, **_kwargs: {"status": "failed_chatgpt_generation_stalled_thinking_only"},
+    )
+    with pytest.raises(ValueError) as excinfo:
+        ns["call_ai_influence_chapter_writer_with_repair"](
+            "原始章节任务正文",
+            {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+            purpose="single-report-thinking-stall",
+            model_name="chatgpt-5.5",
+            chapter_id="chapter-1",
+            max_attempts=3,
+            stop_repair_failed_statuses={"failed_chatgpt_generation_stalled_thinking_only"},
+        )
+    assert len(prompts) == 1
+    assert "stop repair after terminal status failed_chatgpt_generation_stalled_thinking_only" in str(excinfo.value)
+
+
+def test_ai_influence_chapter_writer_with_max_attempts_one_never_starts_repair_two(monkeypatch, tmp_path):
+    ns = _load_namespace()
+    prompts: list[str] = []
+
+    def _fake_writer(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        raise RuntimeError("browser_agent_chatgpt failed rc=1: chatgpt_generation_stalled_thinking_only")
+
+    monkeypatch.setitem(ns, "call_browser_agent_chatgpt_markdown", _fake_writer)
+    with pytest.raises(ValueError) as excinfo:
+        ns["call_ai_influence_chapter_writer_with_repair"](
+            "原始章节任务正文",
+            {"output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")}},
+            purpose="single-report-hard-clamp",
+            model_name="chatgpt-5.5",
+            chapter_id="chapter-1",
+            max_attempts=1,
+        )
+    assert len(prompts) == 1
+    assert "attempt 1:" in str(excinfo.value)
 
 
 def test_hf_public_report_render_outputs_reader_facing_md_and_html():
@@ -1268,6 +1514,120 @@ def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch,
     assert not session_path.exists()
 
 
+def test_load_browser_agent_scratch_session_skips_failed_manual_stop_conversation(tmp_path):
+    ns = _load_namespace()
+    config = {"output": {"state_dir": str(tmp_path / "state")}}
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    request_dir = tmp_path / "state" / "browser-agent-requests" / "req-001"
+    request_dir.mkdir(parents=True, exist_ok=True)
+    (request_dir / "request.json").write_text(
+        json.dumps({"status": "failed_manual_stop_after_thinking_only_stall"}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (request_dir / "manual-stop.json").write_text(
+        json.dumps({"reason": "thinking_only_stall_after_submit_recovered"}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "scratch_profile_id": scratch_profile_id,
+                "conversation_url": "https://chatgpt.com/c/stalled-conv-001",
+                "conversation_id": "stalled-conv-001",
+                "request_dir": str(request_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    assert ns["_load_browser_agent_scratch_session"](config, scratch_profile_id) == {}
+
+
+def test_load_browser_agent_scratch_session_skips_non_completed_running_conversation(tmp_path):
+    ns = _load_namespace()
+    config = {"output": {"state_dir": str(tmp_path / "state")}}
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    request_dir = tmp_path / "state" / "browser-agent-requests" / "req-002"
+    request_dir.mkdir(parents=True, exist_ok=True)
+    (request_dir / "request.json").write_text(
+        json.dumps({"status": "running"}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "scratch_profile_id": scratch_profile_id,
+                "conversation_url": "https://chatgpt.com/c/running-conv-001",
+                "conversation_id": "running-conv-001",
+                "request_dir": str(request_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    assert ns["_load_browser_agent_scratch_session"](config, scratch_profile_id) == {}
+
+
+def test_load_browser_agent_scratch_session_releases_terminal_lease_holder_even_if_session_points_elsewhere(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    config = {"output": {"state_dir": str(tmp_path / "state")}}
+    lease_root = tmp_path / "leases"
+    monkeypatch.setenv("BROWSER_PROFILE_LEASE_DIR", str(lease_root))
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+
+    stale_request_dir = tmp_path / "state" / "browser-agent-requests" / "req-stale-holder"
+    stale_request_dir.mkdir(parents=True, exist_ok=True)
+    (stale_request_dir / "request.json").write_text(
+        json.dumps({"status": "failed_executor", "executor_pid": 999999, "wrapper_pid": 999998}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    older_request_dir = tmp_path / "state" / "browser-agent-requests" / "req-older"
+    older_request_dir.mkdir(parents=True, exist_ok=True)
+    (older_request_dir / "request.json").write_text(
+        json.dumps({"status": "failed_manual_stop_after_thinking_only_stall"}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (older_request_dir / "manual-stop.json").write_text(
+        json.dumps({"reason": "thinking_only_stall_after_submit_recovered"}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    lease_manager = ns["ProfileLease"]()
+    acquired = lease_manager.acquire(
+        scratch_profile_id,
+        "req-stale-holder",
+        "browser_use",
+        "exclusive",
+    )
+    assert acquired["acquired"] is True
+
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "scratch_profile_id": scratch_profile_id,
+                "conversation_url": "https://chatgpt.com/c/stale-conv-001",
+                "conversation_id": "stale-conv-001",
+                "request_dir": str(older_request_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    assert ns["_load_browser_agent_scratch_session"](config, scratch_profile_id) == {}
+    assert not lease_manager.lease_path(scratch_profile_id).exists()
+
+
 def test_planned_report_ir_builds_per_chapter_contract():
     ns = _load_namespace()
     evidence_pack = {
@@ -1343,6 +1703,117 @@ def test_chapter_prompt_requires_chapter_writer_only():
     assert "report_id: agent-platform" in prompt
     assert "chapter_id: ch_01" in prompt
     assert "[CHAPTER_SCOPE_GUARD]" in prompt
+
+
+def test_build_planned_report_chapter_prompt_uses_slimmed_evidence_pack():
+    ns = _load_namespace()
+    report_ir = {
+        "report_id": "agent-platform",
+        "title": "Agent Platform",
+    }
+    chapter_spec = {
+        "chapter_id": "ch_02",
+        "title": "长 transcript 章节",
+        "output_heading": "### 长 transcript 章节",
+        "chapter_type": "core_trend",
+        "material_video_refs": ["V002"],
+    }
+    evidence = {
+        "schema_version": "chapter_evidence_pack.v1",
+        "chapter_id": "ch_02",
+        "selected_videos": [
+            {
+                "video_ref": "V002",
+                "channel": "AI Engineer",
+                "title": "Keynote",
+                "url": "https://www.youtube.com/watch?v=demo",
+                "published_at": "2026-06-03T00:00:00+00:00",
+                "summary_zh": "摘要",
+                "transcript_chars": 50000,
+                "transcript_clean": "A" * 50000,
+                "transcript_quality": {"chars": 50000, "quality_failed": False, "reason": ""},
+            }
+        ],
+    }
+    prompt = ns["build_planned_report_chapter_prompt"](
+        report_ir,
+        chapter_spec,
+        evidence,
+        model_name="chatgpt-5.5",
+    )
+    assert "transcript_clean" not in prompt
+    assert "transcript_excerpt" in prompt
+    assert "transcript_excerpt_truncated" in prompt
+    assert len(prompt) < 40000
+
+
+def test_build_planned_report_chapter_prompt_compacts_weak_single_video_chapter():
+    ns = _load_namespace()
+    report_ir = {
+        "report_id": "ai-engineer-melbourne-2026",
+        "title": "AI Engineer Melbourne 2026",
+    }
+    chapter_spec = {
+        "chapter_id": "conference-keynote-ai-engineer-2026",
+        "title": "Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题",
+        "output_heading": "## Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题",
+        "chapter_type": "core_trend",
+        "material_video_refs": ["V004"],
+        "expected_words": 900,
+    }
+    evidence = {
+        "schema_version": "chapter_evidence_pack.v1",
+        "chapter_id": "conference-keynote-ai-engineer-2026",
+        "weak": True,
+        "video_count": 1,
+        "selected_videos": [
+            {
+                "video_ref": "V004",
+                "channel": "AI Engineer",
+                "title": "AI Engineer Melbourne 2026 Keynote Livestream | Day 1",
+                "url": "https://www.youtube.com/watch?v=wjXowoQ7E8c",
+                "published_at": "2026-06-03T00:00:00+00:00",
+                "summary_zh": "摘要",
+                "transcript_chars": 20000,
+                "transcript_clean": (
+                    "that I should summarize themes for the rest of this conference.\n"
+                    "The first thing I wanted to talk about is how AI is increasingly not just models.\n"
+                    "And also AI is about services and data and brand and product.\n"
+                    "This is my argument around why AI engineering will be the last job.\n"
+                    "So I hope over the next two days you have really fruitful discussions.\n"
+                    ">> All right. And now and now Sean really owes me one.\n"
+                    "All right. So to kick off the talks proper, we have George Cameron.\n"
+                    + ("A" * 18000)
+                ),
+                "transcript_quality": {"chars": 20000, "quality_failed": False, "reason": ""},
+            }
+        ],
+    }
+    prompt = ns["build_planned_report_chapter_prompt"](
+        report_ir,
+        chapter_spec,
+        evidence,
+        model_name="chatgpt-5.5",
+    )
+    assert '"expected_words": 400' in prompt
+    assert "本次采用受限摘要模式" in prompt
+    assert "目标字数控制在 350-450 中文字" in prompt
+    assert "全章只需 2-3 段完成" in prompt
+    assert "George Cameron" not in prompt
+    assert "kick off the talks proper" not in prompt
+
+
+def test_chapter_prompt_prefers_clean_transcript_over_grouping_excerpt():
+    ns = _load_namespace()
+    text = ns["_chapter_prompt_transcript_source"](
+        {
+            "title": "AI Engineer Melbourne 2026 Keynote Livestream | Day 1",
+            "transcript_excerpt": "SHORT_EXCERPT",
+            "transcript_clean": "FULL_TRANSCRIPT_BODY",
+        },
+        chapter={"title": "Conference keynote 原意摘要与观点归纳"},
+    )
+    assert text == "FULL_TRANSCRIPT_BODY"
 
 
 def test_build_planned_report_evidence_pack_skips_missing_status_transcript(tmp_path):
@@ -1608,6 +2079,120 @@ def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tm
     )
     assert result["status"] == "ok"
     assert result["errors"] == []
+
+
+def test_ai_influence_validation_accepts_session_metadata_when_project_archive_soft_fails(tmp_path):
+    ns = _load_namespace()
+    report_dir = tmp_path / "report"
+    request_dir = tmp_path / "browser-request"
+    report_dir.mkdir()
+    request_dir.mkdir()
+    (request_dir / "project-archive-result.json").write_text(
+        '{"ok": false, "status": false, "project_name":"杂项"}\n',
+        encoding="utf-8",
+    )
+    complete_md = """# 测试报告
+
+## 一页结论
+本节素材：V001《测试视频》。这是结论。
+
+## 核心趋势
+### 趋势一
+判断。
+
+## 关键视频证据
+- V001《测试视频》
+
+## 产品 / 研究 / 工程启示
+启示。
+
+## Open Questions
+- 待验证。
+
+## Provenance
+- final_reasoner: chatgpt-5.5
+- local_preprocess: ThunderOMLX/Qwen3.6 semantic packets
+- input_videos: 1
+"""
+    (report_dir / "report.md").write_text(complete_md, encoding="utf-8")
+    (report_dir / "report.html").write_text(
+        "章节与视频素材对应表 <span class='ai-material-ref'>V001</span> <span class='ai-material-chip'>测试视频</span>",
+        encoding="utf-8",
+    )
+    (report_dir / "report-result.json").write_text(
+        '{"request_dir": "%s"}\n' % str(request_dir),
+        encoding="utf-8",
+    )
+    (report_dir / "evidence-pack.json").write_text(
+        '{"videos":[{"video_ref":"V001","video_id":"SSe1VmVrtw0","title":"测试视频","channel":"Google for Developers","transcript_clean":"This is a clean English transcript about Gemini, agent workflows, developer tools, and platform strategy. It contains enough meaningful sentences for validation."}]}\n',
+        encoding="utf-8",
+    )
+    (report_dir / "evidence_map.json").write_text(
+        '{"schema_version":"evidence_map.v1","entries":[{"evidence_ref":"V001","channel":"Google for Developers","title":"测试视频","published_at":"2026-06-06","transcript_grade":"T1","citation_span":"This is a clean English transcript about Gemini, agent workflows.","group_type":"core"}]}\n',
+        encoding="utf-8",
+    )
+    (report_dir / "chatgpt-session.json").write_text(
+        '{"session_id":"conv-soft","url":"https://chatgpt.com/c/conv-soft","project":"杂项","archived_at":"2026-06-06T00:00:00Z","model":"chatgpt-5.5","request_dir":"%s","phase_breakdown":{"chapter_write":[{"request_dir":"%s","conversation_id":"conv-soft","url":"https://chatgpt.com/c/conv-soft"}]}}\n'
+        % (str(request_dir), str(request_dir)),
+        encoding="utf-8",
+    )
+    (report_dir / "transcripts.txt").write_text("raw\n", encoding="utf-8")
+    (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
+    result = ns["validate_ai_influence_planned_report_dir"](
+        report_dir,
+        expected_chatgpt_project="杂项",
+        require_project_archive=True,
+    )
+    assert result["status"] == "ok"
+    assert not any("chatgpt_project_archive_not_ok" in err for err in result["errors"])
+    assert any("chatgpt_project_archive_soft_failed_but_session_metadata_matches" in warn for warn in result["warnings"])
+
+
+def test_ensure_ai_influence_reader_closure_sections_appends_missing_contract_sections(tmp_path):
+    ns = _load_namespace()
+    report_dir = tmp_path / "report"
+    chapters_dir = report_dir / "chapters"
+    chapters_dir.mkdir(parents=True)
+    report_ir = {
+        "chapters": [
+            {
+                "chapter_id": "conference-keynote-ai-engineer-2026",
+                "questions": ["会议主题原始结构是什么？"],
+            },
+            {
+                "chapter_id": "ai",
+                "questions": ["哪些属于后续可验证趋势？"],
+            },
+        ]
+    }
+    (chapters_dir / "conference-keynote-ai-engineer-2026.final.md").write_text(
+        "Conference keynote 原意摘要与观点归纳：AI Engineer 社区如何定义 2026 主题\n\n"
+        "这章的限制也很明确：当前只来自单场视频摘录，后续仍需第三方数据验证。",
+        encoding="utf-8",
+    )
+    (chapters_dir / "ai.final.md").write_text(
+        "趋势分析：模型外系统成为 AI 应用生产化主战场\n\n"
+        "它重要之处在于，真正可区分的工程能力会变成 harness 设计、服务编排、数据闭环、产品接口和代码代理治理。",
+        encoding="utf-8",
+    )
+    markdown = """# 测试报告
+
+## 摘要
+
+## 访谈原意摘要与观点归纳
+正文。
+
+## 趋势分析：模型外系统成为 AI 应用生产化主战场
+正文。
+
+## 关键视频证据
+- V001
+"""
+    result = ns["ensure_ai_influence_reader_closure_sections"](markdown, report_ir, report_dir)
+    assert "## 产品 / 研究 / 工程启示" in result
+    assert "真正可区分的工程能力会变成 harness 设计" in result
+    assert "## Open Questions" in result
+    assert "后续仍需第三方数据验证" in result or "哪些属于后续可验证趋势？" in result
 
 
 def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_path):

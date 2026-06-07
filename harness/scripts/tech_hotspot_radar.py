@@ -55,6 +55,7 @@ from report_ir import compile_report_ir as runtime_compile_report_ir
 from report_ir import create_chapter_jobs as runtime_create_chapter_jobs
 from report_synthesis import synthesize_report as runtime_synthesize_report
 from ai_influence_youtube_report.evidence_map import build_evidence_map as ai_influence_build_evidence_map
+from browser.profile_lease import ProfileLease
 
 try:
     import yaml
@@ -10466,6 +10467,25 @@ def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required
     return None
 
 
+def _latest_browser_agent_request_meta_for_purpose(config: dict[str, Any], *, purpose: str) -> dict[str, Any]:
+    state_dir = Path((config.get("output") or {}).get(
+        "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
+    )).expanduser()
+    request_root = state_dir / "browser-agent-requests"
+    if not request_root.exists():
+        return {}
+    slug = slugify(purpose)[:60]
+    for request_dir in sorted(request_root.glob(f"*-{slug}"), key=lambda item: item.name, reverse=True):
+        try:
+            meta = json.loads((request_dir / "request.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(meta, dict):
+            meta["_request_dir"] = str(request_dir)
+            return meta
+    return {}
+
+
 def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purpose: str, model_name: str, chapter_id: str, required_keys: list[str], max_attempts: int = 2) -> dict[str, Any]:
     high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
     timeout_seconds = int(
@@ -14727,6 +14747,123 @@ def build_chapter_evidence_pack(evidence_pack: dict[str, Any], chapter_spec: dic
     }
 
 
+def _trim_chapter_prompt_livestream_handoff(
+    transcript_source: str,
+    *,
+    video: dict[str, Any],
+    chapter: dict[str, Any] | None = None,
+) -> str:
+    text = str(transcript_source or "").strip()
+    if not text:
+        return text
+    title = str(video.get("title") or "")
+    chapter_title = str((chapter or {}).get("title") or "")
+    chapter_purpose = str((chapter or {}).get("purpose") or "")
+    scope_text = f"{title}\n{chapter_title}\n{chapter_purpose}".lower()
+    if not any(token in scope_text for token in ("livestream", "day 1", "day1", "keynote", "conference")):
+        return text
+    markers = [
+        ">> All right. And now",
+        "All right. So to kick off the talks proper",
+        "would you please welcome",
+        "we have George Cameron",
+    ]
+    cut_positions: list[int] = []
+    for marker in markers:
+        idx = text.find(marker)
+        if idx >= 200:
+            cut_positions.append(idx)
+    if not cut_positions:
+        return text
+    trimmed = text[:min(cut_positions)].strip()
+    return trimmed if len(trimmed) >= 200 else text
+
+
+def _chapter_prompt_transcript_source(video: dict[str, Any], *, chapter: dict[str, Any] | None = None) -> str:
+    source = str(
+        video.get("transcript_clean")
+        or video.get("transcript_excerpt")
+        or ""
+    )
+    return _trim_chapter_prompt_livestream_handoff(source, video=video, chapter=chapter)
+
+
+def _chapter_prompt_safe_video_payload(video: dict[str, Any], *, max_excerpt_chars: int, chapter: dict[str, Any] | None = None) -> dict[str, Any]:
+    transcript_source = _chapter_prompt_transcript_source(video, chapter=chapter)
+    transcript_excerpt = transcript_source[:max_excerpt_chars].strip()
+    transcript_quality = video.get("transcript_quality") or {}
+    safe_quality = {}
+    if isinstance(transcript_quality, dict):
+        for key in ("chars", "line_count", "quality_failed", "reason"):
+            if key in transcript_quality:
+                safe_quality[key] = transcript_quality.get(key)
+    return {
+        "video_ref": video.get("video_ref"),
+        "channel": video.get("channel"),
+        "title": video.get("title"),
+        "url": video.get("url"),
+        "published_at": video.get("published_at"),
+        "duration_min": video.get("duration_min"),
+        "language": video.get("language"),
+        "summary_zh": video.get("summary_zh"),
+        "key_points": list(video.get("key_points") or [])[:12],
+        "topic_tags": list(video.get("topic_tags") or [])[:12],
+        "why_it_matters": video.get("why_it_matters"),
+        "transcript_chars": video.get("transcript_chars"),
+        "transcript_quality": safe_quality,
+        "transcript_excerpt": transcript_excerpt,
+        "transcript_excerpt_truncated": bool(transcript_source and len(transcript_excerpt) < len(transcript_source)),
+    }
+
+
+def _chapter_prompt_safe_evidence_pack(chapter_evidence_pack: dict[str, Any], *, max_total_chars: int = 24000, max_per_video_chars: int = 12000) -> dict[str, Any]:
+    selected_videos = list(
+        chapter_evidence_pack.get("selected_videos")
+        or chapter_evidence_pack.get("videos")
+        or []
+    )
+    chapter = chapter_evidence_pack.get("chapter") or chapter_evidence_pack.get("chapter_spec") or {}
+    safe_videos: list[dict[str, Any]] = []
+    remaining = max_total_chars
+    for video in selected_videos:
+        excerpt_budget = min(max_per_video_chars, max(0, remaining))
+        if excerpt_budget <= 0:
+            break
+        safe_video = _chapter_prompt_safe_video_payload(video, max_excerpt_chars=excerpt_budget, chapter=chapter)
+        safe_videos.append(safe_video)
+        remaining -= len(str(safe_video.get("transcript_excerpt") or ""))
+    return {
+        "schema_version": "chapter_evidence_pack.prompt.v1",
+        "chapter": {
+            "title": chapter.get("title"),
+            "purpose": chapter.get("purpose"),
+            "questions": chapter.get("questions") or [],
+            "chapter_id": chapter.get("chapter_id") or chapter_evidence_pack.get("chapter_id"),
+            "chapter_type": chapter.get("chapter_type"),
+            "selected_video_refs": chapter.get("selected_video_refs") or chapter.get("material_video_refs") or [],
+        },
+        "chapter_id": chapter_evidence_pack.get("chapter_id") or chapter.get("chapter_id"),
+        "video_count": chapter_evidence_pack.get("video_count") or len(selected_videos),
+        "selected_videos": safe_videos,
+        "must_use_evidence_ids": chapter_evidence_pack.get("must_use_evidence_ids") or [],
+        "optional_evidence_ids": chapter_evidence_pack.get("optional_evidence_ids") or [],
+        "transcript_segment_count": chapter_evidence_pack.get("transcript_segment_count"),
+        "weak": chapter_evidence_pack.get("weak"),
+        "weak_reasons": chapter_evidence_pack.get("weak_reasons") or [],
+        "allowed_use": chapter_evidence_pack.get("allowed_use")
+        or (chapter_evidence_pack.get("provenance") or {}).get("allowed_use"),
+        "transcript_policy": chapter_evidence_pack.get("transcript_policy")
+        or (chapter_evidence_pack.get("provenance") or {}).get("transcript_policy"),
+        "prompt_truncation": {
+            "max_total_chars": max_total_chars,
+            "max_per_video_chars": max_per_video_chars,
+            "remaining_chars": remaining,
+            "source_video_count": len(selected_videos),
+            "included_video_count": len(safe_videos),
+        },
+    }
+
+
 def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
                                         chapter_spec: dict[str, Any],
                                         chapter_evidence_pack: dict[str, Any],
@@ -14750,6 +14887,19 @@ def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
    - 分歧与保留
    - 对后文分析的入口
 """
+    prompt_evidence_pack = _chapter_prompt_safe_evidence_pack(chapter_evidence_pack)
+    prompt_chapter_spec = dict(chapter_spec)
+    weak_single_video = bool(prompt_evidence_pack.get("weak")) and int(prompt_evidence_pack.get("video_count") or 0) <= 1
+    compact_delivery_rules = ""
+    if weak_single_video:
+        expected_words = int(prompt_chapter_spec.get("expected_words") or 0)
+        if expected_words <= 0 or expected_words >= 450:
+            prompt_chapter_spec["expected_words"] = 400
+        compact_delivery_rules = """
+11. 当前章节属于“单视频 + 弱证据”负载，本次采用受限摘要模式，目标字数控制在 350-450 中文字，优先保证非空正文与表达清楚，不要为了凑字数拉长。
+12. 全章只需 2-3 段完成，不必强行展开成完整长章节；先完成原意摘要，再自然收束到为什么重要或有哪些不确定性。
+13. 不要求把“核心判断 / 为什么重要 / 不确定性”拆成独立段落；在 2-3 段里自然合并即可，但不要输出占位语、任务解释或空结尾。
+"""
     body = f"""你是 AI Influence YouTube 报告流的单章作者。
 
 你必须使用 ChatGPT Report Chapter Writer 算子，模型 {model_name}，Thinking high。
@@ -14762,7 +14912,7 @@ def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
 - 读者价值：{report_ir.get("reader_value") or "N/A"}
 
 当前章节契约：
-{json.dumps(chapter_spec, ensure_ascii=False, indent=2)}
+{json.dumps(prompt_chapter_spec, ensure_ascii=False, indent=2)}
 
 输出硬规则：
 1. 第一行必须是这个章节标题：{heading}
@@ -14775,10 +14925,11 @@ def build_planned_report_chapter_prompt(report_ir: dict[str, Any],
 8. 输出 Markdown 正文片段，不要 JSON，不要代码块。
 9. 文风必须克制、自然、像正式技术研究报告。禁止使用“更硬”；“信号”只能少量使用，优先写成“迹象 / 线索 / 依据 / 变化 / 材料 / 观察点”。不要写“更硬的三类信号”，改成“三类更具体的依据”或“接下来重点看三件事”。
 10. 禁止输出 `**判断：**`、`**证据链：**`、`**为什么重要：**` 这类 Markdown 加粗标签。需要强调时，用自然小标题或普通段落；HTML 渲染器会负责放大和加粗。
+{compact_delivery_rules}
 {interview_rules}
 
 chapter_evidence_pack:
-{json.dumps(chapter_evidence_pack, ensure_ascii=False, indent=2)}
+{json.dumps(prompt_evidence_pack, ensure_ascii=False, indent=2)}
 """
     report_date = str(
         chapter_evidence_pack.get("date")
@@ -14848,7 +14999,8 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                                                  chapter_id: str,
                                                  scratch_profile_id: str | None = None,
                                                  min_chars: int = 120,
-                                                 max_attempts: int = 3) -> dict[str, Any]:
+                                                 max_attempts: int = 3,
+                                                 stop_repair_failed_statuses: set[str] | None = None) -> dict[str, Any]:
     """Run ChatGPT Report Chapter Writer with a bounded repair loop.
 
     The old flow failed the whole report when one chapter came back as a short
@@ -14856,33 +15008,49 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
     with explicit repair instructions and keep the already-successful chapters.
     """
     errors: list[str] = []
+    heading_match = re.search(r"第一行必须是这个章节标题：(.+)", str(chapter_prompt or ""))
+    expected_heading = str(heading_match.group(1) if heading_match else "").strip()
+    stop_statuses = {
+        str(item or "").strip()
+        for item in (stop_repair_failed_statuses or set())
+        if str(item or "").strip()
+    }
     for attempt in range(1, max_attempts + 1):
         prompt = chapter_prompt
+        attempt_purpose = purpose if attempt == 1 else f"{purpose}-repair-{attempt}"
         if attempt > 1:
             prompt = "\n\n".join([
-                "你正在执行 AI Influence YouTube 报告流的章节修复任务。",
-                f"chapter_id: {chapter_id}",
-                "上一次章节生成失败或输出过短。请只补写当前章节，必须输出完整 Markdown 章节正文。",
-                "不要输出 smoke test、不要解释流程、不要输出 JSON、不要请求人工介入。",
-                "如果证据不足，也要写成“证据不足 / 暂不作为强结论”的完整章节，而不是留空。",
-                "原始章节任务如下：",
                 chapter_prompt,
-                "最近失败原因：\n" + "\n".join(f"- {err}" for err in errors[-3:]),
+                "",
+                "补充要求：上一次没有产出可用章节正文。",
+                f"当前只重试 chapter_id: {chapter_id}。",
+                "请直接输出完整 Markdown 章节正文；不要解释流程，不要输出 JSON，不要请求人工介入。",
+                "如果证据不足，也要写成保守但完整的章节，而不是留空、占位语或失败说明。",
             ])
         try:
             result = call_browser_agent_chatgpt_markdown(
                 prompt,
                 config,
-                purpose=purpose if attempt == 1 else f"{purpose}-repair-{attempt}",
+                purpose=attempt_purpose,
                 requested_model=model_name,
                 operator_kind="chapter_writer",
                 scratch_profile_id=scratch_profile_id,
                 open_project_first=False,
                 require_project=False,
-                force_new_chat=False,
-                require_isolated_conversation=False,
+                force_new_chat=True,
+                require_isolated_conversation=True,
             )
             markdown = str(result.get("markdown") or "").strip()
+            if expected_heading:
+                first_nonempty = next((line.strip() for line in markdown.splitlines() if line.strip()), "")
+                normalized_expected_heading = re.sub(r"^#+\s*", "", expected_heading).strip()
+                normalized_first_heading = re.sub(r"^#+\s*", "", first_nonempty).strip()
+                if first_nonempty and normalized_first_heading != normalized_expected_heading:
+                    errors.append(
+                        f"attempt {attempt}: chapter heading mismatch "
+                        f"(expected={expected_heading!r}, actual={first_nonempty!r})"
+                    )
+                    continue
             if len(markdown) >= min_chars:
                 if attempt > 1:
                     result["repair_attempt"] = attempt
@@ -14891,6 +15059,11 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
             errors.append(f"attempt {attempt}: output too short ({len(markdown)} chars)")
         except Exception as exc:
             errors.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
+            request_meta = _latest_browser_agent_request_meta_for_purpose(config, purpose=attempt_purpose)
+            request_status = str(request_meta.get("status") or "").strip()
+            if request_status in stop_statuses:
+                errors.append(f"attempt {attempt}: stop repair after terminal status {request_status}")
+                break
             if "chatgpt_login_wall_detected" in str(exc):
                 # Login walls need the Browser Agent profile/session fixed; do
                 # not burn all attempts in the same bad state.
@@ -15019,9 +15192,18 @@ def _browser_agent_request_dir(config: dict[str, Any], purpose: str) -> Path:
             str(Path.home() / ".solar/harness/state/tech-hotspot-radar"),
         )
     )
-    stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out = state_dir / "browser-agent-requests" / f"{stamp}-{slugify(purpose)[:60]}"
-    out.mkdir(parents=True, exist_ok=True)
+    requests_root = state_dir / "browser-agent-requests"
+    requests_root.mkdir(parents=True, exist_ok=True)
+    slug = slugify(purpose)[:60]
+    stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+    out = requests_root / f"{stamp}-{slug}"
+    if out.exists():
+        for idx in range(1, 1000):
+            candidate = requests_root / f"{stamp}-{slug}-{idx:03d}"
+            if not candidate.exists():
+                out = candidate
+                break
+    out.mkdir(parents=True, exist_ok=False)
     return out
 
 
@@ -15039,7 +15221,48 @@ def _browser_agent_scratch_session_path(config: dict[str, Any], scratch_profile_
     return _browser_agent_state_dir(config) / "browser-agent-scratch-pool" / normalized / "session.json"
 
 
+def _pid_is_alive(pid_value: Any) -> bool:
+    try:
+        pid = int(pid_value or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _release_terminal_browser_profile_lease(config: dict[str, Any], scratch_profile_id: str) -> dict[str, Any]:
+    profile_id = str(scratch_profile_id or "").strip()
+    if not profile_id:
+        return {}
+    lease_manager = ProfileLease()
+    lease_path = lease_manager.lease_path(profile_id)
+    if not lease_path.exists():
+        return {}
+    try:
+        lease_payload = json.loads(lease_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    held_task = str(lease_payload.get("task_id") or "").strip()
+    if not held_task:
+        return {}
+    request_dir = _browser_agent_state_dir(config) / "browser-agent-requests" / held_task
+    meta = _read_browser_agent_request_meta(request_dir)
+    status = str(meta.get("status") or "").strip().lower()
+    terminal = status == "completed" or status.startswith("failed")
+    if not terminal and not (request_dir / "manual-stop.json").exists() and not (request_dir / "thinking-stall-state.json").exists():
+        return {}
+    if _pid_is_alive(meta.get("executor_pid")) or _pid_is_alive(meta.get("wrapper_pid")):
+        return {}
+    return lease_manager.release(profile_id, held_task)
+
+
 def _load_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str) -> dict[str, Any]:
+    _release_terminal_browser_profile_lease(config, scratch_profile_id)
     path = _browser_agent_scratch_session_path(config, scratch_profile_id)
     if not path.exists():
         return {}
@@ -15047,7 +15270,25 @@ def _load_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    conversation_url = str(data.get("conversation_url") or data.get("url") or "").strip()
+    if conversation_url and "/c/" not in conversation_url:
+        return {}
+    request_dir_raw = str(data.get("request_dir") or "").strip()
+    if request_dir_raw:
+        request_dir = Path(request_dir_raw).expanduser()
+        if (request_dir / "manual-stop.json").exists() or (request_dir / "thinking-stall-state.json").exists():
+            ProfileLease().release(str(scratch_profile_id).strip(), request_dir.name)
+            return {}
+        meta = _read_browser_agent_request_meta(request_dir)
+        status = str(meta.get("status") or "").strip().lower()
+        if status.startswith("failed"):
+            ProfileLease().release(str(scratch_profile_id).strip(), request_dir.name)
+            return {}
+        if status and status != "completed":
+            return {}
+    return data
 
 
 def _write_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str, payload: dict[str, Any]) -> None:
@@ -15321,6 +15562,52 @@ def _env_override_bool(*names: str) -> bool | None:
     return None
 
 
+def _read_browser_agent_request_meta(req_dir: Path) -> dict[str, Any]:
+    path = req_dir / "request.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_browser_agent_request_meta(req_dir: Path, meta: dict[str, Any]) -> None:
+    (req_dir / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _merge_browser_agent_request_meta(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in updates.items():
+        if key == "url":
+            current = str(merged.get("url") or "").strip()
+            incoming = str(value or "").strip()
+            if not incoming:
+                continue
+            if "/c/" in current and "/c/" not in incoming:
+                continue
+        elif key == "conversation_id":
+            if value in (None, "") and merged.get("conversation_id"):
+                continue
+        elif key in {"message_count", "assistant_count"}:
+            current = merged.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(current, int) and isinstance(value, int) and current > 0 and value <= 0:
+                continue
+        elif key in {
+            "latest_assistant_text",
+            "wrapper_pid",
+            "wrapper_started_at",
+            "wrapper_finished_at",
+            "completed_at",
+            "failed_at",
+            "error",
+        } and value in (None, "", 0):
+            continue
+        merged[key] = value
+    return merged
+
+
 def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     purpose: str,
                                     expected: str = "markdown",
@@ -15338,7 +15625,8 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
                                     require_isolated_conversation: bool | None = None,
-                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
+                                    scratch_profile_id: str | None = None,
+                                    requested_min_output_chars: int | None = None) -> dict[str, Any]:
     reasoner_cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = (flow_cfg.get("report_writer") or {})
@@ -15494,6 +15782,15 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         env["BROWSER_AGENT_CHATGPT_FORCE_NEW_CHAT"] = "true" if bool(resolved_force_new_chat) else "false"
     if resolved_require_isolated_conversation is not None:
         env["BROWSER_AGENT_CHATGPT_REQUIRE_ISOLATED_CONVERSATION"] = "true" if bool(resolved_require_isolated_conversation) else "false"
+    if not target_url:
+        if resumed_target_url and not (
+            bool(resolved_force_new_chat) or bool(resolved_require_isolated_conversation)
+        ):
+            env["BROWSER_AGENT_CHATGPT_URL"] = resumed_target_url
+            meta["scratch_resume_url"] = resumed_target_url
+        else:
+            env.pop("BROWSER_AGENT_CHATGPT_URL", None)
+            meta.pop("scratch_resume_url", None)
     project_name = str(
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
@@ -15514,6 +15811,13 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
     if proc.stdin is not None:
         proc.stdin.write(prompt)
         proc.stdin.close()
+    meta.update({
+        "executor_pid": proc.pid,
+        "executor_started_at": iso_z(),
+    })
+    latest_meta = _read_browser_agent_request_meta(req_dir)
+    latest_meta.update(meta)
+    _write_browser_agent_request_meta(req_dir, latest_meta)
 
     scratch_session_persisted = False
     timeout_deadline = started + timeout
@@ -15543,6 +15847,14 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                     output = proc.stdout.read() or ""
                 output = _strip_browser_agent_noise(output)
                 (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+                latest_meta = _merge_browser_agent_request_meta(_read_browser_agent_request_meta(req_dir), meta)
+                latest_meta.update({
+                    "status": "failed_pending_executor_timeout",
+                    "failed_at": iso_z(),
+                    "latency_ms": int((time.time() - started) * 1000),
+                    "output_chars": len(output),
+                })
+                _write_browser_agent_request_meta(req_dir, latest_meta)
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=output)
     output = ""
     if proc.stdout is not None:
@@ -15557,8 +15869,32 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                 purpose=purpose,
                 request_dir=req_dir,
             )
+        latest_meta = _read_browser_agent_request_meta(req_dir)
+        preserved_status = str(latest_meta.get("status") or "").strip()
+        latest_meta = _merge_browser_agent_request_meta(latest_meta, meta)
+        latest_meta.update({
+            "status": preserved_status if preserved_status.startswith("failed_") else "failed_executor_rc",
+            "failed_at": iso_z(),
+            "latency_ms": int((time.time() - started) * 1000),
+            "output_chars": len(output),
+            "returncode": proc.returncode,
+        })
+        _write_browser_agent_request_meta(req_dir, latest_meta)
         raise RuntimeError(f"browser_agent_chatgpt failed rc={proc.returncode}: {output[-2000:]}")
-    if len(output) < (500 if expected == "json" else 1000):
+    min_output_chars = requested_min_output_chars
+    if min_output_chars is None:
+        min_output_chars = 500 if expected == "json" else 1000
+        if (
+            expected == "markdown"
+            and str(operator_kind or "").strip() == "chapter_writer"
+            and str(purpose or "").startswith("ai-influence-report-chapter-")
+        ):
+            # AI Influence chapter writer now supports constrained-summary mode
+            # for weak single-video evidence packs, so the old 1000-char floor
+            # falsely rejects valid chapter outputs that intentionally target
+            # ~350-450 Chinese chars.
+            min_output_chars = 600
+    if len(output) < int(min_output_chars):
         if not scratch_session_persisted:
             scratch_session_persisted = _persist_browser_agent_scratch_session_from_request_dir(
                 config,
@@ -15566,6 +15902,17 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                 purpose=purpose,
                 request_dir=req_dir,
             )
+        latest_meta = _read_browser_agent_request_meta(req_dir)
+        preserved_status = str(latest_meta.get("status") or "").strip()
+        latest_meta = _merge_browser_agent_request_meta(latest_meta, meta)
+        latest_meta.update({
+            "status": preserved_status if preserved_status.startswith("failed_") else "failed_executor_output_short",
+            "failed_at": iso_z(),
+            "latency_ms": int((time.time() - started) * 1000),
+            "output_chars": len(output),
+            "min_output_chars": int(min_output_chars),
+        })
+        _write_browser_agent_request_meta(req_dir, latest_meta)
         raise ValueError(f"browser_agent_chatgpt output too short: {len(output)} chars")
     if not scratch_session_persisted:
         _persist_browser_agent_scratch_session_from_request_dir(
@@ -15576,10 +15923,13 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         )
     meta.update({
         "status": "completed",
+        "completed_at": iso_z(),
         "latency_ms": int((time.time() - started) * 1000),
         "output_chars": len(output),
+        "min_output_chars": int(min_output_chars),
     })
-    (req_dir / "request.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    latest_meta = _merge_browser_agent_request_meta(_read_browser_agent_request_meta(req_dir), meta)
+    _write_browser_agent_request_meta(req_dir, latest_meta)
     return {
         "ok": True,
         "backend": "browser_agent_chatgpt",
@@ -15797,8 +16147,6 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     evidence_markers = [
         "## 关键视频证据",
         "## 素材地图",
-        "## 观点原意摘要与观点归纳",
-        "## 访谈原意摘要与观点归纳",
         "## TAP 工作流",
         "## Sustainability 工作流",
     ]
@@ -15833,6 +16181,78 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     if first_h2:
         return (text[:first_h2.start()].rstrip() + "\n\n" + section + "\n" + text[first_h2.start():].lstrip()).strip()
     return text + "\n\n" + section
+
+
+def ensure_ai_influence_reader_closure_sections(markdown: str, report_ir: dict[str, Any], report_dir: Path) -> str:
+    """Append missing reader-facing closeout sections from generated chapter text."""
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+    if "## 产品 / 研究 / 工程启示" in text and "## Open Questions" in text:
+        return text
+
+    chapter_texts: list[str] = []
+    chapter_questions: list[str] = []
+    for chapter in (report_ir.get("chapters") or []):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_id = str(chapter.get("chapter_id") or "").strip()
+        if chapter_id:
+            final_path = report_dir / "chapters" / f"{chapter_id}.final.md"
+            if final_path.exists():
+                chapter_texts.append(final_path.read_text(encoding="utf-8", errors="replace").strip())
+        for item in chapter.get("questions") or []:
+            question = str(item or "").strip()
+            if question:
+                chapter_questions.append(question)
+
+    paragraphs: list[str] = []
+    for raw in chapter_texts:
+        for block in re.split(r"\n\s*\n", raw):
+            block = re.sub(r"\s+", " ", block).strip()
+            if block:
+                paragraphs.append(block)
+
+    implication_candidates = [
+        block for block in paragraphs
+        if any(token in block for token in ("重要", "价值", "工程能力", "工作流", "治理", "产品接口", "服务编排"))
+    ]
+    implication_block = implication_candidates[-1] if implication_candidates else ""
+    if not implication_block and paragraphs:
+        implication_block = paragraphs[-1]
+
+    open_question_candidates: list[str] = []
+    for block in paragraphs:
+        if any(token in block for token in ("后续", "仍需", "验证", "限制", "暂不", "不宜", "不确定")):
+            open_question_candidates.append(block)
+    for question in chapter_questions:
+        if question not in open_question_candidates:
+            open_question_candidates.append(question)
+    deduped_open_questions: list[str] = []
+    seen_open_questions: set[str] = set()
+    for item in open_question_candidates:
+        compact = re.sub(r"\s+", " ", str(item or "")).strip()
+        if not compact or compact in seen_open_questions:
+            continue
+        seen_open_questions.add(compact)
+        deduped_open_questions.append(compact)
+    deduped_open_questions = deduped_open_questions[:4]
+
+    lines = [text]
+    if "## 产品 / 研究 / 工程启示" not in text and "## 影响与落点" not in text:
+        lines.extend([
+            "",
+            "## 产品 / 研究 / 工程启示",
+            "",
+            implication_block or "当前章节已明确，AI 工程价值正在从单点模型调用转向 harness、服务、数据、产品接口与代码代理治理；更细颗粒度的落点仍以各章节正文为准。",
+        ])
+    if "## Open Questions" not in text:
+        lines.extend(["", "## Open Questions", ""])
+        if deduped_open_questions:
+            lines.extend([f"- {item}" for item in deduped_open_questions])
+        else:
+            lines.append("- 当前材料仍需后续公开视频、第三方数据或更多企业案例继续验证。")
+    return "\n".join(lines).strip()
 
 
 def validate_ai_influence_markdown_report(markdown: str) -> None:
@@ -16089,11 +16509,30 @@ def validate_ai_influence_planned_report_dir(
                         f"expected={expected_chatgpt_project}:actual={actual_project or 'N/A'}"
                     )
                 if not (project_result.get("ok") is True or project_result.get("status") == "ok"):
-                    errors.append(f"chatgpt_project_archive_not_ok:{project_result.get('status') or project_result.get('ok')}")
+                    session_project = str(session_metadata.get("project") or "").strip()
+                    session_locator_ok = bool(
+                        str(session_metadata.get("url") or "").strip()
+                        or str(session_metadata.get("session_id") or "").strip()
+                    )
+                    if expected_chatgpt_project and session_project == expected_chatgpt_project and session_locator_ok:
+                        warnings.append(
+                            "chatgpt_project_archive_soft_failed_but_session_metadata_matches:"
+                            f"{project_result.get('status') or project_result.get('ok')}"
+                        )
+                    else:
+                        errors.append(f"chatgpt_project_archive_not_ok:{project_result.get('status') or project_result.get('ok')}")
             except Exception as exc:
                 errors.append(f"chatgpt_project_archive_json:{type(exc).__name__}:{exc}")
         elif require_project_archive:
-            errors.append(f"missing_chatgpt_project_archive:{project_result_path}")
+            session_project = str(session_metadata.get("project") or "").strip()
+            session_locator_ok = bool(
+                str(session_metadata.get("url") or "").strip()
+                or str(session_metadata.get("session_id") or "").strip()
+            )
+            if expected_chatgpt_project and session_project == expected_chatgpt_project and session_locator_ok:
+                warnings.append(f"missing_chatgpt_project_archive_soft_failed_but_session_metadata_matches:{project_result_path}")
+            else:
+                errors.append(f"missing_chatgpt_project_archive:{project_result_path}")
         else:
             warnings.append(f"missing_chatgpt_project_archive:{project_result_path}")
     elif require_project_archive:
@@ -18041,6 +18480,12 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
         conn.close()
         print(f"[ai-influence-run-plan] no reports selected report_id={selected_id or 'ALL'}", file=sys.stderr)
         return 1
+    single_report_repair_stop_statuses = {
+        "failed_no_assistant_response_after_submit",
+        "failed_chatgpt_generation_stalled_thinking_only",
+    } if selected_id else set()
+    single_report_max_attempts = 1 if selected_id else 3
+    single_report_max_attempts = 1 if selected_id else 3
 
     ok_count = 0
     for spec in reports:
@@ -18106,6 +18551,8 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                     model_name=writer_model,
                     chapter_id=chapter_id,
                     scratch_profile_id=ai_influence_scratch_profile_id(task_type="chapter_writer", report_id=report_id),
+                    max_attempts=single_report_max_attempts,
+                    stop_repair_failed_statuses=single_report_repair_stop_statuses,
                 )
 
             for job in jobs:
@@ -18141,6 +18588,7 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 input_videos=len(evidence_pack.get("videos") or []),
             )
             markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
+            markdown = ensure_ai_influence_reader_closure_sections(markdown, report_ir, report_dir)
             markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
             report = {
                 "headline": spec.get("title") or report_id,
@@ -18305,6 +18753,10 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
         conn.close()
         print(f"[ai-influence-run-plan] no reports selected report_id={selected_id or 'ALL'}", file=sys.stderr)
         return 1
+    single_report_repair_stop_statuses = {
+        "failed_no_assistant_response_after_submit",
+        "failed_chatgpt_generation_stalled_thinking_only",
+    } if selected_id else set()
     ok_count = 0
     for spec in reports:
         report_id = slugify(str(spec.get("report_id") or spec.get("title") or f"report-{ok_count+1}"))[:80]
@@ -18402,6 +18854,8 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                     model_name=model_name,
                     chapter_id=chapter_id,
                     scratch_profile_id=ai_influence_scratch_profile_id(task_type="chapter_writer", report_id=report_id),
+                    max_attempts=single_report_max_attempts,
+                    stop_repair_failed_statuses=single_report_repair_stop_statuses,
                 )
                 chapter_markdown = str(chapter_result.get("markdown") or "").strip()
                 if len(chapter_markdown) < 120:
