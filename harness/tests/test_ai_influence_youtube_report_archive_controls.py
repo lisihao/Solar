@@ -13,4 +13,4 @@ def test_archive_controls_are_stub_or_dry_run() -> None:
 
     assert item["mode"] == "dry-run"
     assert request["status"] == "stub_only"
-    assert request["project"] == "杂项"
+    assert request["project"] == "1234"

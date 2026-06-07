@@ -91,7 +91,7 @@ def test_planner_sets_thinking_high_and_project(tmp_path):
     assert payload["effort"] == "high"
     assert payload["tool_mode"] == "none"
     assert payload["require_ui_mode"] == "true"
-    assert payload["project"] == "杂项"
+    assert payload["project"] == "1234"
     assert "ChatGPT Report Planner" in payload["prompt"]
     meta = json.loads((tmp_path / "request" / "report-operator-request.json").read_text())
     assert meta["operator_kind"] == "planner"

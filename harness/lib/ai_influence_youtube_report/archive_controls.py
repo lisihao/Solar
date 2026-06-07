@@ -15,7 +15,7 @@ def report_archive_queue_item(report_id: str, archive_dir: str, *, dry_run: bool
     }
 
 
-def chatgpt_project_archive_request(session_url: str, *, project: str = "杂项") -> dict[str, Any]:
+def chatgpt_project_archive_request(session_url: str, *, project: str = "1234") -> dict[str, Any]:
     return {
         "schema_version": "chatgpt_project_archive_request.v1",
         "session_url": session_url,

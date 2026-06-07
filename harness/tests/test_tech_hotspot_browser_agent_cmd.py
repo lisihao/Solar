@@ -149,6 +149,8 @@ def test_hf_public_report_render_outputs_reader_facing_md_and_html():
     assert "hf-hero" in html
     assert "Top 论文洞察" in html
     assert "opendatalab/MinerU" in html
+    assert "max-width: 14ch" not in html
+    assert "min-width: 1180px" not in html
 
 
 def test_hf_normalize_report_plan_assigns_unassigned_papers():
@@ -304,6 +306,78 @@ def test_hf_write_public_report_prefers_grouped_flow_outputs(tmp_path):
     assert "heat_overview" in pack
     assert "日 / 周 / 月热度总览" in markdown
     assert "日 / 周 / 月热度总览" in html
+    assert "evidence_ids" not in markdown
+    assert "evidence_ids" not in html
+
+
+def test_hf_write_public_report_sanitizes_reader_facing_tokens(tmp_path):
+    ns = _load_namespace()
+    candidates = [
+        {
+            "public": {
+                "paper_id": "p1",
+                "packet_id": "pkt-123",
+                "title": "Leak Check",
+                "summary": "（证据: packet）这是一条测试摘要。",
+                "taxonomy": {"domain": "systems", "stack_layer": "inference", "research_route": "applied_research"},
+                "scores": {"insight_report": 0.7, "experiment": 0.8},
+                "assets": {"linked_models": [], "linked_datasets": [], "linked_spaces": [], "total_assets": 1},
+                "github": {"full_name": "org/repo1", "url": "https://github.com/org/repo1"},
+                "reasoning": {"mode": "fallback_report", "trend_type": "watchlist", "premium_insight_available": False},
+                "why_matters": "依据: 内部线索不应进入公开稿。",
+                "recommended_action": "继续观察 packet_id 字样是否被清理。",
+            },
+            "compiled": {"chapter": "公开摘要 A"},
+        }
+    ]
+    ns["hf_paper_insight_db_path"] = lambda config: tmp_path / "dummy.sqlite"
+    ns["hf_load_report_candidates"] = lambda store_path, limit, date_str, config, reasoning_mode: candidates
+    ns["hf_call_grouped_report_flow"] = lambda *args, **kwargs: None
+    result = ns["hf_write_public_report"](
+        {"output": {"raw_dir": str(tmp_path)}},
+        date_str="2026-06-01",
+        limit=5,
+        output_base=str(tmp_path),
+        reasoning_mode="browser_agent",
+    )
+    markdown = Path(result["report_md"]).read_text(encoding="utf-8")
+    html = Path(result["report_html"]).read_text(encoding="utf-8")
+    assert "evidence_ids" not in markdown
+    assert "packet_id" not in markdown
+    assert "paper_id" not in markdown
+    assert "（证据:" not in markdown
+    assert "依据:" not in markdown
+    assert "evidence_ids" not in html
+    assert "packet_id" not in html
+    assert "paper_id" not in html
+    assert "（证据:" not in html
+
+
+def test_hf_write_public_report_expands_runtime_raw_dir(tmp_path):
+    ns = _load_namespace()
+    monkey_output = str(tmp_path / "out")
+    ns["hf_paper_insight_db_path"] = lambda config: tmp_path / "dummy.sqlite"
+    ns["hf_load_report_candidates"] = lambda store_path, limit, date_str, config, reasoning_mode: []
+    result = ns["hf_write_public_report"](
+        {"output": {"raw_dir": "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"}},
+        date_str="2026-06-01",
+        limit=1,
+        output_base=monkey_output,
+        reasoning_mode="browser_agent",
+    )
+    assert "${SOLAR_KNOWLEDGE_DIR}" not in result["report_md"]
+    assert "${SOLAR_KNOWLEDGE_DIR}" not in result["report_html"]
+    assert Path(result["report_md"]).parent == Path(monkey_output) / "2026-06-01"
+
+
+def test_hf_paper_insight_db_path_expands_runtime_state_dir():
+    ns = _load_namespace()
+    path = ns["hf_paper_insight_db_path"](
+        {"output": {"state_dir": "${HARNESS_DIR}/state/tech-hotspot-radar"}}
+    )
+    expected = Path.home() / ".solar" / "harness" / "state" / "tech-hotspot-radar" / "hf-paper-insight.sqlite"
+    assert path == expected
+    assert "${HARNESS_DIR}" not in str(path)
 
 
 def test_hf_report_context_weekly_uses_iso_week_not_rolling_window():
@@ -686,6 +760,8 @@ def test_hf_weekly_report_display_period_uses_week_id():
     assert "2026-W23 · 2026-06-01 ~ 2026-06-07" not in markdown
     assert "<strong>2026-W23</strong>" in html
     assert "2026-W23 · 2026-06-01 ~ 2026-06-07" not in html
+    assert "max-width: 16ch" not in html
+    assert "min-width: 1180px" not in html
 
 
 def test_grouped_report_render_repairs_empty_cleanup_shells():
@@ -761,7 +837,7 @@ def test_ai_influence_html_render_uses_reader_facing_sources():
     )
     assert "本期素材" in html
     assert "章节与视频素材对应表" in html
-    assert "V001" in html
+    assert "素材 1" in html
     assert "ai-material-ref" in html
     assert "ai-material-chip" in html
     assert "Google for Developers" in html
@@ -780,6 +856,7 @@ def test_ai_influence_html_render_uses_reader_facing_sources():
     assert '<section class="ai-report-section"' in html
     assert "<h2>摘要</h2>" in html
     assert "<h4>1. 主趋势</h4>" in html
+    assert 'title="<a class=' not in html
 
 
 def test_ai_influence_html_render_injects_notebooklm_figures():
@@ -1010,6 +1087,575 @@ def test_plan_material_refs_recurses_trends_chapters_subsections():
         ],
     })
     assert refs == ["V001", "V002", "V003", "V004", "V005"]
+
+
+def test_ai_influence_scratch_profile_id_partitions_task_types():
+    ns = _load_namespace()
+    assert ns["ai_influence_scratch_profile_id"](task_type="grouping") == "chatgpt/ai-influence-planned/grouping"
+    assert ns["ai_influence_scratch_profile_id"](task_type="planner") == "chatgpt/ai-influence-planned/planner"
+    assert ns["ai_influence_scratch_profile_id"](
+        task_type="chapter_writer",
+        report_id="edge-ai-physical-ai",
+        chapter_id="ch-01",
+    ) == "chatgpt/ai-influence-planned/chapter/edge-ai-physical-ai/ch-01"
+
+
+def test_sanitize_ai_influence_raw_video_ids_does_not_nest_existing_markdown_links():
+    ns = _load_namespace()
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V004",
+                "video_id": "wcUJWP6WpGM",
+                "title": "SWE-rebench: Lessons from Evaluating Coding Agents — Ibragim Badertdinov, Nebius",
+                "channel": "AI Engineer",
+                "url": "https://www.youtube.com/watch?v=wcUJWP6WpGM",
+            }
+        ]
+    }
+    markdown = (
+        "## 关键视频证据\n\n"
+        "- [AI Engineer / SWE-rebench: Lessons from Evaluating Coding Agent…](https://www.youtube.com/watch?v=wcUJWP6WpGM)\n\n"
+        "正文里单独出现 V004，另一个地方出现 wcUJWP6WpGM。\n"
+    )
+    cleaned = ns["sanitize_ai_influence_raw_video_ids"](markdown, evidence_pack)
+
+    assert "https://www.youtube.com/watch?v=[" not in cleaned
+    assert cleaned.count("(https://www.youtube.com/watch?v=wcUJWP6WpGM)") == 3
+
+
+def test_normalize_ai_influence_markdown_report_keeps_chapter_heading_without_trend_prefix():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第一章：为什么 demo 和直觉选择不再够用
+正文。
+
+## 关键视频证据
+- [AI Engineer / Demo](https://example.com)
+
+## 产品 / 研究 / 工程启示
+启示。
+
+## Open Questions
+- 待验证。
+"""
+    normalized = ns["normalize_ai_influence_markdown_report"](
+        markdown,
+        model_name="chatgpt-5.5",
+        input_videos=2,
+    )
+
+    assert "## 趋势分析：第一章：" not in normalized
+    assert "## 第一章：为什么 demo 和直觉选择不再够用" in normalized
+
+
+def test_normalize_ai_influence_markdown_report_fills_empty_summary_shell():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第一章：为什么 demo 和直觉选择不再够用
+正文。
+
+## 关键视频证据
+- [AI Engineer / Demo](https://example.com)
+
+## Open Questions
+- 待验证。
+"""
+    normalized = ns["normalize_ai_influence_markdown_report"](
+        markdown,
+        model_name="chatgpt-5.5",
+        input_videos=1,
+    )
+
+    assert "## 摘要\n\n本报告基于本期公开视频材料整理判断" in normalized
+
+
+def test_refine_ai_influence_public_report_fills_existing_empty_summary_and_collapses_nested_links():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 摘要
+
+## 访谈原意摘要与观点归纳
+
+本节素材：[Microsoft Research / Demo](https://www.youtube.com/watch?v=[Microsoft Research / Demo](https://www.youtube.com/watch?v=demo123))，发布于 2026-06-03。
+
+## Open Questions
+
+- 待验证。
+"""
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V001",
+                "video_id": "demo123",
+                "channel": "Microsoft Research",
+                "title": "Demo",
+                "url": "https://www.youtube.com/watch?v=demo123",
+            }
+        ]
+    }
+
+    refined = ns["refine_ai_influence_public_report"](markdown, evidence_pack)
+
+    assert "## 摘要\n\n本报告基于本期公开视频材料整理判断" in refined
+    assert "https://www.youtube.com/watch?v=[" not in refined
+    assert "[Microsoft Research / Demo](https://www.youtube.com/watch?v=demo123)" in refined
+
+
+def test_normalize_ai_influence_markdown_report_promotes_editorial_subheadings():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第一章：为什么 demo 和直觉选择不再够用
+核心判断
+正文。
+
+为什么重要
+补充。
+
+## Open Questions
+- 待验证。
+"""
+    normalized = ns["normalize_ai_influence_markdown_report"](
+        markdown,
+        model_name="chatgpt-5.5",
+        input_videos=1,
+    )
+
+    assert "#### 核心判断" in normalized
+    assert "#### 为什么重要" in normalized
+
+
+def test_ai_influence_html_render_converts_markdown_links_and_merges_lists():
+    ns = _load_namespace()
+    html = ns["render_ai_influence_report_html_anything"](
+        "# 测试报告\n\n"
+        "## 关键视频证据\n\n"
+        "- [AI Engineer / Demo](https://example.com/demo)\n\n"
+        "- [AI Engineer / Followup](https://example.com/followup)\n\n"
+        "## 第一章：为什么 demo 和直觉选择不再够用\n\n"
+        "本节素材：[AI Engineer / Demo](https://example.com/demo)。\n\n"
+        "核心判断\n"
+        "正文。\n\n"
+        "## 影响与落点\n\n"
+        "落点。\n\n"
+        "## Open Questions\n\n"
+        "- 待验证。\n",
+        {
+            "date": "2026-05-26",
+            "videos": [],
+            "report_spec": {"title": "测试报告"},
+        },
+        {"headline": "测试报告"},
+    )
+
+    assert "[AI Engineer / Demo](https://example.com/demo)" not in html
+    assert 'href="https://example.com/demo"' in html
+    assert html.count("<ul>") == 2
+    assert 'class="ai-report-argument-label">核心判断<' in html
+    assert 'class="ha-muted ai-section-material-intro"' in html
+
+
+def test_refine_ai_influence_public_report_compresses_weak_evidence_section():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第四章：SWE-rebench 作为后续观察点
+
+本节素材：[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM) AI Engineer《SWE-rebench》；[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM) AI Engineer《SWE-rebench》。
+
+#### 当前能写出的判断
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM) 值得继续跟踪。
+
+#### 当前不能写出的内容
+
+第一，不能写方法细节。
+
+第二，不能写实验结论。
+
+#### 为什么仍然值得保留为观察点
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM) 与 coding agent evaluation 直接相关。
+
+#### 后续需要验证哪些材料
+
+第一，需要明确任务构造方式。
+
+第二，需要明确评分标准。
+
+#### 本章结论边界
+
+这里只能作为观察点。
+"""
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V004",
+                "video_id": "wcUJWP6WpGM",
+                "channel": "AI Engineer",
+                "title": "SWE-rebench",
+                "url": "https://www.youtube.com/watch?v=wcUJWP6WpGM",
+            }
+        ],
+        "report_spec": {
+            "chapters": [
+                {
+                    "title": "第四章：SWE-rebench 作为后续观察点",
+                    "material_video_refs": ["V004"],
+                }
+            ]
+        },
+    }
+
+    refined = ns["refine_ai_influence_public_report"](markdown, evidence_pack)
+
+    assert "#### 当前不能写出的内容" not in refined
+    assert "#### 后续需要验证哪些材料" not in refined
+    assert "#### 本章结论边界" not in refined
+    assert refined.count("[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM)") == 2
+    assert "该视频与 coding agent evaluation 直接相关。" in refined
+    assert "本节素材：[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=wcUJWP6WpGM)。" in refined
+
+
+def test_refine_ai_influence_public_report_polishes_multi_material_placeholder_phrasing():
+    ns = _load_namespace()
+    markdown = """# 测试报告
+
+## 第二章：评测体系如何构成
+
+本节素材：[AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001)；[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002)。
+
+[AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001) 明确提出，缩小 agent evaluation gap 需要一套工具组合。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 从标题看与 coding agent 评测直接相关。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 可以作为本章问题范围内的相关材料，但当前可用材料中，[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 没有提供可引用的正文转写。
+
+本章证据主要来自 [AI Engineer / Benchmarking Agents](https://www.youtube.com/watch?v=main001)，[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 支撑后续观察。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 没有提供可引用的正文转写，因此本章不能展开说明 [AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 具体如何批评 vibe check。
+
+[AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 的标题显示它与 coding agent evaluation 和 SWE-rebench 有关，但当前不能用 [AI Engineer / SWE-rebench](https://www.youtube.com/watch?v=supp002) 的标题去补写 SWE-rebench 的方法和结论。
+"""
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V001",
+                "video_id": "main001",
+                "channel": "AI Engineer",
+                "title": "Benchmarking Agents",
+                "url": "https://www.youtube.com/watch?v=main001",
+            },
+            {
+                "video_ref": "V002",
+                "video_id": "supp002",
+                "channel": "AI Engineer",
+                "title": "SWE-rebench",
+                "url": "https://www.youtube.com/watch?v=supp002",
+            },
+        ],
+        "report_spec": {
+            "chapters": [
+                {
+                    "title": "第二章：评测体系如何构成",
+                    "material_video_refs": ["V001", "V002"],
+                }
+            ]
+        },
+    }
+
+    refined = ns["refine_ai_influence_public_report"](markdown, evidence_pack)
+
+    assert "该素材" not in refined
+    assert "主素材明确提出" in refined
+    assert "该补充视频可以作为本章问题范围内的相关材料" in refined
+    assert "该补充视频没有提供可引用的正文转写" in refined
+    assert "本章证据主要来自主素材，补充素材支撑后续观察。" in refined
+    assert "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关" in refined
+    assert (
+        "该补充视频是否批评 vibe check、如何批评" in refined
+        or "该补充视频具体如何批评 vibe check" in refined
+    )
+    assert "不能用该补充视频的标题去补写 SWE-rebench 的方法和结论" in refined
+
+
+def test_browser_agent_state_dir_expands_harness_placeholder():
+    ns = _load_namespace()
+    config = {"output": {"state_dir": "${HARNESS_DIR}/state/tech-hotspot-radar"}}
+    state_dir = ns["_browser_agent_state_dir"](config)
+    request_dir = ns["_browser_agent_request_dir"](config, "planner smoke")
+    expected_root = Path.home() / ".solar" / "harness" / "state" / "tech-hotspot-radar"
+
+    assert state_dir == expected_root
+    assert request_dir.parent == expected_root / "browser-agent-requests"
+    assert "${HARNESS_DIR}" not in str(request_dir)
+
+
+def test_call_browser_agent_chatgpt_text_reuses_ai_influence_scratch_conversation(monkeypatch, tmp_path):
+    wrapper = tmp_path / "fake_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            env_dump = {
+                "profile_id": os.environ.get("BROWSER_AGENT_PROFILE_ID"),
+                "chatgpt_url": os.environ.get("BROWSER_AGENT_CHATGPT_URL"),
+                "force_new_chat": os.environ.get("BROWSER_AGENT_CHATGPT_FORCE_NEW_CHAT"),
+                "require_isolated": os.environ.get("BROWSER_AGENT_CHATGPT_REQUIRE_ISOLATED_CONVERSATION"),
+                "open_project_first": os.environ.get("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST"),
+                "require_project": os.environ.get("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT"),
+            }
+            (req / "fake-env.json").write_text(json.dumps(env_dump, ensure_ascii=False), encoding="utf-8")
+            target_url = os.environ.get("BROWSER_AGENT_CHATGPT_URL") or "https://chatgpt.com/c/scratch-shared-001"
+            (req / "page.json").write_text(
+                json.dumps({"url": target_url, "conversation_id": "scratch-conv-001"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            sys.stdout.write("x" * 1200)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+            "ai_influence_report_flow": {
+                "report_writer": {
+                    "model": "chatgpt-5.5",
+                    "headless": True,
+                    "open_project_first": False,
+                    "require_project": False,
+                    "force_new_chat": False,
+                    "require_isolated_conversation": False,
+                }
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    first = ns["call_browser_agent_chatgpt_text"](
+        "first prompt",
+        config,
+        purpose="ai-influence-report-plan-2026-06-05",
+        expected="markdown",
+        scratch_profile_id=scratch_profile_id,
+        open_project_first=False,
+        require_project=False,
+        force_new_chat=False,
+        require_isolated_conversation=False,
+    )
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_payload = json.loads(session_path.read_text(encoding="utf-8"))
+    assert session_payload["conversation_url"] == "https://chatgpt.com/c/scratch-shared-001"
+
+    second = ns["call_browser_agent_chatgpt_text"](
+        "second prompt",
+        config,
+        purpose="ai-influence-report-plan-2026-06-05",
+        expected="markdown",
+        scratch_profile_id=scratch_profile_id,
+        open_project_first=False,
+        require_project=False,
+        force_new_chat=False,
+        require_isolated_conversation=False,
+    )
+    env_dump = json.loads((Path(second["request_dir"]) / "fake-env.json").read_text(encoding="utf-8"))
+    assert env_dump["profile_id"] == scratch_profile_id
+    assert env_dump["chatgpt_url"] == "https://chatgpt.com/c/scratch-shared-001"
+    assert env_dump["force_new_chat"] == "false"
+    assert env_dump["require_isolated"] == "false"
+    assert env_dump["open_project_first"] == "false"
+    assert env_dump["require_project"] == "false"
+
+
+def test_call_github_trend_report_chapter_writer_forces_no_project(monkeypatch):
+    ns = _load_namespace()
+    captured: dict[str, object] = {}
+
+    def fake_markdown(prompt, config, **kwargs):
+        captured.update(kwargs)
+        return {
+            "markdown": "# 标题\n\n" + ("GitHub 趋势正文。" * 200),
+            "model": "chatgpt-5.5",
+            "reasoning_effort": "high",
+            "latency_ms": 1,
+            "input_token_count": 10,
+            "output_token_count": 200,
+            "cost_estimate_usd": 0.0,
+            "request_dir": "/tmp/fake-request",
+        }
+
+    ns["call_browser_agent_chatgpt_markdown"] = fake_markdown
+    result = ns["call_github_trend_report_chapter_writer"](
+        {"date": "2026-06-05", "cards": [{"repo": "org/repo"}], "repo_count": 1},
+        {"youtube": {"phase_report_reasoner": {"model": "chatgpt-5.5"}}},
+    )
+    assert captured["open_project_first"] is False
+    assert captured["require_project"] is False
+    assert result["ok"] is True
+
+
+def test_scheduler_shell_scripts_parse():
+    scripts = [
+        ROOT / "harness" / "scripts" / "run_tech_hotspot_radar.sh",
+        ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh",
+        ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_weekly_ai_influence_report.sh",
+    ]
+    for script in scripts:
+        run = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
+        assert run.returncode == 0, f"{script}: {run.stderr}"
+
+
+def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout(monkeypatch, tmp_path):
+    wrapper = tmp_path / "slow_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import time
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            (req / "post-submit-state.json").write_text(
+                json.dumps(
+                    {
+                        "url": "https://chatgpt.com/c/scratch-timeout-001",
+                        "conversation_id": "scratch-timeout-001",
+                        "is_generating": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            time.sleep(5)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    with pytest.raises(subprocess.TimeoutExpired):
+        ns["call_browser_agent_chatgpt_text"](
+            "slow prompt",
+            config,
+            purpose="ai-influence-timeout-persist-2026-06-05",
+            expected="json",
+            requested_timeout_seconds=1,
+            scratch_profile_id=scratch_profile_id,
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
+        )
+
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    session_payload = json.loads(session_path.read_text(encoding="utf-8"))
+    assert session_payload["conversation_url"] == "https://chatgpt.com/c/scratch-timeout-001"
+    assert session_payload["conversation_id"] == "scratch-timeout-001"
+
+
+def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch, tmp_path):
+    wrapper = tmp_path / "root_wrapper.py"
+    wrapper.write_text(
+        textwrap.dedent(
+            """
+            import json
+            import os
+            import time
+            from pathlib import Path
+
+            req = Path(os.environ["BROWSER_AGENT_REQUEST_DIR"])
+            req.mkdir(parents=True, exist_ok=True)
+            (req / "post-submit-state.json").write_text(
+                json.dumps(
+                    {
+                        "url": "https://chatgpt.com/",
+                        "conversation_id": "",
+                        "is_generating": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            time.sleep(5)
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    ns = _load_namespace()
+    config = {
+        "output": {
+            "raw_dir": str(tmp_path / "raw"),
+            "state_dir": str(tmp_path / "state"),
+        },
+        "youtube": {
+            "phase_report_reasoner": {
+                "headless": True,
+                "open_project_first": False,
+                "require_project": False,
+                "force_new_chat": False,
+                "require_isolated_conversation": False,
+            },
+        },
+    }
+    scratch_profile_id = ns["ai_influence_scratch_profile_id"](task_type="planner")
+    with pytest.raises(subprocess.TimeoutExpired):
+        ns["call_browser_agent_chatgpt_text"](
+            "slow prompt",
+            config,
+            purpose="ai-influence-timeout-root-skip-2026-06-05",
+            expected="json",
+            requested_timeout_seconds=1,
+            scratch_profile_id=scratch_profile_id,
+            open_project_first=False,
+            require_project=False,
+            force_new_chat=False,
+            require_isolated_conversation=False,
+        )
+
+    session_path = ns["_browser_agent_scratch_session_path"](config, scratch_profile_id)
+    assert not session_path.exists()
 
 
 def test_planned_report_ir_builds_per_chapter_contract():
@@ -1345,7 +1991,7 @@ def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tm
     report_dir.mkdir()
     request_dir.mkdir()
     (request_dir / "project-archive-result.json").write_text(
-        '{"status":"ok","project_name":"杂项"}\n',
+        '{"status":"ok","project_name":"1234"}\n',
         encoding="utf-8",
     )
     complete_md = """# 测试报告
@@ -1388,7 +2034,7 @@ def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tm
     (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
     result = ns["validate_ai_influence_planned_report_dir"](
         report_dir,
-        expected_chatgpt_project="杂项",
+        expected_chatgpt_project="1234",
         require_project_archive=True,
     )
     assert result["status"] == "ok"
@@ -1402,7 +2048,7 @@ def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_pat
     report_dir.mkdir()
     request_dir.mkdir()
     (request_dir / "project-archive-result.json").write_text(
-        '{"status":"ok","project_name":"杂项"}\n',
+        '{"status":"ok","project_name":"1234"}\n',
         encoding="utf-8",
     )
     complete_md = """# 测试报告
@@ -1447,7 +2093,7 @@ def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_pat
     (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
     result = ns["validate_ai_influence_planned_report_dir"](
         report_dir,
-        expected_chatgpt_project="杂项",
+        expected_chatgpt_project="1234",
         require_project_archive=True,
     )
     assert result["status"] == "error"

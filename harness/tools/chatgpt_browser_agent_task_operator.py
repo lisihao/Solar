@@ -20,7 +20,7 @@ import operator_flow_control as ofc  # noqa: E402
 
 
 DEFAULT_OPERATOR_ID = "mini-chatgpt-deep-research"
-DEFAULT_PROJECT_NAME = "杂项"
+DEFAULT_PROJECT_NAME = "1234"
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_chatgpt_wrapper.py"
 DEFAULT_BROWSER_USE_PYTHON = Path.home() / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
 DEFAULT_LOCAL_PROFILE_POLICY = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"

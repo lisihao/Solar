@@ -19,7 +19,7 @@ if str(ROOT / "lib") not in sys.path:
 import operator_flow_control as ofc  # noqa: E402
 
 DEFAULT_OPERATOR_ID = "mini-gemini-deep-research"
-DEFAULT_PROJECT_NAME = "杂项"
+DEFAULT_PROJECT_NAME = "1234"
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_gemini_deep_research_wrapper.py"
 DEFAULT_BROWSER_USE_PYTHON = Path.home() / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
 

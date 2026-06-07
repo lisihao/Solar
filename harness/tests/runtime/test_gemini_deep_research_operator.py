@@ -16,7 +16,7 @@ def test_build_request_reads_prompt_file(tmp_path):
     prompt_file.write_text("hello deep research", encoding="utf-8")
     payload = gdro.build_request({"prompt_file": str(prompt_file)}, task_dir=tmp_path)
     assert payload["prompt"] == "hello deep research"
-    assert payload["project_name"] == "杂项"
+    assert payload["project_name"] == "1234"
     assert payload["expected_output"] == "markdown"
     assert payload["max_retries"] == 3
 
@@ -44,7 +44,7 @@ def test_run_request_writes_result(monkeypatch, tmp_path, capsys):
     
     result = gdro.run_request({
         "prompt": "hello",
-        "project_name": "杂项",
+        "project_name": "1234",
         "request_dir": str(request_dir)
     }, task_dir=tmp_path)
     

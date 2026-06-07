@@ -6190,7 +6190,10 @@ def cmd_social_trend_report(args: argparse.Namespace) -> int:
     conn.row_factory = sqlite3.Row
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     limit_posts = int(getattr(args, "limit_posts", 40) or 40)
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(
+        getattr(args, "output_base", None)
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     out_dir = raw_base / "social-trend-report" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     run_id = begin_run(conn, "social", "social-trend-report")
@@ -6234,7 +6237,7 @@ def cmd_social_trend_report(args: argparse.Namespace) -> int:
         files["report_html"].write_text(html_report, encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
         social_raw_files = write_social_raw_exports(
-            Path("${SOLAR_KNOWLEDGE_DIR}/_raw"),
+            _expand_runtime_path("${SOLAR_KNOWLEDGE_DIR}/_raw"),
             date_str,
             pack,
             result["markdown"],
@@ -7694,7 +7697,7 @@ def baseline_render_md(analysis: dict[str, Any]) -> str:
 
 
 def baseline_write_report(config: dict[str, Any], analysis: dict[str, Any]) -> dict[str, str]:
-    raw_dir = Path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_dir = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     date_str = iso_z().split("T", 1)[0]
     run_dir = raw_dir / "baseline" / date_str
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -8375,7 +8378,7 @@ def cmd_backfill_hf_papers_baseline(args: argparse.Namespace) -> int:
 
 def hf_paper_insight_db_path(config: dict[str, Any]) -> Path:
     output = config.get("output") or {}
-    state_dir = Path(output.get("state_dir") or "${HARNESS_DIR}/state/tech-hotspot-radar").expanduser()
+    state_dir = _expand_runtime_path(output.get("state_dir") or "${HARNESS_DIR}/state/tech-hotspot-radar")
     return state_dir / "hf-paper-insight.sqlite"
 
 
@@ -10766,9 +10769,9 @@ def _hf_render_grouped_report_html(
     }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: radial-gradient(circle at top left, rgba(196,147,96,.18), transparent 28%), linear-gradient(180deg, #f9f4ec 0%, #f3ede3 100%); color: var(--ink); font: 16px/1.65 "Iowan Old Style", Georgia, serif; }}
-    .hf-shell {{ max-width: 1080px; margin: 0 auto; padding: 40px 20px 64px; }}
+    .hf-shell {{ max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }}
     .hf-hero, .hf-card, .hf-panel, .hf-metric {{ background: var(--paper); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }}
-    .hf-hero {{ padding: 28px; }}
+    .hf-hero {{ padding: 32px 34px; }}
     .hf-kicker {{ display: inline-flex; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 12px/1.2 "Avenir Next", sans-serif; letter-spacing: .08em; text-transform: uppercase; }}
     .hf-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-top: 22px; }}
     .hf-metric {{ padding: 16px 18px; }}
@@ -10784,17 +10787,17 @@ def _hf_render_grouped_report_html(
     .hf-heat-baseline {{ margin-top: 18px; overflow-x: auto; }}
     .hf-heat-secondary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 18px; }}
     .hf-heat-block {{ width: 100%; min-width: 0; }}
-    .hf-heat-daily table {{ width: 100%; min-width: 1180px; table-layout: fixed; }}
-    .hf-daily-table .hf-date-col {{ width: 132px; }}
-    .hf-daily-table .hf-count-col {{ width: 96px; }}
+    .hf-heat-daily table {{ width: 100%; min-width: 0; table-layout: fixed; }}
+    .hf-daily-table .hf-date-col {{ width: 124px; }}
+    .hf-daily-table .hf-count-col {{ width: 88px; }}
     .hf-daily-table .hf-top5-col {{ width: auto; }}
-    .hf-daily-table .hf-tags-col {{ width: 280px; }}
+    .hf-daily-table .hf-tags-col {{ width: 240px; }}
     .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) {{ padding-left: 18px; }}
-    .hf-heat-baseline table {{ min-width: 720px; }}
+    .hf-heat-baseline table, .hf-heat-secondary table {{ table-layout: fixed; }}
     h1, h2, h3 {{ margin: 0 0 12px; line-height: 1.15; }}
-    h1 {{ font-size: clamp(32px, 4vw, 52px); max-width: 16ch; margin-top: 18px; }}
+    h1 {{ font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }}
     table {{ width: 100%; border-collapse: collapse; font: 14px/1.45 "Avenir Next", sans-serif; }}
-    th, td {{ padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }}
+    th, td {{ padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }}
     th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }}
     a {{ color: var(--accent); text-decoration: none; }}
     .hf-top-list {{ margin: 0; padding-left: 18px; }}
@@ -10803,6 +10806,14 @@ def _hf_render_grouped_report_html(
     .hf-tag-list li + li {{ margin-top: 8px; }}
     .hf-tag {{ display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }}
     ul {{ padding-left: 20px; }}
+    @media (max-width: 980px) {{
+      .hf-heat-daily table {{ min-width: 860px; }}
+      .hf-daily-table .hf-tags-col {{ width: 220px; }}
+    }}
+    @media (max-width: 720px) {{
+      .hf-hero {{ padding: 24px 22px; }}
+      .hf-heat-daily table {{ min-width: 760px; }}
+    }}
   </style>
 </head>
 <body>
@@ -11100,12 +11111,12 @@ def _hf_render_public_report_html(
       color: var(--ink);
       font: 16px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }}
-    .hf-shell {{ max-width: 1080px; margin: 0 auto; padding: 40px 20px 64px; }}
+    .hf-shell {{ max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }}
     .hf-hero {{
       background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(247,240,229,0.96));
       border: 1px solid var(--line);
       border-radius: 28px;
-      padding: 28px;
+      padding: 32px 34px;
       box-shadow: var(--shadow);
     }}
     .hf-kicker {{
@@ -11121,7 +11132,7 @@ def _hf_render_public_report_html(
       text-transform: uppercase;
     }}
     h1, h2, h3 {{ margin: 0 0 12px; line-height: 1.15; }}
-    h1 {{ font-size: clamp(32px, 4vw, 52px); max-width: 14ch; margin-top: 18px; }}
+    h1 {{ font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }}
     .hf-subtitle {{ color: var(--muted); max-width: 72ch; margin: 0; }}
     .hf-metrics {{
       display: grid;
@@ -11198,15 +11209,15 @@ def _hf_render_public_report_html(
       margin-top: 18px;
     }}
     .hf-heat-block {{ width: 100%; min-width: 0; }}
-    .hf-heat-daily table {{ width: 100%; min-width: 1180px; table-layout: fixed; }}
-    .hf-daily-table .hf-date-col {{ width: 132px; }}
-    .hf-daily-table .hf-count-col {{ width: 96px; }}
+    .hf-heat-daily table {{ width: 100%; min-width: 0; table-layout: fixed; }}
+    .hf-daily-table .hf-date-col {{ width: 124px; }}
+    .hf-daily-table .hf-count-col {{ width: 88px; }}
     .hf-daily-table .hf-top5-col {{ width: auto; }}
-    .hf-daily-table .hf-tags-col {{ width: 280px; }}
+    .hf-daily-table .hf-tags-col {{ width: 240px; }}
     .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) {{ padding-left: 18px; }}
-    .hf-heat-baseline table {{ min-width: 720px; }}
+    .hf-heat-baseline table, .hf-heat-secondary table {{ table-layout: fixed; }}
     table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ padding: 12px 0; text-align: left; border-bottom: 1px solid var(--line); }}
+    th, td {{ padding: 12px 0; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; word-break: break-word; }}
     th {{
       color: var(--muted);
       font: 600 12px/1.2 "Avenir Next", "Segoe UI", sans-serif;
@@ -11219,9 +11230,17 @@ def _hf_render_public_report_html(
     .hf-tag-list {{ margin: 0; padding-left: 18px; }}
     .hf-tag-list li + li {{ margin-top: 8px; }}
     .hf-tag {{ display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }}
+    @media (max-width: 980px) {{
+      .hf-heat-daily table {{ min-width: 860px; }}
+      .hf-daily-table .hf-tags-col {{ width: 220px; }}
+    }}
     @media (max-width: 820px) {{
       .hf-panels {{ grid-template-columns: 1fr; }}
       .hf-card-head {{ grid-template-columns: 1fr; }}
+    }}
+    @media (max-width: 720px) {{
+      .hf-hero {{ padding: 24px 22px; }}
+      .hf-heat-daily table {{ min-width: 760px; }}
     }}
   </style>
 </head>
@@ -11293,7 +11312,10 @@ def hf_write_public_report(
         except Exception as exc:
             grouped_report_error_kind = type(exc).__name__
     report_variant = "premium_insight_report" if grouped_report else base_report_variant
-    raw_base = Path(output_base or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(
+        output_base
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     out_dir = raw_base / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = out_dir / "hf-paper-insight-assets"
@@ -11334,11 +11356,14 @@ def hf_write_public_report(
             **render_kwargs,
         )
     )
-    report_md = "\n".join(lines)
-    report_html = render_html(**render_kwargs)
+    report_md = hf_sanitize_public_report_text("\n".join(lines))
+    report_html = hf_sanitize_public_report_text(render_html(**render_kwargs))
     leaked = hf_internal_report_tokens(report_md)
     if leaked:
         raise ValueError(f"public HF paper report contains internal tokens: {leaked}")
+    public_leaks = hf_public_report_leak_tokens(report_md, report_html)
+    if public_leaks:
+        raise ValueError(f"public HF paper report leaked reader-facing tokens: {public_leaks}")
 
     report_path = out_dir / "hf-paper-report.md"
     report_html_path = out_dir / "hf-paper-report.html"
@@ -12491,6 +12516,8 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         purpose=f"github-trend-report-{pack.get('date') or iso_z().split('T', 1)[0]}",
         requested_model=model,
         operator_kind="chapter_writer",
+        open_project_first=False,
+        require_project=False,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
@@ -13218,7 +13245,7 @@ def sanitize_public_report_markdown(markdown: str) -> str:
 
 
 def latest_github_trend_markdown(date_str: str, output_base: str | None = None) -> str:
-    base = Path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar").expanduser()
+    base = _expand_runtime_path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     candidates = [
         base / "github-trend-report" / date_str / "github-trend-report.md",
     ]
@@ -14905,6 +14932,100 @@ def _browser_agent_request_dir(config: dict[str, Any], purpose: str) -> Path:
     return out
 
 
+def _browser_agent_state_dir(config: dict[str, Any]) -> Path:
+    return _expand_runtime_path(
+        (config.get("output") or {}).get(
+            "state_dir",
+            str(Path.home() / ".solar/harness/state/tech-hotspot-radar"),
+        )
+    )
+
+
+def _browser_agent_scratch_session_path(config: dict[str, Any], scratch_profile_id: str) -> Path:
+    normalized = Path(str(scratch_profile_id).strip())
+    return _browser_agent_state_dir(config) / "browser-agent-scratch-pool" / normalized / "session.json"
+
+
+def _load_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str) -> dict[str, Any]:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str, payload: dict[str, Any]) -> None:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _conversation_state_from_request_dir(request_dir: Path) -> dict[str, Any]:
+    candidates = [
+        request_dir / "page.json",
+        request_dir / "conversation.json",
+        request_dir / "submitted-run.json",
+        request_dir / "post-submit-state.json",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def _persist_browser_agent_scratch_session_from_request_dir(
+    config: dict[str, Any],
+    *,
+    scratch_profile_id: str | None,
+    purpose: str,
+    request_dir: Path,
+) -> bool:
+    if not scratch_profile_id:
+        return False
+    conversation_state = _conversation_state_from_request_dir(request_dir)
+    conversation_url = str(
+        conversation_state.get("url")
+        or conversation_state.get("conversation_url")
+        or ""
+    ).strip()
+    conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+    has_conversation_path = "/c/" in conversation_url
+    if not conversation_url or (not conversation_id and not has_conversation_path):
+        return False
+    _write_browser_agent_scratch_session(
+        config,
+        scratch_profile_id,
+        {
+            "scratch_profile_id": scratch_profile_id,
+            "purpose": purpose,
+            "conversation_url": conversation_url,
+            "conversation_id": conversation_id,
+            "updated_at": iso_z(),
+            "request_dir": str(request_dir),
+        },
+    )
+    return True
+
+
+def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = None, chapter_id: str | None = None) -> str:
+    clean_task = slugify(str(task_type or "").strip())[:40] or "default"
+    if clean_task == "chapter_writer":
+        clean_report = slugify(str(report_id or "").strip())[:80] or "shared"
+        clean_chapter = slugify(str(chapter_id or "").strip())[:80] or "shared"
+        return f"chatgpt/ai-influence-planned/chapter/{clean_report}/{clean_chapter}"
+    return f"chatgpt/ai-influence-planned/{clean_task}"
+
+
+>>>>>>> 7eb3fbd7 (feat(archive): update default ChatGPT archive project name from '杂项' to '1234')
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:
     """Resolve the browser-agent ChatGPT executor command.
 
@@ -15047,6 +15168,21 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "BROWSER_AGENT_CHATGPT_MODEL_MODE": "thinking",
         "BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE": "true",
     })
+    min_answer_chars_raw = (
+        writer_cfg.get("min_answer_chars")
+        or writer_cfg.get("min_output_chars")
+        or reasoner_cfg.get("min_answer_chars")
+        or reasoner_cfg.get("min_output_chars")
+    )
+    if min_answer_chars_raw is None and purpose.startswith("github-trend-report"):
+        min_answer_chars_raw = 1500
+    if min_answer_chars_raw is not None:
+        try:
+            min_answer_chars = max(0, int(min_answer_chars_raw))
+        except Exception:
+            min_answer_chars = 0
+        if min_answer_chars > 0:
+            env["BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS"] = str(min_answer_chars)
     if operator_kind:
         env["CHATGPT_REPORT_OPERATOR_KIND"] = operator_kind
     if target_url:
@@ -15150,8 +15286,16 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "杂项"
+        or "1234"
     ).strip()
+    if purpose.startswith("github-trend-report") and (
+        bool(resolved_open_project_first) or bool(resolved_require_project)
+    ):
+        raise RuntimeError(
+            "github_trend_report_requires_no_project_mode:"
+            f"open_project_first={bool(resolved_open_project_first)}:"
+            f"require_project={bool(resolved_require_project)}"
+        )
     if project_name:
         env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
     started = time.time()
@@ -15285,6 +15429,27 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
         "反向证据或不确定性": "## Open Questions",
         "Provenance": "## Provenance",
     }
+    editorial_subheading_map = {
+        "核心判断": "#### 核心判断",
+        "为什么重要": "#### 为什么重要",
+        "不确定性与后续观察": "#### 不确定性与后续观察",
+        "后续观察": "#### 后续观察",
+        "demo 和生产证据之间的差距": "#### demo 和生产证据之间的差距",
+        "评测工具开始变成生产准入机制": "#### 评测工具开始变成生产准入机制",
+        "benchmark 的角色：从记录进展到定义进展": "#### benchmark 的角色：从记录进展到定义进展",
+        "meta-evaluation 的作用：评测 benchmark 本身是否合格": "#### meta-evaluation 的作用：评测 benchmark 本身是否合格",
+        "真实任务为什么重要：因为生产风险不是数字问题": "#### 真实任务为什么重要：因为生产风险不是数字问题",
+        "评测体系的工程结构": "#### 评测体系的工程结构",
+        "为什么证据边界重要": "#### 为什么证据边界重要",
+        "当前可以写成报告判断的部分": "#### 当前可以写成报告判断的部分",
+        "两条素材共同支撑的结论：当前不足": "#### 两条素材共同支撑的结论：当前不足",
+        "只能作为观察点的部分": "#### 只能作为观察点的部分",
+        "当前能写出的判断": "#### 当前能写出的判断",
+        "当前不能写出的内容": "#### 当前不能写出的内容",
+        "为什么仍然值得保留为观察点": "#### 为什么仍然值得保留为观察点",
+        "后续需要验证哪些材料": "#### 后续需要验证哪些材料",
+        "本章结论边界": "#### 本章结论边界",
+    }
     lines = text.splitlines()
     normalized: list[str] = []
     for idx, line in enumerate(lines):
@@ -15311,13 +15476,24 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
         if replacement and not stripped.startswith("#"):
             normalized.append(replacement)
             continue
+        editorial_subheading = editorial_subheading_map.get(stripped)
+        if editorial_subheading and not stripped.startswith("#"):
+            normalized.append(editorial_subheading)
+            continue
         normalized.append(line)
     text = "\n".join(normalized).strip()
+    text = re.sub(r"(?is)```synthesis_manifest\s+.*?```", "", text)
     text = re.sub(r"(?im)^##\s*Executive Summary\s*\n(?:.*?\n)*?(?=^##\s+|\Z)", "", text)
     text = re.sub(r"(?im)^##\s*Provenance\s*\n(?:.*?\n)*?(?=^##\s+|\Z)", "", text)
     text = re.sub(r"(?im)^[-*]\s*(final_reasoner|local_preprocess|input_videos|backend|model)\s*:.*$", "", text)
     if "## 一页结论" not in text and "## 摘要" not in text:
         text = re.sub(r"(?m)^(# .+?)\n+", r"\1\n\n## 摘要\n\n", text, count=1)
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*\n\s*(?=##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先给出关键视频证据，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
     text = re.sub(
         r"(?m)^本报告按\s*\d+\s*个章节逐章生成并合成。每章只使用对应证据包，证据不足的部分保留为观察项。\s*$",
         "",
@@ -15334,18 +15510,32 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
     ]
     if not any(marker in text for marker in analysis_markers):
         protected = "一页结论|摘要|关键视频证据|素材地图|访谈原意摘要与观点归纳|观点原意摘要与观点归纳|Open Questions"
-        text = re.sub(
-            rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$",
-            r"## 趋势分析：\1",
-            text,
-            count=1,
-        )
+        first_h2 = re.search(rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$", text)
+        if first_h2:
+            first_heading = str(first_h2.group(1) or "").strip()
+            if not re.match(r"^第[0-9一二三四五六七八九十]+章[：:].*$", first_heading):
+                text = re.sub(
+                    rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$",
+                    r"## 趋势分析：\1",
+                    text,
+                    count=1,
+                )
     return text.strip()
 
 
 def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, Any]) -> str:
     """Replace raw/internal video identifiers with reader-facing channel/title links."""
     text = str(markdown or "")
+    if not text:
+        return text
+
+    protected_links: list[str] = []
+
+    def _protect_link(match: re.Match[str]) -> str:
+        protected_links.append(match.group(0))
+        return f"__AI_LINK_{len(protected_links) - 1}__"
+
+    text = re.sub(r"\[[^\]]+\]\([^)]+\)", _protect_link, text)
     videos = [v for v in (evidence_pack or {}).get("videos") or [] if isinstance(v, dict)]
     for video in videos:
         channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
@@ -15371,8 +15561,45 @@ def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, 
         raw_video_id = str(video.get("video_id") or "").strip()
         if not raw_video_id:
             continue
-        text = text.replace(raw_video_id, public_link)
-    return text
+        text = re.sub(rf"\b{re.escape(raw_video_id)}\b", public_link, text)
+
+    for idx, link in enumerate(protected_links):
+        text = text.replace(f"__AI_LINK_{idx}__", link)
+
+    return _collapse_nested_ai_influence_youtube_links(text)
+
+
+def _collapse_nested_ai_influence_youtube_links(text: str) -> str:
+    cleaned = str(text or "")
+    if not cleaned:
+        return cleaned
+
+    html_pattern = re.compile(
+        r"\[([^\]]+)\]\(https://www\.youtube\.com/watch\?v=<a [^>]*href=\"(https://www\.youtube\.com/watch\?v=[^\"]+)\"[^>]*>.*?</a>\)",
+        re.S,
+    )
+    cleaned = html_pattern.sub(lambda m: f"[{m.group(1)}]({html.unescape(m.group(2))})", cleaned)
+
+    prefix = "](https://www.youtube.com/watch?v=["
+    for _ in range(8):
+        idx = cleaned.find(prefix)
+        if idx < 0:
+            break
+        outer_start = cleaned.rfind("[", 0, idx)
+        if outer_start < 0:
+            break
+        outer_label = cleaned[outer_start + 1:idx]
+        inner_start = idx + len(prefix) - 1
+        inner_close = cleaned.find("](", inner_start + 1)
+        if inner_close < 0:
+            break
+        url_end = cleaned.find(")", inner_close + 2)
+        if url_end < 0 or url_end + 1 >= len(cleaned) or cleaned[url_end + 1] != ")":
+            break
+        inner_url = cleaned[inner_close + 2:url_end]
+        replacement = f"[{outer_label}]({html.unescape(inner_url)})"
+        cleaned = cleaned[:outer_start] + replacement + cleaned[url_end + 2:]
+    return cleaned
 
 
 def _collapse_nested_ai_influence_youtube_links(text: str) -> str:
@@ -15638,8 +15865,6 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     evidence_markers = [
         "## 关键视频证据",
         "## 素材地图",
-        "## 观点原意摘要与观点归纳",
-        "## 访谈原意摘要与观点归纳",
         "## TAP 工作流",
         "## Sustainability 工作流",
     ]
@@ -15676,6 +15901,320 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     return text + "\n\n" + section
 
 
+def ensure_ai_influence_contract_sections(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    """Add missing reader-facing contract sections without inventing new facts."""
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+
+    videos = [v for v in (evidence_pack or {}).get("videos") or [] if isinstance(v, dict)]
+    usable_count = 0
+    weak_count = 0
+    for video in videos:
+        quality = video.get("transcript_quality") if isinstance(video.get("transcript_quality"), dict) else {}
+        tier = str(video.get("transcript_quality_tier") or quality.get("tier") or "").strip()
+        if tier in {"T0", "T1", "T2"}:
+            usable_count += 1
+        else:
+            weak_count += 1
+
+    if "## 核心趋势" not in text and "## 趋势分析" not in text:
+        chapter_titles: list[str] = []
+        for match in re.finditer(r"(?m)^##\s+(.+?)\s*$", text):
+            title = match.group(1).strip()
+            if title in {"摘要", "关键视频证据", "本期素材", "影响与落点", "Open Questions"}:
+                continue
+            if title.startswith("附录") or title.startswith("Execution"):
+                continue
+            chapter_titles.append(title)
+        if not chapter_titles:
+            chapter_titles = ["本期材料呈现的主要趋势与判断边界"]
+        lines = ["## 核心趋势", ""]
+        for title in chapter_titles[:6]:
+            lines.append(f"- {title}")
+        if len(chapter_titles) > 6:
+            lines.append(f"- 其余 {len(chapter_titles) - 6} 个章节作为补充观察。")
+        section = "\n".join(lines)
+        summary_match = re.search(r"(?m)^##\s+摘要\s*$", text)
+        if summary_match:
+            next_heading = re.search(r"(?m)^##\s+", text[summary_match.end():])
+            if next_heading:
+                insert_at = summary_match.end() + next_heading.start()
+                text = text[:insert_at].rstrip() + "\n\n" + section + "\n\n" + text[insert_at:].lstrip()
+            else:
+                text = text.rstrip() + "\n\n" + section
+        else:
+            first_h2 = re.search(r"(?m)^##\s+", text)
+            if first_h2:
+                text = text[:first_h2.start()].rstrip() + "\n\n" + section + "\n\n" + text[first_h2.start():].lstrip()
+            else:
+                text = text.rstrip() + "\n\n" + section
+
+    append_sections: list[str] = []
+    if "## 产品 / 研究 / 工程启示" not in text and "## 影响与落点" not in text:
+        append_sections.append(
+            "\n".join([
+                "## 影响与落点",
+                "",
+                "本期材料的直接价值在于把可验证的公开视频内容转化为后续观察方向。"
+                "对产品和工程团队来说，优先关注已经有可用转写支撑的具体问题，"
+                "不要把只有标题或元数据支撑的材料拔高为确定结论。",
+                "",
+                "更稳妥的使用方式是：把报告中的判断拆成后续跟踪项，继续观察同一频道、"
+                "同一议题和相关项目是否出现连续材料。如果后续材料补齐，相关判断可以升级；"
+                "如果只停留在单次表达或弱材料层面，则应保留为观察项。",
+            ])
+        )
+
+    if "## Open Questions" not in text:
+        question_lines = [
+            "## Open Questions",
+            "",
+            "- 当前判断中哪些部分只由单个视频或单次表达支撑，需要等待后续材料复核？",
+            "- 哪些主题已经有较完整转写，哪些主题仍需要补充更清晰的原始材料？",
+            "- 后续一到两周是否出现来自同一频道、相关技术社区或产品团队的连续讨论？",
+        ]
+        if weak_count:
+            question_lines.append(
+                f"- 本期共有 {weak_count} 条材料只能作为弱观察依据，后续应优先补齐原始表达或降级为背景材料。"
+            )
+        if usable_count:
+            question_lines.append(
+                f"- 本期已有 {usable_count} 条材料可用于正文判断，后续应继续检查这些判断是否得到跨来源印证。"
+            )
+        append_sections.append("\n".join(question_lines))
+
+    if append_sections:
+        text = text.rstrip() + "\n\n" + "\n\n".join(append_sections).strip()
+    return text.strip()
+
+
+def _section_material_refs_for_title(evidence_pack: dict[str, Any], section_title: str) -> list[str]:
+    report_spec = (evidence_pack or {}).get("report_spec") or {}
+    title_key = re.sub(r"\s+", " ", str(section_title or "").strip())
+    for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
+        if re.sub(r"\s+", " ", chapter_title.strip()) == title_key:
+            return [str(ref).strip() for ref in _plan_material_refs(chapter) if str(ref).strip()]
+    return []
+
+
+def _reader_facing_video_link_markdown(video: dict[str, Any]) -> str:
+    channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
+    title = _compact_text(str(video.get("title") or "公开视频").strip() or "公开视频", max_len=50)
+    label = f"{channel} / {title}"
+    video_url = str(video.get("url") or video.get("video_url") or "").strip()
+    return f"[{label}]({video_url})" if video_url else label
+
+
+def _shorten_ai_influence_material_intro(line: str) -> str:
+    text = _collapse_nested_ai_influence_youtube_links(str(line or "").strip())
+    if not text.startswith("本节素材："):
+        return text
+    links = re.findall(r"\[[^\]]+\]\([^)]+\)", text)
+    if links:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in links:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return "本节素材：" + "；".join(deduped[:4]) + "。"
+    text = re.sub(r"本节素材：\s*", "本节素材：", text)
+    text = re.sub(r"AI Engineer《[^》]+》", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"[；,，]\s*[。]?$", "。", text)
+    return text
+
+
+def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: dict[str, Any]) -> str:
+    raw_lines = _collapse_nested_ai_influence_youtube_links(str(body or "")).splitlines()
+    lines: list[str] = []
+    skip_heading: str | None = None
+    skip_headings = {
+        "#### 当前不能写出的内容",
+        "#### 后续需要验证哪些材料",
+        "#### 本章结论边界",
+    }
+    for raw in raw_lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+        if skip_heading:
+            if stripped.startswith("#### "):
+                skip_heading = None
+            elif not stripped:
+                continue
+            else:
+                continue
+        if stripped in skip_headings:
+            skip_heading = stripped
+            continue
+        if stripped.startswith("本节素材："):
+            lines.append(_shorten_ai_influence_material_intro(stripped))
+            continue
+        lines.append(line)
+    body_text = "\n".join(lines).strip()
+
+    refs = _section_material_refs_for_title(evidence_pack, title)
+    if len(refs) == 1:
+        videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == refs[0]), None)
+        if isinstance(video, dict):
+            link_md = _reader_facing_video_link_markdown(video)
+            occurrences = list(re.finditer(re.escape(link_md), body_text))
+            if len(occurrences) > 2:
+                rebuilt: list[str] = []
+                last = 0
+                for idx, match in enumerate(occurrences):
+                    rebuilt.append(body_text[last:match.start()])
+                    rebuilt.append(link_md if idx < 2 else "该视频")
+                    last = match.end()
+                rebuilt.append(body_text[last:])
+                body_text = "".join(rebuilt)
+                body_text = re.sub(r"该视频\s+([^\s])", r"该视频\1", body_text)
+
+    videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+    ref_link_markdown: dict[str, str] = {}
+    for ref in refs:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == ref), None)
+        if isinstance(video, dict):
+            ref_link_markdown[ref] = _reader_facing_video_link_markdown(video)
+    primary_link_md = ref_link_markdown.get(refs[0], "") if refs else ""
+    multi_material = len(refs) > 1
+    repeated_ref_label = "该补充视频" if multi_material else "该视频"
+    link_seen: dict[str, int] = {}
+
+    def _soften_repeated_link(match: re.Match[str]) -> str:
+        link = match.group(0)
+        link_seen[link] = link_seen.get(link, 0) + 1
+        return link if link_seen[link] <= 2 else repeated_ref_label
+
+    body_text = re.sub(r"\[[^\]]+\]\([^)]+\)", _soften_repeated_link, body_text)
+    body_text = re.sub(r"(?m)^关于\s+\[[^\]]+\]\([^)]+\)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    body_text = re.sub(r"(?m)^关于\s+该(?:补充视频|素材)\s+与\s+(.+?)$", r"#### 补充素材的证据限制", body_text)
+    if multi_material:
+        if primary_link_md:
+            primary_link_rewrites = {
+                f"{primary_link_md} 明确提出": "主素材明确提出",
+                f"{primary_link_md} 提到": "主素材提到",
+                f"{primary_link_md} 把": "主素材把",
+                f"{primary_link_md} 的观点": "主素材的观点",
+                f"{primary_link_md} 中，": "主素材中，",
+                f"{primary_link_md} 支撑报告主线": "主素材支撑报告主线",
+                f"本章证据主要来自 {primary_link_md}，{repeated_ref_label} 支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            }
+            for source, target in primary_link_rewrites.items():
+                body_text = body_text.replace(source, target)
+        targeted_multi_rewrites = {
+            "当前可用材料中，该素材没有提供": "当前可用材料中，该补充视频没有提供",
+            "该素材可以作为本章问题范围内的相关材料": "该补充视频可以作为本章问题范围内的相关材料",
+            "该素材暂时只能作为": "该补充视频暂时只能作为",
+            "该素材当前缺少": "该补充视频当前缺少",
+            "补齐该素材的内容": "补齐该补充视频的内容",
+            "补齐该素材的可引用内容": "补齐该补充视频的可引用内容",
+            "该素材对 SWE-rebench": "该补充视频对 SWE-rebench",
+            "该素材后半段": "主素材后半段",
+            "该素材AI Engineer": "该补充视频 AI Engineer",
+            "把该素材的材料和该素材的选题放在一起": "把主素材的论证与补充素材的选题放在一起",
+            "该素材和该素材共同证明": "主素材与补充素材共同证明",
+            "由该素材和该素材两条素材共同证明": "由主素材与补充素材两条材料共同证明",
+            "该素材支撑报告主线，该素材支撑后续观察": "主素材支撑报告主线，补充素材支撑后续观察",
+            "本章证据主要来自该补充视频，该补充视频支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            "主素材缺少可用正文材料": "该补充视频缺少可用正文材料",
+            "主素材当前缺少可用正文摘录": "该补充视频当前缺少可用正文摘录",
+            "主素材的标题显示它与 coding agent evaluation 和 SWE-rebench 有关": "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关",
+            "主素材的题名也指向 evaluating coding agents": "该补充视频的题名也指向 evaluating coding agents",
+            "来自主素材标题中的": "来自该补充视频标题中的",
+            "不能展开说明主素材具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能展开说明该补充视频具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "本章不能展开说明该补充视频具体如何批评 vibe check": "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能用主素材的标题去补写 SWE-rebench 的方法和结论": "不能用该补充视频的标题去补写 SWE-rebench 的方法和结论",
+            "主素材可能补足 coding agent 真实任务评测这一分支": "补充素材可能补足 coding agent 真实任务评测这一分支",
+            "正文会议内容": "正文内容",
+        }
+        for source, target in targeted_multi_rewrites.items():
+            body_text = body_text.replace(source, target)
+        body_text = re.sub(
+            r"不能展开说明\s+\[[^\]]+\]\([^)]+\)\s+具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(r"(?m)^该素材，", "主素材当前", body_text)
+        generic_material_label = "主素材"
+    else:
+        body_text = re.sub(r"(?m)^该素材，", "该视频当前", body_text)
+        generic_material_label = "该视频"
+    spacing_fixes = {
+        "根据 该素材": f"根据{generic_material_label}",
+        "由 该素材": f"由{generic_material_label}",
+        "把 该素材": f"把{generic_material_label}",
+        "来自 该素材": f"来自{generic_material_label}",
+        "依据 该素材": f"依据{generic_material_label}",
+        "关于 该素材": f"关于{generic_material_label}",
+        "当前可用材料中， 该素材": f"当前可用材料中，{generic_material_label}",
+        "本章证据主要来自 该素材": f"本章证据主要来自{generic_material_label}",
+        "该素材 中": f"{generic_material_label}中",
+        "该素材 的": f"{generic_material_label}的",
+        "该素材 与": f"{generic_material_label}与",
+    }
+    for source, target in spacing_fixes.items():
+        body_text = body_text.replace(source, target)
+    body_text = re.sub(r"该素材", generic_material_label, body_text)
+    body_text = re.sub(rf"{re.escape(generic_material_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{generic_material_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(generic_material_label)}", rf"\1{generic_material_label}", body_text)
+    body_text = re.sub(rf"{re.escape(repeated_ref_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{repeated_ref_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(repeated_ref_label)}", rf"\1{repeated_ref_label}", body_text)
+    body_text = re.sub(
+        rf"(?m)^(#### [^\n]{{2,80}}?)({re.escape(generic_material_label)}(?:中|把|提到|明确|当前|暂时|可以|AI Engineer))",
+        r"\1\n\2",
+        body_text,
+    )
+    if multi_material:
+        body_text = body_text.replace("主素材和主素材", "主素材与补充素材")
+        body_text = body_text.replace("本章证据主要来自该补充视频，该补充视频支撑后续观察。", "本章证据主要来自主素材，补充素材支撑后续观察。")
+
+    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+    return body_text
+
+
+def refine_ai_influence_public_report(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*$\n(?:\s*\n)*(?=^##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
+    sections = _split_ai_influence_sections(text)
+    if not sections:
+        return text
+    rebuilt: list[str] = []
+    for title, body in sections:
+        compact_body = _compress_ai_influence_section_body(title, body, evidence_pack)
+        if title == "摘要" and not compact_body.strip():
+            compact_body = "本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。"
+        compact_body = _collapse_nested_ai_influence_youtube_links(compact_body)
+        rebuilt.append(f"## {title}\n\n{compact_body}".strip())
+    heading = text.splitlines()[0].strip() if text.startswith("# ") else ""
+    prefix = heading + "\n\n" if heading else ""
+    return _collapse_nested_ai_influence_youtube_links((prefix + "\n\n".join(rebuilt).strip()).strip())
+
+
 def validate_ai_influence_markdown_report(markdown: str) -> None:
     """Fail closed when Browser Agent captures a partial ChatGPT response."""
     text = str(markdown or "").strip()
@@ -15710,7 +16249,7 @@ def ai_influence_chatgpt_project_name(config: dict[str, Any]) -> str:
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "杂项"
+        or "1234"
     ).strip()
 
 
@@ -16116,11 +16655,11 @@ def _render_ai_influence_sources_html(videos: list[dict[str, Any]]) -> str:
         duration = video.get("duration_min")
         duration_text = "N/A"
         try:
-            if duration is not None:
+            if duration is not None and float(duration) > 0:
                 duration_text = f"{float(duration):.1f} 分钟"
         except Exception:
             duration_text = str(duration)
-        summary = html.escape(_ai_influence_material_summary(video, max_len=180))
+        summary = html.escape(_ai_influence_material_summary(video, max_len=180).replace("\\n", " ").replace("\n", " ").strip())
         time_info = f"{published}<br><span class=\"ha-muted\">{html.escape(duration_text)}</span>"
         title_html = (
             f'<a href="{html.escape(video_url)}" target="_blank" rel="noreferrer noopener">{title}</a>'
@@ -16130,7 +16669,7 @@ def _render_ai_influence_sources_html(videos: list[dict[str, Any]]) -> str:
         rows.append(
             f"""
 <tr>
-  <td><span class="ai-material-ref" title="{video_ref}">{material_label}</span></td>
+  <td><span class="ai-material-ref" data-video-ref="{html.escape(video_ref)}">{material_label}</span></td>
   <td>{channel}</td>
   <td>{title_html}</td>
   <td>{time_info}</td>
@@ -16185,13 +16724,15 @@ def _render_ai_influence_material_map_html(evidence_pack: dict[str, Any]) -> str
         if isinstance(video, dict)
     }
     rows: list[str] = []
+    seen_titles: set[str] = set()
     for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
         if not isinstance(chapter, dict):
             continue
-        trend_title = str(chapter.get("_trend_title") or "").strip()
         chapter_text = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
-        if trend_title:
-            chapter_text = f"{_reader_facing_chapter_title(trend_title, fallback='趋势')} / {chapter_text}"
+        title_key = re.sub(r"\s+", " ", chapter_text).strip()
+        if not title_key or title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
         chapter_title = html.escape(chapter_text)
         refs = [str(ref) for ref in _plan_material_refs(chapter) if str(ref) in by_ref]
         if not refs:
@@ -16210,12 +16751,12 @@ def _render_ai_influence_material_map_html(evidence_pack: dict[str, Any]) -> str
                 else title
             )
             material_bits.append(
-                f'<div class="ai-material-chip"><span title="{html.escape(ref)}">{material_label}</span><b>{title_html}</b><em>{channel} / {published}</em></div>'
+                f'<div class="ai-material-chip"><span data-video-ref="{html.escape(ref)}">{material_label}</span><b>{title_html}</b><em>{channel} / {published}</em></div>'
             )
         rows.append(
             f"""
 <tr>
-  <td><strong>{idx}. {chapter_title}</strong></td>
+  <td><strong>{chapter_title}</strong></td>
   <td>{''.join(material_bits)}</td>
 </tr>
 """.strip()
@@ -16547,6 +17088,7 @@ def _render_ai_influence_sections_html(markdown: str, render_markdown_body: Any,
                     _render_notebooklm_figure_html(item) for item in figures
                 ) + "</div>\n"
         section_body = figure_html + (svg_html + "\n" if svg_html else "") + render_markdown_body(body_md)
+        section_body = _sanitize_ai_influence_section_body_html(section_body)
         blocks.append(
             f"""
 <section class="ai-report-section" id="{anchor}">
@@ -16558,6 +17100,44 @@ def _render_ai_influence_sections_html(markdown: str, render_markdown_body: Any,
 """.strip()
         )
     return "\n".join(blocks), toc_html
+
+
+def _sanitize_ai_influence_section_body_html(content: str) -> str:
+    text = str(content or "")
+    if not text:
+        return text
+    text = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        lambda match: (
+            f'<a href="{html.escape(match.group(2))}" target="_blank" rel="noreferrer noopener">'
+            f"{html.escape(html.unescape(match.group(1)))}</a>"
+        ),
+        text,
+    )
+    text = re.sub(r"</ul>\s*<ul>", "", text)
+    text = re.sub(r"</ol>\s*<ol>", "", text)
+    label_pattern = (
+        "核心判断|为什么重要|不确定性与后续观察|后续观察|"
+        "demo 和生产证据之间的差距|评测工具开始变成生产准入机制|"
+        "benchmark 的角色：从记录进展到定义进展|"
+        "meta-evaluation 的作用：评测 benchmark 本身是否合格|"
+        "真实任务为什么重要：因为生产风险不是数字问题|评测体系的工程结构|"
+        "为什么证据边界重要|当前可以写成报告判断的部分|"
+        "两条素材共同支撑的结论：当前不足|只能作为观察点的部分|"
+        "当前能写出的判断|当前不能写出的内容|为什么仍然值得保留为观察点|"
+        "后续需要验证哪些材料|本章结论边界"
+    )
+    text = re.sub(
+        rf"<p>\s*({label_pattern})\s*</p>",
+        r'<h4 class="ai-report-argument-label">\1</h4>',
+        text,
+    )
+    text = re.sub(
+        r"<p>\s*(本节素材：.+?)\s*</p>",
+        r'<p class="ha-muted ai-section-material-intro">\1</p>',
+        text,
+    )
+    return text
 
 
 def _ai_influence_report_extra_css() -> str:
@@ -16801,6 +17381,11 @@ def _ai_influence_report_extra_css() -> str:
   font-size: 17px;
   line-height: 1.9;
   max-width: none;
+}
+.ai-section-material-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.65;
 }
 .ai-report-prose ul,
 .ai-report-prose ol {
@@ -17767,6 +18352,12 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = flow_cfg.get("report_writer") or {}
     model_name = str(getattr(args, "model", None) or writer_cfg.get("model") or "chatgpt-5.5")
+    transcript_char_limit = int(
+        getattr(args, "transcript_char_limit", 0)
+        or writer_cfg.get("transcript_char_limit")
+        or 24000
+    )
+    chapter_repair_attempts = int(getattr(args, "chapter_repair_attempts", 0) or 3)
     selected_id = str(getattr(args, "report_id", None) or "").strip()
     reports = [r for r in (plan.get("reports") or []) if isinstance(r, dict)]
     if selected_id:
@@ -17790,7 +18381,7 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 spec,
                 date_str=date_str,
                 days=days,
-                transcript_char_limit=int(writer_cfg.get("transcript_char_limit") or 24000),
+                transcript_char_limit=transcript_char_limit,
             )
             evidence_pack = backfill_planned_report_evidence_from_existing(report_dir, evidence_pack)
             skipped_refs = [str(ref) for ref in evidence_pack.get("skipped_material_refs") or [] if str(ref).strip()]
@@ -17831,6 +18422,12 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=writer_model,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(
+                        task_type="chapter_writer",
+                        report_id=report_id,
+                        chapter_id=chapter_id,
+                    ),
+                    max_attempts=chapter_repair_attempts,
                 )
 
             for job in jobs:
@@ -17867,6 +18464,7 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             )
             markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
             markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = ensure_ai_influence_contract_sections(markdown, evidence_pack)
             markdown = refine_ai_influence_public_report(markdown, evidence_pack)
             validate_ai_influence_markdown_report(markdown)
             report = {
@@ -17979,6 +18577,12 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
     writer_cfg = flow_cfg.get("report_writer") or {}
     notebook_cfg = flow_cfg.get("notebooklm") or {}
     model_name = str(getattr(args, "model", None) or writer_cfg.get("model") or "chatgpt-5.5")
+    transcript_char_limit = int(
+        getattr(args, "transcript_char_limit", 0)
+        or writer_cfg.get("transcript_char_limit")
+        or 24000
+    )
+    chapter_repair_attempts = int(getattr(args, "chapter_repair_attempts", 0) or 3)
     notebook_enabled = not bool(getattr(args, "skip_notebooklm", False))
     notebook_name = str(
         getattr(args, "notebook_name", None)
@@ -18006,7 +18610,7 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 spec,
                 date_str=date_str,
                 days=days,
-                transcript_char_limit=int(writer_cfg.get("transcript_char_limit") or 24000),
+                transcript_char_limit=transcript_char_limit,
             )
             evidence_pack = backfill_planned_report_evidence_from_existing(report_dir, evidence_pack)
             skipped_refs = [str(ref) for ref in evidence_pack.get("skipped_material_refs") or [] if str(ref).strip()]
@@ -18081,6 +18685,12 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=model_name,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(
+                        task_type="chapter_writer",
+                        report_id=report_id,
+                        chapter_id=chapter_id,
+                    ),
+                    max_attempts=chapter_repair_attempts,
                 )
                 chapter_markdown = str(chapter_result.get("markdown") or "").strip()
                 if len(chapter_markdown) < 120:
@@ -18117,6 +18727,7 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             )
             markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
             markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = ensure_ai_influence_contract_sections(markdown, evidence_pack)
             markdown = refine_ai_influence_public_report(markdown, evidence_pack)
             validate_ai_influence_markdown_report(markdown)
             report = {
@@ -18415,7 +19026,7 @@ def report_wiki_dispatch(output_dir: str, date_str: str) -> str:
 def report_write_artifacts(conn: sqlite3.Connection, date_str: str,
                            output_base: str) -> dict:
     """Write all artifacts to Knowledge/_raw/tech-hotspot-radar/YYYY-MM-DD/."""
-    out_dir = Path(output_base) / date_str
+    out_dir = _expand_runtime_path(output_base) / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     files = {}
 
@@ -19040,6 +19651,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_planned.add_argument("--report-id", default=None, help="Generate only one report_id from the plan")
     run_planned.add_argument("--output-base", default=None, help="Override output base directory")
     run_planned.add_argument("--model", default=None, help="Writer model override (default: chatgpt-5.5)")
+    run_planned.add_argument("--chapter-batch-size", type=int, default=0, help="Compatibility flag for official wrapper; current runtime remains sequential when >0")
+    run_planned.add_argument("--chapter-repair-attempts", type=int, default=0, help="Override bounded chapter repair attempts")
+    run_planned.add_argument("--transcript-char-limit", type=int, default=0, help="Override transcript character budget per planned report evidence pack")
     run_planned.add_argument("--send", action="store_true", help="Send each generated report by email")
     run_planned.add_argument("--legacy", action="store_true", help="Use the previous whole-command implementation instead of the Report IR chapter runtime")
     run_planned.add_argument("--skip-notebooklm", action="store_true", help="Skip NotebookLM transcript+mindmap+infographic enrichment")

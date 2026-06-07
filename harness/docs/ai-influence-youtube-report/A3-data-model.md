@@ -1048,7 +1048,7 @@ phase1_plan.v1
 | `report_id` | string | yes | Same handle as Phase 1/2/3 outputs |
 | `chapter_id` | string \| null | yes | Required when `stage == "phase2_chapter_write"`; null otherwise (defense-in-depth conditional in §10.2) |
 | `browser_session_id` | string | yes | Stable handle from the Browser Agent wrapper |
-| `chatgpt_project` | string | yes | const `"杂项"` (N3 §4.3) |
+| `chatgpt_project` | string | yes | const `"1234"` (N3 §4.3) |
 | `chatgpt_url` | string \| null | yes | Reachable URL; null only when Browser Agent failed before allocating a conversation. **Aliases:** `conversation_url` is the N2 §4 wire name; `chatgpt_url` is the dispatch-row alias. This schema accepts `chatgpt_url` as canonical and treats `conversation_url` as a forbidden additional property — A4 will document the rename in the compat adapter. |
 | `cost` | number | yes | Dispatch-row label for `estimated_cost_usd`; nominally USD; `0.0` when unknown |
 | `input_tokens_estimate` | integer | optional | Best-effort |
@@ -1056,7 +1056,7 @@ phase1_plan.v1
 | `latency_ms` | integer | yes | Wall-clock round-trip in milliseconds (dispatch row label) |
 | `call_count` | integer | yes | Always `1` per row; central rollup is a sum |
 | `prompt_version` | string | yes | enum `["aiyt-plan-v1","aiyt-chapter-v1","aiyt-synthesis-v1"]` |
-| `archive_status` | enum `["pending","archived","failed"]` | yes | Reflects the 杂项 archival outcome |
+| `archive_status` | enum `["pending","archived","failed"]` | yes | Reflects the 1234 archival outcome |
 | `outcome` | enum `["ok","unreachable","malformed_json","retry_then_ok"]` | yes | Drives A1 §6 rows 4-5 recovery |
 | `created_at` | string (ISO-8601 UTC) | yes | When the row was appended |
 
@@ -1091,7 +1091,7 @@ phase1_plan.v1
       ]
     },
     "browser_session_id": { "type": "string", "minLength": 1 },
-    "chatgpt_project": { "const": "杂项" },
+    "chatgpt_project": { "const": "1234" },
     "chatgpt_url": { "type": ["string", "null"] },
     "cost": { "type": "number", "minimum": 0.0 },
     "input_tokens_estimate": { "type": "integer", "minimum": 0 },
@@ -1424,7 +1424,7 @@ These invariants span more than one schema and are enforced at the consumer boun
 | X-5 | `model_call_id` in any phase output `∈ model_call_ledger.call_id` set for that run, with matching `stage` (X-3 sibling for Phase 2). | 4 |
 | X-6 | T3 grade never appears in `phase1_plan`, `phase2_chapter`, `phase3_synthesis`, `evidence_map`, or `source_mapping` (NG-T3; defense-in-depth at L6 Check 6). | 5 |
 | X-7 | `model == "chatgpt-5.5-thinking-high"` and `provider == "browser_agent_chatgpt"` on every `model_call_ledger.v1` row for this module (NG3). | 1 |
-| X-8 | `chatgpt_project == "杂项"` on every `model_call_ledger.v1` row (N3 §4.3). | 1 |
+| X-8 | `chatgpt_project == "1234"` on every `model_call_ledger.v1` row (N3 §4.3). | 1 |
 | X-9 | `archive_manifest.v1.state_at_commit == "archived"` and the corresponding `run_record.v1.state == "archived"`; both must agree for the run to be considered successful. | 2 |
 | X-10 | Internal fields (`video_id` literal, `V[0-9]{3}`, `raw_refs`, `pipeline_fields`, `transcript_status`, `processing_log`) MUST NOT appear in `evidence_map`, `source_mapping`, `phase1_plan` reader-facing fields, `phase2_chapter.body_md`, `phase3_synthesis.final_markdown/final_html`. (NG4; L6 Check 1/2.) | 5 |
 | X-11 | Every schema in this document declares `schema_version` as `const` — consumers can branch on it before parsing. (§0.1.) | all 12 |

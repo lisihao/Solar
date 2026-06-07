@@ -17,7 +17,7 @@ def test_build_request_reads_prompt_file(tmp_path):
     prompt_file.write_text("hello chatgpt", encoding="utf-8")
     payload = cto.build_request({"prompt_file": str(prompt_file)}, task_dir=tmp_path)
     assert payload["prompt"] == "hello chatgpt"
-    assert payload["project_name"] == "杂项"
+    assert payload["project_name"] == "1234"
     assert payload["expected_output"] == "markdown"
     assert payload["model"] == "chatgpt-5.5"
     assert payload["reasoning_effort"] == "high"
@@ -40,7 +40,7 @@ def test_run_request_writes_result(monkeypatch, tmp_path, capsys):
         return Result()
 
     monkeypatch.setattr(cto.subprocess, "run", _fake_run)
-    result = cto.run_request({"prompt": "hello", "project_name": "杂项"}, task_dir=tmp_path)
+    result = cto.run_request({"prompt": "hello", "project_name": "1234"}, task_dir=tmp_path)
     assert result["ok"] is True
     assert seen_env["CHATGPT_MODEL"] == "chatgpt-5.5"
     assert seen_env["CHATGPT_REASONING_EFFORT"] == "high"
