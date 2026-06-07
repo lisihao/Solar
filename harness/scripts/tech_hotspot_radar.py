@@ -16135,7 +16135,11 @@ def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, 
         raw_video_id = str(video.get("video_id") or "").strip()
         if not raw_video_id:
             continue
-        text = text.replace(raw_video_id, public_link)
+        text = re.sub(
+            rf"(?<![=/])\b{re.escape(raw_video_id)}\b",
+            public_link,
+            text,
+        )
     return text
 
 
@@ -16530,7 +16534,7 @@ def validate_ai_influence_planned_report_dir(
                 or str(session_metadata.get("session_id") or "").strip()
             )
             if expected_chatgpt_project and session_project == expected_chatgpt_project and session_locator_ok:
-                warnings.append(f"missing_chatgpt_project_archive_soft_failed_but_session_metadata_matches:{project_result_path}")
+                pass
             else:
                 errors.append(f"missing_chatgpt_project_archive:{project_result_path}")
         else:

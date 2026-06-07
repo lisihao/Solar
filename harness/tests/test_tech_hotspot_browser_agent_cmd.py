@@ -2148,6 +2148,92 @@ def test_ai_influence_validation_accepts_session_metadata_when_project_archive_s
     assert any("chatgpt_project_archive_soft_failed_but_session_metadata_matches" in warn for warn in result["warnings"])
 
 
+def test_ai_influence_validation_accepts_session_metadata_when_project_archive_missing(tmp_path):
+    ns = _load_namespace()
+    report_dir = tmp_path / "report"
+    request_dir = tmp_path / "browser-request"
+    report_dir.mkdir()
+    request_dir.mkdir()
+    complete_md = """# 测试报告
+
+## 一页结论
+本节素材：V001《测试视频》。这是结论。
+
+## 核心趋势
+### 趋势一
+判断。
+
+## 关键视频证据
+- V001《测试视频》
+
+## 产品 / 研究 / 工程启示
+启示。
+
+## Open Questions
+- 待验证。
+
+## Provenance
+- final_reasoner: chatgpt-5.5
+- local_preprocess: ThunderOMLX/Qwen3.6 semantic packets
+- input_videos: 1
+"""
+    (report_dir / "report.md").write_text(complete_md, encoding="utf-8")
+    (report_dir / "report.html").write_text(
+        "章节与视频素材对应表 <span class='ai-material-ref'>V001</span> <span class='ai-material-chip'>测试视频</span>",
+        encoding="utf-8",
+    )
+    (report_dir / "report-result.json").write_text(
+        '{"request_dir": "%s"}\n' % str(request_dir),
+        encoding="utf-8",
+    )
+    (report_dir / "evidence-pack.json").write_text(
+        '{"videos":[{"video_ref":"V001","video_id":"SSe1VmVrtw0","title":"测试视频","channel":"Google for Developers","transcript_clean":"This is a clean English transcript about Gemini, agent workflows, developer tools, and platform strategy. It contains enough meaningful sentences for validation."}]}\n',
+        encoding="utf-8",
+    )
+    (report_dir / "evidence_map.json").write_text(
+        '{"schema_version":"evidence_map.v1","entries":[{"evidence_ref":"V001","channel":"Google for Developers","title":"测试视频","published_at":"2026-06-06","transcript_grade":"T1","citation_span":"This is a clean English transcript about Gemini, agent workflows.","group_type":"core"}]}\n',
+        encoding="utf-8",
+    )
+    (report_dir / "chatgpt-session.json").write_text(
+        '{"session_id":"conv-missing","url":"https://chatgpt.com/c/conv-missing","project":"杂项","archived_at":"2026-06-06T00:00:00Z","model":"chatgpt-5.5","request_dir":"%s","phase_breakdown":{"chapter_write":[{"request_dir":"%s","conversation_id":"conv-missing","url":"https://chatgpt.com/c/conv-missing"}]}}\n'
+        % (str(request_dir), str(request_dir)),
+        encoding="utf-8",
+    )
+    (report_dir / "transcripts.txt").write_text("raw\n", encoding="utf-8")
+    (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
+    result = ns["validate_ai_influence_planned_report_dir"](
+        report_dir,
+        expected_chatgpt_project="杂项",
+        require_project_archive=True,
+    )
+    assert result["status"] == "ok"
+    assert not any("missing_chatgpt_project_archive" in err for err in result["errors"])
+    assert not any("missing_chatgpt_project_archive" in warn for warn in result["warnings"])
+
+
+def test_sanitize_ai_influence_raw_video_ids_keeps_youtube_urls_intact():
+    ns = _load_namespace()
+    evidence_pack = {
+        "videos": [
+            {
+                "video_ref": "V004",
+                "video_id": "wjXowoQ7E8c",
+                "channel": "AI Engineer",
+                "title": "AI Engineer Melbourne 2026 Keynote Livestream | Day 1",
+                "url": "https://www.youtube.com/watch?v=wjXowoQ7E8c",
+            }
+        ]
+    }
+    markdown = (
+        "本节素材为 [AI Engineer / AI Engineer Melbourne 2026 Keynote Livestream | D…]"
+        "(https://www.youtube.com/watch?v=wjXowoQ7E8c)，并引用视频 ID wjXowoQ7E8c。"
+    )
+    sanitized = ns["sanitize_ai_influence_raw_video_ids"](markdown, evidence_pack)
+    assert "https://www.youtube.com/watch?v=wjXowoQ7E8c" in sanitized
+    assert "watch?v=[" not in sanitized
+    assert sanitized.count("[AI Engineer / AI Engineer Melbourne 2026 Keynote Livestream | D…]") == 2
+
+
 def test_ensure_ai_influence_reader_closure_sections_appends_missing_contract_sections(tmp_path):
     ns = _load_namespace()
     report_dir = tmp_path / "report"
