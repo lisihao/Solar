@@ -143,43 +143,116 @@ def format_timestamp(ts: str | None) -> str:
         return ts
 
 
+def load_from_dispatcher_metadata(harness_root: Path, op_id: str) -> dict[str, Any] | None:
+    """Load and translate the latest dispatcher metadata if reports metadata is missing."""
+    op_to_line = {
+        "x_social": "x_social",
+        "github_new": "github",
+        "github_legacy": "github",
+        "hf_papers": "hf_papers",
+        "youtube": "youtube",
+        "gemini": "gemini_research"
+    }
+    
+    line = op_to_line.get(op_id)
+    if not line:
+        return None
+        
+    line_dir = harness_root / "run" / "operator_metadata" / line
+    if not line_dir.exists():
+        return None
+        
+    metadata_files = list(line_dir.glob("*.metadata.json"))
+    if not metadata_files:
+        return None
+        
+    latest_file = max(metadata_files, key=lambda p: p.stat().st_mtime)
+    try:
+        data = json.loads(latest_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+        
+    mode = data.get("mode", "single")
+    started_at = data.get("dispatched_at")
+    run_id = data.get("run_id")
+    
+    run_status = "pending"
+    duration = None
+    errors = []
+    
+    if mode == "error":
+        run_status = "failed"
+        errors = [{"message": data.get("error", "Unknown dispatch error")}]
+    elif op_id == "github_legacy":
+        if mode == "dual_run":
+            control = data.get("control") or {}
+            success = control.get("success")
+            run_status = "succeeded" if success else "failed"
+            duration = control.get("duration_s")
+            if not success:
+                errors = [{"message": f"Control run failed with returncode {control.get('returncode')}"}]
+        else:
+            return None
+    else:
+        primary = data.get("primary") or {}
+        success = primary.get("success")
+        run_status = "succeeded" if success else "failed"
+        duration = primary.get("duration_s")
+        if not success:
+            errors = [{"message": f"Primary run failed with returncode {primary.get('returncode')}"}]
+            
+    return {
+        "schema_version": "ai_influence_metadata.v1",
+        "run_id": run_id,
+        "operator": op_id,
+        "run_status": run_status,
+        "started_at": started_at,
+        "completed_at": started_at,
+        "duration_seconds": duration,
+        "errors": errors,
+        "stats": {},
+        "artifacts": {},
+        "schedule_type": "daily" if op_id != "gemini" else "on_demand",
+    }
+
+
 def load_metadata(reports_dir: Path) -> dict[str, dict[str, Any]]:
     """Load all metadata.json files from reports directory.
 
     Returns a dict mapping operator_id to metadata dict.
     """
     metadata: dict[str, dict[str, Any]] = {}
+    harness_root = reports_dir.parent
 
     for op_id, op_def in OPERATORS.items():
         output_dir = reports_dir / op_def["output_dir"]
         metadata_path = output_dir / "metadata.json"
 
-        if not metadata_path.exists():
-            # No metadata yet - create default no_data entry
-            metadata[op_id] = {
-                "operator": op_id,
-                "run_status": "no_data",
-                "last_run": None,
-                "artifacts": {},
-                "stats": {},
-                "errors": [],
-                "schedule_type": op_def["schedule"],
-            }
+        # Try reports directory first
+        if metadata_path.exists():
+            try:
+                data = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata[op_id] = data
+                continue
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Fallback to dispatcher metadata
+        dispatcher_meta = load_from_dispatcher_metadata(harness_root, op_id)
+        if dispatcher_meta:
+            metadata[op_id] = dispatcher_meta
             continue
 
-        try:
-            data = json.loads(metadata_path.read_text(encoding="utf-8"))
-            metadata[op_id] = data
-        except (json.JSONDecodeError, OSError) as e:
-            metadata[op_id] = {
-                "operator": op_id,
-                "run_status": "error",
-                "last_run": None,
-                "artifacts": {},
-                "stats": {},
-                "errors": [{"message": f"Failed to load metadata: {e}"}],
-                "schedule_type": op_def["schedule"],
-            }
+        # No metadata yet - create default no_data entry
+        metadata[op_id] = {
+            "operator": op_id,
+            "run_status": "no_data",
+            "last_run": None,
+            "artifacts": {},
+            "stats": {},
+            "errors": [],
+            "schedule_type": op_def["schedule"],
+        }
 
     return metadata
 

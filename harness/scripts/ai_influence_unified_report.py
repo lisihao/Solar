@@ -63,6 +63,50 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_new_github_digest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    
+    cards = data.get("cards") or []
+    windows = {
+        "daily": [],
+        "weekly": [],
+        "monthly": [],
+        "quarter": []
+    }
+    
+    for card in cards:
+        period = card.get("trendshift_period") or "daily"
+        if period not in windows:
+            period = "daily"
+            
+        scores = card.get("scores") or {}
+        max_delta = scores.get("stars_delta_7d") or 0
+        max_delta_str = f"+{max_delta}" if isinstance(max_delta, int) and max_delta >= 0 else str(max_delta)
+        
+        category = card.get("positioning") or "N/A"
+        
+        mapped_repo = {
+            "repo": card.get("repo") or "N/A",
+            "url": card.get("html_url") or card.get("url") or f"https://github.com/{card.get('repo', '')}",
+            "category": category,
+            "language": card.get("language") or "N/A",
+            "stars": card.get("stars") or 0,
+            "max_delta": max_delta_str
+        }
+        windows[period].append(mapped_repo)
+        
+    return {
+        "analysis": {
+            "windows": windows
+        }
+    }
+
+
 def latest_file(paths: list[Path]) -> Path | None:
     existing = [p for p in paths if p.exists()]
     if not existing:
@@ -427,9 +471,20 @@ def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[
 def run(date_str: str, raw: Path, send: bool) -> dict[str, Any]:
     ai_path = raw / "ai-influence-daily-digest" / date_str / "digest.json"
     github_path = raw / "github-trends-digest" / date_str / "digest.json"
+    
+    # Fallback to tech-hotspot-radar for github trends if legacy path doesn't exist
+    if not github_path.exists():
+        new_github_path = raw / "tech-hotspot-radar" / "github-trend-report" / date_str / "github-trend-pack.json"
+        if new_github_path.exists():
+            github_path = new_github_path
+            github_digest = load_new_github_digest(github_path)
+        else:
+            github_digest = {}
+    else:
+        github_digest = read_json(github_path)
+
     youtube_path = latest_youtube_digest(raw, date_str)
     ai_digest = read_json(ai_path)
-    github_digest = read_json(github_path)
     youtube = parse_youtube_digest(youtube_path)
     asr_files = youtube_asr_files(raw, date_str)
     asr_summaries = parse_asr_summary(asr_files)
