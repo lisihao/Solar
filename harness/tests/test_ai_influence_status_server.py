@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import sqlite3
@@ -95,6 +96,66 @@ def test_save_ai_influence_mail_config(tmp_path, monkeypatch):
     assert "updated_at" in saved
 
 
+def test_report_lock_events_payload_and_render(tmp_path, monkeypatch):
+    mod = _load_module()
+    event_log = tmp_path / "report-lock-events.jsonl"
+    rows = [
+        {
+            "ts": "2026-06-06T12:00:00Z",
+            "action": "acquire",
+            "status": "acquired",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "999999",
+            "other_pid": "",
+            "detail": "new_lock",
+        },
+        {
+            "ts": "2026-06-06T12:01:00Z",
+            "action": "acquire",
+            "status": "busy_skip",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "1000000",
+            "other_pid": "999999",
+            "detail": "existing_pid_alive",
+        },
+        {
+            "ts": "2026-06-06T12:02:00Z",
+            "action": "stale_cleanup",
+            "status": "removed",
+            "label": "youtube-daily-ai-influence-report",
+            "lock_dir": str(tmp_path / "youtube.lockdir"),
+            "pid": "1000001",
+            "other_pid": "999998",
+            "detail": "existing_pid_dead_or_missing",
+        },
+        {
+            "ts": "2026-06-06T12:03:00Z",
+            "action": "release",
+            "status": "released",
+            "label": "github-trend-report-daily",
+            "lock_dir": str(tmp_path / "github.lockdir"),
+            "pid": "999999",
+            "other_pid": "",
+            "detail": "owner_exit",
+        },
+    ]
+    event_log.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "REPORT_LOCK_EVENTS", event_log)
+
+    payload = mod._report_lock_events_payload(limit=10)
+
+    assert payload["ok"] is True
+    assert payload["summary"]["busy_skip"] == 1
+    assert payload["summary"]["stale_removed"] == 1
+    assert payload["summary"]["active"] == 0
+    rendered = mod._render_report_lock_events_section()
+    assert "运行锁观测" in rendered
+    assert "github-trend-report-daily" in rendered
+    assert "busy_skip" in rendered
+
+
 def test_ai_influence_send_report_uses_full_html_body_and_attaches_html(tmp_path, monkeypatch):
     mod = _load_module()
     report_dir = tmp_path / "report-one"
@@ -175,6 +236,7 @@ def test_ai_influence_html_splits_reports_and_resources_tabs(tmp_path, monkeypat
 
     monkeypatch.setattr(mod, "AI_INFLUENCE_RAW_DIR", legacy_root)
     monkeypatch.setattr(mod, "HUGGINGFACE_PAPERS_RAW_DIR", tmp_path / "huggingface-papers")
+    monkeypatch.setattr(mod, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
 
     html = mod._ai_influence_html(period="30d")
@@ -240,6 +302,222 @@ def test_ai_influence_html_has_month_tab_and_module_tab(tmp_path, monkeypatch):
     assert "2026-04" in html
     assert 'class="module-tabs"' in html
     assert 'data-month="2026-05"' in html
+
+
+def test_ai_influence_html_includes_deepdive_tab_and_history(tmp_path, monkeypatch):
+    mod = _load_module()
+    reports_root = tmp_path / "reports"
+    reports_root.mkdir()
+    run_dir = reports_root / "deepdive-agent-runtime-20260606T000000Z"
+    run_dir.mkdir()
+    (run_dir / "ai_influence_deepdive_request.json").write_text(
+        json.dumps(
+            {
+                "sid": "deepdive-agent-runtime-20260606T000000Z",
+                "question": "Why do agent runtimes need harnesses?",
+                "status": "queued",
+                "updated_at": "2026-06-06T00:00:00Z",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "final.md").write_text("# Agent Runtime DeepDive\n", encoding="utf-8")
+    (run_dir / "deepdive-agent-runtime-20260606T000000Z-research_eval.json").write_text(
+        json.dumps(
+            {
+                "run_id": "deepdive-agent-runtime-20260606T000000Z",
+                "status": "passed",
+                "title": "Agent Runtime DeepDive",
+                "source_count": 12,
+                "evidence_count": 24,
+                "claim_count": 18,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(mod, "REPORTS_DIR", reports_root)
+    monkeypatch.setattr(mod, "AI_INFLUENCE_RAW_DIR", tmp_path / "legacy-ai-influence")
+    monkeypatch.setattr(mod, "HUGGINGFACE_PAPERS_RAW_DIR", tmp_path / "huggingface-papers")
+    monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: tmp_path / "tech-hotspot-radar")
+
+    html = mod._ai_influence_html(period="30d")
+
+    assert 'data-tab="deepdive"' in html
+    assert 'id="tab-deepdive"' in html
+    assert 'id="deepdive-question"' in html
+    assert "submitDeepDiveQuestion()" in html
+    assert "Agent Runtime DeepDive" in html
+    assert "Why do agent runtimes need harnesses?" in html
+    assert "/research/deepdive-agent-runtime-20260606T000000Z?format=html" in html
+
+
+def test_ai_influence_deepdive_create_queues_survey_finalize_run(tmp_path, monkeypatch):
+    mod = _load_module()
+    reports_root = tmp_path / "reports"
+    reports_root.mkdir()
+    source_root = tmp_path / "source-harness"
+    cli_path = source_root / "lib" / "research" / "cli.py"
+    cli_path.parent.mkdir(parents=True, exist_ok=True)
+    cli_path.write_text("print('ok')\n", encoding="utf-8")
+
+    captured: dict = {}
+
+    class FakePopen:
+        def __init__(self, args, cwd=None, env=None):
+            captured["args"] = args
+            captured["cwd"] = cwd
+            captured["env"] = env
+
+    monkeypatch.setattr(mod, "REPORTS_DIR", reports_root)
+    monkeypatch.setattr(mod, "SOURCE_HARNESS_DIR", source_root)
+    monkeypatch.setattr(mod.subprocess, "Popen", FakePopen)
+
+    result = mod._ai_influence_deepdive_create({"question": "Why do agent runtimes need harnesses?"})
+
+    assert result["ok"] is True
+    run_dir = reports_root / result["sid"]
+    assert run_dir.exists()
+    saved = json.loads((run_dir / "ai_influence_deepdive_request.json").read_text(encoding="utf-8"))
+    assert saved["question"] == "Why do agent runtimes need harnesses?"
+    assert saved["status"] == "queued"
+    command = captured["args"][2]
+    assert "survey-finalize-run" in command
+    assert "--brief" in command
+    assert "Why do agent runtimes need harnesses?" in command
+    assert captured["cwd"] == str(source_root)
+
+
+def test_planned_report_interview_detection_does_not_treat_named_talk_as_interview():
+    mod = _load_module()
+    technical_talk = {
+        "channel": "AI Engineer",
+        "title": "The Art & Science of Benchmarking Agents — Vincent Chen, Snorkel AI",
+        "summary_zh": "",
+        "topic_tags": ["benchmark"],
+    }
+    actual_interview = {
+        "channel": "PeopleReign",
+        "title": "HumanX 2026 Interview with Dataiku CEO",
+        "summary_zh": "",
+        "topic_tags": ["future of work"],
+    }
+
+    assert mod._planned_report_is_interview_like_video(technical_talk) is False
+    assert mod._planned_report_is_interview_like_video(actual_interview) is True
+
+
+def test_sanitize_ai_influence_report_html_cleans_live_page_ugly_markup(tmp_path):
+    mod = _load_module()
+    report_dir = tmp_path / "report"
+    report_dir.mkdir()
+    (report_dir / "evidence-pack.json").write_text(
+        json.dumps(
+            {
+                "videos": [
+                    {
+                        "video_ref": "V001",
+                        "title": "Demo",
+                        "channel": "AI Engineer",
+                        "url": "https://example.com/demo",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    html = """
+<html><body>
+<section class="ai-report-material-map"><h2>章节与视频素材对应表</h2></section>
+<section class="ai-report-section"><div class="ai-report-prose">
+<ul><li>[Demo](https://example.com/demo)</li></ul>
+<ul><li>[Followup](https://example.com/followup)</li></ul>
+<p>本节素材：[Demo](https://www.youtube.com/watch?v=<a href="https://www.youtube.com/watch?v=demo123" target="_blank" rel="noreferrer noopener">Demo</a>)，发布于 2026-06-03。</p>
+<p>核心判断</p>
+<p>本节素材：[Demo](https://example.com/demo)。</p>
+<span class="ai-material-ref">V001</span>
+<td>0.0 分钟</td>
+</div></section>
+</body></html>
+"""
+    cleaned = mod._sanitize_ai_influence_report_html(report_dir, html)
+
+    assert "章节与视频素材对应表" not in cleaned
+    assert "[Demo](https://example.com/demo)" not in cleaned
+    assert cleaned.count("<ul>") == 1
+    assert 'class="ai-report-argument-label">核心判断<' in cleaned
+    assert 'class="ha-muted ai-section-material-intro"' in cleaned
+    assert "0.0 分钟" not in cleaned
+    assert 'https://www.youtube.com/watch?v=<a href=' not in cleaned
+
+
+def test_sanitize_ai_influence_report_html_still_cleans_without_evidence_pack(tmp_path):
+    mod = _load_module()
+    report_dir = tmp_path / "legacy-report"
+    report_dir.mkdir()
+
+    html = """
+<html><body>
+<section class="ai-report-sources"><h2>本期素材</h2></section>
+<p class="ha-muted ai-section-material-intro">本节素材：[Demo](https://www.youtube.com/watch?v=<a href="https://www.youtube.com/watch?v=demo123" target="_blank" rel="noreferrer noopener">Demo</a>)，发布于 2026-06-03。</p>
+</body></html>
+"""
+    cleaned = mod._sanitize_ai_influence_report_html(report_dir, html)
+
+    assert "本期素材" not in cleaned
+    assert 'https://www.youtube.com/watch?v=<a href=' not in cleaned
+    assert '<a href="https://www.youtube.com/watch?v=demo123"' in cleaned
+
+
+def test_sanitize_ai_influence_report_html_cleans_nested_markdown_youtube_links(tmp_path):
+    mod = _load_module()
+    report_dir = tmp_path / "report"
+    report_dir.mkdir()
+    (report_dir / "evidence-pack.json").write_text(
+        json.dumps({"videos": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    html = """
+<html><body>
+<section class="ai-report-section"><div class="ai-report-prose">
+<p class="ha-muted ai-section-material-intro">本节素材：[Demo](https://www.youtube.com/watch?v=[Demo](https://www.youtube.com/watch?v=demo123))，发布于 2026-06-03。</p>
+</div></section>
+</body></html>
+"""
+    cleaned = mod._sanitize_ai_influence_report_html(report_dir, html)
+
+    assert "https://www.youtube.com/watch?v=[" not in cleaned
+    assert '<a href="https://www.youtube.com/watch?v=demo123"' in cleaned
+
+
+def test_sanitize_ai_influence_report_html_polishes_runtime_wording(tmp_path):
+    mod = _load_module()
+    report_dir = tmp_path / "report"
+    report_dir.mkdir()
+
+    html = """
+<html><body>
+<section class="ai-report-section"><div class="ai-report-prose">
+<p>可用 转写：当前只有片段。</p>
+<p>标题和归组明确，但转写 字符量不足。</p>
+<p>如果原文写的是正文转写，也不该重复叠词。</p>
+<p>如果只剩转写 规模指标，也不该写成会议内容。</p>
+</div></section>
+</body></html>
+"""
+    cleaned = mod._sanitize_ai_influence_report_html(report_dir, html)
+
+    assert "可参考的正文内容" in cleaned
+    assert "标题与主题明确" in cleaned
+    assert "正文规模" in cleaned
+    assert "正文正文内容" not in cleaned
+    assert "可参考的会议内容" not in cleaned
+    assert "会议内容规模" not in cleaned
 
 
 def test_ai_influence_payload_month_filter(tmp_path, monkeypatch):
@@ -415,6 +693,34 @@ channels:
     monkeypatch.setattr(mod, "TECH_HOTSPOT_DB", db_path)
     monkeypatch.setattr(mod, "AI_INFLUENCE_YOUTUBE_VIDEO_ARCHIVE", archive_path)
     monkeypatch.setattr(mod, "YOUTUBE_DIGEST_CONFIG", youtube_config_path)
+    hotspot_root = tmp_path / "tech-hotspot-radar"
+    planned_report = hotspot_root / "ai-influence-planned" / "2026-06-04" / "reports" / "agent-runtime-report"
+    planned_report.mkdir(parents=True, exist_ok=True)
+    (planned_report / "report.html").write_text("<html>planned</html>", encoding="utf-8")
+    (planned_report / "report.md").write_text("# planned\n", encoding="utf-8")
+    (planned_report / "report-result.json").write_text(
+        json.dumps({"headline": "Agent Runtime 深度洞察"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (planned_report / "evidence-pack.json").write_text(
+        json.dumps(
+            {
+                "videos": [
+                    {
+                        "video_ref": "V001",
+                        "video_id": "abc123",
+                        "channel": "AI Engineer",
+                        "title": "Agent Runtime Talk",
+                        "url": "https://www.youtube.com/watch?v=abc123",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
+    monkeypatch.setattr(mod, "_today_local_date", lambda: datetime.date(2026, 6, 6))
 
     payload = mod._ai_influence_youtube_videos_payload(period="all")
 
@@ -433,21 +739,38 @@ channels:
     assert item["thumbnail"].endswith("/abc123/hqdefault.jpg")
     assert item["summary"] == "Agent runtime 摘要"
     assert item["tags"] == ["Agent", "MCP"]
+    linked = next(video for video in payload["items"] if video["video_id"] == "abc123")
+    assert linked["insight_report_count"] == 1
+    assert linked["insight_report_title"] == "Agent Runtime 深度洞察"
+    assert "/ai-influence/report?id=" in linked["insight_report_url"]
+    assert payload["week_days"][0]["label"] == "周一"
+    assert payload["week_days"][-1]["date"] == "2026-06-07"
 
-    html = mod._ai_influence_youtube_videos_html(period="all")
+    weekday_payload = mod._ai_influence_youtube_videos_payload(period="all", selected_day="2026-06-03")
+    assert weekday_payload["selected_day"] == "2026-06-03"
+    assert weekday_payload["count"] == 1
+    assert weekday_payload["items"][0]["video_id"] == "abc123"
+
+    html = mod._ai_influence_youtube_videos_html(period="week", selected_day="2026-06-03")
     assert "大V/访谈频道" in html
     assert "学术/机构频道" in html
     assert "type-influencer" in html
     assert "type-academic" in html
     assert "channel-tabs" in html
     assert "data-channel-tab" in html
-    assert "data-channel-section hidden" in html
+    assert "data-channel-section" in html
     assert "showChannelSection" in html
     assert "Channel Group" not in html
     assert "频道分组" in html
     assert "影响力" in html
     assert "推荐关注" in html
     assert "addRecommendedChannels" in html
+    assert "已有洞察报告" in html
+    assert "Agent Runtime 深度洞察" in html
+    assert "本周周一到周日筛选" in html
+    assert "周一" in html and "周日" in html
+    assert "2026-06-03" in html
+    assert "weekday-tab active" in html
 
     recommendations = mod._youtube_subscription_recommendations(limit=5)
     assert recommendations
@@ -463,6 +786,17 @@ channels:
     assert result["ok"] is True
     assert mod._ai_influence_youtube_videos_payload(period="all")["count"] == 2
     assert mod._ai_influence_youtube_videos_payload(period="all", include_archived=True)["count"] == 3
+
+
+def test_youtube_video_dates_use_local_timezone(monkeypatch):
+    mod = _load_module()
+    monkeypatch.setenv("LOCAL_TZ", "America/Toronto")
+
+    date_part, month, raw = mod._youtube_video_date_parts("2026-06-06T01:30:00Z")
+
+    assert date_part == "2026-06-05"
+    assert month == "2026-06"
+    assert raw == "2026-06-06T01:30:00Z"
 
 
 def test_ai_influence_transcript_view_resolves_planned_video(tmp_path, monkeypatch):
