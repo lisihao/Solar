@@ -1281,6 +1281,26 @@ def pm_inbox_dir() -> Path:
     return PM_INBOX_DIR
 
 
+def _write_operator_inbox_envelope(operator_id: str, task_id: str, envelope: dict[str, Any]) -> Path:
+    """Write a task envelope directly to the operator inbox using the PM fallback path."""
+    inbox_dir = OPERATOR_INBOX_DIR / operator_id
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    inbox_path = inbox_dir / f"{task_id}.json"
+    tmp = str(inbox_path) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(envelope, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, str(inbox_path))
+    return inbox_path
+
+
+def _should_direct_inbox_graph_eval(role: str, task_type: str) -> bool:
+    """Route graph evaluator tasks around slow runtime submit while preserving PM records."""
+    value = str(os.environ.get("SOLAR_PM_GRAPH_EVAL_DIRECT_INBOX", "1")).strip().lower()
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return normalize_role(role) == "evaluator" and str(task_type or "").strip() == "graph_eval"
+
+
 def write_pm_task_record(task_id: str, record: dict[str, Any]) -> Path:
     path = pm_inbox_dir() / f"{task_id}.json"
     tmp = str(path) + ".tmp"
@@ -1723,10 +1743,24 @@ def _pm_expected_artifacts(record: dict[str, Any]) -> list[Path]:
 def _pm_closeout_status(record: dict[str, Any]) -> dict[str, Any]:
     expected = _pm_expected_artifacts(record)
     missing = [str(path) for path in expected if not path.exists() or path.stat().st_size <= 0]
+    stale: list[str] = []
+    submitted_at = _parse_record_time(record.get("submitted_at") or record.get("issued_at"))
+    if submitted_at is not None:
+        threshold = submitted_at - datetime.timedelta(seconds=2)
+        for path in expected:
+            if not path.exists() or path.stat().st_size <= 0:
+                continue
+            try:
+                artifact_mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime, tz=datetime.timezone.utc)
+            except OSError:
+                continue
+            if artifact_mtime < threshold:
+                stale.append(str(path))
     return {
-        "ok": not missing,
+        "ok": not missing and not stale,
         "expected_artifacts": [str(path) for path in expected],
         "missing_artifacts": missing,
+        "stale_artifacts": stale,
     }
 
 
@@ -2057,6 +2091,24 @@ def cmd_submit(args: argparse.Namespace) -> int:
 
     # 4. 写 dispatch 文件
     dispatch_file.write_text(dispatch_text, encoding="utf-8")
+    try:
+        dispatch_json_path = dispatch_file.with_suffix(".dispatch.json")
+        _write_dispatch_json(
+            dispatch_json_path=dispatch_json_path,
+            dispatch_md_path=dispatch_file,
+            dispatch_text=dispatch_text,
+            dispatch_id=task_id,
+            sprint_id=sprint_id,
+            node_id=node_id,
+            issued_by="pm_pane",
+            payload={
+                "objective": objective,
+                "task_type": task_type or "pm_order",
+                "context": context,
+            },
+        )
+    except Exception as e:
+        print(f"WARNING: failed to write dispatch.json: {e}", file=sys.stderr)
 
     # 5. 构建 task envelope → operator_runtime.submit
     envelope = {
@@ -2114,46 +2166,49 @@ def cmd_submit(args: argparse.Namespace) -> int:
         record["capability_capsule_id"] = capsule_submit["capability_capsule_id"]
         record["logical_operator"] = logical_operator
 
-    # 尝试通过 operator_runtime.submit 投递
-    try:
-        lib_dir = HARNESS_DIR / "lib"
-        if str(lib_dir) not in sys.path:
-            sys.path.insert(0, str(lib_dir))
-        tools_dir = HARNESS_DIR / "tools"
-        if str(tools_dir) not in sys.path:
-            sys.path.insert(0, str(tools_dir))
-
-        from operator_runtime import submit  # type: ignore
-    except Exception as exc:
-        # fallback: 直接写 operator inbox（无 lease，operatord 会拾取）
-        inbox_dir = OPERATOR_INBOX_DIR / operator_id
-        inbox_dir.mkdir(parents=True, exist_ok=True)
-        inbox_path = inbox_dir / f"{task_id}.json"
-        tmp = str(inbox_path) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(envelope, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, str(inbox_path))
+    # 尝试通过 operator_runtime.submit 投递；graph evaluator 走直接 inbox 快路径，
+    # 避免验收闭环被 runtime lease/bootstrap 慢路径卡住。
+    if _should_direct_inbox_graph_eval(role, task_type):
+        inbox_path = _write_operator_inbox_envelope(operator_id, task_id, envelope)
         record["status"] = "submitted_fallback"
         record["inbox_path"] = str(inbox_path)
-        record["submit_error"] = str(exc)
-        submit_mode = "direct_inbox"
+        record["submit_bypassed_operator_runtime"] = True
+        submit_mode = "direct_inbox_graph_eval"
     else:
         try:
-            result = submit(envelope)
+            lib_dir = HARNESS_DIR / "lib"
+            if str(lib_dir) not in sys.path:
+                sys.path.insert(0, str(lib_dir))
+            tools_dir = HARNESS_DIR / "tools"
+            if str(tools_dir) not in sys.path:
+                sys.path.insert(0, str(tools_dir))
+
+            from operator_runtime import submit  # type: ignore
         except Exception as exc:
-            record["status"] = "failed_submit_exception"
-            record["failed_at"] = _now()
-            record["failure_reason"] = f"operator_runtime.submit failed: {exc}"
+            # fallback: 直接写 operator inbox（无 lease，operatord 会拾取）
+            inbox_path = _write_operator_inbox_envelope(operator_id, task_id, envelope)
+            record["status"] = "submitted_fallback"
+            record["inbox_path"] = str(inbox_path)
             record["submit_error"] = str(exc)
-            write_pm_task_record(task_id, record)
-            print(f"ERROR: operator_runtime.submit failed: {exc}", file=sys.stderr)
-            return 1
-        record["status"] = "submitted"
-        record["lease_id"] = result.get("lease_id", "")
-        record["inbox_path"] = result.get("inbox_path", "")
-        if result.get("daemon_pid"):
-            record["daemon_pid"] = result.get("daemon_pid")
-        submit_mode = "operator_runtime.submit"
+            submit_mode = "direct_inbox"
+        else:
+            try:
+                result = submit(envelope)
+            except Exception as exc:
+                record["status"] = "failed_submit_exception"
+                record["failed_at"] = _now()
+                record["failure_reason"] = f"operator_runtime.submit failed: {exc}"
+                record["submit_error"] = str(exc)
+                write_pm_task_record(task_id, record)
+                print(f"ERROR: operator_runtime.submit failed: {exc}", file=sys.stderr)
+                return 1
+            record["status"] = "submitted"
+            record["lease_id"] = result.get("lease_id", "")
+            record["inbox_path"] = result.get("inbox_path", "")
+            if result.get("daemon_pid"):
+                record["daemon_pid"] = result.get("daemon_pid")
+            submit_mode = "operator_runtime.submit"
+    record["submit_mode"] = submit_mode
 
     graph_eval_dispatch = _mark_graph_node_evaluation_dispatched(record)
     if graph_eval_dispatch.get("marked"):
@@ -2789,12 +2844,35 @@ def _mark_graph_node_evaluation_dispatched(record: dict[str, Any]) -> dict[str, 
     return {"ok": True, "marked": True, "graph": str(graph_path), "sprint_id": sprint_id, "node_id": node_id, "state_sync": state_sync}
 
 
+def _graph_eval_requeue_reason(record: dict[str, Any]) -> tuple[str, str] | None:
+    reason_text = _transient_operator_failure_text(record)
+    if TRANSIENT_OPERATOR_FAILURE_RE.search(reason_text):
+        return "transient_operator_failure", reason_text
+
+    status = str(record.get("status") or "").strip().lower()
+    failure_reason = str(record.get("failure_reason") or "").strip().lower()
+    closeout = record.get("closeout_status")
+    has_closeout_artifact_gap = False
+    if isinstance(closeout, dict):
+        missing = closeout.get("missing_artifacts") or []
+        stale = closeout.get("stale_artifacts") or []
+        has_closeout_artifact_gap = bool(missing or stale)
+
+    if status == "failed_contract_closeout" or (
+        has_closeout_artifact_gap and "required_artifacts" in failure_reason
+    ):
+        return "failed_contract_closeout", reason_text
+
+    return None
+
+
 def _release_graph_eval_on_transient_operator_failure(record: dict[str, Any]) -> dict[str, Any]:
     if normalize_role(str(record.get("requested_role") or "")) != "evaluator":
         return {"ok": False, "released": False, "reason": "not_evaluator_task"}
-    reason = _transient_operator_failure_text(record)
-    if not TRANSIENT_OPERATOR_FAILURE_RE.search(reason):
-        return {"ok": False, "released": False, "reason": "not_transient_operator_failure"}
+    requeue = _graph_eval_requeue_reason(record)
+    if requeue is None:
+        return {"ok": False, "released": False, "reason": "not_requeueable_operator_failure"}
+    requeue_reason, reason = requeue
     sprint_id = str(record.get("sprint_id") or "").strip()
     node_id = str(record.get("node_id") or "").strip()
     task_id = str(record.get("task_id") or "").strip()
@@ -2824,10 +2902,14 @@ def _release_graph_eval_on_transient_operator_failure(record: dict[str, Any]) ->
 
     assignments = target.get("eval_assignments")
     had_assignment = False
+    cleared_all_assignments = False
     if isinstance(assignments, list):
         kept = []
         for item in assignments:
-            if isinstance(item, dict) and str(item.get("task_id") or "") == task_id:
+            if isinstance(item, dict) and (
+                str(item.get("task_id") or "") == task_id
+                or str(item.get("pm_task_id") or "") == task_id
+            ):
                 had_assignment = True
                 continue
             kept.append(item)
@@ -2835,9 +2917,17 @@ def _release_graph_eval_on_transient_operator_failure(record: dict[str, Any]) ->
             target["eval_assignments"] = kept
         else:
             target.pop("eval_assignments", None)
+            cleared_all_assignments = True
     if str(target.get("eval_dispatch_id") or "") == task_id:
         had_assignment = True
-        for key in ("eval_dispatch_id", "eval_dispatched_at", "eval_operator_id"):
+        for key in ("eval_dispatch_id", "eval_dispatched_at", "eval_operator_id", "eval_assigned_to"):
+            target.pop(key, None)
+    elif cleared_all_assignments:
+        for key in ("eval_dispatch_id", "eval_dispatched_at", "eval_operator_id", "eval_assigned_to"):
+            target.pop(key, None)
+    if str(target.get("eval_pm_task_id") or target.get("pm_task_id") or "") == task_id:
+        had_assignment = True
+        for key in ("eval_pm_task_id", "pm_task_id"):
             target.pop(key, None)
     if not had_assignment:
         return {"ok": True, "released": False, "reason": "dispatch_mismatch", "graph": str(graph_path), "node_id": node_id}
@@ -2847,20 +2937,31 @@ def _release_graph_eval_on_transient_operator_failure(record: dict[str, Any]) ->
     target.setdefault("eval_requeue_history", []).append(
         {
             "ts": now,
-            "reason": "transient_operator_failure",
+            "reason": requeue_reason,
             "task_id": task_id,
             "failure_reason": reason,
+            "closeout_status": record.get("closeout_status"),
         }
     )
     result_entry = (graph.get("node_results") or {}).get(node_id)
     if isinstance(result_entry, dict):
-        if str(result_entry.get("eval_dispatch_id") or "") == task_id:
-            for key in ("eval_dispatch_id", "eval_dispatched_at", "eval_operator_id"):
+        if str(result_entry.get("eval_dispatch_id") or "") == task_id or cleared_all_assignments:
+            for key in ("eval_dispatch_id", "eval_dispatched_at", "eval_operator_id", "eval_assigned_to"):
+                result_entry.pop(key, None)
+        if str(result_entry.get("eval_pm_task_id") or result_entry.get("pm_task_id") or "") == task_id:
+            for key in ("eval_pm_task_id", "pm_task_id"):
                 result_entry.pop(key, None)
         result_entry["updated_at"] = now
 
     graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "released": True, "graph": str(graph_path), "sprint_id": sprint_id, "node_id": node_id}
+    return {
+        "ok": True,
+        "released": True,
+        "graph": str(graph_path),
+        "sprint_id": sprint_id,
+        "node_id": node_id,
+        "requeue_reason": requeue_reason,
+    }
 
 
 def release_evaluator_assignment_on_transient_failure(record: dict[str, Any]) -> dict[str, Any]:
@@ -3342,6 +3443,12 @@ def cmd_complete(args: argparse.Namespace) -> int:
         record.setdefault("reconcile_history", []).append(
             {"ts": record["failed_at"], "action": "fail_contract_closeout", "reason": record["failure_reason"], **closeout}
         )
+        graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+        if graph_eval_requeue.get("released"):
+            record["graph_eval_requeue"] = graph_eval_requeue
+            record.setdefault("reconcile_history", []).append(
+                {"ts": record["failed_at"], "action": "graph_eval_requeue", **graph_eval_requeue}
+            )
         write_pm_task_record(task_id, record)
         print(json.dumps({"ok": False, "task_id": task_id, "reason": record["failure_reason"], **closeout}, ensure_ascii=False))
         return 2
@@ -3426,6 +3533,12 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "fail_contract_closeout", "reason": "completed_without_required_artifacts", **closeout}
                 )
+                graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+                if graph_eval_requeue.get("released"):
+                    record["graph_eval_requeue"] = graph_eval_requeue
+                    record.setdefault("reconcile_history", []).append(
+                        {"ts": now, "action": "graph_eval_requeue", **graph_eval_requeue}
+                    )
                 write_pm_task_record(task_id, record)
             continue
         if _pm_status_is_terminal(status):
@@ -3451,6 +3564,12 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                     record.setdefault("reconcile_history", []).append(
                         {"ts": now, "action": "fail_contract_closeout", "reason": "result_path_exists_but_required_artifacts_missing", **closeout}
                     )
+                    graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+                    if graph_eval_requeue.get("released"):
+                        record["graph_eval_requeue"] = graph_eval_requeue
+                        record.setdefault("reconcile_history", []).append(
+                            {"ts": now, "action": "graph_eval_requeue", **graph_eval_requeue}
+                        )
                     write_pm_task_record(task_id, record)
                 continue
             actions.append({"task_id": task_id, "action": "complete", "reason": "result_path_exists", **closeout})
@@ -3608,6 +3727,44 @@ def main() -> int:
         p.print_help()
         return 0
     return fn(args)
+
+
+def _load_dispatch_package_module() -> Any | None:
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import dispatch_package
+        return dispatch_package
+    except Exception:
+        return None
+
+
+def _write_dispatch_json(
+    *,
+    dispatch_json_path: Path | str,
+    dispatch_md_path: Path | str,
+    dispatch_text: str,
+    dispatch_id: str,
+    sprint_id: str,
+    node_id: str,
+    issued_by: str,
+    payload: dict[str, Any],
+) -> None:
+    dp = _load_dispatch_package_module()
+    if dp is None:
+        return
+    pkg = dp.build_dispatch_package(
+        dispatch_id=dispatch_id,
+        sprint_id=sprint_id,
+        node_id=node_id,
+        dispatch_md_path=str(dispatch_md_path),
+        dispatch_text=dispatch_text,
+        payload=payload,
+        issued_by=issued_by,
+        dispatch_json_path=str(dispatch_json_path),
+    )
+    dp.write_dispatch_package(dispatch_json_path, pkg)
 
 
 if __name__ == "__main__":

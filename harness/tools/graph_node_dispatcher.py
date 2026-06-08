@@ -3766,6 +3766,32 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
     instruction_file = _dispatch_file(sid, node_id)
     instruction_file.parent.mkdir(parents=True, exist_ok=True)
     instruction_file.write_text(build_dispatch_text(text_payload, pane), encoding="utf-8")
+    try:
+        dispatch_json_path = _get_dispatch_json_path(instruction_file)
+        selected_role = str(assignment.get("role") or payload.get("role") or node.get("role") or "")
+        dp_info = _dispatch_package_from_payload(
+            payload=payload,
+            sid=sid,
+            node_id=node_id,
+            node=node,
+            dispatch_id=dispatch_id,
+            selected_role=selected_role,
+        )
+        json_payload = dict(text_payload)
+        json_payload["dispatch_package"] = dp_info
+
+        _write_dispatch_json_package(
+            dispatch_json_path=dispatch_json_path,
+            dispatch_md_path=instruction_file,
+            dispatch_text=build_dispatch_text(text_payload, pane),
+            dispatch_id=dispatch_id,
+            sprint_id=sid,
+            node_id=node_id,
+            issued_by=f"graph_node_dispatcher:{pane}",
+            payload=json_payload,
+        )
+    except Exception:
+        pass
     if not dry_run:
         _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=dispatch_id)
     if dry_run:
@@ -4452,24 +4478,52 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             ]
             instruction_file = _eval_dispatch_member_file(sid, node_id, int(assignment["index"]))
             instruction_file.parent.mkdir(parents=True, exist_ok=True)
-            instruction_file.write_text(
-                build_eval_dispatch_text(
-                    graph,
-                    graph_path,
-                    node,
-                    pane,
-                    str(assignment["dispatch_id"]),
-                    evaluator_role=str(assignment["role"]),
-                    evaluator_index=int(assignment["index"]),
-                    evaluator_total=total_evaluators,
-                    eval_md_override=Path(str(assignment["eval_md_path"])),
-                    eval_json_override=Path(str(assignment["eval_json_path"])),
-                    peer_eval_json_paths=peer_paths,
-                    canonical_eval_json_path=canonical_eval_json,
-                    canonical_eval_md_path=canonical_eval_md,
-                ),
-                encoding="utf-8",
+            eval_text = build_eval_dispatch_text(
+                graph,
+                graph_path,
+                node,
+                pane,
+                str(assignment["dispatch_id"]),
+                evaluator_role=str(assignment["role"]),
+                evaluator_index=int(assignment["index"]),
+                evaluator_total=total_evaluators,
+                eval_md_override=Path(str(assignment["eval_md_path"])),
+                eval_json_override=Path(str(assignment["eval_json_path"])),
+                peer_eval_json_paths=peer_paths,
+                canonical_eval_json_path=canonical_eval_json,
+                canonical_eval_md_path=canonical_eval_md,
             )
+            instruction_file.write_text(eval_text, encoding="utf-8")
+            try:
+                dispatch_json_path = _get_dispatch_json_path(instruction_file)
+                evaluator_role = str(assignment["role"])
+                dp_info = _dispatch_package_from_payload(
+                    payload=node,
+                    sid=sid,
+                    node_id=node_id,
+                    node=node,
+                    dispatch_id=str(assignment["dispatch_id"]),
+                    selected_role=evaluator_role,
+                )
+                json_payload = {
+                    "task_type": "graph_eval",
+                    "dispatch_package": dp_info,
+                    "evaluator_role": evaluator_role,
+                    "evaluator_index": int(assignment["index"]),
+                    "evaluator_total": total_evaluators,
+                }
+                _write_dispatch_json_package(
+                    dispatch_json_path=dispatch_json_path,
+                    dispatch_md_path=instruction_file,
+                    dispatch_text=eval_text,
+                    dispatch_id=str(assignment["dispatch_id"]),
+                    sprint_id=sid,
+                    node_id=node_id,
+                    issued_by=f"graph_node_dispatcher:{pane}",
+                    payload=json_payload,
+                )
+            except Exception:
+                pass
             _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=str(assignment["dispatch_id"]))
             if dry_run:
                 used_evaluator_panes.add(pane)
@@ -4813,6 +4867,83 @@ def main() -> int:
 
     print(_json(result))
     return 0 if result.get("ok") else 2
+
+
+def _load_dispatch_package_module() -> Any | None:
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import dispatch_package
+        return dispatch_package
+    except Exception:
+        return None
+
+
+def _get_dispatch_json_path(dispatch_md_path: Path) -> Path:
+    name = dispatch_md_path.name
+    if name.endswith("-dispatch.md"):
+        new_name = name[:-12] + ".dispatch.json"
+    elif name.endswith(".md"):
+        new_name = name[:-3] + ".dispatch.json"
+    else:
+        new_name = name + ".dispatch.json"
+    return dispatch_md_path.parent / new_name
+
+
+def _write_dispatch_json_package(
+    *,
+    dispatch_json_path: Path | str,
+    dispatch_md_path: Path | str,
+    dispatch_text: str,
+    dispatch_id: str,
+    sprint_id: str,
+    node_id: str,
+    issued_by: str,
+    payload: dict[str, Any],
+) -> None:
+    dp = _load_dispatch_package_module()
+    if dp is None:
+        return
+    pkg = dp.build_dispatch_package(
+        dispatch_id=dispatch_id,
+        sprint_id=sprint_id,
+        node_id=node_id,
+        dispatch_md_path=str(dispatch_md_path),
+        dispatch_text=dispatch_text,
+        payload=payload,
+        issued_by=issued_by,
+        dispatch_json_path=str(dispatch_json_path),
+    )
+    dp.write_dispatch_package(dispatch_json_path, pkg)
+
+
+def _dispatch_package_from_payload(
+    payload: dict[str, Any],
+    sid: str,
+    node_id: str,
+    node: dict[str, Any],
+    dispatch_id: str,
+    selected_role: str,
+) -> dict[str, Any]:
+    role = "builder_main"
+    if payload and isinstance(payload, dict):
+        dp = payload.get("dispatch_package")
+        if isinstance(dp, dict) and dp.get("role"):
+            role = dp["role"]
+        elif selected_role:
+            role = selected_role
+        elif payload.get("role"):
+            role = payload["role"]
+    elif selected_role:
+        role = selected_role
+
+    return {
+        "role": role,
+        "dispatch_id": dispatch_id,
+        "sprint_id": sid,
+        "node_id": node_id,
+    }
 
 
 if __name__ == "__main__":
