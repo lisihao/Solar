@@ -605,7 +605,11 @@ def _ai_influence_period_cutoff(period: str) -> tuple[str, datetime.date | None]
 def _tech_hotspot_raw_dir() -> Path:
     cfg = _read_yaml_file(TECH_HOTSPOT_CONFIG)
     raw_dir = ((cfg.get("output") or {}).get("raw_dir") or str(KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar"))
-    return Path(str(raw_dir)).expanduser()
+    raw_str = str(raw_dir)
+    for prefix in ("${SOLAR_KNOWLEDGE_DIR}", "$SOLAR_KNOWLEDGE_DIR"):
+        if raw_str.startswith(prefix):
+            raw_str = str(KNOWLEDGE_DIR) + raw_str[len(prefix):]
+    return Path(raw_str).expanduser()
 
 
 def _default_mail_to() -> str:
