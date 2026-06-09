@@ -12518,7 +12518,7 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         operator_kind="chapter_writer",
         open_project_first=False,
         require_project=False,
-        requested_max_prompt_chars=30000,
+        requested_max_prompt_chars=15000,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
