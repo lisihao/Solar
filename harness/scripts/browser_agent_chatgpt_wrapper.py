@@ -287,13 +287,13 @@ SUBMIT_JS = r"""() => {
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
   const candidates = [
-    "form button[type='submit']",
-    "button[type='submit']",
     "button[data-testid='send-button']",
     "button[data-testid='composer-send-button']",
     "button[aria-label*='Send']",
     "button[aria-label*='send']",
     "button[aria-label*='发送']",
+    "form button[type='submit']",
+    "button[type='submit']",
     "button.composer-submit-button-color[type='button']",
     "button.composer-submit-button-color",
   ];
