@@ -117,7 +117,7 @@ run_report_once() {
   "${RADAR[@]}" github-trend-report \
     --date "$REPORT_DATE" \
     --limit "${GITHUB_TREND_REPORT_LIMIT:-12}" \
-    --model "${GITHUB_TREND_REPORT_MODEL:-deepseek-chat}" "$@" 2>"$TMP_ERR"
+    --model "${GITHUB_TREND_REPORT_MODEL:-chatgpt-5.5}" "$@" 2>"$TMP_ERR"
 }
 
 send_report_mail() {
