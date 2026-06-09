@@ -56,6 +56,7 @@ fi
 export GMAIL_USER="${GMAIL_USER:-lisihao@gmail.com}"
 export GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE="${GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE:-solar-ai-influence-gmail}"
 export GITHUB_TREND_REPORT_SEND_MAIL="${GITHUB_TREND_REPORT_SEND_MAIL:-true}"
+export SOLAR_KNOWLEDGE_DIR="${SOLAR_KNOWLEDGE_DIR:-/Users/lisihao/Knowledge}"
 
 REPORT_DATE="${GITHUB_TREND_REPORT_DATE:-$("$PYTHON" - <<'PY'
 import datetime as dt
