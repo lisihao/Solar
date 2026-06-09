@@ -15167,7 +15167,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "BROWSER_AGENT_REQUEST_DIR": str(req_dir),
         "BROWSER_AGENT_PURPOSE": purpose,
         "BROWSER_AGENT_CHATGPT_MODEL_MODE": "thinking",
-        "BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE": "true",
+        "BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE": "false",
     })
     min_answer_chars_raw = (
         writer_cfg.get("min_answer_chars")
