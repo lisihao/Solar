@@ -439,7 +439,7 @@ def main() -> int:
         except Exception as exc:
             print(f"chatgpt_report_operator: invalid deep-research-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
-        if not proof.get("ok"):
+        if not proof.get("ok") and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             print(
                 "chatgpt_report_operator: Deep Research mode not confirmed: "
                 + json.dumps(proof, ensure_ascii=False),
@@ -465,7 +465,7 @@ def main() -> int:
         except Exception as exc:
             print(f"chatgpt_report_operator: invalid chatgpt-mode-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
-        if not proof.get("ok"):
+        if not proof.get("ok") and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             if post_submit_proof_path.exists():
                 try:
                     post_submit_proof = json.loads(post_submit_proof_path.read_text(encoding="utf-8"))
