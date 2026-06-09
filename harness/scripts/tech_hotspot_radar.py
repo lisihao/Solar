@@ -1947,7 +1947,7 @@ def materialize_youtube_semantic_outputs(conn: sqlite3.Connection, video_id: str
         premium_reason="youtube transcript semantic brief ready for later cross-source synthesis",
     )
 
-    raw_root = Path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_root = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     date_str = (str(video[4] or iso_z()).split("T", 1)[0] or iso_z().split("T", 1)[0])
     out_dir = raw_root / "youtube-semantic" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -12518,7 +12518,7 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         operator_kind="chapter_writer",
         open_project_first=False,
         require_project=False,
-        requested_max_prompt_chars=15000,
+        requested_max_prompt_chars=6000,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
@@ -12547,7 +12547,7 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
     conn.row_factory = sqlite3.Row
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     limit = int(getattr(args, "limit", 10) or 10)
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     out_dir = raw_base / "github-trend-report" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     run_id = begin_run(conn, "github", "github-trend-report")
@@ -13274,7 +13274,7 @@ def render_latest_github_trend_html(date_str: str, output_base: str | None = Non
 
 
 def latest_social_trend_markdown(date_str: str, output_base: str | None = None) -> str:
-    base = Path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar").expanduser()
+    base = _expand_runtime_path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     candidates = [base / "social-trend-report" / date_str / "social-trend-report.md"]
     root = base / "social-trend-report"
     if root.exists():
@@ -17938,7 +17938,7 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
         return 1
     evidence_pack = build_phase_evidence_pack(rows, phase=phase, date_str=date_str, days=days)
     run_id = begin_run(conn, "youtube", f"phase-report-{phase}")
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     out_dir = raw_base / f"phase-{phase}" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "phase-evidence-pack.json").write_text(json.dumps(evidence_pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -18015,7 +18015,7 @@ def _ai_influence_planned_base(config: dict[str, Any], args: argparse.Namespace,
 
 
 def _ai_influence_canonical_planned_base(config: dict[str, Any], date_str: str) -> Path:
-    raw_base = Path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     return raw_base / "ai-influence-planned" / date_str
 
 
