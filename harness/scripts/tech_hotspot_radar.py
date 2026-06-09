@@ -82,6 +82,15 @@ class GitHubApiError(RuntimeError):
     """GitHub API request failed with a non-rate-limit HTTP error."""
 
 
+def _expand_runtime_path(p: str | Path | None) -> Path:
+    if not p:
+        return Path.cwd()
+    s = str(p)
+    if "${" in s or "$" in s:
+        s = os.path.expandvars(s)
+    return Path(s).expanduser()
+
+
 def thunderomlx_ingest_paused() -> dict[str, Any] | None:
     path = Path(os.environ.get("THUNDEROMLX_MAINTENANCE_FILE", str(DEFAULT_THUNDEROMLX_PAUSE_FILE))).expanduser()
     if not path.exists():
