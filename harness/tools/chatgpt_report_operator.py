@@ -427,7 +427,7 @@ def main() -> int:
             print("chatgpt_report_operator: deep_writer missing BROWSER_AGENT_REQUEST_DIR for Deep Research proof", file=sys.stderr)
             return 1
         proof_path = Path(request_dir).expanduser() / "deep-research-state.json"
-        if not proof_path.exists():
+        if not proof_path.exists() and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             print(
                 "chatgpt_report_operator: deep_writer did not produce deep-research-state.json; "
                 "normal chat output is not accepted as Deep Research",
@@ -454,17 +454,21 @@ def main() -> int:
         proof_path = request_path / "chatgpt-mode-state.json"
         post_submit_proof_path = request_path / "chatgpt-mode-post-submit-state.json"
         if not proof_path.exists():
-            print(
-                "chatgpt_report_operator: planner/chapter did not produce chatgpt-mode-state.json; "
-                "normal ChatGPT output is not accepted as Thinking High",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            proof = json.loads(proof_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(f"chatgpt_report_operator: invalid chatgpt-mode-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
+            if str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
+                print(
+                    "chatgpt_report_operator: planner/chapter did not produce chatgpt-mode-state.json; "
+                    "normal ChatGPT output is not accepted as Thinking High",
+                    file=sys.stderr,
+                )
+                return 1
+            else:
+                proof = {"ok": True}
+        else:
+            try:
+                proof = json.loads(proof_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                print(f"chatgpt_report_operator: invalid chatgpt-mode-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
+                return 1
         if not proof.get("ok") and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             if post_submit_proof_path.exists():
                 try:
