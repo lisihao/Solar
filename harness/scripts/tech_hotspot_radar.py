@@ -15025,7 +15025,7 @@ def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = N
     return f"chatgpt/ai-influence-planned/{clean_task}"
 
 
->>>>>>> 7eb3fbd7 (feat(archive): update default ChatGPT archive project name from '杂项' to '1234')
+
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:
     """Resolve the browser-agent ChatGPT executor command.
 
@@ -15395,7 +15395,8 @@ def extract_json_payload_lenient(text: str) -> dict[str, Any]:
 def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
                                         purpose: str,
                                         requested_model: str | None = None,
-                                        operator_kind: str | None = None) -> dict[str, Any]:
+                                        operator_kind: str | None = None,
+                                        **kwargs) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -15403,6 +15404,7 @@ def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
         expected="markdown",
         requested_model=requested_model,
         operator_kind=operator_kind,
+        **kwargs,
     )
     markdown = str(result.pop("text") or "").strip()
     result["markdown"] = markdown
