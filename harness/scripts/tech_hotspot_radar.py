@@ -6537,6 +6537,27 @@ def github_compute_hot_score(
     )
 
 
+def github_compute_momentum_score(
+    star_delta_1d: float = 0.0,
+    star_delta_7d: float = 0.0,
+    total_stars: int = 0,
+    social_cross: float = 0.0,
+    recent_activity: float = 0.0,
+) -> float:
+    """PRD FR4: momentum breakout score for GitHub repos."""
+    base_stars = max(10, total_stars - star_delta_7d)
+    relative_growth_7d = min(5.0, star_delta_7d / base_stars) * 100
+    base_1d = max(10, total_stars - star_delta_1d)
+    relative_growth_1d = min(5.0, star_delta_1d / base_1d) * 100
+    return round(
+        0.40 * relative_growth_1d
+        + 0.30 * relative_growth_7d
+        + 0.20 * social_cross
+        + 0.10 * recent_activity,
+        4,
+    )
+
+
 def github_compute_star_deltas(conn: sqlite3.Connection, full_name: str) -> dict:
     """Compute stars_delta_1d/7d/30d from star snapshots."""
     snapshots = conn.execute(
@@ -6914,9 +6935,17 @@ def github_materialize_project_intelligence(conn: sqlite3.Connection, full_name:
         {"name": "foundation_infra_candidate", "matched": bucket in {"agent_runtime", "agent_skill", "context_engineering", "inference_compute", "infra_os"} and technical_depth >= 0.55},
         {"name": "external_trendshift_signal", "matched": bool(external_rank_rows), "best_rank": best_external_rank},
     ]
+    momentum_score = github_compute_momentum_score(
+        star_delta_1d=max(0, float(deltas.get("delta_1d") or 0)),
+        star_delta_7d=float(star_delta_7d),
+        total_stars=int(stars or 0),
+        social_cross=max(social_cross, external_rank_signal * 0.8),
+        recent_activity=0.8 if pushed_at else 0.2,
+    )
     scores = {
         "heat_score": heat_score,
         "potential_score": potential_score,
+        "momentum_score": momentum_score,
         "technical_depth_score": round(technical_depth, 4),
         "novelty_score": round(novelty, 4),
         "social_cross_signal": social_cross,
@@ -12056,8 +12085,8 @@ def github_minimal_trendshift_card(conn: sqlite3.Connection, row: dict[str, Any]
     }
 
 
-def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_rows: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    internal_cards = github_project_cards(conn, limit=max(limit * 3, 30))
+def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_rows: list[dict[str, Any]], *, limit: int, order_by: str = "momentum") -> list[dict[str, Any]]:
+    internal_cards = github_project_cards(conn, limit=max(limit * 3, 30), order_by=order_by)
     by_repo = {str(card.get("repo") or ""): card for card in internal_cards}
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -12090,7 +12119,22 @@ def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_ro
 
 def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_str: str | None = None) -> dict[str, Any]:
     trendshift_rows = github_trendshift_rows_for_report(conn, limit=max(60, limit * 4))
-    cards = github_report_cards_trendshift_first(conn, trendshift_rows, limit=limit)
+    
+    half_limit = max(3, limit // 2)
+    # Breakout track (Trendshift + Momentum)
+    cards_breakout = github_report_cards_trendshift_first(conn, trendshift_rows, limit=half_limit, order_by="momentum")
+    seen_repos = {str(c.get("repo")) for c in cards_breakout}
+    
+    # Traditional track (Heat + Potential)
+    cards_traditional = []
+    internal_traditional = github_project_cards(conn, limit=max(limit * 3, 30), order_by="heat")
+    for c in internal_traditional:
+        repo = str(c.get("repo"))
+        if repo and repo not in seen_repos:
+            cards_traditional.append(c)
+            seen_repos.add(repo)
+        if len(cards_traditional) >= half_limit:
+            break
     hf_papers = [
         {
             "paper_id": row["paper_id"],
@@ -12120,7 +12164,8 @@ def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_s
         "source": "tech-hotspot-radar/github-project-intelligence",
         "repo_count": int(source_stats[0] or 0),
         "card_tiers": {tier: count for tier, count in card_stats},
-        "cards": cards,
+        "cards_traditional": cards_traditional,
+        "cards_breakout": cards_breakout,
         "hf_trending_papers": hf_papers,
         "external_rank_signals": {
             "trendshift": trendshift_rows,
@@ -12171,9 +12216,9 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 16. “火的可能原因”必须写 160-260 个中文字，结合当前业界趋势做因果解释，例如 Agent runtime、MCP/浏览器工具层、GUI Agent、长期记忆、推理服务、world model、Physical AI、金融研究自动化等，不要只写“因为需求大”。
 17. “核心技术/产品启示”必须写 160-260 个中文字，提炼可复用架构思想、产品化机会、工程瓶颈和边界条件；不要写成口号。
 18. 每个重点项目的“建议”必须写成 180-300 个中文字的综合建议，包含洞察判断、是否值得继续跟踪、适合写什么、是否值得做开源动作、第一步验证动作。
-19. 每篇报告最多写 6 个重点项目；必须优先选择 cards 中 Trendshift rank 最靠前的项目。宁可减少项目数量，也不能出现空字段或缺字段。
+19. 每篇报告总计写 8-10 个重点项目，分为两大阵营：一部分从 `cards_traditional` 挑选，一部分从 `cards_breakout` 挑选。宁可减少项目数量，也不能出现空字段或缺字段。
 20. 每个项目必须严格使用这 5 个字段，且字段名和正文必须在同一行：它是什么：...、为什么值得看：...、火的可能原因：...、核心技术/产品启示：...、建议：...。不要把字段名单独作为一行。
-21. 突然爆火 / 高热项目、早期潜力项目雷达、基础设施候选三节必须围绕本次 pack.cards 和 external_rank_signals.trendshift 的实际项目写；不要强行覆盖历史旧项目。如果某个 Trendshift 高排名项目只有外部趋势信号、缺少完整 repo 分析卡，也要写成“Trendshift-only，需要继续验证”的候选，不得省略。
+21. 重点项目解析必须严格分为两节：「盘踞榜首的热门项目（基于传统综合热度与体量，来自 cards_traditional）」与「异军突起的爆发星探（基于短期动量与高增速，来自 cards_breakout）」。如果某个 Trendshift 高排名项目缺少完整 repo 分析卡，也要写成“需要继续验证”的候选，不得省略。
 22. 不要输出 Unicode 方框表、ASCII 表或 monospace box table。需要表格时必须使用标准 Markdown pipe table：| 列1 | 列2 |。
 23. 这是对外可读报告，不要写内部字段名或内部工作流语言。禁止出现：pack、social_mentions、social_cross_signal、heat_score、potential_score、technical_depth_score、stars_delta_7d、人工复核、复核优先级、未明确判定、增量缺失、内部证据、evidence、final_reasoner。
 24. 内部字段要改成自然语言：social_mentions 为 0 写成“公开社交扩散证据暂不足”；license 为 NOASSERTION 写成“许可证信息还需要进一步确认”；短期增量缺失写成“公开短期增长数据不足”；open issues 写成“未关闭 issue”。
@@ -12182,8 +12227,8 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 报告结构：
 # AI Influence GitHub 开源趋势分析 — {pack.get("date")}
 ## 今日核心判断
-## 突然爆火 / 高热项目解析
-## 早期潜力项目雷达
+## 盘踞榜首的热门项目
+## 异军突起的爆发星探
 ## 基础设施候选
 ## Hugging Face 论文热点侧信号
 ## 可能炒作 / 风险
@@ -12196,7 +12241,7 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 数据来源说明只写公开口径：
 - 数据来源：Tech Hotspot Radar GitHub 项目卡片与 Hugging Face 论文热榜侧信号
 - 外部交叉信号：Trendshift GitHub 趋势榜 daily/weekly/monthly 与 topic 页面排名
-- 项目样本：{len(pack.get("cards") or [])} 个重点项目
+- 项目样本：共 {len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or [])} 个重点项目，来自老本传统池与动量新星池
 - 观察池规模：{pack.get("repo_count")} 个项目
 - 说明：本文基于公开仓库元数据、release、stars、forks、未关闭 issue、短期增长线索和论文热榜侧信号形成判断
 
@@ -12367,7 +12412,8 @@ def record_github_trend_model_ledger(
     success: bool = True,
     error_message: str = "",
 ) -> None:
-    evidence_count = sum(len(card.get("evidence_ids") or []) for card in (pack.get("cards") or []))
+    all_cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
+    evidence_count = sum(len(card.get("evidence_ids") or []) for card in all_cards)
     record_model_ledgers(
         conn,
         target_id=f"__github_trend_report__:{date_str}",
@@ -12384,7 +12430,7 @@ def record_github_trend_model_ledger(
 
 def render_github_trend_report_html(date_str: str, pack: dict[str, Any], result: dict[str, Any], top_tiers: str) -> str:
     """Render the GitHub trend report as a publication-grade HTML artifact."""
-    cards = pack.get("cards") or []
+    cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
     trendshift_count = sum(
         1 for card in cards
         if ((card.get("scores") or {}).get("trendshift_best_rank") is not None)
@@ -12562,7 +12608,7 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
     run_id = begin_run(conn, "github", "github-trend-report")
     try:
         pack = build_github_trend_pack(conn, limit=limit, date_str=date_str)
-        if not pack.get("cards"):
+        if not pack.get("cards_traditional") and not pack.get("cards_breakout"):
             raise ValueError("no repo analysis cards available")
         result = call_github_trend_report_chapter_writer(pack, config, requested_model=getattr(args, "model", None))
         record_github_trend_model_ledger(conn, date_str=date_str, pack=pack, result=result, success=True)
@@ -12576,7 +12622,7 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
         files["pack"].write_text(json.dumps(pack, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         files["report_json"].write_text(json.dumps({k: v for k, v in result.items() if k != "markdown"}, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         files["report_md"].write_text(result["markdown"].strip() + "\n", encoding="utf-8")
-        cards = pack.get("cards") or []
+        cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
         tier_counts: dict[str, int] = {}
         for card in cards:
             tier = str(card.get("tier") or "N/A")
@@ -12585,8 +12631,8 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
         html = render_github_trend_report_html(date_str, pack, result, top_tiers)
         files["report_html"].write_text(html, encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
-        finish_run(conn, run_id, "ok", len(pack.get("cards") or []), len(pack.get("cards") or []), json.dumps({"model": result["model"], "out_dir": str(out_dir)}, ensure_ascii=False)[:900])
-        print(f"[github-trend-report] date={date_str} repos={len(pack.get('cards') or [])} model={result['model']} out={out_dir}")
+        finish_run(conn, run_id, "ok", len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or []), len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or []), json.dumps({"model": result["model"], "out_dir": str(out_dir)}, ensure_ascii=False)[:900])
+        print(f"[github-trend-report] date={date_str} repos={len(cards)} model={result['model']} out={out_dir}")
         for key in sorted(files):
             print(f"  {key}: {files[key]}")
         return 0
@@ -13316,7 +13362,7 @@ def report_top_events(conn: sqlite3.Connection, source: str, limit: int = 8) -> 
     ).fetchall()
 
 
-def github_project_cards(conn: sqlite3.Connection, limit: int = 10) -> list[dict[str, Any]]:
+def github_project_cards(conn: sqlite3.Connection, limit: int = 10, order_by: str = "heat") -> list[dict[str, Any]]:
     """Return ranked GitHub project intelligence cards for reports."""
     rows = conn.execute(
         """
@@ -13343,12 +13389,15 @@ def github_project_cards(conn: sqlite3.Connection, limit: int = 10) -> list[dict
           LIMIT 1
         )
         ORDER BY
-          CASE c.tier WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
-          CAST(json_extract(c.scores_json, '$.potential_score') AS REAL) DESC,
-          CAST(json_extract(c.scores_json, '$.heat_score') AS REAL) DESC,
-          c.repo_full_name ASC
+        {}
         LIMIT ?
-        """,
+        """.format(
+            "CAST(json_extract(c.scores_json, '$.momentum_score') AS REAL) DESC"
+            if order_by == "momentum" else
+            "CASE c.tier WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,\n"
+            "CAST(json_extract(c.scores_json, '$.potential_score') AS REAL) DESC,\n"
+            "CAST(json_extract(c.scores_json, '$.heat_score') AS REAL) DESC"
+        ),
         (limit,),
     ).fetchall()
     cards: list[dict[str, Any]] = []
