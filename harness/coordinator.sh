@@ -5216,6 +5216,11 @@ PY
       detect_stuck_state
     fi
 
+    # 唤醒空闲 Operator (每 3 次迭代，即 ~30 秒)
+    if (( loop_count % 3 == 0 )); then
+      (python3 "$HARNESS_DIR/lib/operator_runtime.py" wake-idle 2>> "$COORD_LOG") || true
+    fi
+
     # Sprint 20260423-062851 D1 / sprint-20260502-182804: md5 自检热加载 + 兜底
     local hot_reload_tick=${HOT_RELOAD_TICK_OVERRIDE:-60}
     if (( loop_count % hot_reload_tick == 0 )); then

@@ -473,6 +473,22 @@ def submit(task_envelope: Dict[str, Any]) -> Dict[str, Any]:
     if config is None:
         raise ValueError(f"Unknown operator: '{operator_id}' not found in registry")
 
+    # ── 2b. 投递幂等 (2026-06-10): 同 (sprint_id, node_id) 已有未消费件则不重投 ──
+    # 在 acquire lease 之前检查, 避免为重复任务占用租约。返回与成功同构的 dict
+    # (status=duplicate_pending), 语义上任务确已在队列中等待。
+    inbox_dir_existing = OPERATOR_INBOX_DIR / operator_id
+    if inbox_dir_existing.is_dir() and sprint_id and node_id:
+        for existing in inbox_dir_existing.glob(f"pm-{sprint_id}-{node_id}-*.json"):
+            return {
+                "task_id": task_id,
+                "operator_id": operator_id,
+                "lease_id": "",
+                "inbox_path": str(existing),
+                "status": "duplicate_pending",
+                "submitted_at": _now(),
+                "duplicate_of": existing.stem,
+            }
+
     # ── 3. Dispatchability check ───────────────────────────────────────────
     current_state = get_operator_runtime_state(operator_id)
     if current_state in _NON_DISPATCHABLE_STATES:
@@ -534,6 +550,38 @@ def submit(task_envelope: Dict[str, Any]) -> Dict[str, Any]:
         "daemon_pid": daemon_pid,
     }
     return result
+
+
+def wake_idle_operators() -> dict[str, Any]:
+    """Scan OPERATOR_INBOX_DIR for pending tasks and wake idle operators."""
+    if not OPERATOR_INBOX_DIR.exists():
+        return {"woken": []}
+    
+    woken = []
+    for op_dir in OPERATOR_INBOX_DIR.iterdir():
+        if not op_dir.is_dir():
+            continue
+            
+        try:
+            has_tasks = any(op_dir.glob("pm-*.json"))
+        except Exception:
+            continue
+            
+        if not has_tasks:
+            continue
+            
+        operator_id = op_dir.name
+        state = get_operator_runtime_state(operator_id)
+        if state in _NON_DISPATCHABLE_STATES:
+            continue
+            
+        try:
+            pid = _kick_operatord_once(operator_id)
+            woken.append({"operator_id": operator_id, "pid": pid})
+        except Exception:
+            pass
+            
+    return {"woken": woken}
 
 
 # ── Secret Scrubbing ─────────────────────────────────────────────────────────
@@ -738,6 +786,9 @@ def main() -> int:
     submit_parser = subparsers.add_parser("submit", help="Submit a task envelope to an operator inbox")
     submit_parser.add_argument("--envelope", required=True, help="Path to task envelope JSON file")
     
+    # wake-idle
+    subparsers.add_parser("wake-idle", help="Scan operator inbox and wake idle operators")
+    
     args = parser.parse_args()
     
     try:
@@ -801,6 +852,11 @@ def main() -> int:
                 return 1
             envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
             result = submit(envelope)
+            print(json.dumps(result, indent=2))
+            return 0
+
+        elif args.cmd == "wake-idle":
+            result = wake_idle_operators()
             print(json.dumps(result, indent=2))
             return 0
 
