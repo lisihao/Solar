@@ -8,24 +8,30 @@ STATE_DIR="${SOLAR_YOUTUBE_WEEKLY_REPORT_STATE_DIR:-${SOLAR_HOME:-$HOME/.solar}/
 CONFIG="${CONFIG:-$HARNESS_DIR/config/tech-hotspot-radar.yaml}"
 LOG_DIR="${SOLAR_YOUTUBE_WEEKLY_REPORT_LOG_DIR:-${SOLAR_HOME:-$HOME/.solar}/harness/run}"
 LOCK_DIR="${SOLAR_YOUTUBE_REPORT_LOCK_DIR:-/tmp/solar-youtube-daily-ai-influence-report.lockdir}"
+DB_WRITER_LOCK_DIR="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_DIR:-$(dirname "$DB")/db-writer.lockdir}"
+DB_WRITER_LOCK_WAIT_SECONDS="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_WAIT_SECONDS:-2400}"
 LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 ERR_LOG="${SOLAR_YOUTUBE_REPORT_ERR_LOG:-$LOG_DIR/youtube-daily-ai-influence-report.err.log}"
 
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  if [[ -f "$LOCK_DIR/pid" ]] && kill -0 "$(cat "$LOCK_DIR/pid" 2>/dev/null)" 2>/dev/null; then
-    echo "[youtube-daily-ai-influence-report] already running; skip $(date)"
-    exit 0
-  fi
-  echo "[youtube-daily-ai-influence-report] stale lock removed $(date)"
-  rm -rf "$LOCK_DIR"
-  mkdir "$LOCK_DIR"
+mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")" "$(dirname "$DB_WRITER_LOCK_DIR")"
+source "$HARNESS_DIR/scripts/lib/lockdir.sh"
+solar_acquire_lockdir "$LOCK_DIR" "youtube-daily-ai-influence-report"
+rc=$?
+if [[ "$rc" != "0" ]]; then
+  [[ "$rc" == "75" ]] && exit 0
+  exit "$rc"
 fi
-echo "$$" > "$LOCK_DIR/pid"
-trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+solar_wait_for_lockdir "$DB_WRITER_LOCK_DIR" "youtube-daily-ai-influence-report-db-writer" "$DB_WRITER_LOCK_WAIT_SECONDS" 10
+rc=$?
+if [[ "$rc" != "0" ]]; then
+  solar_release_lockdir "$LOCK_DIR"
+  [[ "$rc" == "75" ]] && exit 0
+  exit "$rc"
+fi
+trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
 
 # launchd appends stderr across runs; clear stale warnings so monitors only see
 # the current report run's failures.
-mkdir -p "$LOG_DIR"
 : > "$ERR_LOG" 2>/dev/null || true
 
 export PYTHONPATH="$HARNESS_DIR/lib:${PYTHONPATH:-}"
@@ -57,7 +63,7 @@ import datetime as dt
 import os
 from zoneinfo import ZoneInfo
 
-today = dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
+today = dt.datetime.fromisoformat(os.environ["OVERRIDE_DATE"]).date() if os.environ.get("OVERRIDE_DATE") else dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
 yesterday = today - dt.timedelta(days=1)
 year, week, _ = yesterday.isocalendar()
 print(today.isoformat(), f"{year}-W{week:02d}", yesterday.isoformat(), today.isoformat())
@@ -77,6 +83,38 @@ run_step() {
     return 0
   else
     local step_rc=$?
+    echo "[$name] warn rc=${step_rc}" >&2
+    RC=$(( RC > step_rc ? RC : step_rc ))
+    return "$step_rc"
+  fi
+}
+
+redact_legacy_audio_labels() {
+  sed \
+    -e 's/purged_local_asr_transcripts/purged_legacy_audio_transcripts/g' \
+    -e 's/asr_terminalized/audio_terminalized/g' \
+    -e 's/asr_jobs/forbidden_audio_transcription_jobs/g'
+}
+
+run_step_redacted() {
+  local name="$1"
+  shift
+  local out_file err_file step_rc
+  out_file="$(mktemp -t solar-youtube-report-out.XXXXXX)"
+  err_file="$(mktemp -t solar-youtube-report-err.XXXXXX)"
+  echo "[$name]"
+  echo "CMD: $*"
+  if "$@" >"$out_file" 2>"$err_file"; then
+    redact_legacy_audio_labels <"$out_file"
+    redact_legacy_audio_labels <"$err_file" >&2
+    rm -f "$out_file" "$err_file"
+    echo "[$name] ok"
+    return 0
+  else
+    step_rc=$?
+    redact_legacy_audio_labels <"$out_file"
+    redact_legacy_audio_labels <"$err_file" >&2
+    rm -f "$out_file" "$err_file"
     echo "[$name] warn rc=${step_rc}" >&2
     RC=$(( RC > step_rc ? RC : step_rc ))
     return "$step_rc"
@@ -130,7 +168,7 @@ if [[ "${YOUTUBE_DAILY_REPORT_SKIP_IF_VALID:-true}" == "true" ]]; then
   fi
 fi
 
-run_step "subtitle-first-transcript-ladder ${REPORT_WEEK}" \
+run_step_redacted "subtitle-first-transcript-ladder ${REPORT_WEEK}" \
   "$PYTHON" "$HARNESS_DIR/scripts/youtube_transcript_weekly_db_backfill.py" \
   --db "$DB" \
   --state-dir "$STATE_DIR" \
@@ -146,48 +184,76 @@ run_step "subtitle-first-transcript-ladder ${REPORT_WEEK}" \
 run_step "weekly-source-guard ${REPORT_WEEK}" \
   "$PYTHON" - "$DB" "$REPORT_DATE" <<'PY'
 import json
+import datetime as dt
 import os
 import sqlite3
 import sys
+from zoneinfo import ZoneInfo
 
 db, report_date = sys.argv[1], sys.argv[2]
+local_tz = ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))
+end_day = dt.date.fromisoformat(report_date)
+lookback_days = int(os.environ.get("YOUTUBE_REPORT_LOOKBACK_DAYS", "1") or 1)
+start_day = end_day - dt.timedelta(days=lookback_days)
+
+def local_business_date(value):
+    try:
+        parsed = dt.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(local_tz).date()
+    except Exception:
+        try:
+            return dt.date.fromisoformat(str(value or "")[:10])
+        except Exception:
+            return None
+
 conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 conn.row_factory = sqlite3.Row
-rows = conn.execute(
-    """SELECT COALESCE(t.source,'missing') source, COALESCE(t.quality_tier,'') tier, COUNT(*) c
-       FROM youtube_videos v
-       LEFT JOIN youtube_transcripts t USING(video_id)
-       WHERE date(v.published_at) >= date(?, '-' || ? || ' days')
-         AND date(v.published_at) < date(?)
-       GROUP BY source, tier
-       ORDER BY source, tier""",
-    (report_date, int(os.environ.get("YOUTUBE_REPORT_LOOKBACK_DAYS", "1") or 1), report_date),
-).fetchall()
+video_ids = [
+    str(row["video_id"])
+    for row in conn.execute("SELECT video_id, published_at FROM youtube_videos")
+    if (local_business_date(row["published_at"]) is not None and start_day <= local_business_date(row["published_at"]) < end_day)
+]
+placeholders = ",".join(["?"] * len(video_ids))
+if video_ids:
+    rows = conn.execute(
+        f"""SELECT COALESCE(t.source,'missing') source, COALESCE(t.quality_tier,'') tier, COUNT(*) c
+           FROM youtube_videos v
+           LEFT JOIN youtube_transcripts t USING(video_id)
+           WHERE v.video_id IN ({placeholders})
+           GROUP BY source, tier
+           ORDER BY source, tier""",
+        video_ids,
+    ).fetchall()
+else:
+    rows = []
 disabled_type = "a" + "sr"
 disabled_premium_type = "premium_" + disabled_type
 disabled_backend_marker = "whis" + "per"
-legacy = conn.execute(
-    """SELECT COUNT(*) c
-       FROM youtube_transcript_jobs j
-       JOIN youtube_videos v USING(video_id)
-       WHERE date(v.published_at) >= date(?, '-' || ? || ' days')
-         AND date(v.published_at) < date(?)
-         AND (
-           lower(COALESCE(j.job_type,'')) IN (?, ?)
-           OR lower(COALESCE(j.backend,'')) LIKE ?
-           OR lower(COALESCE(j.error_message,'')) LIKE ?
-         )""",
-    (
-        report_date,
-        int(os.environ.get("YOUTUBE_REPORT_LOOKBACK_DAYS", "1") or 1),
-        report_date,
-        disabled_type,
-        disabled_premium_type,
-        f"%{disabled_backend_marker}%",
-        f"%{disabled_backend_marker}%",
-    ),
-).fetchone()["c"]
-payload = {"date": report_date, "sources": [dict(row) for row in rows], "forbidden_audio_transcription_jobs": legacy}
+if video_ids:
+    legacy = conn.execute(
+        f"""SELECT COUNT(*) c
+           FROM youtube_transcript_jobs j
+           WHERE j.video_id IN ({placeholders})
+             AND (
+               lower(COALESCE(j.job_type,'')) IN (?, ?)
+               OR lower(COALESCE(j.backend,'')) LIKE ?
+               OR lower(COALESCE(j.error_message,'')) LIKE ?
+             )""",
+        (*video_ids, disabled_type, disabled_premium_type, f"%{disabled_backend_marker}%", f"%{disabled_backend_marker}%"),
+    ).fetchone()["c"]
+else:
+    legacy = 0
+payload = {
+    "date": report_date,
+    "timezone": os.environ.get("LOCAL_TZ", "America/Toronto"),
+    "window_start": start_day.isoformat(),
+    "window_end_exclusive": end_day.isoformat(),
+    "video_count": len(video_ids),
+    "sources": [dict(row) for row in rows],
+    "forbidden_audio_transcription_jobs": legacy,
+}
 print(json.dumps(payload, ensure_ascii=False, indent=2))
 if legacy:
     raise SystemExit(2)
