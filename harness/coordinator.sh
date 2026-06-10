@@ -5155,6 +5155,16 @@ PY
       (bash ~/.claude/hooks/scan-low-quality-capabilities.sh 2>> "$COORD_LOG" && \
        bash ~/.claude/hooks/auto-boost-capability.sh 2>> "$COORD_LOG") &
 
+      # P0 卡点修复 (2026-06-10): FAIL 节点重派器 — 每 ~5min 低速重派至多
+      # SOLAR_DAG_REDISPATCH_LIMIT 个卡死 DAG 节点 (failed→pending, 带 retry 上限),
+      # 超上限转 needs_human_review 告警。根治 "evaluator 判一次 FAIL = DAG 永久卡死"。
+      if [[ -f "$HARNESS_DIR/lib/graph_redispatch.py" ]]; then
+        (python3 "$HARNESS_DIR/lib/graph_redispatch.py" --scan-all --apply \
+          --max-retry "${SOLAR_DAG_MAX_REDISPATCH:-2}" \
+          --limit "${SOLAR_DAG_REDISPATCH_LIMIT:-3}" --json >> "$COORD_LOG" 2>&1) || \
+          log "[redispatch] WARN: graph_redispatch failed (non-fatal)"
+      fi
+
       # Sprint 20260420-113026: handle_passed 运行时补偿
       # 扫所有 status=passed 但无 .finalized 的 sprint → 补跑 handle_passed
       for rsf in "$SPRINTS_DIR"/sprint-*.status.json; do
