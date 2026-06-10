@@ -12573,7 +12573,7 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         operator_kind="chapter_writer",
         open_project_first=False,
         require_project=False,
-        requested_max_prompt_chars=6000,
+        requested_max_prompt_chars=25000,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
@@ -18065,10 +18065,10 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
 
 
 def _ai_influence_planned_base(config: dict[str, Any], args: argparse.Namespace, date_str: str) -> Path:
-    raw_base = Path(
+    raw_base = _expand_runtime_path(
         getattr(args, "output_base", None)
         or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
-    ).expanduser()
+    )
     return raw_base / "ai-influence-planned" / date_str
 
 
