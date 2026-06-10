@@ -59,6 +59,8 @@ export LC_ALL="en_US.UTF-8"
 [[ -f "$HARNESS_DIR/lib/telemetry.sh" ]] && . "$HARNESS_DIR/lib/telemetry.sh"
 # sprint-20260507-symphony3 S2: structured events library
 [[ -f "$HARNESS_DIR/lib/events.sh" ]] && . "$HARNESS_DIR/lib/events.sh"
+# P0-D3 (2026-06-09 架构审计): 派发失败持久重排队 + 配额闸门
+[[ -f "$HARNESS_DIR/lib/dispatch-requeue.sh" ]] && . "$HARNESS_DIR/lib/dispatch-requeue.sh"
 # sprint-20260508-coordinator-control-plane-v2 S1: canonical state mapper
 [[ -f "$HARNESS_DIR/lib/state-mapper.sh" ]] && . "$HARNESS_DIR/lib/state-mapper.sh"
 # sprint-20260508-coordinator-control-plane-v2 S2: dispatch ledger + queue
@@ -1740,6 +1742,16 @@ dispatch_to_pane() {
     return 4
   fi
 
+  # P0-D3 (2026-06-09): 配额闸门 — 缓存明确显示耗尽时延迟入队而非丢弃
+  if type dispatch_quota_gate &>/dev/null && ! dispatch_quota_gate; then
+    log "${Y}[dispatch] 配额耗尽, 延迟入队 sid=${sid} pane=${pane}${N}"
+    emit_event "$sid" "dispatch_blocked" "coordinator" \
+      "{\"pane\":\"${pane}\",\"reason\":\"quota_exhausted\"}"
+    type dispatch_requeue_add &>/dev/null && \
+      dispatch_requeue_add "$sid" "$pane" "$instruction_file" "quota_exhausted" || true
+    return 1
+  fi
+
   # Planner/PM panes must receive real dispatches. Older code returned after
   # notify_planner(), which made "dispatch to planner" silently become
   # "write an inbox line"; this broke lazy handoff for drafting contracts.
@@ -2072,6 +2084,9 @@ dispatch_to_pane() {
   # sprint-20260508-coordinator-control-plane-v2 S3: release lease on nack
   [[ -n "${_dispatch_id:-}" ]] && type release_pane_lease &>/dev/null && \
     release_pane_lease "$pane" "$_dispatch_id" "dispatch_failed" 2>/dev/null || true
+  # P0-D3 (2026-06-09): 失败任务持久重排队 (退避+上限), 不再静默丢失
+  type dispatch_requeue_add &>/dev/null && \
+    dispatch_requeue_add "$sid" "$pane" "$instruction_file" "dispatch_failed" || true
   rm -rf "$lock_dir"
   return 1
 }
@@ -5091,6 +5106,8 @@ with open('$patches_file','w') as f:
     # D2: auto-suggest 每 10 次迭代 (~100s) 检查一次
     if (( loop_count % 10 == 0 )); then
       check_auto_suggest
+      # P0-D3 (2026-06-09): 派发失败重排队 — 重试到期项 (退避+上限)
+      type dispatch_requeue_process &>/dev/null && dispatch_requeue_process || true
       # D2: 检查规划者通知 (每 ~60s)
       check_planner_notice
       # D4: 扫 auto-generated drafting Sprint, Done>=3 则通知规划者

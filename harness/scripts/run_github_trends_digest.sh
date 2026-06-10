@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SOLAR_REPO="${SOLAR_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 HARNESS_DIR="${HARNESS_DIR:-${SOLAR_REPO}/harness}"
 CONFIG="${GITHUB_TRENDS_CONFIG:-$HARNESS_DIR/config/github-trends.yaml}"
 PYTHON="${PYTHON:-python3}"

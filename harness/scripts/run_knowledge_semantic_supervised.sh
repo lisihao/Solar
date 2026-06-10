@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+SOLAR_REPO="${SOLAR_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 HARNESS_DIR="${HARNESS_DIR:-${SOLAR_REPO}/harness}"
 PYTHON="${PYTHON:-python3}"
+SOLAR_HOME="${SOLAR_HOME:-$HOME/.solar}"
 export PATH="${SOLAR_HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export SOLAR_HARNESS_BIN="${SOLAR_HARNESS_BIN:-${SOLAR_HOME}/bin/solar-harness}"
-VAULT="${VAULT:-${SOLAR_KNOWLEDGE_DIR}}"
+VAULT="${VAULT:-${SOLAR_KNOWLEDGE_DIR:-$HOME/Knowledge}}"
 REGISTRY_DB="${REGISTRY_DB:-$VAULT/_registry/knowledge_ingest.sqlite}"
 ENDPOINT="${ENDPOINT:-http://127.0.0.1:8002/v1/chat/completions}"
 LOCAL_MODEL="${LOCAL_MODEL:-Qwen3.6-35b-a3b}"
@@ -75,8 +77,12 @@ echo "[knowledge-semantic-supervised] start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 rc=$?
 echo "[knowledge-semantic-supervised] exit $(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc"
 
-if [[ "${ALLOW_PARTIAL_SUCCESS:-1}" == "1" && "$rc" != "0" ]]; then
-  echo "[knowledge-semantic-supervised] completed with warnings; ALLOW_PARTIAL_SUCCESS=1 so exiting 0"
-  exit 0
+if [[ "$rc" != "0" ]]; then
+  source "$HARNESS_DIR/scripts/lib/scheduled-task.sh"
+  solar_task_record_failure "knowledge-semantic-supervised" "$rc" "supervised-backfill"
+  if [[ "${ALLOW_PARTIAL_SUCCESS:-0}" == "1" ]]; then
+    echo "[knowledge-semantic-supervised] completed with warnings; ALLOW_PARTIAL_SUCCESS=1 so exiting 0"
+    exit 0
+  fi
 fi
 exit "$rc"

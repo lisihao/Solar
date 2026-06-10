@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+SOLAR_REPO="${SOLAR_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 HARNESS_DIR="${HARNESS_DIR:-${SOLAR_REPO}/harness}"
 PYTHON="${PYTHON:-python3}"
 DB="${DB:-${HARNESS_DIR}/state/tech-hotspot-radar/tech-hotspot-radar.sqlite}"
