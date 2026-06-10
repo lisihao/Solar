@@ -764,7 +764,7 @@ G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; N='\033[0m'
 COORD_LOG="$HARNESS_DIR/.coordinator.log"
 exec 2>>"$COORD_LOG"
 
-log() { echo -e "${C}[协调器]${N} $(date '+%H:%M:%S') $*" >&2; }
+log() { echo -e "${C}[协调器]${N} $(date '+%m-%d %H:%M:%S') $*" >&2; }
 
 clear_stale_dispatch_lock() {
   local lock_dir="$1"
@@ -4974,7 +4974,40 @@ with open('$patches_file','w') as f:
     # 保留 get_latest_sprint_file 函数: init/recovery 路径仍在用 (line ~1808)
     if [[ "$skip_sprint" -eq 0 ]]; then
       local sf
-      for sf in "$SPRINTS_DIR"/sprint-*.status.json; do
+      # P0 性能修复 (2026-06-10): 主循环每轮全扫 529 sprint × 多次 get_field(每次
+      # fork python3 ~80ms) → 每轮 ~128s(设计10s), 慢 12 倍, 拖垮一切周期任务。
+      # 预筛: 一次 python 批量列出活跃 sprint, 跳过 failed/cancelled/superseded/
+      # interrupted 及已 finalized 的 passed/done/eval_pass (529→~174, 省 67%)。
+      # 保留 "passed 但无 .finalized" 走 handle_passed 补偿的语义。损坏文件保留自愈。
+      local _active_sfs
+      mapfile -t _active_sfs < <(python3 - "$SPRINTS_DIR" <<'PYEOF' 2>/dev/null
+import json, os, sys, glob
+sd = sys.argv[1]
+TERMINAL_FINAL = {"failed", "cancelled", "superseded", "interrupted"}
+out = []
+try:
+    files = glob.glob(os.path.join(sd, "sprint-*.status.json"))
+except Exception:
+    files = []
+for sf in files:
+    try:
+        st = json.load(open(sf)).get("status", "")
+    except Exception:
+        out.append(sf); continue  # 损坏 → 保留, 主循环走 repair_status_identity 自愈
+    sid = os.path.basename(sf)[:-len(".status.json")]
+    if st in TERMINAL_FINAL:
+        continue
+    if st in {"passed", "done", "eval_pass"} and os.path.exists(os.path.join(sd, sid + ".finalized")):
+        continue
+    out.append(sf)
+print("\n".join(out))
+PYEOF
+)
+      # 回退: 预筛异常输出空但确有 sprint 文件 → 全扫, 避免整轮空转。
+      if [[ "${#_active_sfs[@]}" -eq 0 ]] && compgen -G "$SPRINTS_DIR/sprint-*.status.json" >/dev/null 2>&1; then
+        _active_sfs=( "$SPRINTS_DIR"/sprint-*.status.json )
+      fi
+      for sf in "${_active_sfs[@]}"; do
         [[ -f "$sf" ]] || continue
 
         local sid st

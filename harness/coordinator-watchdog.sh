@@ -49,7 +49,7 @@ AUTO_RECOVER_SECS="${AUTO_RECOVER_SECS:-600}"
 _last_cb_notify_ts=0
 
 G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; N='\033[0m'
-log()  { echo -e "${C}[Watchdog]${N} $(date '+%H:%M:%S') $*"; }
+log()  { echo -e "${C}[Watchdog]${N} $(date '+%m-%d %H:%M:%S') $*"; }
 ok()   { echo -e "${G}[Watchdog]${N} $*"; }
 warn() { echo -e "${Y}[Watchdog]${N} $*"; }
 err()  { echo -e "${R}[Watchdog]${N} $*"; }
