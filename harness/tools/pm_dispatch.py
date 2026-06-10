@@ -1281,16 +1281,59 @@ def pm_inbox_dir() -> Path:
     return PM_INBOX_DIR
 
 
+def _find_pending_inbox_duplicate(inbox_dir: Path, envelope: dict[str, Any]) -> Path | None:
+    """投递幂等 (2026-06-10): 同 (sprint_id, node_id) 已有未消费件则视为重复。
+
+    背景: task_id 含随机 hash (pm-<sprint>-<node>-<hash>), 文件名永不重复;
+    消费链路停摆时投递端每轮重投, 单 sprint 曾滚出 655 件重复积压。
+    inbox 中文件存在即未消费 (消费后被移除), 故按文件名前缀 glob 即可,
+    O(glob) 不读 JSON。非 pm- 格式 task_id 不命中前缀, 照常写入 (不破坏)。
+    """
+    sprint_id = str(envelope.get("sprint_id") or "").strip()
+    node_id = str(envelope.get("node_id") or "").strip()
+    if not sprint_id or not node_id:
+        return None
+    for existing in inbox_dir.glob(f"pm-{sprint_id}-{node_id}-*.json"):
+        return existing
+    return None
+
+
 def _write_operator_inbox_envelope(operator_id: str, task_id: str, envelope: dict[str, Any]) -> Path:
     """Write a task envelope directly to the operator inbox using the PM fallback path."""
     inbox_dir = OPERATOR_INBOX_DIR / operator_id
     inbox_dir.mkdir(parents=True, exist_ok=True)
+    duplicate = _find_pending_inbox_duplicate(inbox_dir, envelope)
+    if duplicate is not None:
+        print(
+            f"inbox-idempotent: skip duplicate task for {operator_id} "
+            f"(pending: {duplicate.name})",
+            file=sys.stderr,
+        )
+        return duplicate
     inbox_path = inbox_dir / f"{task_id}.json"
     tmp = str(inbox_path) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(envelope, f, indent=2, ensure_ascii=False)
     os.replace(tmp, str(inbox_path))
+    _kick_operatord_for_inbox(operator_id)
     return inbox_path
+
+
+def _kick_operatord_for_inbox(operator_id: str) -> None:
+    """Wake 环补全 (2026-06-10): direct-inbox 路径此前写完不踢 operatord,
+    任务躺死 inbox (operatord 无任何自动调用方时积压 3500+ 件)。
+    复用 operator_runtime 的 auto-kick (operatord daemon slot 锁自防重)。
+    Best-effort: kick 失败不阻断投递, 周期 pump (inbox_pump.py) 兜底。
+    """
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        from operator_runtime import _auto_kick_enabled, _kick_operatord_once
+        if _auto_kick_enabled():
+            _kick_operatord_once(operator_id)
+    except Exception as exc:
+        print(f"inbox-kick: best-effort wake failed for {operator_id}: {exc}", file=sys.stderr)
 
 
 def _should_direct_inbox_graph_eval(role: str, task_type: str) -> bool:

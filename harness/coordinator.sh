@@ -5141,6 +5141,10 @@ PYEOF
       check_auto_suggest
       # P0-D3 (2026-06-09): 派发失败重排队 — 重试到期项 (退避+上限)
       type dispatch_requeue_process &>/dev/null && dispatch_requeue_process || true
+      # Wake 环兜底 (2026-06-10): inbox 有未消费任务且无活跃 operatord 时补踢
+      # (限流 SOLAR_INBOX_PUMP_LIMIT=3/轮; operatord daemon slot 锁自防重)
+      [[ -f "$HARNESS_DIR/tools/inbox_pump.py" ]] && \
+        (python3 "$HARNESS_DIR/tools/inbox_pump.py" --apply >> "$COORD_LOG" 2>&1) || true
       # D2: 检查规划者通知 (每 ~60s)
       check_planner_notice
       # D4: 扫 auto-generated drafting Sprint, Done>=3 则通知规划者
