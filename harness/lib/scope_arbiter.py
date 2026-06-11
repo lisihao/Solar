@@ -63,6 +63,17 @@ def _emit(event: str, data: dict) -> None:
         print(f"scope_arbiter: emit failed: {exc}", file=sys.stderr)
 
 
+def _emit_warn(event: str, data: dict) -> None:
+    """高优告警事件 (severity=warn) — 监护人事后审计'AI 动了核心'用。"""
+    try:
+        EVENTS.parent.mkdir(parents=True, exist_ok=True)
+        with EVENTS.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": _now(), "event": event, "by": "scope-arbiter",
+                                 "severity": "warn", "data": data}, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:
+        print(f"scope_arbiter: emit_warn failed: {exc}", file=sys.stderr)
+
+
 def _human_review(rec: dict) -> None:
     try:
         HUMAN_QUEUE.parent.mkdir(parents=True, exist_ok=True)
@@ -197,22 +208,17 @@ def arbitrate(graph: dict, *, max_expand: int = MAX_EXPAND, apply: bool = False)
             for prot in ag.PROTECTED_CORE:
                 if rel == prot or rel.startswith(prot.rstrip("/") + "/"):
                     protected_hits.append(rel)
-        if protected_hits:
-            rec = {"ts": _now(), "sprint_id": sid, "node_id": nid,
-                   "reason": f"扩 scope 命中保护核心: {protected_hits}", "oos_files": new_files}
-            if apply:
-                _human_review(rec)
-                _emit("scope_expand_protected_blocked", rec)
-            results.append({"node": nid, "action": "human_review",
-                            "reason": "protected_core", "protected": protected_hits})
-            continue
+        # SG4 (档位 B, 监护人 2026-06-10 定: 全自动不介入): 碰保护核心不再拦截转人工,
+        # 照常自动扩+重派, 但额外发高优告警留痕 — 机器永不停, 监护人事后可审计
+        # "AI 动了 harness 心脏"。万一改坏, 改动经 builder/git 留痕可回滚。
 
-        # 执行扩 scope + 重派
+        # 执行扩 scope + 重派 (核心/非核心统一路径)
         if apply:
             node["write_scope"] = cur_scope + new_files
             node["scope_expand_count"] = cnt + 1
             hist = node.setdefault("scope_expansion_history", [])
-            hist.append({"ts": _now(), "added": new_files, "from_count": cnt})
+            hist.append({"ts": _now(), "added": new_files, "from_count": cnt,
+                         "protected_core": protected_hits})
             gs.set_node_status(graph, nid, "pending", allow_reopen_failed=True)  # 复用 6/10 受控放行
             # 清上轮 eval, 让重做干净
             nrv = graph["node_results"].get(nid)
@@ -223,9 +229,23 @@ def arbitrate(graph: dict, *, max_expand: int = MAX_EXPAND, apply: bool = False)
                     nrv["artifacts"].pop("eval_json", None)
             _emit("scope_auto_expanded", {"sprint_id": sid, "node_id": nid,
                                           "added": new_files, "expand_count": cnt + 1,
-                                          "old_scope_size": len(cur_scope)})
+                                          "old_scope_size": len(cur_scope),
+                                          "protected_core": protected_hits})
+            # 碰核心: 额外高优告警 (severity=warn) + 桌面通知, 不拦截
+            if protected_hits:
+                _emit_warn("scope_expanded_protected_core",
+                           {"sprint_id": sid, "node_id": nid, "protected_core": protected_hits,
+                            "added": new_files})
+                if NOTIFY.is_file():
+                    try:
+                        import subprocess
+                        subprocess.run(["bash", str(NOTIFY), "⚠️ AI 自动扩 scope 到核心",
+                                        f"{sid[:28]} {nid}: {protected_hits}"], check=False, timeout=15)
+                    except Exception:
+                        pass
         results.append({"node": nid, "action": "expand_and_redispatch",
-                        "added": new_files, "expand_count": cnt + 1})
+                        "added": new_files, "expand_count": cnt + 1,
+                        "protected_core": protected_hits})
 
     return {"ok": True, "sprint_id": sid, "apply": apply, "results": results}
 
