@@ -5192,9 +5192,21 @@ PY
       (bash ~/.claude/hooks/scan-low-quality-capabilities.sh 2>> "$COORD_LOG" && \
        bash ~/.claude/hooks/auto-boost-capability.sh 2>> "$COORD_LOG") &
 
+      # Q2 FAIL 分诊阀门 (2026-06-10): A 类越界 (功能PASS+scope违规) 自动扩 scope
+      # 重派, 4 道安全栏 (只扩已声明/留痕/次数上限/保护核心需人批)。必须在
+      # graph_redispatch 之前跑 — 它精准处理 A 类, 避免无脑重派器把 A 类重做撞同墙。
+      if [[ -f "$HARNESS_DIR/lib/scope_arbiter.py" ]]; then
+        (python3 "$HARNESS_DIR/lib/scope_arbiter.py" --scan-all --apply \
+          --max-expand "${SOLAR_SCOPE_EXPAND_MAX:-2}" \
+          --limit "${SOLAR_SCOPE_ARBITER_LIMIT:-3}" --json >> "$COORD_LOG" 2>&1) || \
+          log "[scope-arbiter] WARN: scope_arbiter failed (non-fatal)"
+      fi
+
       # P0 卡点修复 (2026-06-10): FAIL 节点重派器 — 每 ~5min 低速重派至多
       # SOLAR_DAG_REDISPATCH_LIMIT 个卡死 DAG 节点 (failed→pending, 带 retry 上限),
       # 超上限转 needs_human_review 告警。根治 "evaluator 判一次 FAIL = DAG 永久卡死"。
+      # 注: scope_arbiter 已先处理 A 类越界; 此处兜底 B/C 类 (本期仍走无脑重派,
+      #     下期接语义算子后改为分类处理)。
       if [[ -f "$HARNESS_DIR/lib/graph_redispatch.py" ]]; then
         (python3 "$HARNESS_DIR/lib/graph_redispatch.py" --scan-all --apply \
           --max-retry "${SOLAR_DAG_MAX_REDISPATCH:-2}" \
