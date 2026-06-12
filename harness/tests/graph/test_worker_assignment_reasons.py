@@ -126,6 +126,21 @@ def test_control_plane_aliases_can_bind_specialized_builder_nodes() -> None:
     assert result["assigned"][0]["node"] == "N1"
 
 
+def test_writer_orchestration_alias_binds_insight_orchestration_nodes() -> None:
+    worker = _worker("pane-a")
+    worker["skills"] = ["python", "pytest", "technical-writing"]
+    worker["capabilities"] = ["workflow.planning", "documentation", "testing"]
+    node = {
+        "id": "N1",
+        "preferred_model": "sonnet",
+        "required_skills": ["python", "testing"],
+        "required_capabilities": ["workflow.planning", "writer-orchestration", "testing"],
+    }
+    result = assign_workers([node], [worker])
+    assert result["queued"] == []
+    assert result["assigned"][0]["node"] == "N1"
+
+
 def test_product_analytics_nodes_bind_general_builder_workers() -> None:
     worker = _worker("pane-a")
     worker["skills"] = ["python", "product.requirements", "planning", "analytics"]
@@ -246,6 +261,9 @@ def test_code_impl_and_test_generation_aliases_bind_general_builder_workers() ->
 
 
 def test_enqueue_ready_marks_no_matching_worker_nodes_as_worker_blocked(tmp_path: Path, monkeypatch) -> None:
+    # P0 软约束 (2026-06-11): 能力不匹配默认降级派发 (soft)。本测试验证的
+    # "无匹配 → worker_blocked" 是 hard 模式契约, 显式声明之。
+    monkeypatch.setenv("SOLAR_CAPABILITY_MATCH_MODE", "hard")
     graph = {
         "sprint_id": "sid",
         "nodes": [

@@ -71,6 +71,11 @@ LABEL_ALIAS_GROUPS = [
         "docs",
         "documentation",
         "spec.write",
+        "requirement-ir",
+        "product.requirements",
+        "writer-orchestration",
+        "writer.orchestration",
+        "section-render.orchestration",
     },
     {
         "algorithm_design",
@@ -86,6 +91,10 @@ LABEL_ALIAS_GROUPS = [
     {
         "code_impl",
         "ImplementationWorker",
+        "builder",
+        "edit",
+        "write",
+        "targeted-implementation",
         "backend-development",
         "backend.development",
         "backend",
@@ -120,6 +129,7 @@ LABEL_ALIAS_GROUPS = [
         "verification",
         "verifier",
         "review",
+        "quality-gates",
         "testing",
         "test_execution",
         "code.review",
@@ -292,6 +302,16 @@ def _attach_runtime_planes(
     for node_id, result in node_results.items():
         if node_id not in ids or not isinstance(result, dict):
             continue
+        node_artifacts = ids[node_id].get("artifacts")
+        if not isinstance(node_artifacts, dict):
+            node_artifacts = {}
+            ids[node_id]["artifacts"] = node_artifacts
+        result_artifacts = result.get("artifacts")
+        if isinstance(result_artifacts, dict):
+            # Runtime state may learn eval/handoff/proof sidecars after the
+            # immutable graph spec was written. Merge instead of replacing so
+            # later load/save cycles cannot erase proof artifacts.
+            node_artifacts.update({k: v for k, v in result_artifacts.items() if v})
         status = str(result.get("status") or "").strip().lower()
         if status:
             ids[node_id]["status"] = status
@@ -334,6 +354,14 @@ def _runtime_state_from_graph(graph: dict[str, Any], *, graph_path: Path | None 
         if not node_id:
             continue
         result = node_results.get(node_id) if isinstance(node_results.get(node_id), dict) else {}
+        node_artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+        result_artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
+        merged_artifacts = {}
+        merged_artifacts.update({k: v for k, v in result_artifacts.items() if v})
+        merged_artifacts.update({k: v for k, v in node_artifacts.items() if v})
+        if merged_artifacts:
+            result["artifacts"] = merged_artifacts
+            node["artifacts"] = merged_artifacts.copy()
         status = str(result.get("status") or node.get("status") or "pending").strip().lower()
         projection = {
             "status": status,
@@ -1791,6 +1819,36 @@ def _capabilities_match(worker: dict[str, Any], required_capabilities: list[str]
     return True
 
 
+def _capability_match_mode() -> str:
+    """P0 软约束 (2026-06-11 架构根治方案, 监护人拍板).
+
+    背景: capability enrichment (auto) 给节点标 175 种能力, 算子池仅 1 个算子
+    声明 5 种 → 匹配率 0%, 2193 个节点-需求对 100% no_matching_worker 静默堵死。
+    soft (默认): 能力不满足不淘汰 worker, 降级为 role+skills 匹配;
+                 排序仍偏好真有能力者 (cap_score); 选中缺能力者发 warn 事件留痕。
+    hard: 原行为 (P1 CapabilityRegistry 闭环、算子能力实测登记后逐步切回)。
+    """
+    return str(os.environ.get("SOLAR_CAPABILITY_MATCH_MODE", "soft")).strip().lower()
+
+
+def _emit_capability_soft_match(node_id: str, pane: str, missing: list[str]) -> None:
+    """软匹配留痕 (best-effort): 给 P1 registry 收口提供缺口高频数据。"""
+    try:
+        events = Path(os.environ.get("HARNESS_DIR", str(Path.home() / ".solar/harness"))) / "events" / "all.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "event": "capability_soft_match",
+            "by": "graph-scheduler",
+            "severity": "warn",
+            "data": {"node": node_id, "pane": pane, "missing_capabilities": missing[:40]},
+        }
+        with events.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:
+        pass  # 留痕失败不阻断派发 (本函数自身就是可见性补丁, 不能反过来制造新故障点)
+
+
 def _missing_skills(worker: dict[str, Any], required_skills: list[str]) -> list[str]:
     worker_aliases: set[str] = set()
     for skill in worker.get("skills", []) or []:
@@ -1911,12 +1969,16 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             role_candidates_seen = True
             for item in _missing_skills(worker, required_skills):
                 missing_skill_union.add(item)
-            for item in _missing_capabilities(worker, required_capabilities):
+            worker_missing_caps = _missing_capabilities(worker, required_capabilities)
+            for item in worker_missing_caps:
                 missing_cap_union.add(item)
             if not _skills_match(worker, required_skills, required_capabilities):
                 continue
             if not _capabilities_match(worker, required_capabilities):
-                continue
+                # P0 软约束: soft 模式不淘汰, 降级为 role+skills 匹配 (排序仍偏好
+                # cap_score 高者); hard 模式保持原行为。见 _capability_match_mode()。
+                if _capability_match_mode() == "hard":
+                    continue
             if _worker_quota_exhausted(worker, preferred_model):
                 continue
             if _model_requires_strict_match(preferred_model, strict_model) and not _model_match(worker, preferred_model):
@@ -1936,7 +1998,12 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             skill_score = _skill_match_count(worker, required_skills)
             model_penalty = 0 if _model_match(worker, preferred_model) else 10
             load = int(worker.get("load", 0) or 0)
-            candidates.append((role_penalty, -cap_score, -skill_score, model_penalty, load, pane, worker))
+            # P0 软约束: missing_count 进排序键 (缺能力越少越优先), 让真持有
+            # 能力的 worker 始终先被选; hard 模式下缺能力者已被过滤, 恒为 0,
+            # 排序行为与原版完全一致。注意 cap_score 是"能力全局价值分",
+            # 不衡量拥有度, 不能替代此键。
+            candidates.append((role_penalty, len(worker_missing_caps), -cap_score,
+                               -skill_score, model_penalty, load, pane, worker))
 
         if not candidates:
             if blocked_by_runtime:
@@ -1963,10 +2030,10 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             queued.append({"node": node["id"], "reason": reason, "details": details})
             continue
 
-        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], item[4], item[5]))
-        role_rank, cap_rank, skill_rank, _model_penalty, _load, _pane, worker = candidates[0]
+        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], item[4], item[5], item[6]))
+        role_rank, _missing_n, cap_rank, skill_rank, _model_penalty, _load, _pane, worker = candidates[0]
         used_panes.add(str(worker.get("pane")))
-        assigned.append({
+        assignment = {
             "node": node["id"],
             "pane": worker.get("pane"),
             "dispatch_role": node_role,
@@ -1978,7 +2045,13 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             "role_penalty": int(role_rank),
             "capability_score": round(-cap_rank, 3),
             "skill_match_count": int(-skill_rank),
-        })
+        }
+        # P0 软约束留痕: 选中的 worker 缺能力时显式标记 + warn 事件 (不静默)
+        chosen_missing = _missing_capabilities(worker, required_capabilities)
+        if chosen_missing:
+            assignment["capability_soft_match"] = sorted(chosen_missing)
+            _emit_capability_soft_match(str(node["id"]), str(worker.get("pane") or ""), sorted(chosen_missing))
+        assigned.append(assignment)
 
     return {"ok": True, "assigned": assigned, "queued": queued}
 
@@ -2137,7 +2210,8 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
 
 
 def set_node_status(graph: dict[str, Any], node_id: str, status: str,
-                    pane: str | None = None, dispatch_id: str | None = None) -> None:
+                    pane: str | None = None, dispatch_id: str | None = None,
+                    allow_reopen_failed: bool = False) -> None:
     ids = _node_map(graph)
     if node_id not in ids:
         raise ValueError(f"unknown node: {node_id}")
@@ -2145,7 +2219,13 @@ def set_node_status(graph: dict[str, Any], node_id: str, status: str,
     reopening_from_pass = current in PASS_STATUSES and status in {
         "reviewing", "pending", "queued", "blocked", "worker_blocked", "assigned", "dispatched", "in_progress", "running",
     }
-    if _status_rank(current) > _status_rank(status) and not reopening_from_pass:
+    # P0 卡点修复 (2026-06-10): failed 节点零重派导致 DAG 永久卡死。
+    # 受控放行 failed→pending/queued 重开, 仅当调用方显式 allow_reopen_failed
+    # (FAIL 重派器); 默认 False 保持原有终态语义不变。
+    reopening_from_fail = (
+        allow_reopen_failed and current == "failed" and status in {"pending", "queued"}
+    )
+    if _status_rank(current) > _status_rank(status) and not reopening_from_pass and not reopening_from_fail:
         return
     updated_at = _now()
     ids[node_id]["status"] = status
