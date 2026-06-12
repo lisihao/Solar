@@ -19,6 +19,10 @@ trap 'rm -rf "$TMPDIR_TEST"' EXIT
 mkdir -p "$TMPDIR_TEST/lib" "$TMPDIR_TEST/config" "$TMPDIR_TEST/sprints" "$TMPDIR_TEST/run/queue" "$TMPDIR_TEST/run/pane-leases"
 
 cp "$HARNESS_DIR_REAL/lib/graph_scheduler.py" "$TMPDIR_TEST/lib/graph_scheduler.py"
+# 2026-06-11: 沙箱拷贝清单跟上代码进化 (graph_scheduler 新依赖), 否则 ModuleNotFoundError 假阴性
+cp "$HARNESS_DIR_REAL/lib/prerequisite_resolver.py" "$TMPDIR_TEST/lib/prerequisite_resolver.py" 2>/dev/null || true
+cp "$HARNESS_DIR_REAL/lib/session_log.py" "$TMPDIR_TEST/lib/session_log.py" 2>/dev/null || true
+cp "$HARNESS_DIR_REAL/lib/concurrency_policy.py" "$TMPDIR_TEST/lib/concurrency_policy.py" 2>/dev/null || true
 cp "$HARNESS_DIR_REAL/lib/graph_node_dispatcher.py" "$TMPDIR_TEST/lib/graph_node_dispatcher.py"
 cp "$HARNESS_DIR_REAL/lib/task_queue.py" "$TMPDIR_TEST/lib/task_queue.py"
 cp "$HARNESS_DIR_REAL/lib/pane_lease.py" "$TMPDIR_TEST/lib/pane_lease.py"
@@ -121,7 +125,8 @@ check "main builder model aliases include configured Opus" "$MODELS_JSON" "claud
 check "lab4 model aliases include explicit Anthropic Sonnet" "$MODELS_JSON" "anthropic-sonnet"
 
 echo "T2: dispatch-ready dry-run creates explicit node dispatch files"
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" SOLAR_HARNESS_SESSION="solar-harness-test" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" dispatch-ready --graph "$GRAPH" --dry-run 2>/dev/null)
+# 2026-06-12: 沙箱缺少 apo_plan_compiler 等深依赖 — 加 PYTHONPATH 补全 + FAKE_WORKERS 跳过真实 tmux pane 扫描
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" SOLAR_HARNESS_SESSION="solar-harness-test" SOLAR_GRAPH_DISPATCH_FAKE_WORKERS=1 python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" dispatch-ready --graph "$GRAPH" --dry-run 2>/dev/null)
 check "dispatch-ready ok" "$OUT" '"ok": true'
 check "S1 drained" "$OUT" '"node": "S1"'
 check "S2 drained" "$OUT" '"node": "S2"'
@@ -183,7 +188,7 @@ print(json.dumps({
 PY
 )
 HARNESS_DIR="$TMPDIR_TEST" python3 "$TMPDIR_TEST/lib/task_queue.py" enqueue-node --sprint "$SID2" --node-id S1 --payload "$PAYLOAD" >/dev/null
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" drain-queue --sprint "$SID2" --dry-run 2>/dev/null)
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" drain-queue --sprint "$SID2" --dry-run 2>/dev/null)
 check "drain-queue ok" "$OUT" '"ok": true'
 check "drain-queue S1" "$OUT" '"node": "S1"'
 [[ -s "$TMPDIR_TEST/sprints/${SID2}.S1-dispatch.md" ]] && ok "drain dispatch file exists" || fail "drain dispatch file missing"
@@ -206,7 +211,8 @@ cat > "$TMPDIR_TEST/sprints/${SID}.S1-handoff.md" <<'EOF'
 - Used Browser-use MCP for localhost browser QA.
 - Used MarkItDown document.convert evidence for PDF conversion.
 EOF
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" SOLAR_HARNESS_SESSION="solar-harness-test" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" dispatch-evals --graph "$GRAPH" --dry-run 2>/dev/null)
+# 2026-06-12: dispatch-evals 也需要 PYTHONPATH 补全 + FAKE_EVALUATORS 跳过真实 tmux 扫描
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" SOLAR_HARNESS_SESSION="solar-harness-test" SOLAR_GRAPH_DISPATCH_FAKE_WORKERS=1 SOLAR_GRAPH_DISPATCH_FAKE_EVALUATORS=1 python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" dispatch-evals --graph "$GRAPH" --dry-run 2>/dev/null)
 check "dispatch-evals ok" "$OUT" '"ok": true'
 check "S1 eval dispatched" "$OUT" '"node": "S1"'
 S1_EVAL_DISPATCH="$TMPDIR_TEST/sprints/${SID}.S1-eval-dispatch.md"
@@ -217,7 +223,7 @@ check "eval text forbids parent pass" "$S1_EVAL_TEXT" "不要把 parent sprint �
 check "eval text has required capabilities section" "$S1_EVAL_TEXT" "## Required Capabilities"
 check "eval text lists browser capability" "$S1_EVAL_TEXT" "\`browser.browse\`"
 check "eval text has capability block" "$S1_EVAL_TEXT" "<solar-capability-context>"
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$TMPDIR_TEST/lib" SOLAR_HARNESS_SESSION="solar-harness-test" python3 - <<'PY'
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib:$TMPDIR_TEST/lib" SOLAR_HARNESS_SESSION="solar-harness-test" python3 - <<'PY'
 import graph_node_dispatcher as g
 
 g._pane_exists = lambda pane: pane in {
@@ -237,7 +243,7 @@ PY
 )
 if [[ "$OUT" != *"solar-harness-test:0.1"* ]]; then ok "planner pane excluded from evaluator candidates"; else fail "planner pane included as evaluator ($OUT)"; fi
 check "primary evaluator candidate retained" "$OUT" "solar-harness-test:0.3"
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" SOLAR_HARNESS_SESSION="solar-harness-test" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH" --node S1 --verdict pass --dry-run 2>/dev/null)
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" SOLAR_HARNESS_SESSION="solar-harness-test" SOLAR_GRAPH_DISPATCH_FAKE_WORKERS=1 python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH" --node S1 --verdict pass --dry-run 2>/dev/null)
 check "S1 verdict ok" "$OUT" '"status": "passed"'
 check "S1 capability effect recorded" "$OUT" '"status": "eval_passed_with_worker_evidence"'
 python3 - "$S1_DISPATCH.intent.json" <<'PY' && ok "S1 intent sidecar effect updated" || fail "S1 intent sidecar effect missing"
@@ -249,7 +255,7 @@ assert effect.get("eval_passed") is True, effect
 assert "MarkItDown" in effect.get("used_providers", []), effect
 PY
 if [[ "$OUT" != *'"node": "S3"'* ]]; then ok "S3 still blocked until S2 pass"; else fail "S3 released before S2 pass"; fi
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" SOLAR_HARNESS_SESSION="solar-harness-test" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH" --node S2 --verdict pass --dry-run 2>/dev/null)
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" SOLAR_HARNESS_SESSION="solar-harness-test" SOLAR_GRAPH_DISPATCH_FAKE_WORKERS=1 python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH" --node S2 --verdict pass --dry-run 2>/dev/null)
 check "S2 verdict ok" "$OUT" '"status": "passed"'
 check "S3 downstream released" "$OUT" '"node": "S3"'
 [[ -s "$TMPDIR_TEST/sprints/${SID}.S3-dispatch.md" ]] && ok "S3 dispatch file exists after join" || fail "S3 dispatch missing after join"
@@ -275,7 +281,7 @@ d["node_results"] = {"S0": {"status": "passed", "updated_at": "2026-05-09T00:00:
 d["gate_results"] = {"G0": {"status": "passed", "node": "S0", "updated_at": "2026-05-09T00:00:00Z"}}
 json.dump(d, open(p, "w"), indent=2)
 PY
-OUT=$(HARNESS_DIR="$TMPDIR_TEST" SOLAR_HARNESS_SESSION="solar-harness-test" python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH3" --node S1 --verdict fail --dry-run 2>/dev/null)
+OUT=$(HARNESS_DIR="$TMPDIR_TEST" PYTHONPATH="$HARNESS_DIR_REAL/lib" SOLAR_HARNESS_SESSION="solar-harness-test" SOLAR_GRAPH_DISPATCH_FAKE_WORKERS=1 python3 "$TMPDIR_TEST/lib/graph_node_dispatcher.py" node-verdict --graph "$GRAPH3" --node S1 --verdict fail --dry-run 2>/dev/null)
 check "S1 fail verdict ok" "$OUT" '"status": "failed"'
 if [[ "$OUT" != *'"node": "S3"'* ]]; then ok "failed S1 does not release S3"; else fail "failed S1 released S3"; fi
 

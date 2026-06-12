@@ -152,6 +152,24 @@ def infer_node_capabilities(node: dict[str, Any], source_text: str = "") -> dict
     }
 
 
+_SUPPLY_REGISTRY_CACHE: Any = "unset"
+
+
+def _validate_against_supply(caps: list[str], node_id: str) -> list[str]:
+    """P1: 词表校验 (capability_supply_registry)。registry 不可用 → fail-open 原样放行。"""
+    global _SUPPLY_REGISTRY_CACHE
+    if _SUPPLY_REGISTRY_CACHE == "unset":
+        try:
+            from capability_supply_registry import CapabilitySupplyRegistry
+            _SUPPLY_REGISTRY_CACHE = CapabilitySupplyRegistry.load()
+        except Exception:
+            _SUPPLY_REGISTRY_CACHE = None
+    if _SUPPLY_REGISTRY_CACHE is None:
+        return caps
+    result = _SUPPLY_REGISTRY_CACHE.validate_required(caps, context=f"enrich_graph:{node_id}")
+    return result["valid"]
+
+
 def enrich_graph(graph: dict[str, Any], source_text: str = "",
                  overwrite: bool = False) -> dict[str, Any]:
     """Add missing `required_capabilities` to graph nodes.
@@ -179,6 +197,11 @@ def enrich_graph(graph: dict[str, Any], source_text: str = "",
             existing_caps = []
 
         final_caps = inferred_caps if overwrite else _dedupe(existing_caps + inferred_caps)
+        # P1 生产点校验 (2026-06-11 架构根治 R2): 需求能力必须在供给词表内。
+        # 此前 enrichment 自由发明能力名 → 175 种需求 0% 匹配, 2193 节点-需求对
+        # 全堵成 no_matching_worker。词表外按策略 drop + warn 事件 (显式不静默);
+        # registry 不可用时 fail-open 放行 (校验器不能成为新死墙)。
+        final_caps = _validate_against_supply(final_caps, str(node.get("id", "")))
         if final_caps != existing_caps or not had_required_capabilities:
             node["required_capabilities"] = final_caps
             changed_nodes.append(str(node.get("id", "")))
