@@ -370,3 +370,82 @@ class TestApplyFailureFlowControl:
         assert result["task_control"]["delay_seconds"] == 600
         assert result["task_control"]["reason"] == "browser_history_throttle"
         assert result["config_block"]["reason"] == "browser_history_throttle"
+
+class TestQuotaRecoveryPrune:
+    def test_claude_live_heartbeat_clears_future_registry_and_status_cooldown(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        status_dir = tmp_path / "run" / "operator-status"
+        status_dir.mkdir(parents=True)
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-claude-opus-evaluator"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "opus",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-13T06:50:00Z",
+                            "state": {
+                                "runtime_state": "cooldown",
+                                "cooldown_until": "2026-06-13T06:50:00Z",
+                                "last_error_at": "2026-06-12T21:00:00Z",
+                            },
+                            "flow_control": {
+                                "last_block_detected_at": "2026-06-12T21:00:00Z",
+                                "last_block_expires_at": "2026-06-13T06:50:00Z",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        status_path = status_dir / f"{operator_id}.json"
+        status_payload = {
+            "operator_id": operator_id,
+            "runtime_state": "cooldown",
+            "state": "idle",
+            "updated_at": "2026-06-12T21:00:00Z",
+            "expires_at": "2026-06-13T06:50:00Z",
+            "heartbeat_at": "2026-06-12T23:30:00Z",
+            "effective_provider": "anthropic",
+        }
+        status_path.write_text(json.dumps(status_payload), encoding="utf-8")
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = status_dir
+
+            @staticmethod
+            def get_operator_status(op_id):
+                if op_id != operator_id or not status_path.exists():
+                    return None
+                return json.loads(status_path.read_text(encoding="utf-8"))
+
+            @staticmethod
+            def clear_operator_status(op_id):
+                if op_id == operator_id and status_path.exists():
+                    status_path.unlink()
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 12, 23, 45, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(item["operator_id"] == operator_id and item["expired_at"] == "claude_live_heartbeat_after_block" for item in result["pruned"])
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"][operator_id]
+        assert updated["quota_guard_state"] == "ok"
+        assert updated["quota_refresh_at"] is None
+        assert updated["state"]["runtime_state"] == "idle"
+        assert not status_path.exists()

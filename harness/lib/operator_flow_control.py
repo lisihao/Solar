@@ -264,6 +264,21 @@ def _is_antigravity_operator(operator_id: str, op: dict[str, Any]) -> bool:
     )
 
 
+def _is_claude_code_operator(operator_id: str, op: dict[str, Any]) -> bool:
+    provider = str(op.get("provider") or "").strip().lower()
+    backend = str(op.get("backend") or op.get("runtime") or op.get("command_backend") or "").strip().lower()
+    model = str(op.get("model") or "").strip().lower()
+    surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
+    surface_type = str(surface.get("type") or "").strip().lower()
+    return (
+        "claude" in operator_id.lower()
+        or provider in {"anthropic", "claude", "claude-code"}
+        or backend in {"claude-cli", "claude-sdk"}
+        or surface_type.startswith("claude_")
+        or model in {"opus", "sonnet", "haiku"}
+    )
+
+
 def _antigravity_auth_probe_enabled() -> bool:
     return bool_value(os.environ.get("SOLAR_ANTIGRAVITY_AUTH_PROBE"), True)
 
@@ -534,6 +549,33 @@ def _clear_registry_block(
     op["flow_control"] = flow
 
 
+def _live_heartbeat_clears_claude_block(status: dict[str, Any], *, block_started_at: str = "") -> bool:
+    """Return whether a newer Claude runtime heartbeat supersedes a stale quota block.
+
+    Claude Code quota can be restored out-of-band by the user. A blocked status
+    file produced before that recovery should not keep the harness asleep once
+    the interactive operator has emitted a newer usable heartbeat.
+    """
+    runtime_state = str(status.get("runtime_state") or "").strip()
+    live_state = str(status.get("state") or "").strip()
+    if runtime_state not in {"cooldown", "quota_exhausted"}:
+        return False
+    if live_state not in {"idle", "running"}:
+        return False
+    heartbeat_at = _parse_time(status.get("heartbeat_at"))
+    if heartbeat_at is None:
+        return False
+    block_at = _parse_time(
+        block_started_at
+        or status.get("updated_at")
+        or status.get("last_error_at")
+        or status.get("expires_at")
+    )
+    if block_at is None:
+        return False
+    return heartbeat_at > block_at
+
+
 def prune_expired_operator_config_blocks() -> dict[str, Any]:
     """Clear all expired rate-limit/auth blocks persisted in physical operators.
 
@@ -609,6 +651,28 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             )
         )
         if expires is not None and expires > now:
+            if _is_claude_code_operator(str(operator_id), op):
+                try:
+                    runtime = _operator_runtime_module()
+                    live_status = runtime.get_operator_status(str(operator_id)) or {}
+                except Exception:
+                    live_status = {}
+                if isinstance(live_status, dict) and _live_heartbeat_clears_claude_block(
+                    live_status,
+                    block_started_at=str(
+                        flow.get("last_block_detected_at")
+                        or state.get("last_error_at")
+                        or op.get("quota_refresh_at")
+                        or ""
+                    ),
+                ):
+                    _clear_registry_block(op, now=now, reason="claude_live_heartbeat_after_block")
+                    pruned.append({
+                        "operator_id": str(operator_id),
+                        "runtime_state": runtime_state,
+                        "expired_at": "claude_live_heartbeat_after_block",
+                    })
+                    continue
             if weak_pane_cooldown:
                 pass
             else:
@@ -650,6 +714,8 @@ def _prune_dynamic_operator_status_blocks(
     evidence; keeping it blocks the fleet even when provider quota is available.
     """
     runtime = _operator_runtime_module()
+    registry = _load_operator_registry()
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     status_dir = Path(getattr(runtime, "OPERATOR_STATUS_DIR", HARNESS_DIR / "run" / "operator-status"))
     health_dir = HARNESS_DIR / "run" / "operator-health"
     pruned: list[dict[str, str]] = []
@@ -678,6 +744,12 @@ def _prune_dynamic_operator_status_blocks(
         reason = str(status.get("reason") or status.get("last_error") or status.get("source") or "").strip()
         evidence = str(status.get("evidence") or status.get("evidence_text") or status.get("last_output_excerpt") or "").strip()
         weak_cooldown = runtime_state == "cooldown" and not reason and not evidence
+        op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else {}
+        status_provider = str(status.get("effective_provider") or "").strip().lower()
+        claude_live_heartbeat = (
+            (status_provider in {"anthropic", "claude", "claude-code"} or _is_claude_code_operator(operator_id, op))
+            and _live_heartbeat_clears_claude_block(status)
+        )
         health_ok = False
         health_path = health_dir / f"{operator_id}.json"
         if health_path.exists():
@@ -693,6 +765,10 @@ def _prune_dynamic_operator_status_blocks(
         if weak_cooldown and health_ok:
             runtime.clear_operator_status(operator_id)
             pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "weak_no_evidence_health_ok"})
+            continue
+        if claude_live_heartbeat:
+            runtime.clear_operator_status(operator_id)
+            pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "claude_live_heartbeat_after_block"})
             continue
         kept.append({"operator_id": operator_id, "runtime_state": runtime_state, "expires_at": expires_raw or "N/A"})
     return pruned, kept

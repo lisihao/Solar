@@ -104,6 +104,77 @@ def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
     assert operator_id == "gpt-planner"
 
 
+def test_deepseek_eval_sidecar_operator_can_be_selected_as_evaluator(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "advisor",
+                    "roles": ["advisor", "evaluator"],
+                    "launch_cmd_kind": "print_once",
+                    "task_classes": ["analysis", "review", "advisory", "verification"],
+                    "profile": "deepseek-advisory",
+                    "preferred_for": ["evaluator", "review", "verification"],
+                    "policy": {
+                        "write_files": "eval_sidecar_only",
+                        "eval_sidecar_write": "allowed",
+                        "run_shell": "denied",
+                    },
+                    "avoid_for": ["implementation", "code-edit", "repo-modification"],
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+
+    operator_id, operator, reason = pm_dispatch.select_operator_by_role(role="evaluator", task_type="review")
+
+    assert reason == ""
+    assert operator_id == "mini-reasonix-deepseek-v4-builder"
+    assert operator["selected_for_role"] == "evaluator"
+
+
+def test_preferred_multi_role_operator_uses_requested_role_persona(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "deepseek-advisory": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "advisor",
+                    "roles": ["advisor", "evaluator"],
+                    "launch_cmd_kind": "print_once",
+                    "task_classes": ["analysis", "review", "verification"],
+                    "profile": "deepseek-advisory",
+                    "preferred_for": ["evaluator", "review"],
+                    "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+
+    operator_id, operator, reason = pm_dispatch.select_operator_by_role(
+        role="evaluator",
+        task_type="review",
+        prefer_operator="deepseek-advisory",
+    )
+
+    assert reason == ""
+    assert operator_id == "deepseek-advisory"
+    assert operator["selected_for_role"] == "evaluator"
+
+
 def test_multi_role_operator_uses_requested_role_persona(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(pm_dispatch, "PERSONAS_DIR", tmp_path)

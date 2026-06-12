@@ -1102,6 +1102,8 @@ def select_operator_by_role(
         if prefer_operator in operators:
             op = dict(operators[prefer_operator])
             op["operator_id"] = prefer_operator
+            if normalize_role(str(op.get("role") or "")) != norm_role:
+                op["selected_for_role"] = norm_role
             task_reject_reason = _operator_reject_reason_for_task(op, norm_role, task_type)
             if task_reject_reason:
                 return "", {}, f"preferred_operator_rejected_for_task: {prefer_operator}: {task_reject_reason}"
