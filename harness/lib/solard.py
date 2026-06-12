@@ -235,14 +235,340 @@ class GraphDispatchReconciler(Reconciler):
         return {"ok": True, "ready": ready, "executed": False}
 
 
+class ScopeArbiterReconciler(Reconciler):
+    """A 类越界自动扩 scope — 复用 lib/scope_arbiter.py arbitrate/_iter_nonterminal。
+
+    shadow: apply=False 遍历非终态 graph, 汇总 would_expand 决策, 不写任何文件。
+    active: apply=True + save_graph, limit 用 SOLAR_SCOPE_ARBITER_LIMIT(env, 默认 3)。
+    """
+
+    name = "scope_arbiter"
+    scope = "global"
+    interval = 300
+
+    def reconcile(self, sid: str | None = None) -> dict:
+        import scope_arbiter as sa  # noqa
+        import graph_scheduler as gs  # noqa
+        _mode = mode()
+        apply = (_mode == "active")
+        limit = int(os.environ.get("SOLAR_SCOPE_ARBITER_LIMIT", "3"))
+        budget = limit
+        expanded, human_review, sprints_touched = 0, 0, 0
+
+        for _sid, tg in sa._iter_nonterminal():
+            if budget <= 0:
+                break
+            graph = gs.load_graph(tg)
+            r = sa.arbitrate(graph, max_expand=int(os.environ.get("SOLAR_SCOPE_EXPAND_MAX", "2")),
+                             apply=apply)
+            acted = [x for x in r["results"]
+                     if x["action"] in ("expand_and_redispatch", "human_review")]
+            if acted:
+                if apply and any(x["action"] == "expand_and_redispatch" for x in acted):
+                    gs.save_graph(tg, graph)
+                n_exp = sum(1 for x in acted if x["action"] == "expand_and_redispatch")
+                n_hr = sum(1 for x in acted if x["action"] == "human_review")
+                expanded += n_exp
+                human_review += n_hr
+                budget -= n_exp
+                sprints_touched += 1
+
+        return {"ok": True, "apply": apply, "limit": limit,
+                "expanded": expanded, "human_review": human_review,
+                "sprints_touched": sprints_touched}
+
+
+class GraphRedispatchReconciler(Reconciler):
+    """FAIL 节点重派 — 复用 lib/graph_redispatch.py redispatch_failed_nodes。
+
+    shadow: apply=False, 汇总 would_redispatch 决策, 不改 graph 文件。
+    active: apply=True + save_graph, limit 用 SOLAR_DAG_REDISPATCH_LIMIT(env, 默认 3)。
+    """
+
+    name = "graph_redispatch"
+    scope = "global"
+    interval = 300
+
+    def reconcile(self, sid: str | None = None) -> dict:
+        import graph_redispatch as grd  # noqa
+        import graph_scheduler as gs  # noqa
+        _mode = mode()
+        apply = (_mode == "active")
+        limit = int(os.environ.get("SOLAR_DAG_REDISPATCH_LIMIT", "3"))
+        budget = limit
+        redispatched, escalated, sprints_touched = 0, 0, 0
+
+        for _sid, tg in grd._iter_nonterminal_graphs():
+            if budget <= 0:
+                break
+            graph = gs.load_graph(tg)
+            r = grd.redispatch_failed_nodes(
+                graph,
+                max_retry=int(os.environ.get("SOLAR_DAG_MAX_REDISPATCH", "2")),
+                limit=budget,
+                apply=apply,
+            )
+            if apply and (r["redispatched"] or r["escalated"]):
+                gs.save_graph(tg, graph)
+            redispatched += len(r["redispatched"])
+            escalated += len(r["escalated"])
+            budget -= len(r["redispatched"])
+            if r["redispatched"] or r["escalated"]:
+                sprints_touched += 1
+
+        return {"ok": True, "apply": apply, "limit": limit,
+                "redispatched": redispatched, "escalated": escalated,
+                "sprints_touched": sprints_touched}
+
+
+class InboxPumpReconciler(Reconciler):
+    """operatord 补踢 — 复用 tools/inbox_pump.py 逻辑。
+
+    shadow: dry-run, 报告该踢哪些 operator, 不真 kick。
+    active: 真 kick operatord --once。
+    limit 用 SOLAR_INBOX_PUMP_LIMIT(env, 默认 3)。
+    """
+
+    name = "inbox_pump"
+    scope = "global"
+    interval = 120
+
+    def reconcile(self, sid: str | None = None) -> dict:
+        _mode = mode()
+        apply = (_mode == "active")
+        limit = int(os.environ.get("SOLAR_INBOX_PUMP_LIMIT", "3"))
+
+        inbox_root = H / "run" / "operator-inbox"
+        daemon_dir = H / "run" / "operator-daemons"
+
+        def _daemon_active(op: str) -> bool:
+            p = daemon_dir / f"{op}.json"
+            try:
+                pid = int(json.loads(p.read_text())["pid"])
+                if pid > 0:
+                    os.kill(pid, 0)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        kicked, skipped = [], []
+        if inbox_root.is_dir():
+            for inbox in sorted(inbox_root.iterdir()):
+                if not inbox.is_dir():
+                    continue
+                pending = len(list(inbox.glob("*.json")))
+                if pending == 0:
+                    continue
+                op = inbox.name
+                if _daemon_active(op):
+                    skipped.append({"operator": op, "pending": pending, "reason": "daemon_active"})
+                    continue
+                if len(kicked) >= limit:
+                    skipped.append({"operator": op, "pending": pending, "reason": "pump_limit"})
+                    continue
+                pid = None
+                if apply:
+                    _lib = str(H / "lib")
+                    if _lib not in sys.path:
+                        sys.path.insert(0, _lib)
+                    from operator_runtime import _kick_operatord_once  # noqa
+                    pid = _kick_operatord_once(op)
+                kicked.append({"operator": op, "pending": pending, "kick_pid": pid})
+
+        return {"ok": True, "apply": apply, "limit": limit,
+                "kicked": kicked, "skipped": skipped,
+                "kicked_count": len(kicked), "skipped_count": len(skipped)}
+
+
+class PaneHygieneReconciler(Reconciler):
+    """needs_respawn pane 自动 respawn + 回写 clean — 新闭环。
+
+    shadow: 报告 needs_respawn 清单, 不执行任何 tmux 命令。
+    active:
+      1. 读 run/pane-hygiene.json, 找 state=needs_respawn 的 pane。
+      2. 验 pane 是否真实存在 (tmux display-message 失败 → 只报告不动)。
+      3. 存在 → tmux respawn-pane -k + start-incarnation.sh (照 watchdog 493-515 行规范)。
+      4. sleep 5 验 pane_dead=0 → 回写 hygiene state=clean,
+         last_transition_trigger=solard_auto_respawn。
+    """
+
+    name = "pane_hygiene"
+    scope = "global"
+    interval = 300
+
+    _HYGIENE = H / "run" / "pane-hygiene.json"
+    _LAYOUT = pathlib.Path.home() / ".solar/harness/farm-layout.json"
+
+    def _load_hygiene(self) -> dict:
+        try:
+            return json.loads(self._HYGIENE.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise RuntimeError(f"pane_hygiene: failed to read hygiene file: {exc}") from exc
+
+    def _save_hygiene(self, data: dict) -> None:
+        tmp = self._HYGIENE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, self._HYGIENE)
+
+    def _resolve_persona(self, pane_id: str, entry: dict) -> str:
+        """优先用 entry.persona, 否则从 farm-layout 查, 再否则用 pane_role。"""
+        if entry.get("persona"):
+            return str(entry["persona"])
+        try:
+            sess_part, wp = pane_id.rsplit(":", 1)
+            win_str, pane_str = wp.split(".", 1)
+            win_idx = int(win_str)
+            pane_idx = int(pane_str)
+        except Exception:
+            return entry.get("pane_role") or "builder"
+        if self._LAYOUT.is_file():
+            try:
+                layout = json.loads(self._LAYOUT.read_text(encoding="utf-8"))
+                default_sess = layout.get("session_name", "solar-harness")
+                for w in layout.get("windows", []):
+                    w_sess = w.get("session") or default_sess
+                    if w_sess == sess_part and w.get("index", 0) == win_idx:
+                        for p in w.get("panes", []):
+                            if p.get("pane_index") == pane_idx:
+                                persona = p.get("persona") or p.get("role")
+                                if persona:
+                                    return str(persona)
+            except Exception:
+                pass
+        return entry.get("pane_role") or "builder"
+
+    def _pane_exists(self, pane_id: str) -> bool:
+        """tmux display-message 成功 = pane 存在。"""
+        import subprocess as _sp
+        try:
+            r = _sp.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_dead}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _pane_dead_flag(self, pane_id: str) -> bool:
+        """返回 pane_dead==1 (True=死, False=活)。"""
+        import subprocess as _sp
+        try:
+            r = _sp.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_dead}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip() == "1"
+        except Exception:
+            return True
+
+    def _build_respawn_cmd(self, pane_id: str, persona: str) -> list[str]:
+        """构造 tmux respawn-pane 命令, 照 watchdog 493-515 行规范。"""
+        import subprocess as _sp
+        work_dir = ""
+        try:
+            r = _sp.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_current_path}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                work_dir = r.stdout.strip()
+        except Exception:
+            pass
+        if not work_dir or not pathlib.Path(work_dir).is_dir():
+            work_dir = str(pathlib.Path.home())
+
+        pane_fmtid = ""
+        try:
+            r = _sp.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{pane_id}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                pane_fmtid = r.stdout.strip()
+        except Exception:
+            pass
+
+        user_path = os.environ.get("PATH", "")
+        for extra in ["/opt/homebrew/bin", "/usr/local/bin",
+                      str(pathlib.Path.home() / "n/bin"),
+                      str(pathlib.Path.home() / ".local/bin"),
+                      str(pathlib.Path.home() / ".npm-global/bin"),
+                      str(pathlib.Path.home() / ".bun/bin")]:
+            if pathlib.Path(extra).is_dir() and extra not in user_path:
+                user_path = f"{extra}:{user_path}"
+
+        bash = "/opt/homebrew/bin/bash"
+        if not pathlib.Path(bash).is_executable():
+            bash = "/bin/bash"
+
+        incarnation = str(H / "start-incarnation.sh")
+        home = str(pathlib.Path.home())
+
+        env_cmd = (
+            f"env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH "
+            f"HOME='{home}' PATH='{user_path}' "
+            f"TMUX_PANE='{pane_fmtid}' "
+            f"{bash} {incarnation} {persona} {work_dir}"
+        )
+        return ["tmux", "respawn-pane", "-k", "-t", pane_id, env_cmd]
+
+    def reconcile(self, sid: str | None = None) -> dict:
+        import subprocess as _sp
+        import time as _time
+        hygiene = self._load_hygiene()
+        needs = {k: v for k, v in hygiene.items() if v.get("state") == "needs_respawn"}
+
+        if mode() == "shadow":
+            return {"ok": True, "apply": False,
+                    "needs_respawn_count": len(needs),
+                    "needs_respawn": list(needs.keys())}
+
+        # active 模式
+        respawned, skipped, failed_respawn = [], [], []
+        for pane_id, entry in needs.items():
+            if not self._pane_exists(pane_id):
+                skipped.append({"pane_id": pane_id, "reason": "pane_not_found"})
+                continue
+
+            persona = self._resolve_persona(pane_id, entry)
+            cmd = self._build_respawn_cmd(pane_id, persona)
+            try:
+                r = _sp.run(cmd, capture_output=True, text=True, timeout=15)
+                if r.returncode != 0:
+                    raise RuntimeError(f"respawn-pane rc={r.returncode}: {r.stderr.strip()[:120]}")
+            except Exception as exc:
+                failed_respawn.append({"pane_id": pane_id, "error": str(exc)[:120]})
+                continue
+
+            _time.sleep(5)
+            still_dead = self._pane_dead_flag(pane_id)
+            if still_dead:
+                failed_respawn.append({"pane_id": pane_id,
+                                       "error": "pane_dead_after_respawn"})
+                continue
+
+            hygiene[pane_id]["state"] = "clean"
+            hygiene[pane_id]["last_transition_trigger"] = "solard_auto_respawn"
+            hygiene[pane_id]["last_state_transition_at"] = _now()
+            respawned.append({"pane_id": pane_id, "persona": persona})
+
+        if respawned:
+            self._save_hygiene(hygiene)
+
+        return {"ok": True, "apply": True,
+                "respawned": respawned, "skipped": skipped,
+                "failed_respawn": failed_respawn,
+                "respawned_count": len(respawned)}
+
+
 RECONCILERS: list[Reconciler] = [
     GraphDispatchReconciler(),
     CapabilityProbeReconciler(),
-    # 牛马填肉 (迁自 coordinator.sh %10/%30 分支, 调既有 lib 不重写):
-    #   ScopeArbiterReconciler    → lib/scope_arbiter.py --scan-all
-    #   GraphRedispatchReconciler → lib/graph_redispatch.py --scan-all
-    #   InboxPumpReconciler       → tools/inbox_pump.py
-    #   PaneHygieneReconciler     → needs_respawn 自动 respawn + 回写 clean (新闭环)
+    ScopeArbiterReconciler(),
+    GraphRedispatchReconciler(),
+    InboxPumpReconciler(),
+    PaneHygieneReconciler(),
 ]
 
 
