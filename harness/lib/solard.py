@@ -228,10 +228,26 @@ class GraphDispatchReconciler(Reconciler):
         graph = gs.load_graph(tg)
         ready = [str(n.get("id")) for n in gs.ready_nodes(graph)]
         if mode() == "active" and ready:
-            # 牛马填肉点: 调 graph_node_dispatcher dispatch-ready 真派。
-            # 骨架阶段 active 也不真派 (双轨安全), 仅显式声明未实现。
-            return {"ok": True, "ready": ready, "executed": False,
-                    "note": "active_dispatch_not_implemented_yet"}
+            # active 切流 (2026-06-12 监护人拍板 A): 调 dispatch-ready 真派。
+            # 该路径已人工验证 (P0 期间手动批量驱动同款命令); 超时保护;
+            # 失败 raise 给框架落 error 事件 (R3 公约)。
+            import subprocess
+            r = subprocess.run(
+                [sys.executable, str(LIB / "graph_node_dispatcher.py"),
+                 "dispatch-ready", "--graph", str(tg)],
+                capture_output=True, text=True, timeout=180,
+                env={**os.environ, "HARNESS_DIR": str(H)})
+            if r.returncode != 0:
+                raise RuntimeError(f"dispatch-ready rc={r.returncode}: {r.stderr[-200:]}")
+            try:
+                out = json.loads(r.stdout)
+                enq = out.get("enqueue", {})
+                enqueued = [x.get("node") if isinstance(x, dict) else x
+                            for x in (enq.get("enqueued") or [])]
+            except Exception:
+                enqueued = []
+            return {"ok": True, "ready": ready, "executed": True,
+                    "enqueued": enqueued}
         return {"ok": True, "ready": ready, "executed": False}
 
 
