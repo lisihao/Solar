@@ -452,6 +452,9 @@ def main() -> int:
     if returncode != 0:
         print(output, file=sys.stderr)
         return returncode
+    if action == "login_hold":
+        print(output)
+        return 0
     if kind == "deep_writer":
         if not request_dir:
             print("chatgpt_report_operator: deep_writer missing BROWSER_AGENT_REQUEST_DIR for Deep Research proof", file=sys.stderr)

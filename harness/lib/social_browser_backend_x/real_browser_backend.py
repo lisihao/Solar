@@ -34,7 +34,7 @@ from playwright.sync_api import sync_playwright
 
 
 DEFAULT_USER_DATA_DIR = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-DEFAULT_PROFILE_DIRECTORY = "Profile 1"
+DEFAULT_PROFILE_DIRECTORY = "Default"
 DEFAULT_ALLOWED_HOSTS = {"x.com", "twitter.com", "mobile.twitter.com"}
 
 

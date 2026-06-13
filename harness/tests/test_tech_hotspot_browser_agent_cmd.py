@@ -66,7 +66,7 @@ def test_call_browser_agent_chatgpt_text_prefers_process_env_over_config(monkeyp
     result = ns["call_browser_agent_chatgpt_text"](
         "验证 env override",
         {
-            "output": {"raw_dir": str(tmp_path)},
+            "output": {"raw_dir": str(tmp_path), "state_dir": str(tmp_path / "state")},
             "youtube": {
                 "phase_report_reasoner": {
                     "profile_directory": "Profile 1",
