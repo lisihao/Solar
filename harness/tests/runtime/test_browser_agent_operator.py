@@ -5,20 +5,26 @@ Verifies submit, poll, collect, and cancel flows under the mock job runner.
 from __future__ import annotations
 
 import datetime
+import importlib.util
 import json
 import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
 
 # Path setup
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "lib"))
-
-import browser_job_runtime as bjrt
+LIB = ROOT / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+SPEC = importlib.util.spec_from_file_location("lib_browser_job_runtime_under_test", LIB / "browser_job_runtime.py")
+assert SPEC is not None and SPEC.loader is not None
+bjrt = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(bjrt)
 
 
 @pytest.fixture(autouse=True)
@@ -439,7 +445,8 @@ def test_stage_browser_profile_persistent_strategy_returns_reusable_runtime(tmp_
     assert staged_dir is not None
     staged_root = Path(staged_dir)
     assert (staged_root / "Profile 1" / "Cookies").exists()
-    assert "browser-use-persistent-user-data-dir-" in staged_root.name
+    assert "browser-use-user-data-dir-persistent-" in staged_root.name
+    assert "browser-use-user-data-dir-" in staged_root.name
 
 
 def test_stage_browser_profile_isolates_from_persistent_runtime(tmp_path, monkeypatch):
@@ -462,4 +469,56 @@ def test_stage_browser_profile_isolates_from_persistent_runtime(tmp_path, monkey
     assert "browser-use-user-data-dir-" in staged_root.name
     assert (staged_root / "Profile 1" / "Cookies").exists()
 
+    shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+def test_stage_browser_profile_accepts_legacy_persistent_runtime_root(tmp_path):
+    legacy = tmp_path / "browser-use-persistent-user-data-dir-legacy"
+    profile = legacy / "Profile 1"
+    profile.mkdir(parents=True)
+
+    staged_dir, cleanup_dir = bjrt._stage_browser_profile(legacy, "Profile 1", strategy="persistent")
+    assert Path(staged_dir) == legacy
+    assert cleanup_dir is None
+
+
+def test_cleanup_stale_staged_browser_profiles_reaps_inactive_old_dirs(tmp_path, monkeypatch):
+    stale = tmp_path / "browser-use-user-data-dir-stale"
+    active = tmp_path / "browser-use-user-data-dir-active"
+    fresh = tmp_path / "browser-use-user-data-dir-fresh"
+    for path in (stale, active, fresh):
+        (path / "Default").mkdir(parents=True)
+        (path / "Default" / "Cookies").write_text("cookie-db", encoding="utf-8")
+
+    old_ts = time.time() - (2 * 3600)
+    os.utime(stale, (old_ts, old_ts))
+    os.utime(active, (old_ts, old_ts))
+
+    monkeypatch.setattr(bjrt.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(bjrt, "_active_browser_use_profile_dirs", lambda: {active})
+
+    removed = bjrt.cleanup_stale_staged_browser_profiles(grace_seconds=60)
+    assert str(stale) in removed
+    assert not stale.exists()
+    assert active.exists()
+    assert fresh.exists()
+
+
+def test_stage_browser_profile_cleanup_preserves_recent_dirs(tmp_path, monkeypatch):
+    root = tmp_path / "Chrome"
+    profile = root / "Profile 1"
+    profile.mkdir(parents=True)
+    (profile / "Cookies").write_text("cookie-db", encoding="utf-8")
+    (root / "Local State").write_text('{"profile":{"last_used":"Profile 1"}}', encoding="utf-8")
+
+    recent = tmp_path / "browser-use-user-data-dir-recent"
+    (recent / "Profile 1").mkdir(parents=True)
+    (recent / "Profile 1" / "Cookies").write_text("recent-cookie", encoding="utf-8")
+
+    monkeypatch.setattr(bjrt.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(bjrt, "_active_browser_use_profile_dirs", lambda: set())
+
+    staged_dir, cleanup_dir = bjrt._stage_browser_profile(root, "Profile 1")
+    assert recent.exists()
+    assert cleanup_dir is not None
     shutil.rmtree(cleanup_dir, ignore_errors=True)

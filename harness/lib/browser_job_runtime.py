@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -34,7 +35,8 @@ _CHATGPT_CAPTURE_MODULE = HARNESS_DIR / "lib" / "chatgpt-conversation-ingest.py"
 CHATGPT_MONTHLY_PROJECT_PREFIX = "需求研究"
 CHATGPT_FRONTDOOR_URL = "https://chatgpt.com/"
 _STAGED_PROFILE_PREFIX = "browser-use-user-data-dir-"
-_PERSISTENT_PROFILE_PREFIX = "browser-use-persistent-user-data-dir-"
+_PERSISTENT_PROFILE_PREFIX = "browser-use-user-data-dir-persistent-"
+_LEGACY_PERSISTENT_PROFILE_PREFIX = "browser-use-persistent-user-data-dir-"
 _RESTORE_ARTIFACTS = {
     "Current Session",
     "Current Tabs",
@@ -70,6 +72,7 @@ _SECRET_PATTERNS = [
 ]
 
 _CHATGPT_INGEST_CACHE: Any = None
+_STAGED_PROFILE_CLEANUP_GRACE_SECONDS = 15 * 60
 
 
 def scrub_secrets(text: str) -> str:
@@ -431,6 +434,77 @@ def _browser_profile_runtime_path(user_data_dir: str | Path, profile_directory: 
     return PROFILE_RUNTIME_ROOT / f"{_PERSISTENT_PROFILE_PREFIX}{runtime_key}"
 
 
+def _is_persistent_profile_root(path: str | Path | None) -> bool:
+    raw = str(path or "")
+    return _PERSISTENT_PROFILE_PREFIX in raw or _LEGACY_PERSISTENT_PROFILE_PREFIX in raw
+
+
+def _active_browser_use_profile_dirs() -> set[Path]:
+    """Best-effort snapshot of active browser-use staged profile directories."""
+    try:
+        output = subprocess.check_output(
+            ["ps", "-axo", "command="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return set()
+    active: set[Path] = set()
+    for raw_line in output.splitlines():
+        if _STAGED_PROFILE_PREFIX not in raw_line:
+            continue
+        for part in raw_line.split():
+            if _STAGED_PROFILE_PREFIX not in part:
+                continue
+            candidate = part
+            if candidate.startswith("--user-data-dir="):
+                candidate = candidate.split("=", 1)[1]
+            candidate = candidate.strip().strip('"').strip("'")
+            path = Path(candidate)
+            if _STAGED_PROFILE_PREFIX not in path.name:
+                continue
+            active.add(path)
+    return active
+
+
+def cleanup_stale_staged_browser_profiles(
+    *,
+    temp_root: str | Path | None = None,
+    grace_seconds: int = _STAGED_PROFILE_CLEANUP_GRACE_SECONDS,
+) -> list[str]:
+    """Remove abandoned browser-use staged profiles left in the temp directory.
+
+    These isolated Chrome profile copies are safe to reap when they are both:
+    1. older than the grace window, and
+    2. not referenced by any live Chrome/browser-use process.
+    """
+    root = Path(temp_root or tempfile.gettempdir())
+    if not root.exists():
+        return []
+    now = time.time()
+    active = _active_browser_use_profile_dirs()
+    removed: list[str] = []
+    try:
+        candidates = list(root.glob(f"{_STAGED_PROFILE_PREFIX}*"))
+    except OSError:
+        return removed
+    for path in candidates:
+        try:
+            if not path.is_dir():
+                continue
+            if path in active:
+                continue
+            age_seconds = now - path.stat().st_mtime
+            if age_seconds < max(0, int(grace_seconds)):
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            if not path.exists():
+                removed.append(str(path))
+        except OSError:
+            continue
+    return removed
+
+
 def _remove_profile_restore_artifacts(root: Path, profile_directory: str) -> None:
     profile_dir = root / profile_directory
     for name in _RESTORE_ARTIFACTS | _LOCK_ARTIFACTS:
@@ -540,13 +614,15 @@ def _stage_browser_profile(
     if not user_data_dir or not profile_directory:
         return user_data_dir, None
 
+    cleanup_stale_staged_browser_profiles()
+
     source_root = Path(user_data_dir)
-    if _STAGED_PROFILE_PREFIX in str(source_root):
-        return str(source_root), None
-    if _PERSISTENT_PROFILE_PREFIX in str(source_root):
+    if _is_persistent_profile_root(source_root):
         if strategy == "persistent":
             return str(source_root), None
         strategy = "isolated"
+    elif _STAGED_PROFILE_PREFIX in str(source_root):
+        return str(source_root), None
     if strategy == "persistent":
         runtime_root = prepare_browser_profile_runtime(source_root, profile_directory)
         return (str(runtime_root), None) if runtime_root else (None, None)
