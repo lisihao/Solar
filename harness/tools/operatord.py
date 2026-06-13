@@ -56,6 +56,127 @@ from operator_persona import (  # noqa: E402  (import after path setup)
     resolve_persona,
 )
 
+
+# ---------------------------------------------------------------------------
+# Capability pre-dispatch
+# ---------------------------------------------------------------------------
+
+
+def _load_capability_token(token_ref: dict[str, Any]) -> "CapabilityToken":
+    """Load a CapabilityToken from a capability_token_ref dict."""
+    from capability_token import CapabilityToken
+
+    path = token_ref.get("path")
+    if path:
+        p = Path(path)
+        if not p.is_absolute():
+            p = HARNESS_DIR / path
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return CapabilityToken.from_dict(data)
+    pid = token_ref.get("packet_id") or token_ref.get("token_id")
+    if pid:
+        from context_store import ContextStore
+
+        cs = ContextStore()
+        data = cs.load(pid)
+        if data:
+            return CapabilityToken.from_dict(data)
+    return None
+
+
+def _dispatch_check(token: "CapabilityToken", req: dict[str, Any]) -> "PolicyDecision":
+    """Dispatch a single policy_request to the appropriate check method."""
+    kind = str(req.get("kind", "")).strip()
+    if kind == "file":
+        return token.check_file(
+            op=str(req.get("op", "read")),
+            path=str(req.get("path", "")),
+        )
+    if kind == "shell":
+        return token.check_shell(
+            command=str(req.get("command", "")),
+            argv=req.get("argv") or [],
+        )
+    if kind == "network":
+        return token.check_network(
+            mode=str(req.get("mode", "http")),
+            host=str(req.get("host", "")),
+            port=req.get("port"),
+        )
+    if kind == "git":
+        return token.check_git(
+            op=str(req.get("op", "push")),
+            remote=req.get("remote"),
+        )
+    if kind == "secrets":
+        return token.check_secrets(
+            ref=str(req.get("ref", "")),
+        )
+    from capability_token import PolicyDecision
+
+    return PolicyDecision(
+        allowed=False,
+        reason="unknown_policy_kind",
+        detail=f"kind={kind}",
+    )
+
+
+def _capability_pre_dispatch(
+    envelope: dict[str, Any],
+    operator_id: str,
+    task_id: str,
+) -> "PolicyDecision | None":
+    """Pre-dispatch capability check.
+
+    Returns a denied PolicyDecision if any policy request is denied,
+    or None if all pass (or no token/policy_requests present).
+    """
+    from capability_token import PolicyDecision
+
+    enforcement = os.environ.get("SOLAR_CAPABILITY_ENFORCEMENT", "on").strip().lower()
+    audit_only = os.environ.get("SOLAR_CAPABILITY_AUDIT_ONLY", "").strip() in ("1", "true", "yes")
+
+    token_ref = envelope.get("capability_token_ref")
+    policy_requests = envelope.get("policy_requests") or []
+
+    if not token_ref:
+        _info(
+            f"capability_pre_dispatch: no capability_token_ref in envelope "
+            f"(task={task_id}); writing missing_token warning"
+        )
+        return None
+
+    token = _load_capability_token(token_ref)
+    if token is None:
+        _info(
+            f"capability_pre_dispatch: could not load token from ref "
+            f"(task={task_id}); writing missing_token warning"
+        )
+        return None
+
+    if not policy_requests:
+        return None
+
+    for req in policy_requests:
+        decision = _dispatch_check(token, req)
+        if not decision.allowed:
+            _info(
+                f"capability_pre_dispatch: DENIED kind={req.get('kind')} "
+                f"reason={decision.reason} rule={decision.rule} "
+                f"(task={task_id})"
+            )
+            if enforcement == "off":
+                _info("capability_pre_dispatch: enforcement off, continuing")
+                return None
+            if audit_only:
+                _info("capability_pre_dispatch: audit_only mode, not aborting")
+                return None
+            return decision
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Registry helpers
 # ---------------------------------------------------------------------------
@@ -818,6 +939,30 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 resolved_persona=resolved_persona,
                 model_route=model_route,
             )
+
+            # ── Capability pre-dispatch ──────────────────────────────────────────
+            _cap_decision = _capability_pre_dispatch(envelope, operator_id, task_id)
+            if _cap_decision is not None:
+                _info(
+                    f"Capability denied for task {task_id}: "
+                    f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+                )
+                release_operator_lease(operator_id, reason="capability_denied")
+                write_result(
+                    operator_id=operator_id,
+                    task_id=task_id,
+                    sprint_id=str(envelope.get("sprint_id", "")),
+                    node_id=str(envelope.get("node_id", "")),
+                    status="capability_denied",
+                    exit_code=126,
+                    log_lines=[],
+                    started_at=_now_utc(),
+                    finished_at=_now_utc(),
+                )
+                if _once_wait_expired():
+                    break
+                time.sleep(poll_interval)
+                continue
 
             # ── Execute ───────────────────────────────────────────────────────────
             sprint_id: str = str(envelope.get("sprint_id", ""))

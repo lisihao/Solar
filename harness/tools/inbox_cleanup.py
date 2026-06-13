@@ -6,7 +6,8 @@
 本脚本清存量。
 
 规则:
-  R1 死信   — envelope.sprint_id 对应 status.json 为终态 → 归档
+  R1a 死信  — envelope.sprint_id 对应 status.json 为终态 → 归档
+  R1b 死信  — envelope.sprint_id + node_id 对应 task_graph 节点为终态 → 归档
   R2 重复   — 同 (inbox, sprint_id, node_id) 多件 → 留 mtime 最新, 其余归档
   R3 孤儿   — envelope 无法解析 / 无 sprint_id → 保留不动 (人工看)
 
@@ -45,6 +46,28 @@ def sprint_status(sid: str, cache: dict) -> str:
     return st
 
 
+def node_status(sid: str, nid: str, cache: dict) -> str:
+    if not sid or not nid:
+        return "missing-node-id"
+    key = (sid, nid)
+    if key in cache:
+        return cache[key]
+    p = SPRINTS / f"{sid}.task_graph.json"
+    st = "no-task-graph"
+    try:
+        graph = json.load(open(p))
+        for node in graph.get("nodes", []) or []:
+            if str(node.get("id") or "") == nid:
+                st = str(node.get("status") or "missing-status")
+                break
+        else:
+            st = "node-not-found"
+    except Exception:
+        st = "no-task-graph"
+    cache[key] = st
+    return st
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="实际归档 (默认 dry-run)")
@@ -52,7 +75,8 @@ def main() -> int:
 
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_dir = ARCHIVE_ROOT / stamp
-    cache: dict = {}
+    sprint_cache: dict = {}
+    node_cache: dict = {}
     manifest = []
     stats = defaultdict(int)
 
@@ -75,11 +99,21 @@ def main() -> int:
             if not sid:
                 stats["kept_orphan"] += 1
                 continue  # R3: 不动
-            st = sprint_status(sid, cache)
+            st = sprint_status(sid, sprint_cache)
             if st in TERM:
                 manifest.append({"op": inbox.name, "file": f.name, "rule": "R1_dead_letter",
                                  "sprint_status": st})
                 stats["archive_dead"] += 1
+                if args.apply:
+                    dst = archive_dir / inbox.name
+                    dst.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(f), str(dst / f.name))
+                continue
+            node_st = node_status(sid, nid, node_cache)
+            if node_st in TERM:
+                manifest.append({"op": inbox.name, "file": f.name, "rule": "R1_node_dead_letter",
+                                 "sprint_status": st, "node_status": node_st, "node_id": nid})
+                stats["archive_node_dead"] += 1
                 if args.apply:
                     dst = archive_dir / inbox.name
                     dst.mkdir(parents=True, exist_ok=True)

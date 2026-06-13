@@ -94,7 +94,7 @@ def _setup_harness(tmp_path: Path) -> dict:
     else:
         dest_persona.write_text("# Builder\nYou are a builder.")
 
-    env = {**os.environ, "HARNESS_DIR": str(tmp_path)}
+    env = {**os.environ, "HARNESS_DIR": str(tmp_path), "SOLAR_OPERATORD_AUTO_KICK": "0"}
     return env
 
 
@@ -156,7 +156,7 @@ raise SystemExit(2)
     )
     pm_dispatch.chmod(0o755)
 
-    env = {**os.environ, "HARNESS_DIR": str(tmp_path)}
+    env = {**os.environ, "HARNESS_DIR": str(tmp_path), "SOLAR_OPERATORD_AUTO_KICK": "0"}
     env["COMMAND_AGENT"] = f"python3 {writer}"
     return env
 

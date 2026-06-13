@@ -44,12 +44,7 @@ def _daemon_active(operator_id: str) -> bool:
     return False
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="真 kick (默认 dry-run)")
-    ap.add_argument("--limit", type=int, default=PUMP_LIMIT)
-    args = ap.parse_args()
-
+def run_pump(*, apply: bool = False, limit: int = PUMP_LIMIT) -> dict:
     sys.path.insert(0, str(H / "lib"))
     kicked, skipped = [], []
     for inbox in sorted(INBOX_ROOT.iterdir()) if INBOX_ROOT.is_dir() else []:
@@ -62,11 +57,11 @@ def main() -> int:
         if _daemon_active(op):
             skipped.append({"operator": op, "pending": pending, "reason": "daemon_active"})
             continue
-        if len(kicked) >= args.limit:
+        if len(kicked) >= limit:
             skipped.append({"operator": op, "pending": pending, "reason": "pump_limit"})
             continue
         pid = None
-        if args.apply:
+        if apply:
             try:
                 from operator_runtime import _kick_operatord_once
                 pid = _kick_operatord_once(op)
@@ -75,8 +70,16 @@ def main() -> int:
                 continue
         kicked.append({"operator": op, "pending": pending, "kick_pid": pid})
 
-    print(json.dumps({"ok": True, "apply": args.apply,
-                      "kicked": kicked, "skipped": skipped}, ensure_ascii=False, indent=1))
+    return {"ok": True, "apply": bool(apply), "limit": int(limit), "kicked": kicked, "skipped": skipped}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--apply", action="store_true", help="真 kick (默认 dry-run)")
+    ap.add_argument("--limit", type=int, default=PUMP_LIMIT)
+    args = ap.parse_args()
+
+    print(json.dumps(run_pump(apply=args.apply, limit=args.limit), ensure_ascii=False, indent=1))
     return 0
 
 
