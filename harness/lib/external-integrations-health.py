@@ -26,6 +26,7 @@ HARNESS = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 VAULT = Path(os.environ.get("OBSIDIAN_VAULT_PATH", HOME / "Knowledge"))
 SOLAR_DB = HOME / ".solar" / "solar.db"
 CACHE_PATH = HARNESS / "state" / "external-integrations-last-probe.json"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def run(cmd: list[str], timeout: float = 3.0) -> tuple[int, str]:
@@ -83,9 +84,12 @@ def local_google_drive() -> dict:
 def count_sql(table: str) -> int | None:
     if not SOLAR_DB.exists():
         return None
+    if not SQL_IDENTIFIER_RE.match(table):
+        return None
     try:
         with sqlite3.connect(SOLAR_DB) as conn:
-            return int(conn.execute(f"select count(*) from {table}").fetchone()[0])
+            query = 'select count(*) from "' + table + '"'
+            return int(conn.execute(query).fetchone()[0])
     except Exception:
         return None
 

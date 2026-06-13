@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import uuid
@@ -38,6 +39,8 @@ except ImportError:  # script execution fallback
     from schema import utc_now_iso  # type: ignore
 
 LEDGER_TABLE = "model_call_ledger"
+LEDGER_TABLE_SQL = '"model_call_ledger"'
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # Hard daily cap on premium calls (S02 §R4)
 MAX_PREMIUM_CALLS_PER_DAY = 20
@@ -54,6 +57,12 @@ PROVIDER_TIER = {
     "claude-sonnet": "premium",
     "codex": "premium",
 }
+
+
+def quote_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise ValueError(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
 
 CALL_TYPES: tuple[str, ...] = (
     "preprocess",
@@ -183,7 +192,7 @@ class ModelLedger:
             "INTEGER NOT NULL DEFAULT 0",
         )
         cur.execute(
-            f"""UPDATE {LEDGER_TABLE}
+            f"""UPDATE {LEDGER_TABLE_SQL}
                    SET budget_exhausted = 1
                  WHERE COALESCE(budget_exhausted, 0) = 0
                    AND usage_extra LIKE ?""",
@@ -198,10 +207,12 @@ class ModelLedger:
         column: str,
         definition: str,
     ) -> None:
-        cur.execute(f"PRAGMA table_info({table})")
+        quoted_table = quote_identifier(table)
+        quoted_column = quote_identifier(column)
+        cur.execute("PRAGMA table_info(" + quoted_table + ")")
         existing = {row[1] for row in cur.fetchall()}
         if column not in existing:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            cur.execute("ALTER TABLE " + quoted_table + " ADD COLUMN " + quoted_column + " " + definition)
 
     @staticmethod
     def _budget_exhausted_marker() -> str:
@@ -371,7 +382,7 @@ class ModelLedger:
             clauses.append("created_at < ?")
             params.append(until)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        cur.execute(f"SELECT COALESCE(SUM(cost_estimate),0) FROM {LEDGER_TABLE}{where}", params)
+        cur.execute("SELECT COALESCE(SUM(cost_estimate),0) FROM " + LEDGER_TABLE_SQL + where, params)
         return float(cur.fetchone()[0])
 
     def get_total_cost_today(self, date_str: str | None = None) -> float:
@@ -404,7 +415,7 @@ class ModelLedger:
             clauses.append(self._successful_usage_clause())
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         cur = self.conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {LEDGER_TABLE}{where}", params)
+        cur.execute("SELECT COUNT(*) FROM " + LEDGER_TABLE_SQL + where, params)
         return int(cur.fetchone()[0])
 
     def get_calls_by_provider(self, since: str | None = None) -> dict[str, dict[str, float | int]]:
@@ -487,7 +498,7 @@ class ModelLedger:
             clauses.append(self._successful_usage_clause())
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = (
-            f"SELECT * FROM {LEDGER_TABLE}{where} ORDER BY created_at DESC LIMIT ?"
+            "SELECT * FROM " + LEDGER_TABLE_SQL + where + " ORDER BY created_at DESC LIMIT ?"
         )
         params.append(limit)
         self.conn.row_factory = sqlite3.Row

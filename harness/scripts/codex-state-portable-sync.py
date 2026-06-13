@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import re
 import shutil
 import sqlite3
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Any
 DEFAULT_TABLES = ("threads", "thread_dynamic_tools", "thread_goals")
 SCHEMA_VERSION = "codex-state-portable-v1"
 DEFAULT_FROM_PREFIX = str(Path.home())
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _utc() -> str:
@@ -33,8 +35,14 @@ def _connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _quote_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise SystemExit(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
+
+
 def _table_info(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    rows = conn.execute("PRAGMA table_info(" + _quote_identifier(table) + ")").fetchall()
     if not rows:
         raise SystemExit(f"missing table: {table}")
     return rows
@@ -66,7 +74,7 @@ def export_state(args: argparse.Namespace) -> None:
         for table in args.tables:
             cols = _columns(conn, table)
             rows = []
-            for row in conn.execute(f"SELECT * FROM {table}"):
+            for row in conn.execute("SELECT * FROM " + _quote_identifier(table)):
                 item = {col: _rewrite_value(row[col], from_prefix, to_prefix) for col in cols}
                 rows.append(item)
             tables[table] = {
@@ -115,13 +123,14 @@ def import_state(args: argparse.Namespace) -> None:
                     raise SystemExit(f"pk mismatch for {table}: local={pk_cols} incoming={spec['pk']}")
                 non_pk = [col for col in incoming_cols if col not in pk_cols]
                 placeholders = ", ".join("?" for _ in incoming_cols)
-                columns_sql = ", ".join(incoming_cols)
+                quoted_table = _quote_identifier(table)
+                columns_sql = ", ".join(_quote_identifier(col) for col in incoming_cols)
                 if non_pk:
-                    update_sql = ", ".join(f"{col}=excluded.{col}" for col in non_pk)
-                    conflict_sql = f"ON CONFLICT({', '.join(pk_cols)}) DO UPDATE SET {update_sql}"
+                    update_sql = ", ".join(_quote_identifier(col) + "=excluded." + _quote_identifier(col) for col in non_pk)
+                    conflict_sql = "ON CONFLICT(" + ", ".join(_quote_identifier(col) for col in pk_cols) + ") DO UPDATE SET " + update_sql
                 else:
-                    conflict_sql = f"ON CONFLICT({', '.join(pk_cols)}) DO NOTHING"
-                sql = f"INSERT INTO {table} ({columns_sql}) VALUES ({placeholders}) {conflict_sql}"
+                    conflict_sql = "ON CONFLICT(" + ", ".join(_quote_identifier(col) for col in pk_cols) + ") DO NOTHING"
+                sql = "INSERT INTO " + quoted_table + " (" + columns_sql + ") VALUES (" + placeholders + ") " + conflict_sql
                 count = 0
                 for row in spec["rows"]:
                     conn.execute(sql, [row.get(col) for col in incoming_cols])
@@ -135,7 +144,7 @@ def verify_state(args: argparse.Namespace) -> None:
     with _connect(db) as conn:
         result = {}
         for table in args.tables:
-            result[table] = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            result[table] = conn.execute("SELECT count(*) FROM " + _quote_identifier(table)).fetchone()[0]
     print(json.dumps({"ok": True, "db": str(db), "counts": result}, ensure_ascii=False))
 
 

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from typing import Any
 SCHEMA_VERSION = 2
 UTC = dt.timezone.utc
 DEFAULT_DB = Path(os.environ.get("SOLAR_KNOWLEDGE_REGISTRY_DB", str(Path.home() / "Knowledge" / "_registry" / "knowledge_ingest.sqlite"))).expanduser()
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def now_iso() -> str:
@@ -27,6 +29,12 @@ def now_iso() -> str:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def quote_sql_identifier(value: str) -> str | None:
+    if not SQL_IDENTIFIER_RE.match(value):
+        return None
+    return '"' + value.replace('"', '""') + '"'
 
 
 SCHEMA_SQL = """
@@ -421,7 +429,12 @@ def status(db_path: Path = DEFAULT_DB) -> dict[str, Any]:
     migrate(db_path)
     with connect(db_path) as conn:
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
-        counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
+        counts = {}
+        for table in tables:
+            quoted_table = quote_sql_identifier(table)
+            if quoted_table is None:
+                continue
+            counts[table] = conn.execute("SELECT COUNT(*) FROM " + quoted_table).fetchone()[0]
         states = {r["current_state"]: r["n"] for r in conn.execute("SELECT current_state, COUNT(*) AS n FROM documents GROUP BY current_state")}
         watermarks = [row_to_dict(r) for r in conn.execute("SELECT * FROM watermarks ORDER BY layer")]
     return {"ok": True, "db": str(db_path), "schema_version": SCHEMA_VERSION, "tables": tables, "counts": counts, "states": states, "watermarks": watermarks}

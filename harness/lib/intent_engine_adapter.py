@@ -29,6 +29,7 @@ _TABLE_EXISTS_CACHE: dict[tuple[tuple[int, int] | None, str], bool] = {}
 _LEARNED_ROWS_CACHE: tuple[tuple[int, int] | None, list[dict[str, Any]]] | None = None
 _CONFIGURED_RULES_CACHE: tuple[tuple[int, int] | None, list[dict[str, Any]]] | None = None
 _TABLE_COLUMNS_CACHE: dict[tuple[tuple[int, int] | None, str], set[str]] = {}
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -361,13 +362,24 @@ def has_table(conn: sqlite3.Connection, table: str) -> bool:
     return exists
 
 
+def quote_sql_identifier(value: str) -> str | None:
+    if not SQL_IDENTIFIER_RE.match(value):
+        return None
+    return '"' + value.replace('"', '""') + '"'
+
+
 def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     sig = db_signature()
     key = (sig, table)
     if key in _TABLE_COLUMNS_CACHE:
         return _TABLE_COLUMNS_CACHE[key]
+    quoted_table = quote_sql_identifier(table)
+    if quoted_table is None:
+        _TABLE_COLUMNS_CACHE[key] = set()
+        return set()
     try:
-        columns = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        query = "PRAGMA table_info(" + quoted_table + ")"
+        columns = {str(row["name"]) for row in conn.execute(query).fetchall()}
     except sqlite3.Error:
         columns = set()
     _TABLE_COLUMNS_CACHE[key] = columns
@@ -487,11 +499,9 @@ def record_configured_usage(matches: list[dict[str, Any]]) -> None:
             assignments.append("updated_at = datetime('now')")
         if not assignments:
             return
+        query = "UPDATE intent_patterns SET " + ", ".join(assignments) + " WHERE pattern_id = ?"
         for pattern_id in pattern_ids:
-            conn.execute(
-                f"UPDATE intent_patterns SET {', '.join(assignments)} WHERE pattern_id = ?",
-                (pattern_id,),
-            )
+            conn.execute(query, (pattern_id,))
         conn.commit()
     except sqlite3.Error:
         pass

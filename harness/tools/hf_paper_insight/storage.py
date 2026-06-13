@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,7 @@ from schema import (
 )
 
 SCHEMA_VERSION = "hf_paper_insight.v1"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 ENTITY_CLASSES = {
     "paper_snapshots": PaperSnapshot,
@@ -34,6 +36,12 @@ ENTITY_CLASSES = {
     "paper_signals": PaperSignal,
     "paper_evidence_packets": PaperEvidencePacket,
 }
+
+
+def quote_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise ValueError(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -86,27 +94,29 @@ class PaperStore:
 
     def upsert(self, entity: object) -> str:
         table = self._table_for(entity)
+        quoted_table = quote_identifier(table)
         row = entity_to_row(entity)
         pk_col = list(row.keys())[0]
+        quoted_pk_col = quote_identifier(pk_col)
         pk_val = row[pk_col]
 
         existing = self.conn.execute(
-            f"SELECT {pk_col} FROM {table} WHERE {pk_col} = ?",
+            "SELECT " + quoted_pk_col + " FROM " + quoted_table + " WHERE " + quoted_pk_col + " = ?",
             (pk_val,),
         ).fetchone()
 
         if existing:
-            sets = ", ".join(f"{k} = ?" for k in row.keys() if k != pk_col)
+            sets = ", ".join(quote_identifier(k) + " = ?" for k in row.keys() if k != pk_col)
             vals = [v for k, v in row.items() if k != pk_col]
             self.conn.execute(
-                f"UPDATE {table} SET {sets} WHERE {pk_col} = ?",
+                "UPDATE " + quoted_table + " SET " + sets + " WHERE " + quoted_pk_col + " = ?",
                 vals + [pk_val],
             )
         else:
-            cols = ", ".join(row.keys())
+            cols = ", ".join(quote_identifier(k) for k in row.keys())
             placeholders = ", ".join("?" for _ in row)
             self.conn.execute(
-                f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
+                "INSERT INTO " + quoted_table + " (" + cols + ") VALUES (" + placeholders + ")",
                 list(row.values()),
             )
         self.conn.commit()
@@ -116,14 +126,16 @@ class PaperStore:
         table = ENTITY_TABLE_MAP.get(entity_cls.__name__)
         if table is None:
             return None
+        quoted_table = quote_identifier(table)
         pk_col = "snapshot_id" if entity_cls is PaperSnapshot else (
             "paper_id" if entity_cls is PaperCanonical else (
             "enrichment_id" if entity_cls is PaperEnrichment else (
             "taxonomy_id" if entity_cls is PaperTaxonomy else (
             "signal_id" if entity_cls is PaperSignal else "packet_id"
         ))))
+        quoted_pk_col = quote_identifier(pk_col)
         row = self.conn.execute(
-            f"SELECT * FROM {table} WHERE {pk_col} = ?", (pk,)
+            "SELECT * FROM " + quoted_table + " WHERE " + quoted_pk_col + " = ?", (pk,)
         ).fetchone()
         if row is None:
             return None
@@ -131,7 +143,7 @@ class PaperStore:
         return entity_cls(**d)
 
     def query(self, table: str, where: str = "", params: tuple = ()) -> list[dict]:
-        sql = f"SELECT * FROM {table}"
+        sql = "SELECT * FROM " + quote_identifier(table)
         if where:
             sql += f" WHERE {where}"
         rows = self.conn.execute(sql, params).fetchall()

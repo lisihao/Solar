@@ -2413,8 +2413,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     table_counts = {}
     for table in storage.SEVEN_TABLES:
-        count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        table_counts[table] = count
+        table_counts[table] = storage.table_count(conn, table)
     if emit_json(args, {"ok": True, "db_path": db_path, "tables": table_counts}):
         conn.close()
         return 0

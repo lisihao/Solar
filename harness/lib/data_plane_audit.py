@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -34,6 +35,7 @@ from solar_db import open_solar_db, SOLAR_DB
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", str(Path.home() / ".solar" / "harness")))
 SPRINTS_DIR = HARNESS_DIR / "sprints"
 BRIDGE_LEDGER = Path.home() / ".solar" / "codex-bridge" / "bridge-ledger.jsonl"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _now_iso() -> str:
@@ -65,6 +67,12 @@ def _ts_from_str(s: str | None) -> str | None:
     return s
 
 
+def _quote_sql_identifier(value: str) -> str | None:
+    if not SQL_IDENTIFIER_RE.match(value):
+        return None
+    return '"' + value.replace('"', '""') + '"'
+
+
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=?",
@@ -76,8 +84,11 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     if not _table_exists(conn, table):
         return set()
+    quoted_table = _quote_sql_identifier(table)
+    if quoted_table is None:
+        return set()
     try:
-        return {str(row[1]) for row in conn.execute(f"PRAGMA table_info([{table}])").fetchall()}
+        return {str(row[1]) for row in conn.execute("PRAGMA table_info(" + quoted_table + ")").fetchall()}
     except sqlite3.OperationalError:
         return set()
 
@@ -85,8 +96,11 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 def _table_count(conn: sqlite3.Connection, table: str) -> int:
     if not _table_exists(conn, table):
         return 0
+    quoted_table = _quote_sql_identifier(table)
+    if quoted_table is None:
+        return 0
     try:
-        return int(conn.execute(f"SELECT count(*) FROM [{table}]").fetchone()[0])
+        return int(conn.execute("SELECT count(*) FROM " + quoted_table).fetchone()[0])
     except sqlite3.OperationalError:
         return 0
 
@@ -135,10 +149,13 @@ def check_state_integrity(conn: sqlite3.Connection) -> dict:
 
 
 def check_table_freshness(conn: sqlite3.Connection, table: str, ts_col: str = "updated_at") -> dict:
+    quoted_table = _quote_sql_identifier(table)
+    quoted_ts_col = _quote_sql_identifier(ts_col)
+    if quoted_table is None or quoted_ts_col is None:
+        return {"name": table, "row_count": 0, "freshest": None, "status": "invalid_identifier"}
     try:
-        row = conn.execute(
-            f"SELECT count(*), MAX({ts_col}) FROM [{table}]"
-        ).fetchone()
+        query = "SELECT count(*), MAX(" + quoted_ts_col + ") FROM " + quoted_table
+        row = conn.execute(query).fetchone()
         count, freshest = row[0], row[1]
     except sqlite3.OperationalError:
         return {"name": table, "row_count": 0, "freshest": None, "status": "missing"}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -27,6 +28,7 @@ REPORTS = HARNESS / "reports"
 SOLAR_BIN = HARNESS / "solar-harness.sh"
 SOLAR_DB = Path(os.environ.get("SOLAR_DB", HOME / ".solar" / "solar.db"))
 VAULT = Path(os.environ.get("OBSIDIAN_VAULT_PATH", HOME / "Knowledge"))
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 WEIGHTS = {"status": 15, "files": 15, "runtime": 35, "data": 25, "ui_or_route": 10}
 MAX_SCORE = sum(WEIGHTS.values())
@@ -87,9 +89,12 @@ def http_probe(path: str, timeout: int = 3) -> dict[str, Any]:
 def sql_count(table: str) -> dict[str, Any]:
     if not SOLAR_DB.exists():
         return {"ok": False, "count": None, "error": "solar.db missing"}
+    if not SQL_IDENTIFIER_RE.match(table):
+        return {"ok": False, "count": None, "error": "invalid table identifier"}
     try:
         with sqlite3.connect(SOLAR_DB) as conn:
-            count = int(conn.execute(f"select count(*) from {table}").fetchone()[0])
+            query = 'select count(*) from "' + table + '"'
+            count = int(conn.execute(query).fetchone()[0])
         return {"ok": True, "count": count}
     except Exception as exc:
         return {"ok": False, "count": None, "error": str(exc)}

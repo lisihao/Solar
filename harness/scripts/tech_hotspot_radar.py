@@ -17,6 +17,7 @@ import email.utils
 import hashlib
 import html
 import json
+import math
 import mimetypes
 import os
 import re
@@ -67,6 +68,35 @@ DEFAULT_MLX_WHISPER_SITE_PACKAGES = Path.home() / ".local/pipx/venvs/mlx-whisper
 TRANSCRIPT_LAYOUT_VERSION = "weekly-v1"
 _TRANSCRIPT_LAYOUT_MIGRATED: set[str] = set()
 _GITHUB_TOKEN_CACHE: dict[str, str] = {}
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ALLOWED_ADD_COLUMN_DDL = {
+    "TEXT",
+    "TEXT NOT NULL DEFAULT ''",
+    "TEXT NOT NULL DEFAULT '{}'",
+    "TEXT NOT NULL DEFAULT 'rss'",
+    "TEXT NOT NULL DEFAULT 'emerging'",
+    "INTEGER NOT NULL DEFAULT 0",
+    "REAL NOT NULL DEFAULT 0.0",
+}
+
+
+def _quote_sql_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise ValueError(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _alter_table_add_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    if ddl not in ALLOWED_ADD_COLUMN_DDL:
+        raise ValueError(f"unsupported column ddl for {table}.{column}: {ddl}")
+    conn.execute(
+        "ALTER TABLE "
+        + _quote_sql_identifier(table)
+        + " ADD COLUMN "
+        + _quote_sql_identifier(column)
+        + " "
+        + ddl
+    )
 
 
 class GitHubRateLimitError(RuntimeError):
@@ -87,6 +117,9 @@ def _expand_runtime_path(p: str | Path | None) -> Path:
         return Path.cwd()
     s = str(p)
     if "${" in s or "$" in s:
+        os.environ.setdefault("SOLAR_KNOWLEDGE_DIR", str(Path.home() / "Knowledge"))
+        os.environ.setdefault("SOLAR_HOME", str(Path.home() / ".solar"))
+        os.environ.setdefault("HARNESS_DIR", str(Path.home() / ".solar" / "harness"))
         s = os.path.expandvars(s)
     return Path(s).expanduser()
 
@@ -3066,7 +3099,7 @@ def count_youtube_transcript_retries(conn: sqlite3.Connection, *, due_only: bool
     if due_only and not force:
         where += " AND next_retry_at <= ?"
         params.append(iso_z())
-    row = conn.execute(f"SELECT COUNT(*) FROM retry_queue WHERE {where}", params).fetchone()
+    row = conn.execute("SELECT COUNT(*) FROM retry_queue WHERE " + where, params).fetchone()
     return int(row[0] if row else 0)
 
 
@@ -3921,9 +3954,9 @@ def resolve_config(args: argparse.Namespace) -> Path:
 
 
 def tech_hotspot_state_dir(config: dict[str, Any]) -> Path:
-    return Path((config.get("output") or {}).get(
+    return _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
 
 
 def social_browser_backend_x_artifact_root(config: dict[str, Any]) -> Path:
@@ -3974,7 +4007,7 @@ def ensure_reasoning_packet_policy_columns(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(reasoning_packets)").fetchall()}
     for column in ("model_policy_json", "premium_escalation_json", "embedding_policy_json"):
         if column not in existing:
-            conn.execute(f"ALTER TABLE reasoning_packets ADD COLUMN {column} TEXT NOT NULL DEFAULT '{{}}'")
+            _alter_table_add_column(conn, "reasoning_packets", column, "TEXT NOT NULL DEFAULT '{}'")
     conn.commit()
 
 
@@ -3993,7 +4026,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_accounts ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_accounts", column, ddl)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_post_snapshots'").fetchone():
         existing = {row[1] for row in conn.execute("PRAGMA table_info(social_post_snapshots)").fetchall()}
         columns = {
@@ -4004,7 +4037,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_post_snapshots ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_post_snapshots", column, ddl)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_clusters'").fetchone():
         existing = {row[1] for row in conn.execute("PRAGMA table_info(social_clusters)").fetchall()}
         columns = {
@@ -4015,7 +4048,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_clusters ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_clusters", column, ddl)
     conn.commit()
 
 
@@ -4131,7 +4164,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     tables = get_tables(conn)
     print(f"[status] tables: {len(tables)}")
     for t in tables:
-        count = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM " + _quote_sql_identifier(t)).fetchone()[0]
         print(f"  {t}: {count} rows")
     recent_runs = conn.execute(
         "SELECT source, command, status, items_fetched, items_new, started_at, finished_at "
@@ -4256,7 +4289,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("[doctor] extension tables: not initialized yet (ok for baseline DB)")
     print("[doctor] row counts:")
     for t in sorted(existing - {"_meta"}):
-        count = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM " + _quote_sql_identifier(t)).fetchone()[0]
         print(f"  {t}: {count}")
     failed = conn.execute(
         "SELECT source, command, error_message, started_at FROM pipeline_runs "
@@ -6163,7 +6196,7 @@ def call_codex_social_trend_report(pack: dict[str, Any], config: dict[str, Any],
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     codex_bin = str(cfg.get("codex_bin") or os.environ.get("CODEX_BIN") or shutil.which("codex") or "codex")
     model = str(requested_model or cfg.get("model") or os.environ.get("TECH_HOTSPOT_PHASE_REPORT_MODEL") or "gpt-5.5")
-    timeout = int(cfg.get("timeout_seconds") or 1200)
+    timeout = int(cfg.get("timeout_seconds") or 3600)
     prompt = build_social_trend_prompt(pack, model)
     started = time.time()
     with tempfile.TemporaryDirectory(prefix="tech-hotspot-social-report-") as td:
@@ -8189,36 +8222,51 @@ def write_hf_papers_raw(config: dict[str, Any], papers_by_period: dict[str, list
 
 def write_hf_daily_baseline_raw(config: dict[str, Any], papers_by_date: dict[str, list[dict[str, Any]]], *, fetched_at: str) -> dict[str, str]:
     raw_root = Path((config.get("output") or {}).get("knowledge_raw_root", str(Path.home() / "Knowledge" / "_raw"))).expanduser()
-    run_date = fetched_at.split("T", 1)[0]
-    out_dir = raw_root / "huggingface-papers-daily-baseline" / run_date
-    out_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = out_dir / "daily-papers-baseline.jsonl"
-    md_path = out_dir / "daily-papers-baseline.md"
-    total = 0
-    with jsonl_path.open("w", encoding="utf-8") as fh:
-        for paper_date, papers in sorted(papers_by_date.items()):
+    written: dict[str, dict[str, str]] = {}
+    for paper_date, papers in sorted(papers_by_date.items()):
+        out_dir = raw_root / "huggingface-papers-daily-baseline" / paper_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = out_dir / "daily-papers-baseline.jsonl"
+        md_path = out_dir / "daily-papers-baseline.md"
+        with jsonl_path.open("w", encoding="utf-8") as fh:
             for paper in papers:
-                total += 1
                 fh.write(json.dumps(paper, ensure_ascii=False, sort_keys=True) + "\n")
-    lines = [
-        "---",
-        "source: huggingface_papers_daily_baseline",
-        f"fetched_at: {fetched_at}",
-        f"date_count: {len(papers_by_date)}",
-        f"paper_count: {total}",
-        "module: tech_hotspot_radar",
-        "---",
-        "",
-        f"# Hugging Face Daily Papers Baseline — {run_date}",
-        "",
-        "| Date | Papers | Top 5 |",
-        "|---|---:|---|",
-    ]
-    for paper_date, papers in sorted(papers_by_date.items(), reverse=True):
-        top = "; ".join((p.get("title") or "")[:80] for p in papers[:5])
-        lines.append(f"| {paper_date} | {len(papers)} | {top} |")
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"jsonl": str(jsonl_path), "markdown": str(md_path)}
+        lines = [
+            "---",
+            "source: huggingface_papers_daily_baseline",
+            f"fetched_at: {fetched_at}",
+            f"paper_date: {paper_date}",
+            f"paper_count: {len(papers)}",
+            "module: tech_hotspot_radar",
+            "---",
+            "",
+            f"# Hugging Face Daily Papers Baseline — {paper_date}",
+            "",
+            "| Rank | Paper | URL |",
+            "|---:|---|---|",
+        ]
+        for paper in papers:
+            rank = int(paper.get("rank") or 0)
+            title = str(paper.get("title") or "")[:120].replace("|", "\\|")
+            url = str(paper.get("hf_url") or "")
+            lines.append(f"| {rank} | {title} | {url} |")
+        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        written[paper_date] = {"jsonl": str(jsonl_path), "markdown": str(md_path)}
+    if not written:
+        run_date = fetched_at.split("T", 1)[0]
+        out_dir = raw_root / "huggingface-papers-daily-baseline" / run_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "jsonl": str(out_dir / "daily-papers-baseline.jsonl"),
+            "markdown": str(out_dir / "daily-papers-baseline.md"),
+            "by_date": {},
+        }
+    latest_date = sorted(written)[-1]
+    return {
+        "jsonl": written[latest_date]["jsonl"],
+        "markdown": written[latest_date]["markdown"],
+        "by_date": written,
+    }
 
 
 def cmd_collect_hf_papers(args: argparse.Namespace) -> int:
@@ -10474,9 +10522,9 @@ def hf_build_section_writer_prompt(
 
 
 def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required_keys: list[str]) -> dict[str, Any] | None:
-    state_dir = Path((config.get("output") or {}).get(
+    state_dir = _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
     request_root = state_dir / "browser-agent-requests"
     if not request_root.exists():
         return None
@@ -10506,6 +10554,29 @@ def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required
     return None
 
 
+def hf_report_browser_agent_sleep_seconds(config: dict[str, Any]) -> float:
+    high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    raw = (
+        os.environ.get("HF_PAPER_BROWSER_AGENT_SLEEP_SECONDS")
+        or high_cfg.get("report_sleep_between_calls_seconds")
+        or high_cfg.get("sleep_between_calls_seconds")
+        or 0
+    )
+    try:
+        seconds = float(raw or 0)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    return max(0.0, min(seconds, 1800.0))
+
+
+def hf_sleep_before_next_report_browser_call(config: dict[str, Any], *, reason: str) -> None:
+    seconds = hf_report_browser_agent_sleep_seconds(config)
+    if seconds <= 0:
+        return
+    print(f"[hf-paper-report] sleep {int(seconds)}s before next browser-agent call: {reason}", file=sys.stderr)
+    time.sleep(seconds)
+
+
 def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purpose: str, model_name: str, chapter_id: str, required_keys: list[str], max_attempts: int = 2) -> dict[str, Any]:
     high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
     timeout_seconds = int(
@@ -10514,13 +10585,22 @@ def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purp
         or high_cfg.get("timeout_seconds")
         or 420
     )
-    timeout_seconds = max(60, min(timeout_seconds, 600))
+    timeout_seconds = max(60, min(timeout_seconds, 10800))
+    max_attempts = int(
+        os.environ.get("HF_PAPER_BROWSER_AGENT_MAX_ATTEMPTS")
+        or high_cfg.get("report_max_attempts")
+        or max_attempts
+        or 2
+    )
+    max_attempts = max(1, min(max_attempts, 6))
     errors: list[str] = []
     for attempt in range(1, max_attempts + 1):
         if attempt == 1 and not _env_override_bool("HF_PAPER_DISABLE_BROWSER_AGENT_CACHE"):
             cached = hf_load_cached_report_json(config, purpose=purpose, required_keys=required_keys)
             if cached:
                 return cached
+        if attempt > 1:
+            hf_sleep_before_next_report_browser_call(config, reason=f"repair attempt {attempt} for {chapter_id}")
         attempt_prompt = prompt
         if attempt > 1:
             attempt_prompt = "\n\n".join([
@@ -10609,6 +10689,7 @@ def hf_call_grouped_report_flow(
         section_records = [record_map[pid] for pid in section.get("paper_ids") or [] if pid in record_map]
         if not section_records:
             continue
+        hf_sleep_before_next_report_browser_call(config, reason=f"section {idx} after report plan")
         try:
             section_payload = hf_call_report_json_with_repair(
                 hf_build_section_writer_prompt(section, section_records, date_str=date_str, model_name=model_name, report_context=context),
@@ -11349,6 +11430,12 @@ def hf_write_public_report(
             )
         except Exception as exc:
             grouped_report_error_kind = type(exc).__name__
+    _high_cfg, high_reasoning_mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    if public_records and high_reasoning_mode == "browser_agent" and not grouped_report:
+        raise RuntimeError(
+            "hf_grouped_report_required_but_unavailable:"
+            f"{grouped_report_error_kind or 'unknown'}"
+        )
     report_variant = "premium_insight_report" if grouped_report else base_report_variant
     raw_base = _expand_runtime_path(
         output_base
@@ -12117,6 +12204,160 @@ def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_ro
     return selected[:limit]
 
 
+GITHUB_BREAKOUT_V2_KNOWN_PROJECT_PATTERNS = [
+    ("kubernetes", "Kubernetes/k8s 已是成熟基础设施，不进入新晋爆发雷达"),
+    ("k8s", "Kubernetes/k8s 已是成熟基础设施，不进入新晋爆发雷达"),
+    ("llama", "Llama/LLaMA 生态已广泛认知，不进入新晋爆发雷达"),
+    ("hermes", "Hermes 生态/模型名已广泛认知，不进入新晋爆发雷达"),
+    ("react", "React 生态已广泛认知，不进入新晋爆发雷达"),
+    ("vue", "Vue 生态已广泛认知，不进入新晋爆发雷达"),
+    ("tensorflow", "TensorFlow 生态已广泛认知，不进入新晋爆发雷达"),
+    ("pytorch", "PyTorch 生态已广泛认知，不进入新晋爆发雷达"),
+    ("transformers", "Transformers 生态已广泛认知，不进入新晋爆发雷达"),
+    ("langchain", "LangChain 生态已广泛认知，不进入新晋爆发雷达"),
+    ("llamaindex", "LlamaIndex 生态已广泛认知，不进入新晋爆发雷达"),
+]
+
+
+def github_breakout_v2_known_project_reason(card: dict[str, Any]) -> str:
+    repo = str(card.get("repo") or "").strip().lower()
+    description = str(card.get("description") or card.get("what_it_does") or "").strip().lower()
+    topics = " ".join(str(t).lower() for t in (card.get("topics") or [])) if isinstance(card.get("topics"), list) else ""
+    blob = f"{repo} {description} {topics}"
+    stars = int(card.get("stars") or 0)
+    for pattern, reason in GITHUB_BREAKOUT_V2_KNOWN_PROJECT_PATTERNS:
+        if pattern in blob:
+            return reason
+    if stars >= 50000:
+        return "star 体量已超过 5 万，更适合作为成熟生态观察，不进入新晋爆发雷达"
+    return ""
+
+
+def _github_breakout_v2_norm(value: Any, scale: float) -> float:
+    try:
+        number = max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        number = 0.0
+    if scale <= 0:
+        return 0.0
+    return round(min(1.0, math.log1p(number) / math.log1p(scale)), 4)
+
+
+def github_breakout_v2_score(card: dict[str, Any]) -> tuple[float, dict[str, float]]:
+    scores = card.get("scores") if isinstance(card.get("scores"), dict) else {}
+    external_rank = float(scores.get("external_rank_signal") or 0.0)
+    acceleration = _github_breakout_v2_norm(scores.get("acceleration"), 20.0)
+    momentum = _github_breakout_v2_norm(scores.get("momentum_score"), 60.0)
+    stars_delta = _github_breakout_v2_norm(scores.get("stars_delta_7d"), 5000.0)
+    potential = max(0.0, min(1.0, float(scores.get("potential_score") or 0.0)))
+    technical_depth = max(0.0, min(1.0, float(scores.get("technical_depth_score") or 0.0)))
+    social_cross = max(0.0, min(1.0, float(scores.get("social_cross_signal") or 0.0)))
+    evidence_count = min(1.0, len(card.get("evidence_ids") or []) / 4.0)
+    confidence = max(0.0, min(1.0, float(card.get("confidence") or 0.0)))
+    risk = str(card.get("risk_classification") or "none").strip().lower()
+    risk_penalty = 0.25 if risk in {"hype", "star_manipulation", "unverified"} else (0.12 if risk not in {"", "none"} else 0.0)
+    quality = 0.45 * technical_depth + 0.30 * evidence_count + 0.25 * confidence
+    breakout_score = (
+        0.24 * external_rank
+        + 0.20 * acceleration
+        + 0.18 * momentum
+        + 0.12 * stars_delta
+        + 0.12 * potential
+        + 0.09 * quality
+        + 0.05 * social_cross
+        - risk_penalty
+    )
+    factors = {
+        "external_rank_signal": round(external_rank, 4),
+        "acceleration_norm": acceleration,
+        "momentum_norm": momentum,
+        "stars_delta_norm": stars_delta,
+        "potential_score": round(potential, 4),
+        "quality_score": round(quality, 4),
+        "social_cross_signal": round(social_cross, 4),
+        "risk_penalty": round(risk_penalty, 4),
+    }
+    return round(max(0.0, min(1.0, breakout_score)), 4), factors
+
+
+def github_breakout_v2_candidates(
+    conn: sqlite3.Connection,
+    trendshift_rows: list[dict[str, Any]],
+    *,
+    limit: int = 5,
+    source_limit: int = 80,
+) -> dict[str, Any]:
+    """Select lesser-known short-momentum GitHub projects for a dedicated report module."""
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_cards(cards: list[dict[str, Any]]) -> None:
+        for raw_card in cards:
+            repo = str(raw_card.get("repo") or "").strip()
+            if not repo or repo in seen:
+                continue
+            seen.add(repo)
+            pool.append(dict(raw_card))
+
+    add_cards(github_report_cards_trendshift_first(conn, trendshift_rows, limit=source_limit, order_by="momentum"))
+    add_cards(github_project_cards(conn, limit=source_limit, order_by="momentum"))
+
+    excluded: list[dict[str, Any]] = []
+    scored: list[dict[str, Any]] = []
+    for card in pool:
+        repo = str(card.get("repo") or "").strip()
+        reason = github_breakout_v2_known_project_reason(card)
+        if reason:
+            excluded.append({"repo": repo, "reason": reason})
+            continue
+        score, factors = github_breakout_v2_score(card)
+        scores = card.get("scores") if isinstance(card.get("scores"), dict) else {}
+        trendshift_rank = scores.get("trendshift_best_rank") or card.get("trendshift_rank")
+        trendshift_period = scores.get("trendshift_period") or card.get("trendshift_period")
+        scored.append({
+            "repo": repo,
+            "html_url": card.get("html_url") or f"https://github.com/{repo}",
+            "description": card.get("description") or card.get("what_it_does") or "",
+            "language": card.get("language") or "N/A",
+            "stars": int(card.get("stars") or 0),
+            "forks": int(card.get("forks") or 0),
+            "tier": card.get("tier") or "N/A",
+            "risk_classification": card.get("risk_classification") or "none",
+            "breakout_score_v2": score,
+            "score_factors": factors,
+            "trendshift_period": trendshift_period,
+            "trendshift_rank": trendshift_rank,
+            "why_now": [
+                f"外部趋势信号={factors['external_rank_signal']}",
+                f"短期动量={factors['momentum_norm']}",
+                f"增长加速度={factors['acceleration_norm']}",
+                f"质量校验={factors['quality_score']}",
+            ],
+            "what_to_verify_next": [
+                "检查 README/release 是否支撑真实使用场景",
+                "观察 24h/7d star 增速是否持续",
+                "检查 issue/PR 活跃度和社区贡献者是否跟上热度",
+            ],
+        })
+    scored.sort(
+        key=lambda item: (
+            -float(item.get("breakout_score_v2") or 0.0),
+            int(item.get("trendshift_rank") or 999),
+            -int(item.get("stars") or 0),
+            str(item.get("repo") or ""),
+        )
+    )
+    return {
+        "version": "github_breakout_score_v2",
+        "selection_policy": (
+            "面向报告新增模块的新晋爆发雷达：优先短期外部榜信号、增长加速度、momentum、"
+            "质量校验和交叉信号；过滤 k8s/Llama/Hermes 等成熟或人尽皆知项目，以及 5 万星以上成熟生态。"
+        ),
+        "items": scored[:max(1, limit)],
+        "excluded_known_projects": excluded[:40],
+    }
+
+
 def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_str: str | None = None) -> dict[str, Any]:
     trendshift_rows = github_trendshift_rows_for_report(conn, limit=max(60, limit * 4))
     
@@ -12159,6 +12400,12 @@ def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_s
     card_stats = conn.execute(
         "SELECT tier, COUNT(*) FROM repo_analysis_cards GROUP BY tier ORDER BY tier"
     ).fetchall()
+    breakout_candidates_v2 = github_breakout_v2_candidates(
+        conn,
+        trendshift_rows,
+        limit=max(3, min(6, limit // 2)),
+        source_limit=max(60, limit * 5),
+    )
     return {
         "date": date_str or iso_z().split("T", 1)[0],
         "source": "tech-hotspot-radar/github-project-intelligence",
@@ -12166,6 +12413,7 @@ def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_s
         "card_tiers": {tier: count for tier, count in card_stats},
         "cards_traditional": cards_traditional,
         "cards_breakout": cards_breakout,
+        "breakout_candidates_v2": breakout_candidates_v2,
         "hf_trending_papers": hf_papers,
         "external_rank_signals": {
             "trendshift": trendshift_rows,
@@ -12223,10 +12471,14 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 23. 这是对外可读报告，不要写内部字段名或内部工作流语言。禁止出现：pack、social_mentions、social_cross_signal、heat_score、potential_score、technical_depth_score、stars_delta_7d、人工复核、复核优先级、未明确判定、增量缺失、内部证据、evidence、final_reasoner。
 24. 内部字段要改成自然语言：social_mentions 为 0 写成“公开社交扩散证据暂不足”；license 为 NOASSERTION 写成“许可证信息还需要进一步确认”；短期增量缺失写成“公开短期增长数据不足”；open issues 写成“未关闭 issue”。
 25. 风险和不确定性可以写，但必须像外部研究报告：用“需要进一步确认”“公开资料暂不足”“还不能直接下采用结论”，不要写“人工复核”“内部 pack 显示”。
+26. 必须在「今日核心判断」后面新增一节「新晋爆发项目雷达」。这一节只能使用 `breakout_candidates_v2.items`，不要使用 `breakout_candidates_v2.excluded_known_projects`。如果候选为空，写“本期未发现足够新颖且可验证的新晋爆发项目”。
+27. 「新晋爆发项目雷达」要过滤人尽皆知或成熟生态项目，例如 k8s/Kubernetes、Llama、Hermes、React、Vue、TensorFlow、PyTorch、Transformers、LangChain、LlamaIndex，以及 5 万星以上成熟生态。不要把这些项目放进本节，即使它们热度高。
+28. 「新晋爆发项目雷达」每个项目写 80-140 个中文字，必须说明：为什么现在冒出来、不是成熟生态的原因、下一步验证动作。不要暴露 breakout_score_v2、score_factors 等字段名。
 
 报告结构：
 # AI Influence GitHub 开源趋势分析 — {pack.get("date")}
 ## 今日核心判断
+## 新晋爆发项目雷达
 ## 盘踞榜首的热门项目
 ## 异军突起的爆发星探
 ## 基础设施候选
@@ -12242,12 +12494,55 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 - 数据来源：Tech Hotspot Radar GitHub 项目卡片与 Hugging Face 论文热榜侧信号
 - 外部交叉信号：Trendshift GitHub 趋势榜 daily/weekly/monthly 与 topic 页面排名
 - 项目样本：共 {len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or [])} 个重点项目，来自老本传统池与动量新星池
+- 新晋爆发雷达：来自 breakout_candidates_v2，已过滤成熟生态和人尽皆知项目
 - 观察池规模：{pack.get("repo_count")} 个项目
 - 说明：本文基于公开仓库元数据、release、stars、forks、未关闭 issue、短期增长线索和论文热榜侧信号形成判断
 
 pack:
 {json.dumps(pack, ensure_ascii=False)}
 """
+
+
+def render_github_breakout_v2_markdown(pack: dict[str, Any]) -> str:
+    breakout = pack.get("breakout_candidates_v2") if isinstance(pack.get("breakout_candidates_v2"), dict) else {}
+    items = breakout.get("items") if isinstance(breakout.get("items"), list) else []
+    lines = ["## 新晋爆发项目雷达", ""]
+    lines.append("这一节只看短期动量和可验证新鲜度，已排除 k8s、Llama、Hermes 等成熟或人尽皆知生态项目。")
+    lines.append("")
+    if not items:
+        lines.append("本期未发现足够新颖且可验证的新晋爆发项目；高热度项目更多属于成熟生态延续，暂不放入新晋雷达。")
+        return "\n".join(lines).strip()
+    for idx, item in enumerate(items[:6], 1):
+        repo = str(item.get("repo") or "N/A")
+        url = str(item.get("html_url") or f"https://github.com/{repo}")
+        description = str(item.get("description") or "").strip()[:180] or "公开仓库说明暂不足"
+        language = str(item.get("language") or "N/A")
+        stars = int(item.get("stars") or 0)
+        trendshift = ""
+        if item.get("trendshift_period") and item.get("trendshift_rank"):
+            trendshift = f"；外部趋势榜 {item.get('trendshift_period')} 第 {int(item.get('trendshift_rank') or 0)} 位"
+        verify_next = "、".join(str(x) for x in (item.get("what_to_verify_next") or [])[:2]) or "继续验证 README、release 和社区活跃度"
+        lines.append(
+            f"{idx}. [{repo}]({url})：{description}。当前信号来自短期外部趋势和增长动量，"
+            f"项目体量约 {stars} stars，语言为 {language}{trendshift}。它还不属于成熟大生态，"
+            f"因此更适合作为早期爆发候选观察；下一步需要{verify_next}。"
+        )
+    return "\n".join(lines).strip()
+
+
+def ensure_github_breakout_v2_section(markdown: str, pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if re.search(r"(?m)^##\s+新晋爆发项目雷达\s*$", text):
+        return text
+    section = render_github_breakout_v2_markdown(pack)
+    match = re.search(r"(?m)^##\s+今日核心判断\s*$", text)
+    if not match:
+        return f"{section}\n\n{text}".strip()
+    next_heading = re.search(r"(?m)^##\s+", text[match.end():])
+    if not next_heading:
+        return f"{text}\n\n{section}".strip()
+    insert_at = match.end() + next_heading.start()
+    return f"{text[:insert_at].rstrip()}\n\n{section}\n\n{text[insert_at:].lstrip()}".strip()
 
 
 def normalize_github_trend_markdown(markdown: str) -> str:
@@ -12431,6 +12726,8 @@ def record_github_trend_model_ledger(
 def render_github_trend_report_html(date_str: str, pack: dict[str, Any], result: dict[str, Any], top_tiers: str) -> str:
     """Render the GitHub trend report as a publication-grade HTML artifact."""
     cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
+    breakout_v2 = pack.get("breakout_candidates_v2") if isinstance(pack.get("breakout_candidates_v2"), dict) else {}
+    breakout_v2_count = len(breakout_v2.get("items") or []) if isinstance(breakout_v2.get("items"), list) else 0
     trendshift_count = sum(
         1 for card in cards
         if ((card.get("scores") or {}).get("trendshift_best_rank") is not None)
@@ -12543,7 +12840,7 @@ def render_github_trend_report_html(date_str: str, pack: dict[str, Any], result:
         <div class="metric"><b>{html_escape(len(cards))}</b><span>重点项目样本</span></div>
         <div class="metric"><b>{html_escape(pack.get("repo_count"))}</b><span>GitHub 观察池</span></div>
         <div class="metric"><b>{html_escape(trendshift_count)}</b><span>含 Trendshift 信号</span></div>
-        <div class="metric"><b>{html_escape(top_tiers)}</b><span>Tier mix · {html_escape(model)}</span></div>
+        <div class="metric"><b>{html_escape(breakout_v2_count)}</b><span>新晋爆发雷达 · {html_escape(model)}</span></div>
       </div>
     </section>
     <section class="article">
@@ -12564,6 +12861,10 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     model = str(requested_model or os.environ.get("TECH_HOTSPOT_GITHUB_REPORT_MODEL") or cfg.get("model") or "chatgpt-5.5")
     prompt = build_github_trend_prompt(pack, model)
+    max_prompt_chars = int(
+        os.environ.get("GITHUB_TREND_REPORT_MAX_PROMPT_CHARS")
+        or 60000
+    )
     started = time.time()
     result = call_browser_agent_chatgpt_markdown(
         prompt,
@@ -12571,12 +12872,15 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         purpose=f"github-trend-report-{pack.get('date') or iso_z().split('T', 1)[0]}",
         requested_model=model,
         operator_kind="chapter_writer",
+        profile_directory=os.environ.get("GITHUB_TREND_REPORT_PROFILE_DIRECTORY", "Default"),
+        target_account_email=os.environ.get("GITHUB_TREND_REPORT_ACCOUNT_EMAIL", "haogege1977@gmail.com"),
         open_project_first=False,
         require_project=False,
-        requested_max_prompt_chars=25000,
+        requested_max_prompt_chars=max_prompt_chars,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
+    markdown = ensure_github_breakout_v2_section(markdown, pack)
     if len(markdown) < 1500:
         raise ValueError(f"ChatGPT Report Chapter Writer output too short: {len(markdown)} chars")
     return {
@@ -14822,7 +15126,8 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                                                  model_name: str,
                                                  chapter_id: str,
                                                  min_chars: int = 120,
-                                                 max_attempts: int = 3) -> dict[str, Any]:
+                                                 max_attempts: int = 3,
+                                                 scratch_profile_id: str | None = None) -> dict[str, Any]:
     """Run ChatGPT Report Chapter Writer with a bounded repair loop.
 
     The old flow failed the whole report when one chapter came back as a short
@@ -14850,6 +15155,7 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                 purpose=purpose if attempt == 1 else f"{purpose}-repair-{attempt}",
                 requested_model=model_name,
                 operator_kind="chapter_writer",
+                scratch_profile_id=scratch_profile_id,
             )
             markdown = str(result.get("markdown") or "").strip()
             if len(markdown) >= min_chars:
@@ -14982,9 +15288,9 @@ evidence_pack:
 
 
 def _browser_agent_request_dir(config: dict[str, Any], purpose: str) -> Path:
-    state_dir = Path((config.get("output") or {}).get(
+    state_dir = _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
     stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = state_dir / "browser-agent-requests" / f"{stamp}-{slugify(purpose)[:60]}"
     out.mkdir(parents=True, exist_ok=True)
@@ -15183,14 +15489,15 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     reasoner_cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = (flow_cfg.get("report_writer") or {})
     browser_agent_cfg = (flow_cfg.get("browser_agent") or {})
     model = str(requested_model or writer_cfg.get("model") or reasoner_cfg.get("model") or "chatgpt-5.5")
     reasoning_effort = str(requested_reasoning_effort or writer_cfg.get("reasoning_effort") or reasoner_cfg.get("reasoning_effort") or "high")
-    timeout = int(requested_timeout_seconds or writer_cfg.get("timeout_seconds") or reasoner_cfg.get("timeout_seconds") or 1800)
+    timeout = int(requested_timeout_seconds or writer_cfg.get("timeout_seconds") or reasoner_cfg.get("timeout_seconds") or 10800)
     max_chars = int(requested_max_prompt_chars or writer_cfg.get("max_prompt_chars") or reasoner_cfg.get("max_prompt_chars") or 180000)
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[TRUNCATED: prompt exceeded configured max_prompt_chars]\n"
@@ -15345,7 +15652,7 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "1234"
+        or ""
     ).strip()
     if purpose.startswith("github-trend-report") and (
         bool(resolved_open_project_first) or bool(resolved_require_project)
@@ -15355,20 +15662,41 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
             f"open_project_first={bool(resolved_open_project_first)}:"
             f"require_project={bool(resolved_require_project)}"
         )
-    if project_name:
+    if project_name and (bool(resolved_open_project_first) or bool(resolved_require_project)):
         env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
+    if scratch_profile_id:
+        env["BROWSER_AGENT_PROFILE_ID"] = str(scratch_profile_id)
+        prior_session = _load_browser_agent_scratch_session(config, str(scratch_profile_id))
+        prior_url = str(prior_session.get("conversation_url") or "").strip()
+        if prior_url and "BROWSER_AGENT_CHATGPT_URL" not in env:
+            env["BROWSER_AGENT_CHATGPT_URL"] = prior_url
     started = time.time()
-    run = subprocess.run(
-        cmd,
-        input=prompt,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        env=env,
-    )
+    try:
+        run = subprocess.run(
+            cmd,
+            input=prompt,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        _persist_browser_agent_scratch_session_from_request_dir(
+            config,
+            scratch_profile_id=scratch_profile_id,
+            purpose=purpose,
+            request_dir=req_dir,
+        )
+        raise
     output = _strip_browser_agent_noise(run.stdout or "")
     (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+    _persist_browser_agent_scratch_session_from_request_dir(
+        config,
+        scratch_profile_id=scratch_profile_id,
+        purpose=purpose,
+        request_dir=req_dir,
+    )
     if run.returncode != 0:
         raise RuntimeError(f"browser_agent_chatgpt failed rc={run.returncode}: {output[-2000:]}")
     if len(output) < (500 if expected == "json" else 1000):
@@ -16310,7 +16638,7 @@ def ai_influence_chatgpt_project_name(config: dict[str, Any]) -> str:
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "1234"
+        or ""
     ).strip()
 
 
@@ -16437,36 +16765,13 @@ def validate_ai_influence_planned_report_dir(
             if "│ 6. 企业治理层" in html_text or "┌────────────────" in html_text:
                 errors.append("ascii_architecture_diagram_leaked:agentic_developer_stack")
 
-    request_dir_value = str(result.get("request_dir") or result.get("_request_dir") or "").strip()
-    if request_dir_value:
-        project_result_path = Path(request_dir_value) / "project-archive-result.json"
-        if project_result_path.exists():
-            try:
-                project_result = json.loads(project_result_path.read_text(encoding="utf-8"))
-                actual_project = str(project_result.get("project_name") or project_result.get("project") or "").strip()
-                if expected_chatgpt_project and actual_project != expected_chatgpt_project:
-                    errors.append(
-                        "chatgpt_project_mismatch:"
-                        f"expected={expected_chatgpt_project}:actual={actual_project or 'N/A'}"
-                    )
-                if not (project_result.get("ok") is True or project_result.get("status") == "ok"):
-                    errors.append(f"chatgpt_project_archive_not_ok:{project_result.get('status') or project_result.get('ok')}")
-            except Exception as exc:
-                errors.append(f"chatgpt_project_archive_json:{type(exc).__name__}:{exc}")
-        elif require_project_archive:
-            errors.append(f"missing_chatgpt_project_archive:{project_result_path}")
-        else:
-            warnings.append(f"missing_chatgpt_project_archive:{project_result_path}")
-    elif require_project_archive:
-        errors.append("missing_browser_agent_request_dir")
-
     return {
         "report_dir": str(report_dir),
         "status": "ok" if not errors else "error",
         "errors": errors,
         "warnings": warnings,
         "video_count": len(videos),
-        "expected_chatgpt_project": expected_chatgpt_project or "N/A",
+        "chatgpt_project_archive_policy": "disabled",
     }
 
 
@@ -16485,7 +16790,8 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -16505,6 +16811,7 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
         require_project=require_project,
         force_new_chat=force_new_chat,
         require_isolated_conversation=require_isolated_conversation,
+        scratch_profile_id=scratch_profile_id,
     )
     payload = extract_json_payload_lenient(str(result.pop("text") or ""))
     payload["_backend"] = result["backend"]
@@ -17513,7 +17820,7 @@ def call_codex_phase_report(evidence_pack: dict[str, Any], config: dict[str, Any
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     codex_bin = str(cfg.get("codex_bin") or os.environ.get("CODEX_BIN") or shutil.which("codex") or "codex")
     model = str(requested_model or cfg.get("model") or os.environ.get("TECH_HOTSPOT_PHASE_REPORT_MODEL") or "gpt-5.5")
-    timeout = int(cfg.get("timeout_seconds") or 1200)
+    timeout = int(cfg.get("timeout_seconds") or 3600)
     max_chars = int(cfg.get("max_prompt_chars") or 180000)
     prompt = build_phase_report_markdown_prompt(evidence_pack, model)
     if len(prompt) > max_chars:
@@ -18041,7 +18348,7 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
         files["transcripts_clean_txt"].write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
         mail_result: dict[str, Any] = {"status": "skipped"}
-        if bool(getattr(args, "send", False)):
+        if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PHASE_REPORT_SEND_MAIL"):
             mail_result = send_html_email(
                 files["report_html"].read_text(encoding="utf-8"),
                 f"AI Influence 专辑报告 Phase {phase} — {date_str}",
@@ -18833,8 +19140,8 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             (report_dir / "transcripts-cleaned.txt").write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
             validation = validate_ai_influence_planned_report_dir(
                 report_dir,
-                expected_chatgpt_project=ai_influence_chatgpt_project_name(config),
-                require_project_archive=True,
+                expected_chatgpt_project=None,
+                require_project_archive=False,
             )
             (report_dir / "validation-result.json").write_text(json.dumps(validation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             if validation["status"] != "ok":
@@ -18848,9 +19155,9 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             mail_result: dict[str, Any] = {
                 "status": "skipped",
                 "recommended_by_plan": bool(spec.get("send_as_email")),
-                "sent_only_when_flagged": True,
+                "auto_send_default": True,
             }
-            if bool(getattr(args, "send", False)):
+            if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PLANNED_REPORT_SEND_MAIL"):
                 mail_result = send_html_email(
                     (report_dir / "report.html").read_text(encoding="utf-8"),
                     f"AI Influence 专题：{spec.get('title') or report_id} — {date_str}",
@@ -18915,8 +19222,6 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     out_dir = _ai_influence_planned_base(config, args, date_str)
     reports_root = out_dir / "reports"
     selected_id = str(getattr(args, "report_id", None) or "").strip()
-    expected_project = ai_influence_chatgpt_project_name(config)
-    require_project_archive = bool(getattr(args, "require_project_archive", False))
     if selected_id:
         report_dirs = [reports_root / selected_id]
     else:
@@ -18928,8 +19233,8 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     for report_dir in report_dirs:
         result = validate_ai_influence_planned_report_dir(
             report_dir,
-            expected_chatgpt_project=expected_project,
-            require_project_archive=require_project_archive,
+            expected_chatgpt_project=None,
+            require_project_archive=False,
         )
         (report_dir / "validation-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         results.append(result)
@@ -18939,7 +19244,7 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
         "reports_root": str(reports_root),
         "ok": ok_count,
         "total": len(results),
-        "expected_chatgpt_project": expected_project,
+        "chatgpt_project_archive_policy": "disabled",
         "results": results,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -19013,13 +19318,52 @@ def keychain_password(service: str, account: str) -> str:
         return ""
 
 
+def _ai_influence_mail_config() -> dict[str, Any]:
+    path = Path(
+        os.environ.get("AI_INFLUENCE_MAIL_CONFIG")
+        or str(Path.home() / ".solar" / "harness" / "state" / "ai-influence-mail-config.json")
+    ).expanduser()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = str(os.environ.get(name) or "").strip().lower()
+    if not value:
+        return default
+    return value not in {"0", "false", "no", "off"}
+
+
+def ai_influence_auto_send_enabled(args: argparse.Namespace, env_name: str) -> bool:
+    explicit = getattr(args, "send", None)
+    if explicit is not None:
+        return bool(explicit)
+    return _env_bool(env_name, _env_bool("AI_INFLUENCE_REPORT_SEND_MAIL", True))
+
+
 def send_html_email(html_content: str, subject: str, attachments: list[Path]) -> dict[str, Any]:
     import smtplib
 
-    gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("AI_INFLUENCE_GMAIL_USER") or ""
+    mail_config = _ai_influence_mail_config()
+    gmail_user = (
+        os.environ.get("GMAIL_USER")
+        or os.environ.get("AI_INFLUENCE_GMAIL_USER")
+        or str(mail_config.get("from") or "")
+    )
     if not gmail_user:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing gmail user"}
-    gmail_to = os.environ.get("GMAIL_TO") or os.environ.get("MAIL_TO") or os.environ.get("AI_INFLUENCE_MAIL_TO") or gmail_user
+    gmail_to = (
+        os.environ.get("GMAIL_TO")
+        or os.environ.get("MAIL_TO")
+        or os.environ.get("AI_INFLUENCE_MAIL_TO")
+        or str(mail_config.get("to") or "")
+        or gmail_user
+    )
     recipients = [addr.strip() for addr in re.split(r"[,;]", gmail_to) if addr.strip()]
     if not recipients:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing recipients"}
@@ -19059,6 +19403,7 @@ def send_html_email(html_content: str, subject: str, attachments: list[Path]) ->
     return {
         "status": "sent",
         "backend": "gmail_smtp",
+        "sent_at": iso_z(),
         "from": gmail_user,
         "to": recipients,
         "message_id": msg["Message-ID"],
@@ -19696,7 +20041,8 @@ def build_parser() -> argparse.ArgumentParser:
     phase_report.add_argument("--limit", type=int, default=80, help="Max completed videos in evidence pack")
     phase_report.add_argument("--date", default=None, help="Report date YYYY-MM-DD (default: UTC today)")
     phase_report.add_argument("--output-base", default=None, help="Override report output directory")
-    phase_report.add_argument("--send", action="store_true", help="Send HTML email with transcript attachment")
+    phase_report.add_argument("--send", dest="send", action="store_true", default=None, help="Send HTML email with transcript attachment")
+    phase_report.add_argument("--no-send", dest="send", action="store_false", help="Do not send email after generating the report")
     phase_report.add_argument("--reasoner", default=None, choices=["browser_agent", "browser_agent_chatgpt", "chatgpt"], help="Final report reasoner (default: browser_agent_chatgpt). Codex/direct GPT/local Qwen are disabled for AI Influence final judgment.")
     phase_report.add_argument("--model", default=None, help="Final report model override (default: chatgpt-5.5)")
     plan_reports = sub.add_parser("plan-ai-influence-reports", help="Plan AI Influence report series from video catalog using Browser Agent / ChatGPT 5.5 Thinking high")
@@ -19715,7 +20061,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_planned.add_argument("--chapter-batch-size", type=int, default=0, help="Compatibility flag for official wrapper; current runtime remains sequential when >0")
     run_planned.add_argument("--chapter-repair-attempts", type=int, default=0, help="Override bounded chapter repair attempts")
     run_planned.add_argument("--transcript-char-limit", type=int, default=0, help="Override transcript character budget per planned report evidence pack")
-    run_planned.add_argument("--send", action="store_true", help="Send each generated report by email")
+    run_planned.add_argument("--send", dest="send", action="store_true", default=None, help="Send each generated report by email")
+    run_planned.add_argument("--no-send", dest="send", action="store_false", help="Do not send generated reports by email")
     run_planned.add_argument("--legacy", action="store_true", help="Use the previous whole-command implementation instead of the Report IR chapter runtime")
     run_planned.add_argument("--skip-notebooklm", action="store_true", help="Skip NotebookLM transcript+mindmap+infographic enrichment")
     run_planned.add_argument("--notebook-name", default=None, help="Override NotebookLM notebook name (default: AI Influence YYYY-MM)")
