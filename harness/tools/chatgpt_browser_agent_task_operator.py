@@ -17,10 +17,11 @@ if str(ROOT / "lib") not in sys.path:
     sys.path.insert(0, str(ROOT / "lib"))
 
 import operator_flow_control as ofc  # noqa: E402
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
 
 
 DEFAULT_OPERATOR_ID = "mini-chatgpt-deep-research"
-DEFAULT_PROJECT_NAME = "1234"
+DEFAULT_PROJECT_NAME = ""
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_chatgpt_wrapper.py"
 DEFAULT_BROWSER_USE_PYTHON = Path.home() / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
 DEFAULT_LOCAL_PROFILE_POLICY = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
@@ -170,7 +171,13 @@ def apply_profile_policy(env: dict[str, str], request: dict[str, Any]) -> dict[s
         env["BROWSER_AGENT_CHATGPT_PROFILE_STRATEGY"] = profile_strategy
     if user_data_dir and not env.get("BROWSER_AGENT_USER_DATA_DIR"):
         env["BROWSER_AGENT_USER_DATA_DIR"] = user_data_dir
-    if _is_protected_scoped_chatgpt(key) and not bool(policy.get("allow_headless")):
+    allow_headless = policy.get("allow_headless")
+    force_headed = bool(
+        policy.get("force_headed")
+        or policy.get("require_headed")
+        or (allow_headless is not None and not bool(allow_headless))
+    )
+    if force_headed:
         env["BROWSER_AGENT_HEADLESS"] = "false"
         env["TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS"] = "false"
         env["BROWSER_AGENT_CHATGPT_ALLOW_HEADED"] = "true"
@@ -185,7 +192,7 @@ def apply_profile_policy(env: dict[str, str], request: dict[str, Any]) -> dict[s
         "selected_account_email": resolved_account,
         "profile_strategy": profile_strategy,
         "user_data_dir_set": bool(env.get("BROWSER_AGENT_USER_DATA_DIR")),
-        "headless_forced": _is_protected_scoped_chatgpt(key) and not bool(policy.get("allow_headless")),
+        "headless_forced": force_headed,
     }
 
 
@@ -217,6 +224,8 @@ def build_request(envelope: dict[str, Any], *, task_dir: Path | None = None) -> 
                 "model",
                 "reasoning_effort",
                 "project_name",
+                "require_project",
+                "open_project_first",
                 "model_mode",
                 "tool_mode",
                 "require_ui_mode",
@@ -241,7 +250,6 @@ def build_request(envelope: dict[str, Any], *, task_dir: Path | None = None) -> 
     request.setdefault("require_ui_mode", True)
     request.setdefault("require_deep_research", False)
     request.setdefault("action", "run")
-    request.setdefault("project_name", DEFAULT_PROJECT_NAME)
     return request
 
 
@@ -319,6 +327,8 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
     env = os.environ.copy()
+    project_name = str(request.get("project_name") or DEFAULT_PROJECT_NAME).strip()
+    require_project = bool(request.get("require_project", bool(project_name)))
     env.update(
         {
             "BROWSER_AGENT_REQUEST_DIR": str(request_dir),
@@ -334,10 +344,14 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
             if bool(request.get("require_deep_research", False))
             else "false",
             "BROWSER_AGENT_CHATGPT_ACTION": str(request.get("action") or "run"),
-            "BROWSER_AGENT_CHATGPT_PROJECT_NAME": str(request.get("project_name") or DEFAULT_PROJECT_NAME),
-            "BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT": "true",
+            "BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST": "true"
+            if bool(request.get("open_project_first", False))
+            else "false",
+            "BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT": "true" if require_project else "false",
         }
     )
+    if project_name:
+        env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
     account_email = str(request.get("account_email") or "").strip()
     if account_email:
         env["BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL"] = account_email
@@ -369,7 +383,7 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
     result = {
         "ok": True,
         "model": str(request.get("model") or "chatgpt-5.5"),
-        "project_name": str(request.get("project_name") or DEFAULT_PROJECT_NAME),
+        "project_name": project_name or "N/A",
         "expected_output": str(request.get("expected_output") or "markdown"),
         "request_dir": str(request_dir),
         "text": text,
@@ -385,6 +399,9 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
 def main() -> int:
     envelope = _load_envelope()
     task_dir = _task_dir()
+    queued_rc = enqueue_current_process_if_needed(job_name=_operator_id(envelope), repo_root=ROOT, cwd=task_dir)
+    if queued_rc is not None:
+        return queued_rc
     ofc.clear_task_control(task_dir)
     request = build_request(envelope, task_dir=task_dir)
     rate_control = _rate_control_settings(envelope)

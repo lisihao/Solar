@@ -49,6 +49,8 @@ def run_operator(
         "'require_ui_mode':os.environ.get('BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE'),"
         "'action':os.environ.get('BROWSER_AGENT_CHATGPT_ACTION'),"
         "'project':os.environ.get('BROWSER_AGENT_CHATGPT_PROJECT_NAME'),"
+        "'open_project_first':os.environ.get('BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST'),"
+        "'require_project':os.environ.get('BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT'),"
         "'profile_directory':os.environ.get('BROWSER_AGENT_PROFILE_DIRECTORY'),"
         "'target_account_email':os.environ.get('BROWSER_AGENT_TARGET_ACCOUNT_EMAIL'),"
         "'chatgpt_account_email':os.environ.get('BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL'),"
@@ -57,12 +59,16 @@ def run_operator(
         encoding="utf-8",
     )
     env = os.environ.copy()
+    env.pop("BROWSER_AGENT_CHATGPT_PROJECT_NAME", None)
+    env.pop("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST", None)
+    env.pop("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT", None)
     env.update(
         {
             "BROWSER_AGENT_CHATGPT_WRAPPER_CMD": f"{sys.executable} {wrapper}",
             "BROWSER_AGENT_REQUEST_DIR": str(tmp_path / "request"),
             "BROWSER_AGENT_PURPOSE": purpose,
             "BROWSER_AGENT_EXPECTED_OUTPUT": expected,
+            "BROWSER_AGENT_QUEUE_BYPASS": "1",
             "BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED": "1",
         }
     )
@@ -84,14 +90,16 @@ def run_operator(
     )
 
 
-def test_planner_sets_thinking_high_and_project(tmp_path):
+def test_planner_sets_thinking_high_without_project_archive(tmp_path):
     proc = run_operator(tmp_path, purpose="ai-influence-report-plan-2026-05-31", expected="json")
     payload = json.loads(proc.stdout)
     assert payload["model_mode"] == "thinking"
     assert payload["effort"] == "high"
     assert payload["tool_mode"] == "none"
     assert payload["require_ui_mode"] == "true"
-    assert payload["project"] == "1234"
+    assert payload["project"] is None
+    assert payload["open_project_first"] == "false"
+    assert payload["require_project"] == "false"
     assert "ChatGPT Report Planner" in payload["prompt"]
     meta = json.loads((tmp_path / "request" / "report-operator-request.json").read_text())
     assert meta["operator_kind"] == "planner"

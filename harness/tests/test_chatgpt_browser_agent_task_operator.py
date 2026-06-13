@@ -17,7 +17,7 @@ def test_build_request_reads_prompt_file(tmp_path):
     prompt_file.write_text("hello chatgpt", encoding="utf-8")
     payload = cto.build_request({"prompt_file": str(prompt_file)}, task_dir=tmp_path)
     assert payload["prompt"] == "hello chatgpt"
-    assert payload["project_name"] == "1234"
+    assert "project_name" not in payload
     assert payload["expected_output"] == "markdown"
     assert payload["model"] == "chatgpt-5.5"
     assert payload["reasoning_effort"] == "high"
@@ -57,6 +57,7 @@ def test_main_applies_success_cooldown(monkeypatch, tmp_path):
     envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     monkeypatch.setenv("SOLAR_CHATGPT_SUCCESS_COOLDOWN_SECONDS", "222")
     monkeypatch.setattr(cto.ofc, "ensure_operator_available", lambda operator_id: None)
     monkeypatch.setattr(cto, "run_request", lambda request, task_dir: {"ok": True})
@@ -76,6 +77,7 @@ def test_main_applies_failure_flow_control(monkeypatch, tmp_path):
     envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     monkeypatch.setattr(cto.ofc, "ensure_operator_available", lambda operator_id: None)
 
     def _boom(request, task_dir):
