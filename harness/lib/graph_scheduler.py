@@ -37,6 +37,7 @@ READY_STATUSES = {"pending", "queued", "blocked", "worker_blocked", ""}
 PASS_STATUSES = {"passed"}
 CLOSED_NON_PASS_STATUSES = {"skipped", "cancelled", "skipped_parent_passed"}
 SPRINTS_DIR = Path(os.environ.get("HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
+COMPLETION_OUTCOME_STATUSES = {"passed", "completed", "finalized"}
 
 
 def _effective_graph_max_parallel(default: int | None = None) -> int | None:
@@ -833,6 +834,8 @@ def _status_rank(status: str) -> int:
     value = str(status or "pending").lower()
     if value in {"passed", "failed", "skipped", "cancelled"}:
         return 5
+    if value in {"blocked_by_verifier", "result_submitted", "verifying"}:
+        return 4
     if value == "reviewing":
         return 4
     if value in {"in_progress", "running", "working"}:
@@ -1059,6 +1062,30 @@ def _passed_without_required_eval(graph: dict[str, Any], node_id: str) -> bool:
     return _node_has_handoff(graph, node_id) and not _node_has_eval_json(graph, node_id)
 
 
+def _completion_gate_valid(result: dict[str, Any]) -> bool:
+    if not result.get("completion_gate_required"):
+        return True
+    gate = result.get("completion_gate")
+    if not isinstance(gate, dict):
+        return False
+    verdict = gate.get("verdict")
+    if not isinstance(verdict, dict):
+        return False
+    if verdict.get("status") != "passed" or verdict.get("trigger") != "post_result":
+        return False
+    result_id = str(result.get("result_id") or "")
+    covered_result_id = str(verdict.get("covered_result_id") or gate.get("covered_result_id") or "")
+    return bool(result_id and covered_result_id and result_id == covered_result_id)
+
+
+def _completion_gate_blocking_status(result: dict[str, Any]) -> str:
+    gate = result.get("completion_gate") if isinstance(result.get("completion_gate"), dict) else {}
+    gate_status = str(gate.get("status") or "").lower()
+    if gate_status == "blocked_by_verifier":
+        return "blocked_by_verifier"
+    return "result_submitted"
+
+
 def _assert_pass_mark_allowed(graph: dict[str, Any], node_id: str, status: str) -> None:
     normalized = str(status or "").lower()
     if normalized != "passed":
@@ -1170,6 +1197,8 @@ def node_status(graph: dict[str, Any], node_id: str) -> str:
 
     if status == "passed" and _passed_without_required_eval(graph, node_id):
         return "reviewing"
+    if status == "passed" and not _completion_gate_valid(results.get(node_id, {}) if isinstance(results.get(node_id), dict) else {}):
+        return _completion_gate_blocking_status(results.get(node_id, {}) if isinstance(results.get(node_id), dict) else {})
     return status
 
 
@@ -1365,6 +1394,70 @@ def critical_path(graph: dict[str, Any]) -> dict[str, Any]:
 
 def _is_passed(graph: dict[str, Any], node_id: str) -> bool:
     return node_status(graph, node_id) in PASS_STATUSES
+
+
+def _completion_result_for_node(
+    graph: dict[str, Any],
+    node_id: str,
+    *,
+    status: str,
+    note: str | None = None,
+) -> dict[str, Any]:
+    ids = _node_map(graph)
+    node = ids[node_id]
+    sid = _sprint_id_for_graph(graph) or str(graph.get("id") or "graph")
+    handoff_path = str(_first_existing_path(_node_handoff_candidates(graph, node_id)) or (SPRINTS_DIR / f"{sid}.{node_id}-handoff.md"))
+    eval_path = str(_first_existing_path(_node_eval_json_candidates(graph, node_id)) or "")
+    attempt_id = str(node.get("dispatch_id") or node.get("attempt_id") or f"attempt-{node_id}")
+    run_dir = str(HARNESS_DIR / "runs" / sid / node_id)
+    try:
+        from completion_pipeline import OperatorResult, submit_result  # noqa: WPS433
+
+        return submit_result(
+            OperatorResult(
+                session_id=sid,
+                node_id=node_id,
+                attempt_id=attempt_id,
+                handoff_path=handoff_path,
+                eval_path=eval_path,
+                write_scope=list(node.get("write_scope") or []),
+                operator_status=status,
+                run_dir=run_dir,
+                graph_path=str(graph.get("graph_path") or ""),
+            ),
+            harness_dir=HARNESS_DIR,
+        )
+    except Exception as exc:
+        result_id = f"result_{node_id}_{attempt_id}"
+        return {
+            "status": "blocked_by_verifier",
+            "result": {
+                "session_id": sid,
+                "node_id": node_id,
+                "attempt_id": attempt_id,
+                "result_id": result_id,
+                "handoff_path": handoff_path,
+                "eval_path": eval_path,
+                "write_scope": list(node.get("write_scope") or []),
+                "operator_status": status,
+                "note": note or "",
+            },
+            "verdict": {
+                "trigger": "post_result",
+                "status": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+                "covered_result_id": result_id,
+                "covered_attempt_id": attempt_id,
+                "rules": [
+                    {
+                        "id": "solar.post_result.pipeline_error",
+                        "severity": "blocker",
+                        "status": "failed",
+                        "message": str(exc),
+                    }
+                ],
+            },
+        }
 
 
 def blocked_external_prerequisites(graph: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2160,26 +2253,52 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     _assert_pass_mark_allowed(graph, node_id, status)
 
     updated_at = _now()
+    requested_status = str(status or "").lower()
+    completion_run: dict[str, Any] | None = None
+    effective_status = status
+    if requested_status in COMPLETION_OUTCOME_STATUSES and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1":
+        completion_run = _completion_result_for_node(graph, node_id, status=requested_status, note=note)
+        effective_status = "passed" if completion_run.get("status") == "completed" else "blocked_by_verifier"
+
     graph.setdefault("node_results", {})
     graph["node_results"][node_id] = {
-        "status": status,
+        "status": effective_status,
         "updated_at": updated_at,
     }
+    if completion_run is not None:
+        completion_result = completion_run.get("result") if isinstance(completion_run.get("result"), dict) else {}
+        completion_verdict = completion_run.get("verdict") if isinstance(completion_run.get("verdict"), dict) else {}
+        graph["node_results"][node_id].update(
+            {
+                "completion_gate_required": True,
+                "requested_status": requested_status,
+                "result_id": completion_result.get("result_id"),
+                "attempt_id": completion_result.get("attempt_id"),
+                "completion_gate": {
+                    "status": completion_run.get("status"),
+                    "verdict_id": completion_verdict.get("verdict_id"),
+                    "covered_result_id": completion_verdict.get("covered_result_id"),
+                    "covered_attempt_id": completion_verdict.get("covered_attempt_id"),
+                    "verifier_artifact": (completion_verdict.get("artifacts") or {}).get("json") if isinstance(completion_verdict.get("artifacts"), dict) else "",
+                    "verdict": completion_verdict,
+                },
+            }
+        )
     if note:
         graph["node_results"][node_id]["note"] = note
-    ids[node_id]["status"] = status
+    ids[node_id]["status"] = effective_status
     ids[node_id]["updated_at"] = updated_at
 
     gate = ids[node_id].get("gate")
-    if gate and status in {"failed", "cancelled"}:
+    if gate and effective_status in {"failed", "cancelled", "blocked_by_verifier"}:
         graph.setdefault("gate_results", {})
         graph["gate_results"][gate] = {
             "status": "blocked",
             "node": node_id,
-            "reason": f"node_{status}",
+            "reason": f"node_{effective_status}",
             "updated_at": updated_at,
         }
-    elif gate and (gate_status or status) == "passed":
+    elif gate and (gate_status or effective_status) == "passed":
         gate_nodes = [node for node in ids.values() if node.get("gate") == gate]
         open_gate_nodes = [
             str(node.get("id") or "")
@@ -2198,7 +2317,7 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
         else:
             graph["gate_results"][gate] = {"status": "passed", "node": node_id, "updated_at": updated_at}
 
-    if str(status or "").lower() in {"passed", "failed", "reviewing"}:
+    if str(effective_status or "").lower() in {"passed", "failed", "reviewing", "blocked_by_verifier"}:
         _sync_node_evidence_refs(
             graph,
             node_id,
@@ -2206,7 +2325,12 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
             command_line=f"python3 lib/graph_scheduler.py mark --node {node_id} --status {status}",
         )
 
-    return parent_ready_check(graph)
+    parent = parent_ready_check(graph)
+    if completion_run is not None:
+        parent["completion_gate"] = graph["node_results"][node_id].get("completion_gate")
+        parent["requested_status"] = requested_status
+        parent["effective_status"] = effective_status
+    return parent
 
 
 def set_node_status(graph: dict[str, Any], node_id: str, status: str,

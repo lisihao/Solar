@@ -85,3 +85,22 @@ def test_pane_cooldown_reason_clears_empty_context_entry(monkeypatch, tmp_path) 
 
     assert mod._pane_cooldown_reason("test:0.1") == ""
     assert cooldown_file.read_text(encoding="utf-8").strip() == "{}"
+
+
+def test_pane_cooldown_reason_clears_stale_title_active_without_lease(monkeypatch, tmp_path) -> None:
+    harness_dir = tmp_path / "harness"
+    (harness_dir / "run").mkdir(parents=True)
+    (harness_dir / "sprints").mkdir(parents=True)
+    monkeypatch.setenv("HARNESS_DIR", str(harness_dir))
+    (harness_dir / "sprints" / "sprint-test.task_graph.json").write_text("{}", encoding="utf-8")
+    cooldown_file = harness_dir / "run" / "graph-dispatch-pane-cooldowns.json"
+    cooldown_file.write_text(
+        '{"solar-harness-lab:0.2":{"reason":"assigned_pane_unavailable:pane_title_active_work","sid":"sprint-test","dispatch_id":"dispatch-N1","marked_at":"2026-05-28T20:00:00Z","until":"2099-01-01T00:00:00Z"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mod, "_pane_exists", lambda pane: True)
+    monkeypatch.setattr(mod, "read_lease", lambda pane: None)
+    monkeypatch.setattr(mod, "_pane_tui_busy", lambda pane: False)
+
+    assert mod._pane_cooldown_reason("solar-harness-lab:0.2") == ""
+    assert cooldown_file.read_text(encoding="utf-8").strip() == "{}"
