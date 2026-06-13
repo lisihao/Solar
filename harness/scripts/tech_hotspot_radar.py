@@ -15474,6 +15474,42 @@ def _env_override_bool(*names: str) -> bool | None:
     return None
 
 
+def _env_truthy(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _browser_agent_queue_command_if_needed(cmd: list[str], *, req_dir: Path, purpose: str, env: dict[str, str]) -> list[str]:
+    """Route direct Browser Agent subprocess calls through the shared FIFO.
+
+    Script-level LaunchAgents already enter the FIFO before reaching this
+    process. Manual/Antigravity/Claude Code entrypoints may call this module
+    directly, so this guard prevents explicit wrapper commands from bypassing
+    the single browser-agent worker.
+    """
+    if _env_truthy("BROWSER_AGENT_QUEUE_BYPASS") or _env_truthy("BROWSER_AGENT_QUEUE_DISABLED"):
+        return cmd
+    queue_script = Path(env.get("BROWSER_AGENT_QUEUE_SCRIPT") or HARNESS_SCRIPT_DIR / "browser_agent_queue.py").expanduser()
+    if not queue_script.exists():
+        return cmd
+    env["BROWSER_AGENT_QUEUE_STDIN_FILE"] = str(req_dir / "queue-stdin.txt")
+    return [
+        sys.executable,
+        str(queue_script),
+        "enqueue",
+        "--name",
+        f"tech-hotspot-{slugify(purpose)[:80] or 'browser-agent'}",
+        "--cwd",
+        str(HARNESS_SCRIPT_DIR.parent),
+        "--wait",
+        "--timeout-seconds",
+        str(int(env.get("BROWSER_AGENT_QUEUE_WAIT_TIMEOUT_SECONDS") or 6 * 60 * 60)),
+        "--replay-logs",
+        "--quiet-result",
+        "--",
+        *cmd,
+    ]
+
+
 def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     purpose: str,
                                     expected: str = "markdown",
@@ -15671,6 +15707,9 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         prior_url = str(prior_session.get("conversation_url") or "").strip()
         if prior_url and "BROWSER_AGENT_CHATGPT_URL" not in env:
             env["BROWSER_AGENT_CHATGPT_URL"] = prior_url
+    cmd = _browser_agent_queue_command_if_needed(cmd, req_dir=req_dir, purpose=purpose, env=env)
+    if env.get("BROWSER_AGENT_QUEUE_STDIN_FILE"):
+        Path(env["BROWSER_AGENT_QUEUE_STDIN_FILE"]).write_text(prompt, encoding="utf-8")
     started = time.time()
     try:
         run = subprocess.run(
@@ -15746,6 +15785,9 @@ def call_browser_agent_notebooklm_json(request_payload: dict[str, Any], config: 
         "BROWSER_AGENT_REQUEST_DIR": str(req_dir),
         "BROWSER_AGENT_NOTEBOOKLM_TIMEOUT": str(timeout),
     })
+    cmd = _browser_agent_queue_command_if_needed(cmd, req_dir=req_dir, purpose=purpose, env=env)
+    if env.get("BROWSER_AGENT_QUEUE_STDIN_FILE"):
+        Path(env["BROWSER_AGENT_QUEUE_STDIN_FILE"]).write_text(json.dumps(request_payload, ensure_ascii=False), encoding="utf-8")
     run = subprocess.run(
         cmd,
         input=json.dumps(request_payload, ensure_ascii=False),

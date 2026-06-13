@@ -62,6 +62,7 @@ def test_call_browser_agent_chatgpt_text_prefers_process_env_over_config(monkeyp
     monkeypatch.setenv("BROWSER_AGENT_PROFILE_DIRECTORY", "Default")
     monkeypatch.setenv("BROWSER_AGENT_HEADLESS", "true")
     monkeypatch.setenv("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", "browser-agent@example.com")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     ns = _load_namespace()
     result = ns["call_browser_agent_chatgpt_text"](
         "验证 env override",
@@ -82,6 +83,27 @@ def test_call_browser_agent_chatgpt_text_prefers_process_env_over_config(monkeyp
     assert payload["profile_directory"] == "Default"
     assert payload["headless"] == "true"
     assert payload["account_email"] == "browser-agent@example.com"
+
+
+def test_browser_agent_subprocess_is_wrapped_by_fifo(monkeypatch, tmp_path):
+    monkeypatch.delenv("BROWSER_AGENT_QUEUE_BYPASS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_QUEUE_DISABLED", raising=False)
+    ns = _load_namespace()
+    env = {}
+    req_dir = tmp_path / "request"
+    req_dir.mkdir()
+    cmd = ns["_browser_agent_queue_command_if_needed"](
+        [sys.executable, "/tmp/fake-browser-wrapper.py"],
+        req_dir=req_dir,
+        purpose="ai-influence-notebooklm-2026-06-13",
+        env=env,
+    )
+
+    assert "browser_agent_queue.py" in cmd[1]
+    assert cmd[2:5] == ["enqueue", "--name", "tech-hotspot-ai-influence-notebooklm-2026-06-13"]
+    assert "--quiet-result" in cmd
+    assert cmd[-2:] == [sys.executable, "/tmp/fake-browser-wrapper.py"]
+    assert env["BROWSER_AGENT_QUEUE_STDIN_FILE"] == str(req_dir / "queue-stdin.txt")
 
 
 def test_hf_public_report_render_outputs_reader_facing_md_and_html():
@@ -1430,6 +1452,7 @@ def test_call_browser_agent_chatgpt_text_reuses_ai_influence_scratch_conversatio
         encoding="utf-8",
     )
     monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     ns = _load_namespace()
     config = {
         "output": {
@@ -1526,10 +1549,29 @@ def test_scheduler_shell_scripts_parse():
         ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh",
         ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh",
         ROOT / "harness" / "scripts" / "run_youtube_weekly_ai_influence_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_transcript_weekly_backfill.sh",
     ]
     for script in scripts:
         run = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
         assert run.returncode == 0, f"{script}: {run.stderr}"
+
+
+def test_browser_agent_launch_scripts_enter_fifo():
+    scripts = [
+        ROOT / "harness" / "scripts" / "run_ai_influence_digest.sh",
+        ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh",
+        ROOT / "harness" / "scripts" / "run_gpt_gemini_cleaner.sh",
+        ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_daily_ai_influence_report.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_daily_previous_day_collect.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_influence_digest.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_transcript_weekly_backfill.sh",
+        ROOT / "harness" / "scripts" / "run_youtube_weekly_ai_influence_report.sh",
+    ]
+    for script in scripts:
+        text = script.read_text(encoding="utf-8")
+        assert "scripts/lib/browser_agent_queue.sh" in text
+        assert "solar_browser_agent_enqueue_or_continue" in text
 
 
 def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout(monkeypatch, tmp_path):
@@ -1561,6 +1603,7 @@ def test_call_browser_agent_chatgpt_text_persists_scratch_session_before_timeout
         encoding="utf-8",
     )
     monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     ns = _load_namespace()
     config = {
         "output": {
@@ -1627,6 +1670,7 @@ def test_call_browser_agent_chatgpt_text_skips_root_url_autopersist(monkeypatch,
         encoding="utf-8",
     )
     monkeypatch.setenv("TECH_HOTSPOT_BROWSER_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     ns = _load_namespace()
     config = {
         "output": {
