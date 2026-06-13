@@ -661,22 +661,35 @@ class Solard:
 
 
 def cmd_status() -> int:
+    """活性判定 (2026-06-13 修假阴性): 心跳 pid 是上次写入的, 进程被外部带走后
+    pid 可能被复用 → os.kill(pid,0) 会假阳/假阴。改为双重判定:
+    (1) 真实进程: 系统里有无 'solard.py run' 进程 (pgrep, 最硬证据)
+    (2) 心跳新鲜度: heartbeat.ts 距今 < 3×interval (默认 15s) 才算在跳。
+    两者都真才算 alive — 与本会话三次误判的教训一致: 验真要用最干净的方式。"""
+    import subprocess
     out: dict[str, Any] = {"ok": True}
+    # (1) 真实进程
+    proc_alive = False
+    try:
+        r = subprocess.run(["pgrep", "-f", "solard.py run"], capture_output=True, text=True, timeout=5)
+        proc_alive = bool(r.stdout.strip())
+    except Exception:
+        pass
+    # (2) 心跳新鲜度
+    hb_fresh = False
+    hb: dict[str, Any] | None = None
     try:
         hb = json.loads(HEARTBEAT.read_text(encoding="utf-8"))
-        pid = int(hb.get("pid", 0))
-        alive = False
-        if pid:
-            try:
-                os.kill(pid, 0)
-                alive = True
-            except OSError:
-                pass
-        out["heartbeat"] = hb
-        out["alive"] = alive
+        ts = dt.datetime.fromisoformat(str(hb.get("ts", "")).replace("Z", "+00:00"))
+        age = (dt.datetime.now(dt.timezone.utc) - ts).total_seconds()
+        hb_fresh = age < 60  # 宽松上界 (interval×倍数), 进程在跳即 <15s
+        out["heartbeat_age_sec"] = round(age, 1)
     except Exception:
-        out["heartbeat"] = None
-        out["alive"] = False
+        pass
+    out["heartbeat"] = hb
+    out["process_alive"] = proc_alive
+    out["heartbeat_fresh"] = hb_fresh
+    out["alive"] = proc_alive and hb_fresh
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
 
