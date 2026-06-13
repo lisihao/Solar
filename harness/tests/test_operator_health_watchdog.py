@@ -375,6 +375,427 @@ def test_watchdog_runs_graph_drain_controller_before_pm_drain(monkeypatch, tmp_p
     assert payload["summary"]["drain_submitted"] == 2
 
 
+def test_watchdog_runs_operator_inbox_pump_before_graph_drain(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[tuple[str, object]] = []
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+        def _prune_expired_operator_blocks(self):
+            return {"ok": True, "pruned": [], "kept": []}
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            calls.append(("pm_drain", args.dry_run))
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {
+                "ok": True,
+                "operators_total": 2,
+                "operators_usable": 2,
+                "operators_hard_blocked": 0,
+                "recommended_level": "normal",
+                "backlog": 2,
+                "groups": {},
+            }
+
+    class FakeInboxPump:
+        def run_pump(self, *, apply=False, limit=3):
+            calls.append(("inbox_pump", {"apply": apply, "limit": limit}))
+            return {
+                "ok": True,
+                "apply": apply,
+                "limit": limit,
+                "kicked": [{"operator": "op-a", "pending": 1, "kick_pid": 12345}],
+                "skipped": [],
+            }
+
+    class FakeGraphDrain:
+        def run_graph_drain(self, **kwargs):
+            calls.append(("graph_drain", kwargs.get("apply")))
+            return {"ok": True, "dry_run": False, "counters": {"drain_submitted": 0}, "actions": [], "skipped": []}
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "inbox_pump":
+            return FakeInboxPump()
+        if name == "graph_drain_controller":
+            return FakeGraphDrain()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=True,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls[:3] == [
+        ("inbox_pump", {"apply": True, "limit": 3}),
+        ("graph_drain", True),
+        ("pm_drain", True),
+    ]
+    assert phases["operator_inbox_pump"]["status"] == "ok"
+    assert phases["operator_inbox_pump"]["counters"]["kicked"] == 1
+    assert payload["counters"]["operator_inbox_kicked"] == 1
+    assert payload["summary"]["operator_inbox_kicked"] == 1
+
+
+def test_watchdog_operator_inbox_pump_dry_run_reports_would_kick(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[tuple[bool, int]] = []
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {"ok": True, "operators_total": 1, "operators_usable": 1, "backlog": 1}
+
+    class FakeInboxPump:
+        def run_pump(self, *, apply=False, limit=3):
+            calls.append((apply, limit))
+            return {
+                "ok": True,
+                "apply": apply,
+                "limit": limit,
+                "kicked": [{"operator": "op-a", "pending": 2, "kick_pid": None}],
+                "skipped": [],
+            }
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "inbox_pump":
+            return FakeInboxPump()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=False,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls == [(False, 3)]
+    assert phases["operator_inbox_pump"]["counters"]["kicked"] == 0
+    assert phases["operator_inbox_pump"]["counters"]["would_kick"] == 1
+    assert phases["operator_inbox_pump"]["counters"]["dry_run"] == 1
+    assert payload["counters"]["operator_inbox_kicked"] == 0
+
+
+def test_watchdog_runs_evaluator_closeout_control_plane(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[tuple[str, bool]] = []
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+            (self.PM_INBOX_DIR / "pm-eval.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "pm-eval",
+                        "requested_role": "evaluator",
+                        "status": "failed_contract_closeout",
+                        "sprint_id": "sprint-eval",
+                        "node_id": "E1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {
+                "ok": True,
+                "operators_total": 2,
+                "operators_usable": 2,
+                "operators_hard_blocked": 0,
+                "recommended_level": "normal",
+                "backlog": 1,
+                "groups": {},
+            }
+
+    class FakeGraphAdapter:
+        def enforce_evaluator_closeout_control_plane(self, record, *, apply=True):
+            calls.append((record.get("task_id"), apply))
+            return {
+                "ok": True,
+                "task_id": record.get("task_id"),
+                "released": apply,
+                "would_release": True,
+                "graph": "/tmp/graph.json",
+                "node_id": "E1",
+                "requeue_reason": "sidecar_contract_closeout",
+                "control_plane": {
+                    "deterministic_eval_gate": {"status": "checked"},
+                    "sidecar_closeout_enforcer": {"status": "required"},
+                    "evaluator_retry_router": {"status": "applied" if apply else "would_apply"},
+                },
+            }
+
+        def release_builder_assignment_on_transient_failure(self, record):
+            return {"ok": False, "released": False, "reason": "not_failed"}
+
+        def release_evaluator_assignment_on_transient_failure(self, record):
+            raise AssertionError("handled evaluator task should not hit legacy retry releaser")
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "operator_health_watchdog_graph_adapters":
+            return FakeGraphAdapter()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=True,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls == [("pm-eval", True)]
+    assert phases["evaluator_closeout_control_plane"]["status"] == "ok"
+    assert phases["evaluator_closeout_control_plane"]["counters"]["sidecar_closeout_enforced"] == 1
+    assert payload["counters"]["deterministic_eval_gate_checked"] == 1
+    assert payload["counters"]["sidecar_closeout_enforced"] == 1
+    assert payload["counters"]["evaluator_retry_routed"] == 1
+    assert payload["summary"]["evaluator_retry_routed"] == 1
+
+
+def test_watchdog_skips_stale_evaluator_closeout_records(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[str] = []
+
+    old_ts = "2026-01-01T00:00:00Z"
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+            (self.PM_INBOX_DIR / "pm-old-eval.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "pm-old-eval",
+                        "requested_role": "evaluator",
+                        "status": "failed_contract_closeout",
+                        "sprint_id": "sprint-eval",
+                        "node_id": "E1",
+                        "completed_at": old_ts,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {
+                "ok": True,
+                "operators_total": 2,
+                "operators_usable": 2,
+                "operators_hard_blocked": 0,
+                "recommended_level": "normal",
+                "backlog": 1,
+                "groups": {},
+            }
+
+    class FakeGraphAdapter:
+        def enforce_evaluator_closeout_control_plane(self, record, *, apply=True):
+            calls.append(str(record.get("task_id")))
+            return {"ok": True, "released": False, "control_plane": {}}
+
+        def release_builder_assignment_on_transient_failure(self, record):
+            return {"ok": False, "released": False, "reason": "not_failed"}
+
+        def release_evaluator_assignment_on_transient_failure(self, record):
+            return {"ok": False, "released": False, "reason": "not_failed"}
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "operator_health_watchdog_graph_adapters":
+            return FakeGraphAdapter()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=True,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls == []
+    assert phases["evaluator_closeout_control_plane"]["status"] == "ok"
+    assert phases["evaluator_closeout_control_plane"]["counters"]["stale_pm_records_skipped"] == 1
+    assert phases["evaluator_closeout_control_plane"]["skipped"] == [
+        {"reason": "stale_pm_records_skipped", "count": 1, "max_age_minutes": 15}
+    ]
+
+
+def test_watchdog_reconciles_stale_graph_eval_assignments(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[tuple[bool, int]] = []
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {"ok": True, "operators_total": 1, "operators_usable": 1, "backlog": 0}
+
+    class FakeGraphAdapter:
+        def enforce_evaluator_closeout_control_plane(self, record, *, apply=True):
+            return {"ok": True, "released": False, "control_plane": {}}
+
+        def reconcile_stale_evaluator_assignments(self, *, apply=True, max_age_minutes=15):
+            calls.append((apply, max_age_minutes))
+            return {
+                "ok": True,
+                "actions": [
+                    {
+                        "graph": "/tmp/sprint.task_graph.json",
+                        "node_id": "E1",
+                        "pm_task_id": "pm-eval-stale",
+                        "reason": "stale_eval_assignment_missing_sidecar",
+                    }
+                ],
+                "skipped": [],
+                "counters": {"released": 1, "would_release": 0},
+            }
+
+        def release_builder_assignment_on_transient_failure(self, record):
+            return {"ok": False, "released": False, "reason": "not_failed"}
+
+        def release_evaluator_assignment_on_transient_failure(self, record):
+            return {"ok": False, "released": False, "reason": "not_failed"}
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "operator_health_watchdog_graph_adapters":
+            return FakeGraphAdapter()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=True,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls == [(True, 15)]
+    assert phases["evaluator_closeout_control_plane"]["counters"]["stale_eval_assignments_released"] == 1
+    assert payload["counters"]["stale_eval_assignments_released"] == 1
+    assert payload["summary"]["stale_eval_assignments_released"] == 1
+
+
 def test_command_status_reads_launchagent_runtime_state(monkeypatch, tmp_path):
     watchdog = _load_core_watchdog()
     latest = tmp_path / "latest.json"
@@ -384,7 +805,12 @@ def test_command_status_reads_launchagent_runtime_state(monkeypatch, tmp_path):
                 "ok": True,
                 "finished_at": "2026-06-05T14:10:00Z",
                 "last_exit_code": 0,
-                "summary": {"drain_submitted": 1},
+                "summary": {
+                    "drain_submitted": 1,
+                    "deterministic_eval_gate_checked": 4,
+                    "sidecar_closeout_enforced": 2,
+                    "evaluator_retry_routed": 1,
+                },
                 "installed": False,
                 "launchd_loaded": False,
             }
@@ -409,6 +835,9 @@ def test_command_status_reads_launchagent_runtime_state(monkeypatch, tmp_path):
     assert payload["launchd_state"] == "waiting"
     assert payload["launchagent"]["plist_path"] == str(run_plist)
     assert payload["last_actions"]["drain_submitted"] == 1
+    assert payload["last_actions"]["deterministic_eval_gate_checked"] == 4
+    assert payload["last_actions"]["sidecar_closeout_enforced"] == 2
+    assert payload["last_actions"]["evaluator_retry_routed"] == 1
 
 
 def test_watchdog_indexes_large_skipped_lists(monkeypatch):

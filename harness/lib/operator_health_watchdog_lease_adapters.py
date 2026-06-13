@@ -19,6 +19,7 @@ HOME = Path(os.environ.get("HOME", ""))
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 DEFAULT_LEASE_DIR = HARNESS_DIR / "run" / "operator-leases"
 DEFAULT_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
+DEFAULT_PANE_LEASE_DIR = HARNESS_DIR / "run" / "pane-leases"
 
 
 def _resolve_sprints_dir() -> Path:
@@ -31,6 +32,10 @@ def _resolve_lease_dir(lease_dir: Path | None) -> Path:
 
 def _resolve_status_dir(status_dir: Path | None) -> Path:
     return status_dir or DEFAULT_STATUS_DIR
+
+
+def _resolve_pane_lease_dir(pane_lease_dir: Path | None) -> Path | None:
+    return pane_lease_dir or DEFAULT_PANE_LEASE_DIR
 
 
 def _iso_now() -> str:
@@ -129,6 +134,46 @@ def _iter_lease_records(lease_dir: Path):
     ]
 
 
+def _parse_graph_dispatch_identity(dispatch_id: str, sprint_id: str) -> dict[str, str]:
+    raw = str(dispatch_id or "").strip()
+    sid = str(sprint_id or "").strip()
+    if not raw or not sid:
+        return {}
+
+    prefixes = (f"graph-eval-{sid}-", f"graph-{sid}-")
+    for prefix in prefixes:
+        if not raw.startswith(prefix):
+            continue
+        remainder = raw[len(prefix):]
+        marker = "-202"
+        if marker in remainder:
+            node_id = remainder.rsplit(marker, 1)[0]
+        else:
+            node_id = remainder
+        node_id = node_id.strip()
+        if not node_id:
+            return {}
+        return {
+            "sprint_id": sid,
+            "node_id": node_id,
+            "kind": "eval" if prefix.startswith("graph-eval-") else "builder",
+        }
+    return {}
+
+
+def _current_dispatch_matches(
+    node: dict[str, Any] | None,
+    result_entry: dict[str, Any] | None,
+    dispatch_id: str,
+) -> bool:
+    if not isinstance(node, dict):
+        return False
+    status = str(node.get("status") or "").strip()
+    if status not in {"assigned", "dispatched", "running", "active"}:
+        return False
+    return dispatch_id in (_dispatch_ids_for_item(node) | _dispatch_ids_for_item(result_entry))
+
+
 def _load_graph(graph_path: Path) -> dict[str, Any] | None:
     if not graph_path.exists():
         return None
@@ -202,13 +247,21 @@ def reconcile_stale_leases(
     runtime_module: Any | None = None,
     lease_dir: Path | None = None,
     status_dir: Path | None = None,
+    pane_lease_dir: Path | None = None,
+    pane_release_fn: Any | None = None,
     now: dt.datetime | None = None,
     apply: bool = True,
 ) -> dict[str, Any]:
-    """Release stale leases with dead PIDs or expired TTLs."""
+    """Release stale operator leases and graph pane leases that drifted from task_graph."""
     now = now or dt.datetime.now(dt.timezone.utc)
+    explicit_operator_lease_dir = lease_dir is not None
     lease_dir = _resolve_lease_dir(lease_dir)
     status_dir = _resolve_status_dir(status_dir)
+    pane_lease_dir = (
+        pane_lease_dir
+        if pane_lease_dir is not None
+        else (_resolve_pane_lease_dir(None) if not explicit_operator_lease_dir else None)
+    )
     actions: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
 
@@ -343,13 +396,197 @@ def reconcile_stale_leases(
                 "lease_file": str(lease_path),
             })
 
+    pane_checked = 0
+    pane_released = 0
+    if pane_lease_dir is not None:
+        pane_lease_files = _iter_lease_records(pane_lease_dir) if pane_lease_dir.exists() else []
+        if not pane_lease_dir.exists():
+            skipped.append(
+                _action(
+                    "release_stale_pane_lease",
+                    str(pane_lease_dir),
+                    "skipped",
+                    f"pane_lease_dir_missing|{pane_lease_dir}",
+                    reason="pane_lease_dir_missing",
+                )
+            )
+        else:
+            if pane_release_fn is None:
+                try:
+                    pane_release_fn = importlib.import_module("pane_lease").release
+                except Exception as exc:
+                    pane_release_fn = None
+                    skipped.append(
+                        {
+                            "reason": f"pane_release_adapter_missing:{type(exc).__name__}",
+                            "target": str(pane_lease_dir),
+                            "error": str(exc),
+                        }
+                    )
+            for lease_path in pane_lease_files:
+                pane_checked += 1
+                lease = _load_json(lease_path)
+                if not isinstance(lease, dict):
+                    skipped.append(
+                        {
+                            "reason": "invalid_pane_lease_file",
+                            "target": lease_path.stem,
+                            "lease_file": str(lease_path),
+                        }
+                    )
+                    continue
+
+                pane = str(lease.get("pane") or "").strip()
+                sprint_id = str(lease.get("sprint_id") or lease.get("sid") or "").strip()
+                dispatch_id = str(lease.get("dispatch_id") or "").strip()
+                if not pane or not sprint_id or not dispatch_id:
+                    skipped.append(
+                        {
+                            "reason": "missing_pane_lease_identity",
+                            "target": lease_path.stem,
+                            "lease_file": str(lease_path),
+                        }
+                    )
+                    continue
+
+                identity = _parse_graph_dispatch_identity(dispatch_id, sprint_id)
+                if not identity:
+                    skipped.append(
+                        {
+                            "reason": "unparseable_graph_dispatch_id",
+                            "target": pane,
+                            "dispatch_id": dispatch_id,
+                            "lease_file": str(lease_path),
+                        }
+                    )
+                    continue
+
+                graph_path = _resolve_sprints_dir() / f"{sprint_id}.task_graph.json"
+                graph = _load_graph(graph_path)
+                if not graph:
+                    skipped.append(
+                        {
+                            "reason": "graph_missing_for_pane_lease",
+                            "target": pane,
+                            "dispatch_id": dispatch_id,
+                            "graph": str(graph_path),
+                        }
+                    )
+                    continue
+
+                node, result_entry = _find_node(graph, identity["node_id"])
+                if node is None:
+                    stale_reason = "node_missing_for_pane_lease"
+                elif _current_dispatch_matches(node, result_entry, dispatch_id):
+                    skipped.append(
+                        _action(
+                            "release_stale_pane_lease",
+                            pane,
+                            "skipped",
+                            f"{pane}|{dispatch_id}",
+                            reason="graph_dispatch_still_current",
+                            meta={
+                                "graph": str(graph_path),
+                                "node_id": identity["node_id"],
+                                "status": str(node.get("status") or ""),
+                            },
+                        )
+                    )
+                    continue
+                else:
+                    stale_reason = "graph_dispatch_not_current"
+
+                if not apply:
+                    skipped.append(
+                        _action(
+                            "release_stale_pane_lease",
+                            pane,
+                            "skipped",
+                            f"{pane}|{dispatch_id}",
+                            reason="dry_run",
+                            meta={
+                                "graph": str(graph_path),
+                                "node_id": identity["node_id"],
+                                "stale_reason": stale_reason,
+                                "lease_file": str(lease_path),
+                            },
+                        )
+                    )
+                    continue
+
+                if not callable(pane_release_fn):
+                    skipped.append(
+                        {
+                            "reason": "pane_release_adapter_unavailable",
+                            "target": pane,
+                            "dispatch_id": dispatch_id,
+                            "lease_file": str(lease_path),
+                        }
+                    )
+                    continue
+
+                try:
+                    released_payload = pane_release_fn(
+                        pane,
+                        dispatch_id,
+                        f"watchdog_stale_pane_lease:{stale_reason}",
+                    )
+                except Exception as exc:
+                    skipped.append(
+                        {
+                            "reason": f"pane_release_failed:{type(exc).__name__}",
+                            "target": pane,
+                            "dispatch_id": dispatch_id,
+                            "lease_file": str(lease_path),
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+
+                if isinstance(released_payload, dict) and released_payload.get("released"):
+                    pane_released += 1
+                    actions.append(
+                        _action(
+                            "release_stale_pane_lease",
+                            pane,
+                            "applied",
+                            f"{pane}|{dispatch_id}",
+                            meta={
+                                "dispatch_id": dispatch_id,
+                                "graph": str(graph_path),
+                                "node_id": identity["node_id"],
+                                "stale_reason": stale_reason,
+                                "lease_file": str(lease_path),
+                            },
+                        )
+                    )
+                else:
+                    skipped.append(
+                        {
+                            "reason": "pane_release_adapter_returned_false",
+                            "target": pane,
+                            "dispatch_id": dispatch_id,
+                            "lease_file": str(lease_path),
+                            "release_payload": released_payload,
+                        }
+                    )
+
+    benign_skip_reasons = {
+        "active_pid_or_ttl",
+        "dry_run",
+        "graph_dispatch_still_current",
+        "pane_lease_dir_missing",
+    }
     return {
-        "ok": not any(item.get("reason", "") not in {"active_pid_or_ttl", "dry_run"} for item in skipped),
+        "ok": not any(str(item.get("reason", "")) not in benign_skip_reasons for item in skipped),
         "actions": actions,
         "skipped": skipped,
         "summary": {
-            "checked": len(lease_files),
+            "checked": len(lease_files) + pane_checked,
             "released": len(actions),
+            "operator_checked": len(lease_files),
+            "pane_checked": pane_checked,
+            "pane_released": pane_released,
             "skipped": len(skipped),
         },
     }

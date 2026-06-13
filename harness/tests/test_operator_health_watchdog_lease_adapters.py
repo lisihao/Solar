@@ -126,6 +126,123 @@ def test_reconcile_stale_leases_releases_expired_ttl_without_pid(tmp_path, monke
     assert released == [("op-3", "watchdog_stale_recovery")]
 
 
+def test_reconcile_stale_leases_releases_pane_lease_when_graph_dispatch_not_current(tmp_path, monkeypatch):
+    operator_lease_dir = tmp_path / "operator-leases"
+    status_dir = tmp_path / "status"
+    pane_lease_dir = tmp_path / "pane-leases"
+    sprints = tmp_path / "sprints"
+    operator_lease_dir.mkdir()
+    status_dir.mkdir()
+    pane_lease_dir.mkdir()
+    sprints.mkdir()
+
+    sprint_id = "sprint-core-runtime"
+    node_id = "B6_compat_integration"
+    dispatch_id = f"graph-{sprint_id}-{node_id}-20260606T223123Z"
+    _write_json(
+        pane_lease_dir / "solar-harness-lab_0_0.json",
+        {
+            "pane": "solar-harness-lab:0.0",
+            "sprint_id": sprint_id,
+            "dispatch_id": dispatch_id,
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    _write_json(
+        sprints / f"{sprint_id}.task_graph.json",
+        {
+            "sprint_id": sprint_id,
+            "nodes": [{"id": node_id, "status": "pending"}],
+            "node_results": {},
+        },
+    )
+
+    adapter = _load_adapter(sprints)
+    released = []
+
+    result = adapter.reconcile_stale_leases(
+        runtime_module=SimpleNamespace(release_operator_lease=lambda *a, **k: False),
+        lease_dir=operator_lease_dir,
+        status_dir=status_dir,
+        pane_lease_dir=pane_lease_dir,
+        pane_release_fn=lambda pane, did, reason: released.append((pane, did, reason)) or {"released": True},
+        apply=True,
+        now=dt.datetime(2026, 6, 6, 22, 40, 0, tzinfo=dt.timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert result["summary"]["pane_checked"] == 1
+    assert result["summary"]["pane_released"] == 1
+    assert result["actions"][0]["action_type"] == "release_stale_pane_lease"
+    assert result["actions"][0]["stale_reason"] == "graph_dispatch_not_current"
+    assert released == [
+        (
+            "solar-harness-lab:0.0",
+            dispatch_id,
+            "watchdog_stale_pane_lease:graph_dispatch_not_current",
+        )
+    ]
+
+
+def test_reconcile_stale_leases_keeps_pane_lease_when_graph_dispatch_current(tmp_path):
+    operator_lease_dir = tmp_path / "operator-leases"
+    status_dir = tmp_path / "status"
+    pane_lease_dir = tmp_path / "pane-leases"
+    sprints = tmp_path / "sprints"
+    operator_lease_dir.mkdir()
+    status_dir.mkdir()
+    pane_lease_dir.mkdir()
+    sprints.mkdir()
+
+    sprint_id = "sprint-core-runtime"
+    node_id = "B6_compat_integration"
+    dispatch_id = f"graph-{sprint_id}-{node_id}-20260606T223123Z"
+    _write_json(
+        pane_lease_dir / "solar-harness-lab_0_0.json",
+        {
+            "pane": "solar-harness-lab:0.0",
+            "sprint_id": sprint_id,
+            "dispatch_id": dispatch_id,
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    _write_json(
+        sprints / f"{sprint_id}.task_graph.json",
+        {
+            "sprint_id": sprint_id,
+            "nodes": [
+                {
+                    "id": node_id,
+                    "status": "dispatched",
+                    "dispatch_id": dispatch_id,
+                    "assigned_to": "solar-harness-lab:0.0",
+                }
+            ],
+            "node_results": {},
+        },
+    )
+
+    adapter = _load_adapter(sprints)
+    released = []
+
+    result = adapter.reconcile_stale_leases(
+        runtime_module=SimpleNamespace(release_operator_lease=lambda *a, **k: False),
+        lease_dir=operator_lease_dir,
+        status_dir=status_dir,
+        pane_lease_dir=pane_lease_dir,
+        pane_release_fn=lambda *args: released.append(args) or {"released": True},
+        apply=True,
+        now=dt.datetime(2026, 6, 6, 22, 40, 0, tzinfo=dt.timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert result["summary"]["pane_checked"] == 1
+    assert result["summary"]["pane_released"] == 0
+    assert result["actions"] == []
+    assert result["skipped"][0]["reason"] == "graph_dispatch_still_current"
+    assert released == []
+
+
 def test_repair_status_projection_marks_builder_reviewing_on_exact_dispatch_and_handoff(tmp_path):
     sprints = tmp_path / "sprints"
     sprints.mkdir()
