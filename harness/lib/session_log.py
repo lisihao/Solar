@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
-HARNESS_DIR = os.path.expanduser("~/.solar/harness")
+HARNESS_DIR = os.path.expanduser(os.environ.get("HARNESS_DIR", "~/.solar/harness"))
 SESSIONS_DIR = os.path.join(HARNESS_DIR, "sessions")
 
 VALID_TYPES = frozenset({
