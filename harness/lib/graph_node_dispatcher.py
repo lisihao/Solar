@@ -1532,6 +1532,9 @@ def _existing_node_handoff(sid: str, node: dict[str, Any], graph: dict[str, Any]
     return None
 
 
+_EVAL_SIDECAR_MTIME_TOLERANCE_SEC = 2.0
+
+
 def _eval_sidecar_fresh_for_handoff(eval_json_path: str | Path, handoff_path: str | Path, sid: str, node_id: str) -> dict[str, Any]:
     """Return whether an eval sidecar can be trusted for the current handoff."""
     eval_path = Path(eval_json_path).expanduser()
@@ -1548,7 +1551,7 @@ def _eval_sidecar_fresh_for_handoff(eval_json_path: str | Path, handoff_path: st
         handoff_mtime = handoff.stat().st_mtime
     except OSError as exc:
         return {"fresh": True, "reason": f"stat_unavailable:{type(exc).__name__}"}
-    if eval_mtime >= handoff_mtime:
+    if eval_mtime + _EVAL_SIDECAR_MTIME_TOLERANCE_SEC >= handoff_mtime:
         return {"fresh": True}
     return {
         "fresh": False,
@@ -6459,6 +6462,13 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
         workers.append(worker)
     if not dry_run:
         workers.extend(_builder_operator_pool_workers(worker_skills, worker_capabilities))
+        for evaluator in _evaluator_operator_pool_workers():
+            worker = dict(evaluator)
+            worker["role"] = "evaluator"
+            worker["dispatch_role"] = "evaluator"
+            worker["host_role"] = worker.get("host_role") or "operator_pool"
+            worker["capabilities"] = list(worker.get("capabilities") or worker_capabilities)
+            workers.append(worker)
     workers.sort(key=lambda item: _pane_execution_priority(str(item.get("pane") or "")))
     return workers
 

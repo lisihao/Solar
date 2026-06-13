@@ -749,6 +749,24 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     processed: int = 0
     loop_started_at = time.monotonic()
 
+    def _release_matching_actor_lease(task_id_value: str, *, reason: str) -> bool:
+        """Release the actor-runtime lease that mirrors this operator task."""
+        try:
+            from actor_lease import LeaseBroker  # noqa: E402
+
+            broker = LeaseBroker(_RT_HARNESS_DIR / "run" / "actor-leases")
+            lease = broker.get(operator_id)
+            if lease is None or lease.task_id != task_id_value:
+                return False
+            if lease.state not in {"LEASED", "RUNNING", "FINALIZING"}:
+                return False
+            broker.transition(operator_id, "READY")
+            _info(f"Released matching actor lease for task {task_id_value} ({reason})")
+            return True
+        except Exception as exc:
+            _info(f"Unable to release matching actor lease for task {task_id_value}: {exc}")
+            return False
+
     def _once_wait_expired() -> bool:
         if not once or processed > 0:
             return False
@@ -948,6 +966,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                     f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
                 )
                 release_operator_lease(operator_id, reason="capability_denied")
+                _release_matching_actor_lease(task_id, reason="capability_denied")
                 write_result(
                     operator_id=operator_id,
                     task_id=task_id,
@@ -1220,6 +1239,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 release_operator_lease(operator_id, reason=result_status)
             except Exception:
                 pass
+            _release_matching_actor_lease(task_id, reason=result_status)
 
             processed += 1
             _state["current_state"] = "idle"

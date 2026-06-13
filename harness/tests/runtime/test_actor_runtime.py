@@ -1,6 +1,7 @@
 """Tests for actor_runtime.py — Submit protocol integration."""
 import json
 import tempfile
+import types
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
@@ -59,6 +60,86 @@ def test_submit_writes_mailbox_inbox():
         data = json.loads(inbox_path.read_text())
         assert data["task_id"] == "t1"
         print("PASS: submit_writes_mailbox_inbox")
+
+
+def test_operator_bridge_failure_releases_lease_and_removes_inbox(monkeypatch):
+    with tempfile.TemporaryDirectory() as td:
+        rt = _make_runtime(td, actor_ids=("a1",))
+        monkeypatch.setattr(
+            rt,
+            "_submit_operator_runtime_bridge",
+            lambda **_kwargs: {"status": "failed", "reason": "boom", "error": "bridge down"},
+        )
+
+        result = rt.submit({"task_id": "t1", "action": "build"}, actor_id="a1", sprint_id="s1", node_id="n1")
+
+        assert not result.success
+        assert "operator_runtime_bridge_failed" in result.error
+        lease = rt.broker.get("a1")
+        assert lease is not None
+        assert lease.state == "READY"
+        inbox = Path(td) / "actors" / "a1" / "inbox"
+        assert not list(inbox.glob("task-*.json"))
+
+
+def test_operator_bridge_materializes_dispatch_text(monkeypatch):
+    captured = {}
+
+    def fake_submit(payload):
+        captured.update(payload)
+        return {"status": "submitted", "inbox_path": "/tmp/operator-task.json", "daemon_pid": 123}
+
+    monkeypatch.setitem(sys.modules, "operator_runtime", types.SimpleNamespace(submit=fake_submit))
+    monkeypatch.setenv("SOLAR_ACTOR_RUNTIME_OPERATOR_BRIDGE_FORCE", "1")
+    with tempfile.TemporaryDirectory() as td:
+        rt = _make_runtime(td, actor_ids=("a1",))
+        result = rt._submit_operator_runtime_bridge(
+            actor_id="a1",
+            task_id="t1",
+            sprint_id="s1",
+            node_id="n1",
+            task_envelope={
+                "task_type": "tests",
+                "objective": "Run tests or collect execution evidence.",
+                "task_graph_node": {"id": "n1", "goal": "Run tests"},
+            },
+        )
+
+    assert result["status"] == "submitted"
+    assert captured["operator_id"] == "a1"
+    assert captured["task_id"] == "t1"
+    assert captured["sprint_id"] == "s1"
+    assert captured["node_id"] == "n1"
+    assert captured["task_type"] == "tests"
+    assert "dispatch_text" in captured
+    assert "Run tests or collect execution evidence." in captured["dispatch_text"]
+    assert "Task Graph Node" in captured["dispatch_text"]
+
+
+def test_operator_bridge_derives_task_type_from_graph_node(monkeypatch):
+    captured = {}
+
+    def fake_submit(payload):
+        captured.update(payload)
+        return {"status": "submitted", "inbox_path": "/tmp/operator-task.json", "daemon_pid": 123}
+
+    monkeypatch.setitem(sys.modules, "operator_runtime", types.SimpleNamespace(submit=fake_submit))
+    monkeypatch.setenv("SOLAR_ACTOR_RUNTIME_OPERATOR_BRIDGE_FORCE", "1")
+    with tempfile.TemporaryDirectory() as td:
+        rt = _make_runtime(td, actor_ids=("a1",))
+        result = rt._submit_operator_runtime_bridge(
+            actor_id="a1",
+            task_id="t1",
+            sprint_id="s1",
+            node_id="n1",
+            task_envelope={
+                "objective": "Run tests.",
+                "task_graph_node": {"id": "n1", "type": "tests", "goal": "Run tests"},
+            },
+        )
+
+    assert result["status"] == "submitted"
+    assert captured["task_type"] == "tests"
 
 
 def test_submit_with_capability_token():

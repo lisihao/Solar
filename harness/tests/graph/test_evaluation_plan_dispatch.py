@@ -660,6 +660,46 @@ def test_reconcile_archives_eval_sidecar_older_than_handoff(monkeypatch, tmp_pat
     assert gnd._node_eval_needed(graph, sid, node) is True
 
 
+def test_reconcile_keeps_same_batch_eval_sidecar_with_mtime_jitter(monkeypatch, tmp_path) -> None:
+    sid = "sid-same-batch-eval-reconcile"
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {
+                "id": "N6",
+                "goal": "same batch evaluator sidecars should stay attached",
+                "status": "passed",
+                "eval_json": str(tmp_path / f"{sid}.N6-eval.json"),
+            }
+        ],
+        "node_results": {"N6": {"status": "passed"}},
+    }
+    node = graph["nodes"][0]
+    handoff = tmp_path / f"{sid}.N6-handoff.md"
+    eval_md = tmp_path / f"{sid}.N6-eval.md"
+    eval_json = tmp_path / f"{sid}.N6-eval.json"
+    eval_md.write_text("PASS", encoding="utf-8")
+    eval_json.write_text('{"verdict":"PASS"}', encoding="utf-8")
+    handoff.write_text("handoff", encoding="utf-8")
+    base_ts = 1_700_000_000
+    os.utime(eval_md, (base_ts, base_ts))
+    os.utime(eval_json, (base_ts, base_ts))
+    os.utime(handoff, (base_ts + 1, base_ts + 1))
+
+    monkeypatch.setattr(gnd, "_existing_node_handoff", lambda sid_arg, node_arg, graph_arg: handoff)
+    monkeypatch.setattr(gnd, "_eval_md_file", lambda sid_arg, node_id: eval_md)
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sid_arg, node_id: eval_json)
+
+    repaired = gnd._reconcile_existing_dispatches(graph, tmp_path / f"{sid}.task_graph.json")
+
+    assert repaired == []
+    assert node["status"] == "passed"
+    assert graph["node_results"]["N6"]["status"] == "passed"
+    assert eval_md.exists()
+    assert eval_json.exists()
+    assert "stale_eval_sidecar_detail" not in node
+
+
 def test_reconcile_archives_conflicting_eval_md_and_json_verdicts(monkeypatch, tmp_path) -> None:
     sid = "sid-conflicting-eval-sidecars"
     graph = {

@@ -120,6 +120,96 @@ class ActorRuntime:
         except Exception:
             return None, {}
 
+    def _operator_runtime_bridge_allowed(self) -> bool:
+        value = str(os.environ.get("SOLAR_ACTOR_RUNTIME_OPERATOR_BRIDGE", "1")).strip().lower()
+        if value in {"0", "false", "no", "off"}:
+            return False
+        if str(os.environ.get("SOLAR_ACTOR_RUNTIME_OPERATOR_BRIDGE_FORCE", "")).strip().lower() in {"1", "true", "yes", "on"}:
+            return True
+        try:
+            return self.harness_dir.resolve() == HARNESS_DIR.resolve()
+        except Exception:
+            return False
+
+    def _submit_operator_runtime_bridge(
+        self,
+        *,
+        actor_id: str,
+        task_id: str,
+        sprint_id: str,
+        node_id: str,
+        task_envelope: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not self._operator_runtime_bridge_allowed():
+            return {"status": "skipped", "reason": "non_production_harness"}
+
+        payload = dict(task_envelope)
+        graph_node = payload.get("task_graph_node") if isinstance(payload.get("task_graph_node"), dict) else {}
+        payload["task_id"] = str(payload.get("task_id") or task_id)
+        payload["sprint_id"] = str(payload.get("sprint_id") or sprint_id)
+        payload["node_id"] = str(payload.get("node_id") or node_id)
+        payload["operator_id"] = str(payload.get("operator_id") or actor_id)
+        payload["task_type"] = str(
+            payload.get("task_type")
+            or payload.get("dispatch_task_type")
+            or payload.get("type")
+            or graph_node.get("dispatch_task_type")
+            or graph_node.get("type")
+            or "tests"
+        )
+        payload["objective"] = str(
+            payload.get("objective")
+            or payload.get("goal")
+            or graph_node.get("goal")
+            or "actor runtime task"
+        )
+        if not payload.get("dispatch_text") and not payload.get("dispatch_file"):
+            payload["dispatch_text"] = self._build_operator_dispatch_text(payload)
+
+        try:
+            import operator_runtime  # type: ignore  # noqa: WPS433
+
+            result = operator_runtime.submit(payload)
+        except ValueError as exc:
+            return {"status": "failed", "reason": "operator_runtime_unknown_operator", "error": str(exc)}
+        except Exception as exc:
+            return {"status": "failed", "reason": "operator_runtime_submit_failed", "error": str(exc)}
+        return {
+            "status": "submitted",
+            "operator_id": actor_id,
+            "inbox_path": str(result.get("inbox_path") or ""),
+            "daemon_pid": str(result.get("daemon_pid") or ""),
+            "submit_status": str(result.get("status") or ""),
+        }
+
+    @staticmethod
+    def _build_operator_dispatch_text(payload: Dict[str, Any]) -> str:
+        """Materialize a prompt for operatord backends that require DISPATCH_FILE."""
+        node = payload.get("task_graph_node")
+        lines = [
+            "# Solar Harness Operator Task",
+            "",
+            f"- task_id: {payload.get('task_id', '')}",
+            f"- sprint_id: {payload.get('sprint_id', '')}",
+            f"- node_id: {payload.get('node_id', '')}",
+            f"- task_type: {payload.get('task_type', '')}",
+            "",
+            "## Objective",
+            str(payload.get("objective") or "Run the assigned Solar Harness task."),
+            "",
+            "## Instructions",
+            "Use the provided envelope and artifacts as evidence. Produce the required task result and do not mark success without evidence.",
+        ]
+        if isinstance(node, dict) and node:
+            lines.extend([
+                "",
+                "## Task Graph Node",
+                "```json",
+                json.dumps(node, ensure_ascii=False, indent=2),
+                "```",
+            ])
+        return "\n".join(lines).strip() + "\n"
+
     def _ensure_execution_plan_metadata(
         self,
         task_envelope: Dict[str, Any],
@@ -257,6 +347,14 @@ class ActorRuntime:
         profile = self.profiles.get(actor_id)
         evidence_path = f"actors/{actor_id}/evidence/{task_id}"
 
+        # Verification gate: critical tasks must pass before any runtime side
+        # effects. A blocked task must not acquire a lease or leave mailbox
+        # residue, otherwise future dispatches see a false busy actor.
+        if self._is_critical_task(task_envelope) and not self._is_verifier_task(task_envelope):
+            gate_error = self._check_verification_gate(task_envelope, actor_id)
+            if gate_error:
+                return SubmitResult(success=False, error=gate_error)
+
         # Acquire lease
         lease = self.broker.acquire(
             actor_id=actor_id,
@@ -305,6 +403,31 @@ class ActorRuntime:
         inbox_path = mailbox.submit_task(task_envelope)
         outbox_dir = str(mailbox.outbox)
 
+        operator_bridge = self._submit_operator_runtime_bridge(
+            actor_id=actor_id,
+            task_id=task_id,
+            sprint_id=sprint_id,
+            node_id=node_id,
+            task_envelope=task_envelope,
+        )
+        if operator_bridge.get("status") == "failed":
+            try:
+                Path(inbox_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                self.broker.transition(actor_id, READY)
+            except Exception:
+                pass
+            return SubmitResult(
+                success=False,
+                error=f"operator_runtime_bridge_failed: {operator_bridge.get('reason')}: {operator_bridge.get('error')}",
+            )
+        if operator_bridge.get("status") == "submitted":
+            mailbox.write_heartbeat("submitted", {"operator_runtime_bridge": operator_bridge})
+            artifact_refs["operator_runtime_inbox"] = str(operator_bridge.get("inbox_path") or "")
+            artifact_refs["operator_runtime_daemon_pid"] = str(operator_bridge.get("daemon_pid") or "")
+
         # Build scheduler decision (with S03 extended fields)
         sched_decision = build_scheduler_decision(
             selected_actor=actor_id,
@@ -319,12 +442,6 @@ class ActorRuntime:
         resolved_capsule = task_envelope.get("resolved_capability_capsule") or {}
         if not isinstance(resolved_capsule, dict):
             resolved_capsule = {}
-
-        # Verification gate: critical tasks must pass evidence check
-        if self._is_critical_task(task_envelope):
-            gate_error = self._check_verification_gate(task_envelope, actor_id)
-            if gate_error:
-                return SubmitResult(success=False, error=gate_error)
 
         # Write evidence ledger (with S03 run_dir / artifact_refs if materialized)
         ledger_path = self.ledger.write_run_entry(
@@ -385,6 +502,30 @@ class ActorRuntime:
         if graph_node.get("approval_gate"):
             return True
         return False
+
+    def _is_verifier_task(self, task_envelope: Dict[str, Any]) -> bool:
+        """Return True when this task is the verifier that will produce a decision."""
+        graph_node = task_envelope.get("task_graph_node")
+        if not isinstance(graph_node, dict):
+            graph_node = {}
+        logical_operator = str(
+            task_envelope.get("logical_operator")
+            or graph_node.get("logical_operator")
+            or ""
+        ).lower()
+        task_type = str(
+            task_envelope.get("task_type")
+            or task_envelope.get("dispatch_task_type")
+            or graph_node.get("dispatch_task_type")
+            or graph_node.get("type")
+            or ""
+        ).lower()
+        gate = str(graph_node.get("gate") or "").upper()
+        return (
+            logical_operator == "verifier"
+            or task_type == "verification"
+            or (gate == "G_REVIEW" and task_type == "review")
+        )
 
     def _check_verification_gate(
         self,

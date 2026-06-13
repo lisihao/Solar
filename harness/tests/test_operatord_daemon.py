@@ -32,6 +32,7 @@ sys.path.insert(0, str(TOOLS_DIR))
 
 import operator_runtime as _rt  # noqa: E402 — after path setup
 import operatord as _od  # noqa: E402 — after path setup
+from actor_lease import LeaseBroker  # noqa: E402 — after path setup
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +382,14 @@ class TestDaemonOnce:
         submit_out = self._run_submit(env, envelope_path)
         assert submit_out["status"] == "submitted"
         assert submit_out["task_id"] == self.TASK_ID
+        actor_broker = LeaseBroker(tmp_path / "run" / "actor-leases")
+        actor_broker.acquire(
+            self.OPERATOR_ID,
+            self.TASK_ID,
+            envelope["sprint_id"],
+            envelope["node_id"],
+            ttl_sec=3600,
+        )
 
         # Verify inbox was populated
         inbox_file = (
@@ -451,6 +460,10 @@ class TestDaemonOnce:
         assert not lease_file.exists(), (
             "Lease file should be removed after task completion"
         )
+        actor_lease = actor_broker.get(self.OPERATOR_ID)
+        assert actor_lease is not None
+        assert actor_lease.state == "READY"
+        assert actor_lease.task_id is None
 
     def test_output_log_written(self, tmp_path):
         env = _setup_harness(tmp_path)

@@ -12,6 +12,7 @@ HARNESS_LIB = Path(__file__).resolve().parent.parent.parent / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 import graph_node_dispatcher as gnd  # noqa: E402
+import graph_scheduler as graph_scheduler  # noqa: E402
 
 
 def _write_hygiene(path: Path, pane: str, state: str) -> None:
@@ -117,12 +118,55 @@ def test_discover_workers_marks_hygiene_bad_pane_unavailable(tmp_path, monkeypat
     monkeypatch.setattr(gnd, "_pane_has_active_lease", lambda _pane: False)
     monkeypatch.setattr(gnd, "_pane_tui_busy", lambda _pane: False)
     monkeypatch.setattr(gnd, "_builder_operator_pool_workers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(gnd, "_evaluator_operator_pool_workers", lambda: [])
 
     workers = gnd._discover_workers(dry_run=False)
 
     assert len(workers) == 1
     assert workers[0]["busy"] is True
     assert workers[0]["unavailable_reason"] == "pane_hygiene_needs_respawn"
+
+
+def test_evaluator_operator_pool_unblocks_ready_evaluator_node(tmp_path, monkeypatch):
+    hygiene = tmp_path / "pane-hygiene.json"
+    bad_builder = "solar-harness:0.2"
+    _write_hygiene(hygiene, bad_builder, "needs_respawn")
+    monkeypatch.setattr(gnd, "_pane_hygiene_file", lambda: hygiene)
+    monkeypatch.setattr(gnd.subprocess, "check_output", lambda *a, **kw: f"{bad_builder}\tBuilder | 模型:Opus\t0\n".encode())
+    monkeypatch.setattr(gnd, "_models_for_pane", lambda _pane, _title="": ["opus"])
+    monkeypatch.setattr(gnd, "_pane_tail", lambda *_args, **_kwargs: "────────────────\n❯\u00a0\n")
+    monkeypatch.setattr(gnd, "_pane_health", lambda _pane: {})
+    monkeypatch.setattr(gnd, "_quota_exhausted_models", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(gnd, "_persist_pane_rate_limit_block", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(gnd, "_pane_cooldown_reason", lambda _pane: "")
+    monkeypatch.setattr(gnd, "_clear_stale_prompt_residue", lambda _pane: False)
+    monkeypatch.setattr(gnd, "_pane_current_command", lambda _pane: "bash")
+    monkeypatch.setattr(gnd, "_pane_runtime_unavailable_reason", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(gnd, "_pane_unavailable_reason", lambda _pane: "")
+    monkeypatch.setattr(gnd, "_pane_has_active_lease", lambda _pane: False)
+    monkeypatch.setattr(gnd, "_pane_tui_busy", lambda _pane: False)
+    monkeypatch.setattr(gnd, "_builder_operator_pool_workers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        gnd,
+        "_evaluator_operator_pool_workers",
+        lambda: [{
+            "pane": "operator-pool:evaluator.mini-codex-gpt55-medium-builder-1",
+            "operator_id": "mini-codex-gpt55-medium-builder-1",
+            "skills": ["review", "testing", "bash"],
+            "busy": False,
+            "unavailable_reason": "",
+        }],
+    )
+
+    workers = gnd._discover_workers(dry_run=False)
+    result = graph_scheduler.assign_workers([{
+        "id": "S2",
+        "capsule_plan_ir": {"role": "evaluator"},
+        "required_capabilities": ["harness.dag"],
+    }], workers)
+
+    assert result["assigned"][0]["pane"] == "operator-pool:evaluator.mini-codex-gpt55-medium-builder-1"
+    assert result["queued"] == []
 
 
 def test_discover_workers_marks_dead_pane_unavailable(monkeypatch):
@@ -142,6 +186,7 @@ def test_discover_workers_marks_dead_pane_unavailable(monkeypatch):
     monkeypatch.setattr(gnd, "_pane_has_active_lease", lambda _pane: False)
     monkeypatch.setattr(gnd, "_pane_tui_busy", lambda _pane: False)
     monkeypatch.setattr(gnd, "_builder_operator_pool_workers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(gnd, "_evaluator_operator_pool_workers", lambda: [])
 
     workers = gnd._discover_workers(dry_run=False)
 
