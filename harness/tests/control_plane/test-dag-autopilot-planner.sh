@@ -15,11 +15,57 @@ check() {
 
 TMPDIR_TEST=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_TEST"' EXIT
-mkdir -p "$TMPDIR_TEST/sprints" "$TMPDIR_TEST/lib" "$TMPDIR_TEST/tools" "$TMPDIR_TEST/run/queue" "$TMPDIR_TEST/run/pane-leases" "$TMPDIR_TEST/events"
+mkdir -p "$TMPDIR_TEST/sprints" "$TMPDIR_TEST/lib" "$TMPDIR_TEST/tools" "$TMPDIR_TEST/bin" "$TMPDIR_TEST/run/queue" "$TMPDIR_TEST/run/pane-leases" "$TMPDIR_TEST/events"
+
+cat > "$TMPDIR_TEST/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-}"
+case "$cmd" in
+  list-panes)
+    printf 'solar-harness-lab:0.3\tBuilder Sonnet\n'
+    printf 'solar-harness-lab:0.4\tBuilder GLM\n'
+    ;;
+  display-message)
+    target=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -t)
+          target="${2:-}"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    case "$target" in
+      solar-harness-lab:0.3) printf 'Builder Sonnet\n' ;;
+      solar-harness-lab:0.4) printf 'Builder GLM\n' ;;
+      *) printf '\n' ;;
+    esac
+    ;;
+  capture-pane)
+    printf '\n'
+    ;;
+  send-keys|select-pane)
+    ;;
+  *)
+    ;;
+esac
+EOF
+chmod +x "$TMPDIR_TEST/bin/tmux"
+export PATH="$TMPDIR_TEST/bin:$PATH"
 
 cp "$HARNESS_DIR_REAL/lib/graph_scheduler.py" "$TMPDIR_TEST/lib/graph_scheduler.py"
 cp "$HARNESS_DIR_REAL/lib/task_queue.py" "$TMPDIR_TEST/lib/task_queue.py"
 cp "$HARNESS_DIR_REAL/lib/pane_lease.py" "$TMPDIR_TEST/lib/pane_lease.py"
+cp "$HARNESS_DIR_REAL/lib/prerequisite_resolver.py" "$TMPDIR_TEST/lib/prerequisite_resolver.py"
+cp "$HARNESS_DIR_REAL/lib/apo_plan_compiler.py" "$TMPDIR_TEST/lib/apo_plan_compiler.py"
+cp "$HARNESS_DIR_REAL/lib/capability_capsules.py" "$TMPDIR_TEST/lib/capability_capsules.py"
+cp "$HARNESS_DIR_REAL/lib/skill_operator_registry.py" "$TMPDIR_TEST/lib/skill_operator_registry.py"
+cp "$HARNESS_DIR_REAL/lib/apo_enforcer_rules.py" "$TMPDIR_TEST/lib/apo_enforcer_rules.py"
 cp "$HARNESS_DIR_REAL/tools/solar-autopilot-monitor.py" "$TMPDIR_TEST/tools/solar-autopilot-monitor.py"
 
 SID="sprint-test-dag-autopilot"
@@ -42,7 +88,7 @@ EOF
 cat > "$TMPDIR_TEST/sprints/${SID}.task_graph.json" <<JSON
 {
   "sprint_id": "${SID}",
-  "required_gates": ["G0", "G1", "G2"],
+  "required_gates": ["G0", "G1", "G2", "G3"],
   "nodes": [
     {
       "id": "S0",
@@ -114,7 +160,7 @@ check "autopilot detects graph_ready_nodes" "$OUT" '"action": "graph_ready_nodes
 check "autopilot enqueue result ok" "$OUT" '"ok": true'
 QUEUE_FILE="$TMPDIR_TEST/run/queue/${SID}.jsonl"
 [[ -s "$QUEUE_FILE" ]] && ok "task queue created" || fail "task queue missing"
-QUEUE_TEXT=$(cat "$QUEUE_FILE")
+QUEUE_TEXT=$(cat "$QUEUE_FILE" 2>/dev/null || true)
 check "S1 queued" "$QUEUE_TEXT" 'graph_node|node_id=S1'
 check "S2 queued" "$QUEUE_TEXT" 'graph_node|node_id=S2'
 if [[ "$QUEUE_TEXT" != *'graph_node|node_id=S3'* ]]; then ok "S3 not queued before join"; else fail "S3 queued too early"; fi
