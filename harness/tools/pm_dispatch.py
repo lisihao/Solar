@@ -3497,9 +3497,24 @@ def cmd_complete(args: argparse.Namespace) -> int:
         write_pm_task_record(task_id, record)
         print(json.dumps({"ok": False, "task_id": task_id, "reason": record["failure_reason"], **closeout}, ensure_ascii=False))
         return 2
+    completion = _run_pm_completion_gate(task_id, record)
+    now = _now()
+    if completion.get("status") != "completed":
+        record["status"] = "blocked_by_verifier"
+        record["blocked_at"] = now
+        record["failure_reason"] = "post_result_verifier_failed"
+        record["completion_gate"] = completion
+        record["closeout_status"] = closeout
+        record.setdefault("reconcile_history", []).append(
+            {"ts": now, "action": "blocked_by_verifier", "reason": record["failure_reason"]}
+        )
+        write_pm_task_record(task_id, record)
+        print(json.dumps({"ok": False, "task_id": task_id, "reason": record["failure_reason"], "completion_gate": completion}, ensure_ascii=False))
+        return 3
     record["status"] = "completed"
-    record["completed_at"] = _now()
+    record["completed_at"] = now
     record["closeout_status"] = closeout
+    record["completion_gate"] = completion
     graph_reviewing = _mark_graph_node_reviewing_on_builder_complete(record)
     if graph_reviewing.get("marked"):
         record["graph_reviewing"] = graph_reviewing
@@ -3509,6 +3524,30 @@ def cmd_complete(args: argparse.Namespace) -> int:
     write_pm_task_record(task_id, record)
     print(f"✅ 任务 {task_id} 已标记为 completed")
     return 0
+
+
+def _run_pm_completion_gate(task_id: str, record: dict[str, Any]) -> dict[str, Any]:
+    lib_dir = HARNESS_DIR / "lib"
+    if str(lib_dir) not in sys.path:
+        sys.path.insert(0, str(lib_dir))
+    from completion_pipeline import OperatorResult, submit_result  # type: ignore
+
+    sprint_id = str(record.get("sprint_id") or task_id)
+    node_id = str(record.get("node_id") or "pm")
+    result_path = str(record.get("result_path") or "")
+    return submit_result(
+        OperatorResult(
+            session_id=sprint_id,
+            node_id=node_id,
+            attempt_id=str(record.get("dispatch_id") or record.get("task_id") or task_id),
+            handoff_path=result_path,
+            eval_path=str(record.get("eval_path") or ""),
+            write_scope=list(record.get("write_scope") or []),
+            operator_status=str(record.get("status") or "done"),
+            run_dir=str(HARNESS_DIR / "run" / "pm-completion-gate" / task_id),
+        ),
+        harness_dir=HARNESS_DIR,
+    )
 
 
 def cmd_fail(args: argparse.Namespace) -> int:
@@ -3620,11 +3659,22 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
             actions.append({"task_id": task_id, "action": "complete", "reason": "result_path_exists", **closeout})
             if apply_changes:
                 record["task_id"] = task_id
-                record["status"] = "completed"
-                record["completed_at"] = now
+                completion = _run_pm_completion_gate(task_id, record)
+                if completion.get("status") == "completed":
+                    record["status"] = "completed"
+                    record["completed_at"] = now
+                    action = "complete"
+                    reason = "result_path_exists"
+                else:
+                    record["status"] = "blocked_by_verifier"
+                    record["blocked_at"] = now
+                    record["failure_reason"] = "post_result_verifier_failed"
+                    action = "blocked_by_verifier"
+                    reason = "post_result_verifier_failed"
+                record["completion_gate"] = completion
                 record["closeout_status"] = closeout
                 record.setdefault("reconcile_history", []).append(
-                    {"ts": now, "action": "complete", "reason": "result_path_exists", **closeout}
+                    {"ts": now, "action": action, "reason": reason, **closeout}
                 )
                 write_pm_task_record(task_id, record)
             continue

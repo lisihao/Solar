@@ -2868,6 +2868,11 @@ case "${1:-start}" in
     human_prefix "standards" "standards $*"
     python3 "$HARNESS_DIR/tools/standards_guard.py" "$@"
     ;;
+  node)
+    shift || true
+    human_prefix "node" "node $*"
+    python3 "$HARNESS_DIR/tools/node_completion.py" "$@"
+    ;;
   verify-integrations|capability-e2e)
     _cap_fail=0
     for _cap_e2e in \
@@ -4041,6 +4046,7 @@ PY
     echo "  $0 integrations status [--json]  外部开源集成六态健康检查"
     echo "  $0 standards <compile|coverage|run|explain|ratchet-coverage> [--json]  Standards-as-Code 规则编译与门禁"
     echo "  $0 verify <genesis-seed|changed|ci|ratchet-baseline|explain> [--json]  GenesisPod/Solar verifier 旁路规则门禁"
+    echo "  $0 node <submit-result|verify-result|finalize|force-complete> [--json]  节点结果提交与强制 completion gate"
     echo "  $0 verify-integrations  端到端验证 Drive/OWL/MarkItDown/agency + 两个四分屏 dispatch 能力"
     echo "  $0 everything-claude-code [doctor|inventory|report|install --dry-run]  Everything Claude Code 候选集成审计"
     echo "  $0 meta-harness [status|doctor|run|apply|history]  Meta-Harness 自优化外循环入口（默认 dry-run）"

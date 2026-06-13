@@ -27,6 +27,8 @@ def status_for_rule(rule: dict[str, Any], repo_root: Path) -> dict[str, Any]:
         return result(rule, "not_applicable", "Rule is not applicable to Solar-Harness first-phase scope.")
     if checker_type == "security_scan":
         return security_scan(rule, repo_root)
+    if checker_type == "completion_enforcement":
+        return completion_enforcement_scan(rule, repo_root)
     if checker_type == "standards_manifest":
         return manifest_check(rule, repo_root)
     return result(rule, "passed", f"Checker mapped: {checker_type}.{checker.get('name', 'unknown')}")
@@ -158,3 +160,58 @@ def secret_scan(rule: dict[str, Any], repo_root: Path) -> dict[str, Any]:
                 str(path.relative_to(repo_root)),
             )
     return result(rule, "passed", "No high-confidence hard-coded secret pattern found in harness Python files.")
+
+
+BYPASS_PATTERNS = (
+    re.compile(r"node\.completed"),
+    re.compile(r"sprint\.completed"),
+    re.compile(r"write_status\s+completed"),
+    re.compile(r"event_type['\"]\s*:\s*['\"]node\.completed['\"]"),
+    re.compile(r"event_type['\"]\s*:\s*['\"]sprint\.completed['\"]"),
+)
+
+
+def completion_enforcement_scan(rule: dict[str, Any], repo_root: Path) -> dict[str, Any]:
+    scan_roots = [
+        repo_root / "harness" / "plugins",
+        repo_root / "harness" / "integrations",
+        repo_root / "harness" / "tools",
+        repo_root / "harness" / "lib",
+    ]
+    allowed = {
+        "harness/lib/completion_pipeline.py",
+        "harness/lib/gate_controller.py",
+        "harness/lib/post_result_verifier.py",
+        "harness/tools/session_log.py",
+    }
+    for root in scan_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.py"):
+            rel = str(path.relative_to(repo_root))
+            if rel in allowed or "/vendor/" in rel or "/tests/" in rel:
+                continue
+            if rel.startswith("harness/tools/") and not (
+                "operator" in path.name
+                or path.name in {"operatord.py", "multi_task_runner.py", "graph_node_dispatcher.py"}
+            ):
+                continue
+            if rel.startswith("harness/lib/") and path.name not in {"multi_task_runner.py", "graph_node_dispatcher.py"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for pattern in BYPASS_PATTERNS:
+                if pattern.search(text):
+                    payload = result(
+                        rule,
+                        "failed",
+                        "Direct completion bypass found; use CompletionPipeline submit/finalize path.",
+                        rel,
+                    )
+                    payload["severity"] = "blocker"
+                    return payload
+    payload = result(rule, "passed", "No direct completion bypass found in operator/plugin/integration entrypoints.")
+    payload["severity"] = "blocker"
+    return payload
