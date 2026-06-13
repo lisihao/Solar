@@ -13034,6 +13034,43 @@ setInterval(refreshRecentUserRequirements, 60000);
 """
 
 
+def _load_orchestration_routes_module():
+    routes_path = HARNESS_DIR / "status-server" / "routes" / "orchestration_routes.py"
+    if not routes_path.is_file():
+        routes_path = SOURCE_HARNESS_DIR / "status-server" / "routes" / "orchestration_routes.py"
+    spec = importlib.util.spec_from_file_location("solar_orchestration_routes_http", str(routes_path))
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load orchestration_routes.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.HARNESS_DIR = HARNESS_DIR
+    mod.SPRINTS_DIR = SPRINTS_DIR
+    mod.STATE_DIR = HARNESS_DIR / "state"
+    mod.EVENTS_JSONL = ALL_EVENTS
+    return mod
+
+
+def _orchestration_envelope(data, degraded=None):
+    degraded = list(dict.fromkeys([str(item) for item in (degraded or []) if str(item)]))
+    return {
+        "ok": not degraded,
+        "schema_version": "orchestration.http.bridge.v1",
+        "data": data,
+        "degraded_sources": degraded,
+    }
+
+
+def _orchestration_static_asset(name: str) -> tuple[Path | None, str]:
+    allowed = {
+        "orchestration_panel.js": "application/javascript; charset=utf-8",
+        "orchestration_panel.css": "text/css; charset=utf-8",
+    }
+    content_type = allowed.get(name)
+    if not content_type:
+        return None, ""
+    return HARNESS_DIR / "status-server" / "static" / name, content_type
+
+
 class StatusHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # suppress access log noise
@@ -13152,6 +13189,71 @@ class StatusHandler(BaseHTTPRequestHandler):
 
         elif path == "/contract-summary":
             self._send_text(_final_contract_summary_html(), content_type="text/html; charset=utf-8")
+
+        elif path in ("/orchestration", "/orchestration/"):
+            template_path = HARNESS_DIR / "status-server" / "templates" / "orchestration_panel.html"
+            if not template_path.is_file():
+                self._send_json({"ok": False, "error": "orchestration template missing"}, status=500)
+            else:
+                self._send_text(template_path.read_text(encoding="utf-8"), content_type="text/html; charset=utf-8")
+
+        elif path == "/orchestration/dashboard":
+            try:
+                mod = _load_orchestration_routes_module()
+                data, degraded = mod.build_dashboard_payload(params.get("sprint_id", [""])[0] or None)
+                self._send_json(_orchestration_envelope(data, degraded))
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+        elif path.startswith("/orchestration/sprints/") and path.endswith("/capability_summary"):
+            try:
+                sid = urllib.parse.unquote(path.removeprefix("/orchestration/sprints/").removesuffix("/capability_summary")).strip("/")
+                mod = _load_orchestration_routes_module()
+                status_path = SPRINTS_DIR / f"{sid}.status.json"
+                if not status_path.is_file():
+                    self._send_json({"ok": False, "error": f"sprint not found: {sid}"}, status=404)
+                else:
+                    summary = mod.sprint_capability_summary(sid)
+                    degraded = mod._safe_to_list(summary.get("degraded_sources"))
+                    self._send_json(_orchestration_envelope(summary, degraded))
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+        elif path.startswith("/orchestration/sprints/") and path.endswith("/capability_decisions"):
+            try:
+                sid = urllib.parse.unquote(path.removeprefix("/orchestration/sprints/").removesuffix("/capability_decisions")).strip("/")
+                mod = _load_orchestration_routes_module()
+                status_path = SPRINTS_DIR / f"{sid}.status.json"
+                if not status_path.is_file():
+                    self._send_json({"ok": False, "error": f"sprint not found: {sid}"}, status=404)
+                else:
+                    kind = params.get("kind", [""])[0] or None
+                    since = params.get("since", [""])[0] or None
+                    try:
+                        limit = int(params.get("limit", ["25"])[0])
+                    except ValueError:
+                        limit = 25
+                    limit = max(1, min(limit, 500))
+                    summary = mod.sprint_capability_summary(sid)
+                    decisions = mod.tail_decisions(sid, kind=kind, since=since, limit=limit)
+                    data = {
+                        "sprint_id": sid,
+                        "total": len(decisions),
+                        "returned": len(decisions),
+                        "decisions": decisions,
+                        "parity_violations": mod.detect_parity_violations(mod._safe_to_list(decisions)),
+                    }
+                    degraded = mod._safe_to_list(summary.get("degraded_sources"))
+                    self._send_json(_orchestration_envelope(data, degraded))
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+        elif path.startswith("/static/"):
+            asset, content_type = _orchestration_static_asset(path.removeprefix("/static/"))
+            if not asset or not asset.is_file():
+                self._send_json({"error": "asset not found"}, status=404)
+            else:
+                self._send_file(asset, content_type)
 
         elif path.startswith("/research/"):
             sid = path.split("/research/", 1)[1].strip("/")
