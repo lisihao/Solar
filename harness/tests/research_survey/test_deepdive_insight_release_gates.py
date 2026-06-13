@@ -69,6 +69,23 @@ def _write_golden_release_fixture(root: Path) -> None:
         root / "figures.json",
         {"figures": [{"id": f"figure-{idx}", "claim_id": f"claim-{idx}"} for idx in range(6)]},
     )
+    _write_json(
+        root / "section_render_cards.json",
+        {
+            "card_count": 6,
+            "cards": [
+                {
+                    "section_id": f"section-{idx}",
+                    "title": f"CAIS signal {idx} changes Solar runtime",
+                    "figure": {"figure_id": f"figure-{idx}"},
+                    "evidence_callouts": [f"CAIS evidence {idx}"],
+                    "solar_absorption": ["operator", "schema", "gate"],
+                    "prediction_packet_refs": [f"prediction-{idx % 4}"],
+                }
+                for idx in range(6)
+            ],
+        },
+    )
     _write_jsonl(
         root / "prediction_packets.jsonl",
         [
@@ -195,6 +212,13 @@ def test_golden_mvp_fixture_passes_human_html_release_gates(tmp_path: Path) -> N
     failures = {result["gate_id"]: result for result in results if not result["ok"]}
 
     assert failures == {}
+    cards = json.loads((tmp_path / "section_render_cards.json").read_text(encoding="utf-8"))
+    figures = json.loads((tmp_path / "figures.json").read_text(encoding="utf-8"))
+    packets = [json.loads(line) for line in (tmp_path / "prediction_packets.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert cards["card_count"] == 6
+    assert len(cards["cards"]) == 6
+    assert len(figures["figures"]) == 6
+    assert len(packets) == 4
     final_html = (tmp_path / "final.html").read_text(encoding="utf-8")
     for forbidden in ("source_type", "claim_id", "evidence_id", "Execution Metrics"):
         assert forbidden not in final_html

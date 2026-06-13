@@ -11,6 +11,7 @@ if _HARNESS_LIB not in sys.path:
 from research.survey.evidence_pack import build_evidence_packs
 from research.survey.backends import LocalCommandWriterError, PanePacketSurveyWriterBackend
 from research.survey.planner import create_survey_plan, write_survey_plan
+from research.survey.schemas import validate_figure_spec, validate_section_render_card
 from research.survey.section_compiler import compile_section, compile_survey
 from research.survey.writing_loop import build_section_prompt_packet, run_ready_sections, run_section_revision_loop, watch_pane_responses
 
@@ -143,6 +144,37 @@ def test_compile_insight_survey_emits_section_render_cards(tmp_path):
     assert first_card["schema_version"] == "solar.deepdive.section_render_card.v1"
     assert first_card["thesis"]
     assert first_card["evidence_callouts"]
+    assert first_card["title_claim_type"]
+    assert first_card["body_blocks"]
+    assert first_card["figure"]
+    assert first_card["citations"]
+    assert first_card["solar_absorption"]
+    assert first_card["prediction_packet_refs"]
+    assert validate_section_render_card(first_card).ok is True
+    assert validate_figure_spec(first_card["figure"]).ok is True
+    assert (tmp_path / "figure_specs").exists()
+    figure_spec_payloads = sorted((tmp_path / "figure_specs").glob("*.json"))
+    assert figure_spec_payloads
+    first_figure_spec = json.loads(figure_spec_payloads[0].read_text(encoding="utf-8"))
+    assert validate_figure_spec(first_figure_spec).ok is True
+    figures_payload = json.loads((tmp_path / "figures.json").read_text(encoding="utf-8"))
+    assert figures_payload["figures"][0]["figure_type"] in {
+        "architecture_diagram",
+        "roadmap",
+        "matrix",
+        "evidence_map",
+        "causal_map",
+    }
+    assert figures_payload["figures"][0]["grounding_ids"]
+    assert figures_payload["legacy_figures"][0]["type"] in {
+        "architecture_map",
+        "roadmap_timeline",
+        "process_flow",
+        "comparison_matrix",
+        "evidence_map",
+        "risk_map",
+        "insight_argument_map",
+    }
     assert first_card["figure_spec"]["type"] in {
         "architecture_map",
         "roadmap_timeline",
@@ -174,9 +206,29 @@ def test_compile_insight_survey_emits_section_render_cards(tmp_path):
     assert 'class="takeaway-box"' in html
     assert 'class="figure-block"' in html
     assert 'class="figure-svg"' in html
+    assert 'class="body-block' in html
+    assert 'class="solar-mapping"' in html
+    assert 'class="prediction-refs"' in html
+    assert 'class="card-citations"' in html
+    assert "Solar operator/schema/gate mapping" in html
+    assert "Forecast packet" in html
     assert "assets/figures/" in html
     assert "图由本节材料生成" in html
     assert "论证图" in html or "架构图" in html or "路线图" in html
+    # N5: raw machine field names excluded from human HTML
+    assert "claim_id" not in html
+    assert "evidence_id" not in html
+    assert "official_doc" not in html
+    # N5: body_blocks rendered with title_claim_type as data attribute (claim titles)
+    assert 'class="body-block' in html
+    assert 'data-claim-type=' in html
+    # N5: Solar operator/schema/gate mappings, prediction packets, visible citations
+    assert "Solar 关联" in html
+    assert "算子 / Schema / Gate" in html
+    assert "预测包" in html
+    assert "引用" in html
+    # N5: evidence_id raw machine label excluded
+    assert "ev_0" not in html
     visual_audit = json.loads((tmp_path / "visual_audit.json").read_text(encoding="utf-8"))
     assert visual_audit["renderer"] == "section_render_svg_renderer"
     assert visual_audit["svg_asset_count"] >= 1
@@ -598,3 +650,57 @@ def test_watch_pane_responses_finalizes_existing_response(tmp_path):
     assert result["processed"] == 1
     assert result["passed"] == 1
     assert "Watched response" in (section_dir / "final.md").read_text(encoding="utf-8")
+
+
+def test_html_publisher_renders_section_render_card_fields(tmp_path):
+    """N5: HTML publisher builds final.html from typed SectionRenderCard fields, not free Markdown."""
+    _strong_insight_fixture(tmp_path)
+    from research.survey.section_compiler import compile_section, compile_survey
+    compile_section(tmp_path, "ch01/sec01")
+    compiled = compile_survey(tmp_path)
+    assert compiled["ok"] is True
+    assert compiled["final_html"].endswith("final.html")
+    html = (tmp_path / "final.html").read_text(encoding="utf-8")
+
+    # AC: Publisher builds from SectionRenderCard, not free Markdown wrapper
+    insight_summary = json.loads((tmp_path / "survey_insight_html_summary.json").read_text(encoding="utf-8"))
+    assert insight_summary["publisher"] == "section_render_card_html"
+
+    # AC: body_blocks rendered (claim titles + body content)
+    assert 'class="body-block' in html
+    assert 'data-claim-type=' in html  # title_claim_type emitted
+
+    # AC: evidence rail/callouts already present (regression guard)
+    assert 'class="evidence-sidebar"' in html
+
+    # AC: figures rendered
+    assert 'class="figure-block"' in html
+
+    # AC: takeaway boxes rendered
+    assert 'class="takeaway-box"' in html
+
+    # AC: visible citations rendered from evidence callouts (source_title + URL, no machine evidence_id)
+    assert 'class="card-citations"' in html
+    assert "ev_0" not in html         # raw machine evidence_id excluded
+    assert "evidence_id" not in html  # raw field name excluded
+
+    # AC: Solar operator/schema/gate mappings rendered
+    assert 'class="solar-mapping"' in html
+    assert "Solar 关联" in html
+    assert "算子 / Schema / Gate" in html
+
+    # AC: prediction packets rendered
+    assert 'class="prediction-refs"' in html
+    assert "预测包" in html
+    assert "预测指标" in html
+
+    # AC: raw machine labels excluded from human HTML
+    assert "claim_id" not in html
+    assert "evidence_id" not in html
+
+    # machine/audit labels preserved in sidecars only
+    cards_json = json.loads((tmp_path / "section_render_cards.json").read_text(encoding="utf-8"))
+    first_card = cards_json["cards"][0]
+    assert first_card["solar_absorption"]         # machine refs in sidecar
+    assert first_card["prediction_packet_refs"]   # machine refs in sidecar
+    assert first_card["citations"]                # machine refs in sidecar

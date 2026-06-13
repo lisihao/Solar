@@ -260,7 +260,7 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
             [
                 "Markdown section draft that is directly convertible to SectionRender cards.",
                 "Include headings: 本节判断, 证据链, 影响与行动, 反证和观察, Figure Spec, SectionRender JSON.",
-                "SectionRender JSON must include thesis, evidence_callouts, takeaways, figure_spec, claim_ids, evidence_ids.",
+                "SectionRender JSON must include thesis, evidence_callouts, takeaways, figure_spec, claim_ids, evidence_ids, solar_absorption, and prediction_packet_refs.",
                 f"figure_spec.type should be `{suggested_figure_type}` unless the evidence strongly requires another supported figure type.",
                 "All core claims must reference claim_id and evidence_id tags.",
             ]
@@ -303,6 +303,8 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
             "Convert evidence into evidence_callouts, not source-by-source summaries.",
             "Turn implications into concrete actions, design options, experiments, or watchlist items.",
             "State counter-evidence, uncertainty, and falsification conditions.",
+            "Map Solar absorption paths: which signals become new operators, schemas, or gates.",
+            "Reference prediction packets for falsifiable forecasts with leading indicators.",
             "Emit SectionRender JSON so downstream renderers do not infer structure from free prose.",
         ]
         if insight_mode
@@ -488,6 +490,13 @@ def build_section_draft(root: Path, section_id: str, round_index: int = 0) -> st
             },
             "claim_ids": claim_ids[:6],
             "evidence_ids": evidence_ids[:8],
+            "solar_absorption": [
+                f"Map {lens['axis']} implications to Solar runtime operators, schemas, or gates.",
+                f"Identify which {lens['focus']} signals require new Solar capabilities.",
+            ],
+            "prediction_packet_refs": [
+                f"pred_{section_id}_forecast_1",
+            ],
         }
         if round_index >= 1:
             render_json["takeaways"].append("修订版需要减少材料复述，增强因果解释、行动映射和反证条件。")

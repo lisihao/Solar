@@ -15,6 +15,7 @@ from research.report_metrics import append_model_usage_event, build_model_usage_
 
 INTRO_HEADINGS = {"核心结论", "证据基础"}
 FOOTNOTE_HEADING = "证据脚注"
+INSIGHT_HEADINGS = {"本节判断", "证据链", "影响与行动", "反证和观察", "Figure Spec", "SectionRender JSON"}
 FORBIDDEN_PATTERNS = [
     re.compile(r"\[claim:", re.I),
     re.compile(r"\[evidence:", re.I),
@@ -63,7 +64,31 @@ def _chapter_prompt(title: str, heading: str, body: str) -> str:
 - 不要输出 Prompt Packet、Claim Map、Evidence Map、Source Map、Contribution Matrix。
 - 不要出现 `[claim:...]` 或 `[evidence:...]` 调试标签。
 - 不要编造论文、URL、benchmark 数字、发布日期。
-- 删除“本节立场/本节绑定/本节通过”这类生成器口吻，改成自然论述。
+- 删除"本节立场/本节绑定/本节通过"这类生成器口吻，改成自然论述。
+- 保留明确判断、争议、局限和未解问题，不要写成宣传稿。
+
+报告题目：
+{title}
+
+待重写章节：
+## {heading}
+
+{body}
+"""
+
+
+def _insight_chapter_prompt(title: str, heading: str, body: str) -> str:
+    return f"""你是 Solar DeepDive 洞察报告的 Chief Insight Editor。请把下面章节重写成自然、专业、可发表的洞察章节。
+
+硬规则：
+- 只输出该章节 Markdown，从 `## {heading}` 开始。
+- 必须保留以下结构：本节判断、证据链、影响与行动、反证和观察。
+- 保留 Figure Spec 和 SectionRender JSON 块，不做格式修改。
+- 保留事实边界和脚注标记。
+- 不要出现 `[claim:...]` 或 `[evidence:...]` 调试标签。
+- 不要编造论文、URL、benchmark 数字、发布日期。
+- 删除"本节立场/本节绑定/本节通过"这类生成器口吻，改成自然论述。
+- 保留 Solar 吸收映射和预测引用。
 - 保留明确判断、争议、局限和未解问题，不要写成宣传稿。
 
 报告题目：
@@ -197,6 +222,11 @@ def _first_heading(path: Path) -> str:
     return ""
 
 
+def _is_insight_section(heading: str, body: str) -> bool:
+    combined = f"{heading}\n{body}"
+    return any(marker in combined for marker in INSIGHT_HEADINGS)
+
+
 def _status_projection_status(root: Path, chief_payload: dict[str, Any]) -> str:
     chief_ok = bool(chief_payload.get("ok"))
     survey_eval = _read_json(root / "survey_eval.json")
@@ -324,7 +354,9 @@ def run_chief_editor(
     chapter_results: list[dict[str, Any]] = []
     for idx, chapter in enumerate(chapters, start=1):
         heading = chapter["heading"]
-        prompt = _chapter_prompt(title, heading, chapter["body"])
+        use_insight_prompt = _is_insight_section(heading, chapter["body"])
+        prompt_fn = _insight_chapter_prompt if use_insight_prompt else _chapter_prompt
+        prompt = prompt_fn(title, heading, chapter["body"])
         prompt_path = prompt_dir / f"{idx:02d}-{re.sub(r'[^0-9A-Za-z_-]+', '-', heading).strip('-') or 'chapter'}.md"
         out_path = chapter_dir / f"{idx:02d}.md"
         prompt_path.write_text(prompt, encoding="utf-8")

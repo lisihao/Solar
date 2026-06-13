@@ -163,8 +163,8 @@ def _chapter_objective(brief: str, title: str, *, insight_mode: bool, conference
         "信号地图与证据强度": f"Map the strongest signals, evidence quality, counter-signals, and source confidence for {brief}.",
         "关键变化、分歧与机会": f"Explain what is changing, what remains disputed, and which opportunities are genuinely new.",
         "技术、产品与生态影响": f"Translate the signals into technical, product, ecosystem, and strategy implications.",
-        "行动路线与设计映射": f"Turn the insight into concrete actions, experiments, design options, roadmap items, operators, schemas, or gates when applicable.",
-        "预测、反证与观察指标": f"Build falsifiable forecast packets with drivers, leading indicators, risks, and invalidation conditions.",
+        "行动路线与设计映射": f"Turn the insight into concrete actions, experiments, design options, roadmap items, operators, schemas, or gates when applicable. Map Solar absorption paths (new operators, schemas, gates) and reference prediction packets.",
+        "预测、反证与观察指标": f"Build falsifiable forecast packets with drivers, leading indicators, risks, and invalidation conditions. Each prediction must reference signal sources and Solar absorption items.",
         "风险边界与证据缺口": f"Make uncertainty visible; separate facts, interpretations, weak evidence, and open gaps.",
         "路线图与下一步": f"Close with prioritized next steps and a watchlist that can drive follow-up work.",
     }
@@ -317,7 +317,56 @@ def create_survey_plan(
     }
 
 
+def validate_insight_plan(plan: dict) -> dict[str, Any]:
+    """Reject plans that use generic survey TOC when planner_mode is insight or conference_insight.
+
+    Returns a dict with ``ok`` (bool) and ``issues`` (list of strings).
+    """
+    mode = str(plan.get("planner_mode") or "").lower()
+    if mode not in {"insight", "conference_insight"}:
+        return {"ok": True, "issues": [], "mode": mode}
+
+    generic_chapter_titles = set(DEFAULT_CHAPTER_TITLES)
+    generic_section_titles = set(DEFAULT_SECTION_TITLES)
+    issues: list[str] = []
+
+    chapters = plan.get("report_ast", {}).get("chapters", [])
+    sections = plan.get("report_ast", {}).get("sections", [])
+
+    for chapter in chapters:
+        title = str(chapter.get("title") or "")
+        if title in generic_chapter_titles:
+            issues.append(f"generic_chapter_title:{title}")
+
+    for section in sections:
+        title = str(section.get("title") or "")
+        raw_section = title.rsplit("：", 1)[-1] if "：" in title else title
+        if raw_section in generic_section_titles:
+            issues.append(f"generic_section_title:{title}")
+
+    expected_chapters = set(CONFERENCE_CHAPTER_TITLES if mode == "conference_insight" else INSIGHT_CHAPTER_TITLES)
+    expected_sections = set(CONFERENCE_SECTION_TITLES if mode == "conference_insight" else INSIGHT_SECTION_TITLES)
+    chapter_titles_found = {str(ch.get("title") or "") for ch in chapters}
+    thesis_chapters = expected_chapters & chapter_titles_found
+    if not thesis_chapters:
+        issues.append("no_thesis_first_chapters_found")
+
+    if not issues:
+        for chapter in chapters:
+            obj = str(chapter.get("objective") or "")
+            if "central thesis" in obj.lower() or "中心论点" in obj or "thesis-first" in obj.lower():
+                break
+        else:
+            issues.append("no_thesis_objective_found")
+
+    return {"ok": not issues, "issues": issues, "mode": mode}
+
+
 def write_survey_plan(plan: dict, output_dir: str | Path) -> dict:
+    insight_validation = validate_insight_plan(plan)
+    if not insight_validation.get("ok", False):
+        issues = ", ".join(str(item) for item in insight_validation.get("issues", [])) or "unknown"
+        raise ValueError(f"insight plan validation failed: {issues}")
     root = Path(output_dir).expanduser()
     root.mkdir(parents=True, exist_ok=True)
     files = {

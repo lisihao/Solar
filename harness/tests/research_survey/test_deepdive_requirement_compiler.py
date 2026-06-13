@@ -149,3 +149,125 @@ def test_operator_mapping_documents_copy_policy():
     }
     assert all(item["copy_policy"] for item in mapping)
     assert all("boundary" in item for item in mapping)
+
+
+# --- AC-S02-N1-01: profile contract declaration ---
+
+
+def test_cais_agent_insight_profile_declares_all_required_contract_fields():
+    profile = compiler.load_profile("cais-agent-insight")
+    validated = compiler.validate_profile(profile)
+
+    assert validated["ok"], f"profile validation errors: {validated['errors']}"
+    assert validated["profile_id"] == "cais-agent-insight"
+    assert validated["mode"] == "insight"
+    assert len(validated["must_answer_questions"]) >= 3
+    assert len(validated["required_outputs"]) >= 3
+    assert len(validated["forbidden_outputs"]) >= 1
+    assert validated["strict_defaults"].get("strict") is True
+    assert validated["required_signal_clusters"]
+    assert validated["required_gates"]
+
+
+def test_cais_agent_insight_profile_strict_defaults():
+    profile = compiler.load_profile("cais-agent-insight")
+    validated = compiler.validate_profile(profile)
+    strict = validated["strict_defaults"]
+
+    assert strict["run_chief_editor"] is True
+    assert strict["run_chief_insight_editor"] is True
+    assert strict["require_figures"] is True
+    assert strict["forbid_generic_survey_toc"] is True
+
+
+def test_cais_agent_insight_profile_required_cais_clusters():
+    profile = compiler.load_profile("cais-agent-insight")
+    validated = compiler.validate_profile(profile)
+    clusters = validated["required_signal_clusters"]
+
+    assert "conference_signals" in clusters
+    assert "solar_absorption_mapping" in clusters
+
+
+# --- AC-S02-N1-02: D10-D18 runtime nodes ---
+
+
+def test_all_d10_to_d18_nodes_present_in_insight_mode():
+    contract = compiler.compile_deepdive_brief(
+        "DeepDive: 通过洞察 CAIS 2026 学术会议，分析 Agent 技术挑战和 Solar 吸收路线"
+    )
+    validation = compiler.validate_deepdive_contract(contract)
+    assert validation["ok"], validation
+
+    node_map = {n["id"]: n for n in contract["deepdive_dag"]["nodes"]}
+    expected_ids = [f"D{i}" for i in range(10, 19)]
+    for nid in expected_ids:
+        assert nid in node_map, f"Missing node {nid}"
+
+
+def test_all_d10_to_d18_nodes_have_required_fields():
+    contract = compiler.compile_deepdive_brief(
+        "DeepDive: 通过洞察 CAIS 2026 学术会议，分析 Agent 技术挑战和 Solar 吸收路线"
+    )
+    node_map = {n["id"]: n for n in contract["deepdive_dag"]["nodes"]}
+
+    for nid in [f"D{i}" for i in range(10, 19)]:
+        node = node_map[nid]
+        assert node["logical_operator"].startswith("DeepDive"), f"{nid}: bad operator {node['logical_operator']}"
+        assert isinstance(node.get("artifact_paths"), list) and len(node["artifact_paths"]) >= 1, f"{nid}: missing artifact_paths"
+        assert isinstance(node.get("gates"), list) and len(node["gates"]) >= 1, f"{nid}: missing gates"
+        assert node.get("verification_gates") == node["gates"], f"{nid}: verification_gates drifted from gates"
+        assert isinstance(node.get("evaluator_sidecar"), str) and node["evaluator_sidecar"], f"{nid}: missing evaluator_sidecar"
+        assert isinstance(node.get("closeout_acceptance"), str) and node["closeout_acceptance"], f"{nid}: missing closeout_acceptance"
+
+
+def test_d10_to_d18_gate_names_match_design():
+    expected_gates = {
+        "D10": ["GenericSurveyTOCGate", "UserQuestionFitnessGate"],
+        "D11": ["CAISCoverageGate"],
+        "D12": ["SolarActionabilityGate"],
+        "D13": ["CitationVisibilityGate"],
+        "D14": ["PredictionPacketGate"],
+        "D15": ["MachineLabelLeakGate", "CitationVisibilityGate"],
+        "D16": ["FigureRequiredGate"],
+        "D17": ["TemplateRepetitionGate", "UserQuestionFitnessGate"],
+        "D18": ["MachineLabelLeakGate", "CitationVisibilityGate", "VisualAuditGate"],
+    }
+    contract = compiler.compile_deepdive_brief(
+        "DeepDive: 通过洞察 CAIS 2026 学术会议，分析 Agent 技术挑战和 Solar 吸收路线"
+    )
+    node_map = {n["id"]: n for n in contract["deepdive_dag"]["nodes"]}
+    for nid, expected in expected_gates.items():
+        actual = node_map[nid]["gates"]
+        assert actual == expected, f"{nid}: expected gates {expected}, got {actual}"
+
+
+# --- AC-S02-N1-03: non-insight and generic insight isolation ---
+
+
+def test_non_insight_mode_excludes_d10_to_d18():
+    contract = compiler.compile_deepdive_brief(
+        "Agent runtime 是否正在成为 AI infra 的核心层？",
+        options=compiler.DeepDiveCompileOptions(profile="survey", source_channel="cli"),
+    )
+    node_ids = {n["id"] for n in contract["deepdive_dag"]["nodes"]}
+
+    assert contract["mode"] == "survey"
+    assert contract["insight_profile"]["active"] is False
+    for nid in [f"D{i}" for i in range(10, 19)]:
+        assert nid not in node_ids, f"Node {nid} should not be present in survey mode"
+
+
+def test_generic_insight_has_no_profile_extensions_or_cais_defaults():
+    contract = compiler.compile_deepdive_brief(
+        "DeepDive: insight 分析 AI coding agent 产品机会、技术路线和开源项目策略"
+    )
+    validation = compiler.validate_deepdive_contract(contract)
+
+    assert validation["ok"], validation
+    assert contract["mode"] == "insight"
+    assert contract["insight_profile"]["active"] is False
+    assert "profile_extensions" not in contract["output_contract"]
+    output_text = "\n".join(contract["output_contract"]["insight"])
+    assert "conference_signal" not in output_text
+    assert "paper_to_solar" not in output_text

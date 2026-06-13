@@ -484,6 +484,8 @@ def build_deepdive_evidence_dag(questions: list[DeepDiveQuestion], *, insight_mo
                 "question_ids": question_ids,
                 "acceptance": base["acceptance"],
                 "artifact_paths": meta["artifact_paths"],
+                "gates": list(meta["gates"]),
+                "verification_gates": list(meta["gates"]),
                 "evaluator_sidecar": meta["evaluator_sidecar"],
                 "closeout_acceptance": meta["closeout_acceptance"],
                 "status_metadata": meta["status_metadata"],

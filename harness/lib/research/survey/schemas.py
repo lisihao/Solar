@@ -722,3 +722,10 @@ def write_section_render_card(record: SectionRenderCard | dict[str, Any], path: 
     if not result.ok:
         raise ValueError(_format_issue(result.issues[0]))
     return write_json_artifact(_record_to_dict(record), path)
+
+
+def write_figure_spec(record: FigureSpec | dict[str, Any], path: str | Path) -> Path:
+    result = validate_figure_spec(record, str(path))
+    if not result.ok:
+        raise ValueError(_format_issue(result.issues[0]))
+    return write_json_artifact(_record_to_dict(record), path)

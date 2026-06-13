@@ -676,6 +676,12 @@ def test_insight_gates_reject_negative_cais_generic_survey_fixture(tmp_path):
     assert cite["ok"] is False
     assert "REQ-9.7" in cite["failed_requirement_ids"]
 
+    # CAIS coverage must fail (no required CAIS paper signals in text)
+    cais = by_id["cais_coverage"]
+    assert cais["ok"] is False
+    assert "REQ-9.5" in cais["failed_requirement_ids"]
+    assert len(cais["missing_fields"]) > 0
+
     # Prediction packet must fail (no packets file)
     pred = by_id["prediction_packet"]
     assert pred["ok"] is False
@@ -685,6 +691,9 @@ def test_insight_gates_reject_negative_cais_generic_survey_fixture(tmp_path):
     fitness = by_id["user_question_fitness"]
     assert fitness["ok"] is False
     assert "REQ-9.9" in fitness["failed_requirement_ids"]
+
+    # All 9 gates must have failed
+    assert all(not r["ok"] for r in results)
 
 
 def test_insight_gates_integrated_in_evaluate_survey_negative_fixture(tmp_path):
@@ -707,8 +716,27 @@ def test_insight_gates_integrated_in_evaluate_survey_negative_fixture(tmp_path):
     # Must have figure missing
     assert any("insight_gate:figure_required" in issue for issue in issues)
 
-    # Must have action mapping low
+    # Must have action mapping low (solar_actionability)
     assert any("insight_gate:solar_actionability" in issue for issue in issues)
+
+    # Must have weak citation visibility
+    assert any("insight_gate:citation_visibility" in issue for issue in issues)
+
+    # Must have template repetition
+    assert any("insight_gate:template_repetition" in issue for issue in issues)
+
+    # Must have CAIS coverage missing
+    assert any("insight_gate:cais_coverage" in issue for issue in issues)
+
+    # Must have prediction packet missing
+    assert any("insight_gate:prediction_packet" in issue for issue in issues)
+
+    # Must have user question fitness failure
+    assert any("insight_gate:user_question_fitness" in issue for issue in issues)
+
+    # All 9 insight gate failures must appear in issues
+    gate_ids_in_issues = {issue.split(":")[1] for issue in issues if issue.startswith("insight_gate:")}
+    assert len(gate_ids_in_issues) == 9
 
 
 def test_each_gate_result_has_required_fields(tmp_path):

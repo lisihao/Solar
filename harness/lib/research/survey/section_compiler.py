@@ -15,7 +15,14 @@ from typing import Any
 
 from research.report_metrics import append_execution_metrics_section, write_execution_metrics
 
-from .schemas import ChapterEditorialReview, SectionReview, to_dict
+from .schemas import (
+    ChapterEditorialReview,
+    SectionReview,
+    to_dict,
+    validate_figure_spec,
+    write_figure_spec,
+    write_section_render_card,
+)
 from .writing_loop import run_section_revision_loop
 
 
@@ -433,6 +440,96 @@ SUPPORTED_FIGURE_TYPES = {
 
 PREMIUM_FIGURE_TYPES = {"architecture_map", "roadmap_timeline", "process_flow"}
 
+FIGURE_SPEC_TYPE_MAP = {
+    "architecture_map": "architecture_diagram",
+    "roadmap_timeline": "roadmap",
+    "process_flow": "architecture_diagram",
+    "comparison_matrix": "matrix",
+    "evidence_map": "evidence_map",
+    "risk_map": "causal_map",
+    "insight_argument_map": "causal_map",
+}
+
+
+def _typed_figure_from_legacy(figure: dict[str, Any], *, section_id: str, title: str) -> dict[str, Any]:
+    content_sources = figure.get("content_sources") if isinstance(figure.get("content_sources"), dict) else {}
+    grounding_ids = [
+        str(item)
+        for item in [
+            *(figure.get("claim_ids") if isinstance(figure.get("claim_ids"), list) else []),
+            *(figure.get("evidence_ids") if isinstance(figure.get("evidence_ids"), list) else []),
+            *(content_sources.get("claim_ids") if isinstance(content_sources.get("claim_ids"), list) else []),
+            *(content_sources.get("evidence_ids") if isinstance(content_sources.get("evidence_ids"), list) else []),
+            *(content_sources.get("evidence_callout_ids") if isinstance(content_sources.get("evidence_callout_ids"), list) else []),
+        ]
+        if str(item)
+    ]
+    if not grounding_ids:
+        grounding_ids = [section_id or str(figure.get("figure_id") or "section")]
+    legacy_type = str(figure.get("type") or "insight_argument_map")
+    return {
+        "figure_id": str(figure.get("figure_id") or re.sub(r"[^a-zA-Z0-9_-]+", "_", section_id).strip("_") or "figure"),
+        "title": str(figure.get("title") or title or section_id or "Figure"),
+        "figure_type": FIGURE_SPEC_TYPE_MAP.get(legacy_type, "causal_map"),
+        "grounding_ids": grounding_ids,
+        "spec_data": figure,
+        "renderer": "section_render_svg_renderer",
+        "caption": str(figure.get("label") or SUPPORTED_FIGURE_TYPES.get(legacy_type, "图示")),
+        "artifact_path": str(figure.get("asset_path") or "") or None,
+    }
+
+
+def _typed_section_card_from_legacy(card: dict[str, Any]) -> dict[str, Any]:
+    section_id = str(card.get("section_id") or "section")
+    title = str(card.get("title") or section_id)
+    figure = card.get("figure_spec") if isinstance(card.get("figure_spec"), dict) else {}
+    thesis = card.get("thesis") if isinstance(card.get("thesis"), list) else []
+    if isinstance(card.get("body_blocks"), list) and card.get("body_blocks"):
+        body_blocks = [item for item in card["body_blocks"] if isinstance(item, dict)]
+    else:
+        body_blocks = [
+            {"type": "thesis", "text": str(item)}
+            for item in thesis
+            if str(item).strip()
+        ] or [{"type": "summary", "text": title}]
+    callouts = card.get("evidence_callouts") if isinstance(card.get("evidence_callouts"), list) else []
+    if not callouts:
+        callouts = [{"evidence_id": section_id, "summary": title}]
+    takeaways = card.get("takeaways") if isinstance(card.get("takeaways"), list) else []
+    if not takeaways:
+        takeaways = [title]
+    explicit_solar = card.get("solar_absorption") if isinstance(card.get("solar_absorption"), list) else []
+    solar_absorption = [str(item) for item in explicit_solar if str(item).strip()]
+    if not solar_absorption:
+        claim_count = len([item for item in (card.get("claim_ids") if isinstance(card.get("claim_ids"), list) else []) if str(item)])
+        solar_absorption = [
+            f"Solar operator/schema/gate mapping anchored to {claim_count or 1} supported claim group(s) for this section."
+        ]
+    explicit_predictions = card.get("prediction_packet_refs") if isinstance(card.get("prediction_packet_refs"), list) else []
+    prediction_packet_refs = [str(item) for item in explicit_predictions if str(item).strip()] or [
+        "Forecast packet with drivers, leading indicators, counter-scenarios, and falsification checks."
+    ]
+    citations = [
+        {
+            "evidence_id": str(item.get("evidence_id") or item.get("id") or f"{section_id}:evidence"),
+            "marker": str(item.get("marker") or item.get("evidence_id") or item.get("id") or section_id),
+        }
+        for item in callouts
+        if isinstance(item, dict)
+    ] or [{"evidence_id": section_id, "marker": section_id}]
+    return {
+        **card,
+        "evidence_callouts": callouts,
+        "takeaways": takeaways,
+        "figure": _typed_figure_from_legacy(figure, section_id=section_id, title=title),
+        "title_claim_type": str(card.get("title_claim_type") or "thesis"),
+        "body_blocks": body_blocks,
+        "citations": citations,
+        "solar_absorption": solar_absorption,
+        "prediction_packet_refs": prediction_packet_refs,
+        "artifact_path": str(card.get("artifact_path") or f"section_render_cards/{re.sub(r'[^a-zA-Z0-9_-]+', '__', section_id).strip('_') or 'section'}.json"),
+    }
+
 
 def _explicit_figure_type(text: str) -> str:
     match = re.search(r"figure_type\s*:\s*([a-zA-Z0-9_-]+)", text or "", flags=re.I)
@@ -504,6 +601,23 @@ def _build_section_render_card(root: Path, section: dict, row: dict) -> dict[str
     ):
         _append_unique(takeaways, _fallback_units(_clean_human_text(blocks.get(heading, ""), {}), limit=1), max_items=5)
 
+    body_blocks: list[dict[str, str]] = []
+    for block_type, heading in (
+        ("thesis", "本节判断"),
+        ("evidence", "证据链"),
+        ("action", "影响与行动"),
+        ("forecast", "预测和观察"),
+        ("risk", "反证和观察"),
+        ("architecture", "architecture synthesis"),
+        ("evaluation", "evaluation and risk boundary"),
+    ):
+        key = heading.lower()
+        text_block = _clean_human_text(blocks.get(key, ""), {})
+        if text_block.strip():
+            body_blocks.append({"type": block_type, "title": heading, "text": text_block})
+    if not body_blocks:
+        body_blocks = [{"type": "thesis", "title": "本节判断", "text": item} for item in thesis_candidates[:2]]
+
     evidence_callouts = _evidence_callouts(root, evidence_ids, max_items=4)
     title = str(section.get("title") or row.get("title") or section_id)
     figure_nodes = _figure_nodes(thesis_candidates, evidence_callouts, takeaways)
@@ -533,6 +647,7 @@ def _build_section_render_card(root: Path, section: dict, row: dict) -> dict[str
         "title": title,
         "status": row.get("status") or "pending",
         "thesis": thesis_candidates[:3],
+        "body_blocks": body_blocks[:6],
         "evidence_callouts": evidence_callouts,
         "takeaways": takeaways[:5],
         "figure_spec": figure_spec,
@@ -550,9 +665,10 @@ def _build_section_render_cards(root: Path, ast: dict, contribution: dict) -> di
         section_id = str(section.get("section_id") or "")
         row = rows_by_section.get(section_id, {"section_id": section_id, "status": "pending"})
         card = _build_section_render_card(root, section, row)
+        card = _typed_section_card_from_legacy(card)
         cards.append(card)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "__", section_id).strip("_") or "section"
-        (card_dir / f"{safe_name}.json").write_text(json.dumps(card, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_section_render_card(card, card_dir / f"{safe_name}.json")
     payload = {
         "ok": True,
         "schema_version": "solar.deepdive.section_render_cards.v1",
@@ -560,7 +676,13 @@ def _build_section_render_cards(root: Path, ast: dict, contribution: dict) -> di
         "cards": cards,
     }
     (root / "section_render_cards.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    figures = {"figures": [card["figure_spec"] for card in cards if card.get("figure_spec")]}
+    typed_figures = [card["figure"] for card in cards if isinstance(card.get("figure"), dict)]
+    for index, figure in enumerate(typed_figures, start=1):
+        write_figure_spec(figure, root / "figure_specs" / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json")
+    figures = {
+        "figures": typed_figures,
+        "legacy_figures": [card["figure_spec"] for card in cards if card.get("figure_spec")],
+    }
     (root / "figures.json").write_text(json.dumps(figures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return payload
 
@@ -766,6 +888,8 @@ def _public_report_text(value: str) -> str:
     text = str(value or "")
     for needle, replacement in replacements.items():
         text = re.sub(rf"\b{re.escape(needle)}\b", replacement, text)
+    text = re.sub(r"\bev_\d+\b", "证据条目", text)
+    text = re.sub(r"\bcl_\d+\b", "判断条目", text)
     return text
 
 
@@ -1061,6 +1185,8 @@ def _write_figure_assets(
         rel = f"assets/figures/{filename}"
         figure["asset_path"] = rel
         figure["asset_format"] = "svg"
+        if isinstance(card.get("figure"), dict):
+            card["figure"]["artifact_path"] = rel
         asset = {
             "figure_id": figure_id,
             "figure_type": figure_type,
@@ -1091,6 +1217,8 @@ def _write_figure_assets(
                 figure["fallback_asset_path"] = rel
                 figure["asset_path"] = premium_rel
                 figure["asset_format"] = suffix.lstrip(".").lower()
+                if isinstance(card.get("figure"), dict):
+                    card["figure"]["artifact_path"] = premium_rel
                 figure["premium_status"] = "rendered"
                 asset.update({
                     "asset_path": premium_rel,
@@ -1117,9 +1245,18 @@ def _persist_section_render_assets(root: Path, section_render: dict[str, Any], v
     for card in cards:
         section_id = str(card.get("section_id") or "section")
         safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "__", section_id).strip("_") or "section"
-        (card_dir / f"{safe_name}.json").write_text(json.dumps(card, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        write_section_render_card(card, card_dir / f"{safe_name}.json")
     (root / "section_render_cards.json").write_text(json.dumps(section_render, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    figures = {"figures": [card["figure_spec"] for card in cards if card.get("figure_spec")]}
+    typed_figures = [card["figure"] for card in cards if isinstance(card.get("figure"), dict)]
+    figure_spec_dir = root / "figure_specs"
+    figure_spec_dir.mkdir(parents=True, exist_ok=True)
+    for index, figure in enumerate(typed_figures, start=1):
+        validate_figure_spec(figure, str(figure_spec_dir / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json"))
+        write_figure_spec(figure, figure_spec_dir / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json")
+    figures = {
+        "figures": typed_figures,
+        "legacy_figures": [card["figure_spec"] for card in cards if card.get("figure_spec")],
+    }
     (root / "figures.json").write_text(json.dumps(figures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (root / "visual_audit.json").write_text(json.dumps(visual_audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -1156,21 +1293,97 @@ def _render_figure_block(card: dict[str, Any]) -> str:
     ])
 
 
+def _render_body_blocks(blocks: list[dict[str, Any]]) -> str:
+    """Render typed body blocks from SectionRenderCard, excluding raw machine labels."""
+    if not blocks:
+        return "<p>本节尚无明确判断。</p>"
+    parts: list[str] = []
+    for block in blocks:
+        block_type = str(block.get("type") or "summary")
+        text = _public_report_text(_clean_human_text(str(block.get("text") or ""), {}))
+        if not text.strip():
+            continue
+        css = "body-block body-block--thesis" if block_type == "thesis" else "body-block"
+        parts.append(f'<p class="{css}">{_h(text)}</p>')
+    return "\n".join(parts) if parts else "<p>本节尚无明确判断。</p>"
+
+
+def _render_solar_absorption_mapping(refs: list[str]) -> str:
+    """Render Solar operator/schema/gate mapping count without exposing raw machine label IDs."""
+    if not refs:
+        return ""
+    items = "\n".join(f"<li>{_h(_public_report_text(str(item)))}</li>" for item in refs[:5] if str(item).strip())
+    return "\n".join([
+        '<div class="solar-mapping">',
+        '  <span class="solar-mapping-label">Solar 关联 (Solar operator/schema/gate mapping)</span>',
+        f'  <span class="solar-mapping-count">{len(refs)} 个算子 / Schema / Gate 映射点</span>',
+        f"  <ul>{items}</ul>",
+        "</div>",
+    ])
+
+
+def _render_prediction_packet_refs(refs: list[str]) -> str:
+    """Render prediction packet reference count without exposing raw machine IDs."""
+    if not refs:
+        return ""
+    items = "\n".join(f"<li>{_h(_public_report_text(str(item)))}</li>" for item in refs[:5] if str(item).strip())
+    return "\n".join([
+        '<div class="prediction-refs">',
+        '  <span class="prediction-refs-label">预测包 (Forecast packet)</span>',
+        f'  <span class="prediction-refs-count">{len(refs)} 个预测指标</span>',
+        f"  <ul>{items}</ul>",
+        "</div>",
+    ])
+
+
+def _render_card_citations(callouts: list[dict[str, Any]]) -> str:
+    """Render visible citations from evidence callouts. Shows source titles/URLs; excludes raw machine evidence_id labels."""
+    if not callouts:
+        return ""
+    items: list[str] = []
+    for callout in callouts:
+        title = str(callout.get("source_title") or "").strip()
+        if not title:
+            continue
+        url = str(callout.get("url") or "").strip()
+        label = _source_type_label(str(callout.get("source_type") or "unknown"))
+        link = (
+            f'<a href="{_h(url)}" target="_blank" rel="noreferrer">{_h(_short_text(title, max_chars=64))}</a>'
+            if url
+            else _h(_short_text(title, max_chars=64))
+        )
+        items.append(f'<li><span class="source-badge">{_h(label)}</span> {link}</li>')
+    if not items:
+        return ""
+    return "\n".join([
+        '<div class="card-citations">',
+        '  <div class="eyebrow">引用</div>',
+        "  <ul>" + "".join(items) + "</ul>",
+        "</div>",
+    ])
+
+
 def _render_section_card_html(card: dict[str, Any]) -> str:
     title = str(card.get("title") or "未命名小节")
-    thesis = card.get("thesis") if isinstance(card.get("thesis"), list) else []
+    title_claim_type = str(card.get("title_claim_type") or "thesis")
+    body_blocks = card.get("body_blocks") if isinstance(card.get("body_blocks"), list) else []
     callouts = card.get("evidence_callouts") if isinstance(card.get("evidence_callouts"), list) else []
     takeaways = card.get("takeaways") if isinstance(card.get("takeaways"), list) else []
+    solar_refs = card.get("solar_absorption") if isinstance(card.get("solar_absorption"), list) else []
+    prediction_refs = card.get("prediction_packet_refs") if isinstance(card.get("prediction_packet_refs"), list) else []
     return "\n".join([
         '<article class="section-card">',
         '  <div class="section-main">',
-        f"    <h3>{_h(title)}</h3>",
+        f'    <h3 data-claim-type="{_h(title_claim_type)}">{_h(title)}</h3>',
         '    <div class="section-block">',
         '      <h4>本节判断</h4>',
-        f"      {_html_paragraphs(thesis, empty='本节尚无明确判断。')}",
+        f"      {_render_body_blocks(body_blocks)}",
         "    </div>",
         f"    {_render_figure_block(card)}",
         f"    {_render_takeaway_box(takeaways)}",
+        f"    {_render_solar_absorption_mapping(solar_refs)}",
+        f"    {_render_prediction_packet_refs(prediction_refs)}",
+        f"    {_render_card_citations(callouts)}",
         "  </div>",
         f"  {_render_evidence_sidebar(callouts)}",
         "</article>",
@@ -1304,6 +1517,17 @@ def _render_insight_html(
     .figure-node {{ margin: 8px 0; padding: 10px; border-radius: 14px; font-size: 13px; line-height: 1.45; background: #fffaf0; border-left: 4px solid var(--accent); }}
     .figure-node.evidence {{ border-left-color: #316a5f; }}
     .figure-node.takeaway {{ border-left-color: #d59a2f; }}
+    .body-block {{ margin: 0 0 12px; text-indent: 1.4em; }}
+    .body-block--thesis {{ font-style: italic; }}
+    .solar-mapping {{ display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; padding: 10px 14px; border-radius: 12px; background: rgba(23,76,67,.08); border: 1px solid rgba(23,76,67,.18); }}
+    .solar-mapping-label {{ font-size: 12px; font-weight: 800; color: var(--accent-2); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }}
+    .solar-mapping-count {{ font-size: 14px; color: var(--accent-2); }}
+    .prediction-refs {{ display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: rgba(183,83,42,.07); border: 1px solid rgba(183,83,42,.18); }}
+    .prediction-refs-label {{ font-size: 12px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }}
+    .prediction-refs-count {{ font-size: 14px; color: var(--accent); }}
+    .card-citations {{ margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }}
+    .card-citations ul {{ list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }}
+    .card-citations li {{ display: flex; gap: 6px; align-items: baseline; font-size: 14px; min-width: 0; }}
     .figure-note, .muted {{ color: var(--muted); font-size: 14px; }}
     .source-index {{ margin: 22px 0 10px; padding: 20px; border-radius: 22px; background: rgba(255,250,240,.82); border: 1px solid var(--line); }}
     .source-index ul {{ margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px 18px; }}

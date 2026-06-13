@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import pytest
 import subprocess
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ _HARNESS_LIB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 if _HARNESS_LIB not in sys.path:
     sys.path.insert(0, _HARNESS_LIB)
 
-from research.survey.planner import create_survey_plan, write_survey_plan
+from research.survey.planner import create_survey_plan, validate_insight_plan, write_survey_plan
 
 
 def test_planner_creates_professor_grade_shape(tmp_path):
@@ -119,3 +120,64 @@ def test_survey_plan_cli_prepares_deepdive_entry_before_plan(tmp_path):
     assert (tmp_path / "deepdive_traceability.json").exists()
     ast = json.loads((tmp_path / "survey_report_ast.json").read_text())
     assert ast["title"].startswith("DeepDive 洞察报告")
+
+
+def test_validate_insight_plan_passes_for_thesis_first_insight_plan():
+    plan = create_survey_plan(
+        "DeepDive: Agent runtime",
+        target_chars=50000,
+        planner_mode_hint="insight",
+    )
+    result = validate_insight_plan(plan)
+    assert result["ok"] is True
+    assert result["issues"] == []
+    assert result["mode"] == "insight"
+
+
+def test_validate_insight_plan_rejects_generic_survey_toc():
+    plan = create_survey_plan("隐空间推理技术架构和演进方向", target_chars=50000)
+    plan["planner_mode"] = "insight"
+    result = validate_insight_plan(plan)
+    assert result["ok"] is False
+    assert any("generic_chapter_title" in issue for issue in result["issues"])
+
+
+def test_write_survey_plan_rejects_generic_survey_toc_for_insight_mode(tmp_path):
+    plan = create_survey_plan("隐空间推理技术架构和演进方向", target_chars=50000)
+    plan["planner_mode"] = "insight"
+
+    with pytest.raises(ValueError, match="insight plan validation failed"):
+        write_survey_plan(plan, tmp_path)
+
+    assert not (tmp_path / "survey_plan.json").exists()
+
+
+def test_validate_insight_plan_skips_non_insight_modes():
+    plan = create_survey_plan("隐空间推理技术架构和演进方向", target_chars=50000)
+    result = validate_insight_plan(plan)
+    assert result["ok"] is True
+    assert result["mode"] == "general_survey"
+
+
+def test_validate_insight_plan_passes_for_conference_insight():
+    brief = "通过洞察 CAIS 2026 学术会议，分析当前 Agent 应如何发展"
+    plan = create_survey_plan(brief, target_chars=50000)
+    result = validate_insight_plan(plan)
+    assert result["ok"] is True
+    assert result["mode"] == "conference_insight"
+
+
+def test_insight_plan_objectives_include_solar_absorption_and_predictions():
+    plan = create_survey_plan(
+        "DeepDive: Agent runtime",
+        target_chars=50000,
+        planner_mode_hint="insight",
+    )
+    chapter_titles = {ch["title"] for ch in plan["report_ast"]["chapters"]}
+    assert "行动路线与设计映射" in chapter_titles
+    assert "预测、反证与观察指标" in chapter_titles
+    for ch in plan["report_ast"]["chapters"]:
+        if ch["title"] == "行动路线与设计映射":
+            assert "Solar absorption" in ch["objective"] or "solar" in ch["objective"].lower()
+        if ch["title"] == "预测、反证与观察指标":
+            assert "prediction" in ch["objective"].lower() or "预测" in ch["objective"]
