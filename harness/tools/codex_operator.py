@@ -102,6 +102,9 @@ def main() -> int:
     cmd = [
         "codex",
         "exec",
+        "--skip-git-repo-check",
+        "--config",
+        "service_tier=fast",
         "--model",
         model,
         "--config",
