@@ -1,0 +1,399 @@
+{
+  "videoId": "YNJvm7t3yq8",
+  "title": "Why Your AI UX Is Broken (and It's Not the Model's Fault) — Mike Christensen, Ably",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 19135,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> Okay. Um\nI think it's time to start.\n>> [applause and cheering]\n>> Uh can we start with a quick show of\nhands? So, who here's built some kind of\nAI chat app, right? Some kind of AI chat\nexperience?\nOkay, well, that was quick, right?\nAlmost everybody in this room, right?\nSo, this is the case where you've got\nsome kind of chat app, you've got an\nagent on the back end. The user sends a\nmessage to the agent, and the agent\nstreams a response back live to the user\nas it's being generated, right? And this\nis fundamental building block of AI user\nexperiences. We see in every AI chat app\ntoday.\nAnd first, I want to have a quick look\nat how this is implemented today, right?\nSo, the default pattern is to use direct\nHTTP streaming. So, the most popular\nframeworks for cells AI SDK, Times back\nAI, use SSE by default, server-sent\nevents.\nAnd so, concretely, what this means is\nthe client makes a request to the agent,\nand it establishes a persistent\npoint-to-point connection with the\nagent,\nand the agent then invokes the LLM, and\nit obtains the stream of events, and it\npipes those events back to the client\nover the connection as server-sent\nevents, right?\nAnd this is great, right? It's really\neasy to get something working.\nBut,\nthis paradigm is kind of fundamentally\noriented on the idea of a single client\nestablishing a single connection to a\nsingle agent.\nAnd today, I'm going to make the case\nthat that fundamentally limits the\nquality and the richness of the\nexperiences that we can build in our AI\nproducts.\nSo, my name is Mike Christensen. I'm a\nstaff engineer at Ably. Ably is a\nreal-time messaging platform, and we\nbuild SDKs and APIs for any kind of live\nor interactive experience, and that\nincludes AI experiences.\nAnd we operate our platform at real\nscale. So, every month, we handle\ntraffic for more than 2 billion devices.\nWe handle more than 30 billion monthly\nconnections. We process more than 2\ntrillion API operations.\nAnd\nover the past year, we've been speaking\nto engineering teams at more than 40\ncompanies across 10 industries.\nAnd these are companies that are\nshipping AI agents, AI co-pilots, AI\nassistants in their products to millions\nof users.\nAnd these companies are really pushing\nthe boundaries of what AI products can\nfeel like, right? Because when you add\nAI capabilities to your product, it\nfundamentally changes the user\nexperience.\nSo, these companies are exploring these\nnew interaction models, and they're\nworking through the engineering\nchallenges to deliver these experiences\nreliably in production.\nAnd so, today, I'm going to share what\nwe've learned by talking to these\ncompanies.\nI'm going to show you where the sort of\ndirect HTTP streaming model starts to\nbreak down and why.\nAnd I'm going to share with you the\nemerging patterns that we're seeing many\nengineering teams adopt to tackle these\nproblems.\nSo, we found that companies shipping the\nbest AI experiences really invest in\nthree foundational capabilities. And we\nthink that these capabilities really\nseparate a fragile demo from a great AI\nproduct experience.\nSo, the first of these capabilities is\nresilient delivery. This is about\nbuilding streams that survive\ndisconnections, right? Think about\nmobile. You know, you walk out of the\nhouse, your phone drops off the Wi-Fi,\nconnects to 5G. That severs the\nconnection, right? Or maybe the user\nrefreshes the page, or they navigate\naway from the app, and they come back.\nAnd what you want is that when the\nconnection drops, clients are able to\nreconnect and pick up exactly from where\nthey left off.\nThe second core capability is about\nproviding continuity across surfaces,\nright? So, users move between surfaces\nall the time. You know, you open the\nexperience in a new tab, or you open it\non your phone.\nAnd really, the conversation session\nshould follow you around, right? No\nmatter which device you're using, the\nsession should be fully in sync,\nincluding any live activity.\nAnd the third core capability is about\nlive control, right? So, the best AI\nproducts do better than a simple\nsequential request-response\npattern, right? They let you communicate\nwith the agent while it's working. So,\nthink about how you use Claude code,\nright? You know, you can see Claude's\ndoing something, you might send a\nmessage, steer it. You send a follow-up,\nyou ask it to do something else. And\nthis requires visibility into what the\nagent is doing,\nand it allows clients it requires\nclients to be able to communicate with\nthe agent while it's working.\nSo, why is this hard with a direct HTTP\nstreaming approach?\nThe root cause is because everything is\ncoupled to a single request, right? So,\nif you think about that live response\nstream that you've got from an agent,\nthe health of that stream is essentially\ntied to the health of that end client's\nconnection, right? So, if that\nconnection drops,\nstream's gone.\nAnother problem is with direct HTTP\nstreaming, that connection is now a\nprivate pipe between the client and the\nagent. So, if you open the experience on\nanother tab or on your phone, you have\nno visibility of that in-progress\nresponse.\nAnd a third problem is because this\nstream, right, isn't a shared resource,\nother clients and other tabs, other\ndevices, can't communicate with the\nagent, can't reach the agent to interact\nwith it, steer it, interrupt it.\nSo, a pattern we're seeing many\ncompanies adopt is to decouple the agent\nlayer from the client layer.\nAnd many teams are doing this with a\nconcept called durable sessions.\nAnd so, what this is is a shared\nresource that sits between the agent\nlayer and the client layer, and it's a\npersistent and stateful medium through\nwhich agents and clients can interact.\nAnd as we'll see, this makes it much\neasier to build\nresilient streaming experiences,\nstreaming experiences that work across\nmultiple tabs or devices, and it allows\nany client to interact with agents as\nthey work.\nSo, let's have a quick look at some\nexamples now of where the sort of direct\nHTTP streaming model breaks down, and\nwe'll see how this durable sessions idea\ncan help us.\nSo, let's look at how you might support\nresumable HTTP resumable streams with a\ndirect HTTP streaming approach. So, in\nthis scenario, the client sends a\nrequest to the agent, and the agent\nstarts streaming the response,\nand then the client's connection drops\nhalfway through, right? And what we want\nis the client can re-establish the\nconnection and can resume the stream\nfrom where it left off.\nSo, when the client's connection drops,\nthe LLM is still working, right? It's\nstill generating events, and these\nevents have nowhere to go, right? So,\nhow do you build resumes? Well, you need\nto store these events. You remember, you\nwrite them to an in-memory store like\nRedis. You need to store them with\nsequence numbers, so you know the order\nof these events.\nAnd then, you need some kind of explicit\nresume handler on your back end, so that\nwhen a client tries to reconnect and\nresume,\nthe resume handler is able to work out\nthe exact set of events that the client\nmissed, and replay those back to the\nclient in the correct order.\nAnd so, the problem here is that the\nstream is being explicitly managed by\nthe agent. And so, the agent has to do\nthis for every reconnecting client\nbecause, you know, their connections\ndrop at different times, and so, each\nclient has a different set of events\nthat need to be replayed.\nSo, you need to build all of this\ncomplex plumbing from scratch, you know,\ninstead of focusing on building great\nagents. So,\nhow does durable sessions help?\nSo, by decoupling the agent from the\nclient,\nuh you allow the agent to write events\ndirectly to the session without thinking\nabout the health of the end client's\nconnection, right? And simultaneously,\nyou let clients connect directly to the\nsession and replay events or resume the\nstream from the session without the\nagent having to worry about implementing\nthat logic.\nAnd there's an interesting problem here\nif you're using um SSE, server-sent\nevents, um in particular, because\nthere's a conflict between supporting\nresumability\nand offering live control over agents to\nclients.\nAnd the reason for this is that SSE is\none-way, right? It's a strictly one-way\npipe from the server to the client.\nSo, this comes up if you think about you\nwant to add a stop button, right, into\nyour into your experience, and the\nagent's streaming a response, you hit\nstop, and it cancels that in-progress\ngeneration.\nAnd so, the client has no upstream\nchannel through which it can signal to\nthe agent to cancel the generation,\nright? So, the only thing it can do is\nclose the connection.\nAnd that now creates ambiguity because\nwhat does the agent do, right? Does it\nallow the LLM to keep generating events\nand buffer these events assuming the\nclient's going to try and reconnect and\nresume later, or does it treat it as a\ncancellation, cancel the LLM\nLLM, and stop burning through these\nexpensive tokens?\nAnd so, you know, resume and cancel are\nmutually exclusive when you're using SSE\nin particular, and there's some evidence\nfor this. So, Vercel's AI SDK, for\nexample, uses SSE by default,\nand their docs state that a bot is\nincompatible with resume functionality,\nand it's for this reason.\nSo, what do we need?\nWe need bidirectional control, right?\nSo, maybe we can replace SSE, we can use\nsomething like WebSockets.\nAnd that then opens up the possibility\nfor much richer interactions where\nclients can interact with agents.\nOkay. So, we've swapped out our SSE\ntransport for WebSockets.\nBut, as we'll see, a bidirectional\ntransport doesn't solve all of our\nproblems automatically, and these\nproblems arise when you try to interact\nfrom multiple devices. So,\nin this scenario, uh you send a message\nto the agent, the agent is streaming a\nresponse,\nand then you open that same session in\nanother tab, right? And so,\nthe problem is in this second tab, you\nhave no visibility over that live\nresponse stream, right? Because the\nsecond tab isn't the one that sent the\nrequest that invoked the agent and\nestablished the connection.\nSo, the second tab doesn't see anything,\nright? While that response is being\nstreamed, there's no visibility.\nAnd then, And presents a problem when we\nthink about steering or controlling or\nguiding the agent from multiple tabs or\ndevices. So,\nyou send an a message to the agent. In\nthis case, you ask it, \"Book me a flight\nfor next Tuesday.\" Agent's working on\nthis in the background. You swap to your\nphone,\nand you have the same problem here. The\nphone doesn't have visibility of the\nongoing work of the agent. But also, the\nphone has no upstream channel to the\nagent in order to send your follow-up\nrequest, which is, \"Tuesday doesn't work\nfor me. I need I need the flight on\nWednesday.\" There's no way to reach the\nagent.\nSo, a durable sessions layer again makes\nthis easier\nfor us to support these multi-client\nexperiences with live control.\nAnd we can do this because all clients\ncan hold a persistent connection to the\ndurable session that is always active,\nright? So, the connection's not just\nthere when you invoke and initiate a\nrequest with an agent. You have constant\nvisibility over the activity in the\nsession through a continuously\nmaintained connection.\nAnd clients can continue to resume,\nright, through the session.\nBut because the session is also a shared\nresource, right, and the agent has full\nvisibility of the activity in the\nsession as well, it means that any\nclient can route to and interact with\nthe agent. So, you can do this from any\ntab or any device.\nAnd so, the final example I want to talk\nabout is about concurrent activity,\nright? So, this is about multi-agent\narchitectures. We've got multiple agents\nthat are participating in this session.\nAnd so, the pattern we've got here is\nthe\nuser is establishing making a request to\nan orchestrator agent. And this\norchestrator agent is then delegating\nsubtasks to these specialized agents,\nright?\nAnd what we'd like to provide is full\nvisibility of all the granular progress\nthat these sub-agents are working on.\nUm now, the problem here is the\norchestrator is handling the user's\nrequest, right? So, we're kind of\nforcing the orchestrator to do two\nthings. There's a dual-purpose role of\nboth orchestrating the task and\ndelegating tasks, and also proxying back\nthese sort of granular updates from\nthese sub-agents,\nright? So, this is adding a lot of\ncomplexity to your architecture when\nreally the orchestrator\nonly cares about the final results from\nthese sub-agents. It shouldn't need to\nworry about relaying granular progress.\nSo again, a durable sessions model makes\nthis easier.\nSo, in this model, all agents can write\nindependently to the durable session\nlayer, right? So now, we don't have to\nflow all these granular updates through\nsome centralized agent to provide full\nvisibility of all the activity in the\nsession.\nAnd clients only need to subscribe to a\nsingle entity as well, right? Um they\nonly subscribe to the session, and they\nhave full visibility of activity from\nall these agents, however many there are\nworking on the task, but also activity\nfrom other clients.\nAnd this pattern can drastically\nsimplify your architecture.\nSo, what we've described here sounds an\nawful like pub/sub, right?\nAnd we can build durable sessions on top\nof a pub/sub. So,\num at Ably, we have this concept called\nchannels, and Ably channels let you\ncommunicate. So, publishers of messages\nand subscribers of messages can\ncommunicate with each other, but not\ndirectly. They do this through a shared\nresource, which we call a channel.\nUm and this inherently decouples\nuh publishers and subscribers. So, it\ndecouples clients and agents.\nAnd Ably channels have the kind of key\nproperties that we would need to build a\ndurable session layer. So, they are\nindependently addressable. So, this\nmeans that any client or any agent can\nconnect to this session just by\nspecifying the right channel name.\nThey are persistent, which means the\nmessages on the channel outlive the life\ncycle of any individual connection, any\nindividual device,\nany individual agent.\nAnd they're fully resumable, right? So,\nif you're a client that drops a\nconnection, you can automatically\nreconnect to the channel, and all the\nevents are delivered exactly from where\nyou left off.\nSo, this is how we found many of our\ncustomers have built these kind of\nresilient multi-surface experiences.\nUm to make building durable sessions\neven easier, we've been working on\nsomething we call Ably AI Transport.\nThis is a drop-in layer for building\nthis durable session pattern.\nUm and it's a new SDK, which\nautomatically plugs into any event\nstream format. So, whatever model\nprovider or agent framework you're\nusing,\num and under the hood, it's using Ably\nchannels to provide this sort of durable\nsession layer, but with all the\ncomplexity of building a durable session\nhandled for you out of the box. So,\num the channel does some cool things as\nwell, right? So, it like materializes\nevents in the channel. So, you can\nstream in text chunks that are being\ngenerated from the LLM, and the channel\nautomatically materializes that into the\ncomplete response.\nThey provide automatic resumability.\nThey handle multiplexing, so you can\nhave concurrent activity over the\nchannel, and it's all fully multiplexed\nand handled.\nAnd it supports multi-client and\nmulti-device fanout with full\nbidirectional control.\nUh it also includes a suite of\nadditional tools for building great AI\nuser experiences. So, some of these are\nreally important, right? Things like\npush notifications. If you've got an\nagent doing some background asynchronous\nwork, you want to be notified when it's\ncompleted.\nThere's also things like APIs for shared\nor subscribable data objects. So, if\nyou've got agents and users kind of\ncollaborating over some shared data in\nreal time, this is possible.\nSo, to try make some of this a little\nbit more concrete, I have a quick demo\nto show you kind of what this looks like\nin practice. So, this is a classic kind\nof AI chat interface for a AI support\nchat for like an electronics shop,\nright?\nUm so, let's see if we can get the\nvideo.\nCool. So, you know, the usual kind of\nfeatures exist in this kind of\nconversational interface. So here, you\nknow, the agent's making a client-side\ntool tool call to get the user's\nlocation. It's making a service-side\ntool call to show the user a list of\nstores in its location.\nAnd we can see that this works across\nmultiple tabs\nout of the box. This is because it's\npowered by this durable session layer\nunderneath, and it gives all clients a\nshared view of the session.\nNow here, we've got a streamed response.\nWe can refresh the page, and you can see\nit's all remains absolutely\nautomatically in sync. There is no\nadditional agent logic to make this\nwork, right? This just works from the\nclient consuming and subscribing from\nthe channel.\nWe can even kill the the network here.\nSo, we're forcing the client to\ndisconnect and reconnect,\nand everything just carries on\nautomatically\nwithout any additional complexity.\nWe can also sort of interact from\nmultiple tabs. So here, in the second\ntab, we've kicked off a specialized\nsub-agent that's going to do some\nproduct research, and we've got some\ngranular visibility.\nWe're going to cancel that from the\nfirst tab. So, you can from whichever\nclient or device, you can cancel that\nthat work.\nUm here, we've kicked off a product\nresearch task\nfrom one tab. Um this specialized agent\nis writing these events directly.\nThere's no centralized orchestrator\nthat's managing this.\nUm here, the user decided, okay, they're\ngoing to purchase a pair of headphones,\nbut at the same time, they're going to\ncancel their existing order. So now,\nyou've got concurrent activity in the\nsession.\nTwo agents working in the session\nsimultaneously. It's fully synchronized\nwithout all this\nadditional coordination.\nAnd now, this is quite cool, right? So,\nthe the user here isn't happy with the\nthe return the refund price. So, they\nwant to speak to a human. So, we can now\nadd another participant into this\nsession and transfer them over to a\nhuman agent. So, we're going to open up\na support agent view over here.\nAnd we can see that this human support\nagent can has full visibility of all of\nthe activity in that session. So, they\ncan see the full interaction history\nthat the customer had with the AI agent,\nand they can then send a message to\nfollow on as a human participant in that\nsession to now communicate directly with\nthat customer.\nThat's everything for today. Thank you\nvery much. Please check out\n>> [applause]\n[music]",
+  "segments": [
+    {
+      "text": "[music] >> Okay. Um I think it's time to start. >> [applause and cheering] >> Uh can we start with a quick show of hands? So, who here's built some kind of AI chat app, right? Some kind of AI chat experience? Okay, well, that was quick, right?",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Almost everybody in this room, right? So, this is the case where you've got some kind of chat app, you've got an agent on the back end. The user sends a message to the agent, and the agent streams a response back live to the user",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "as it's being generated, right? And this is fundamental building block of AI user experiences. We see in every AI chat app today. And first, I want to have a quick look at how this is implemented today, right? So, the default pattern is to use direct",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "HTTP streaming. So, the most popular frameworks for cells AI SDK, Times back AI, use SSE by default, server-sent events. And so, concretely, what this means is the client makes a request to the agent, and it establishes a persistent",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "point-to-point connection with the agent, and the agent then invokes the LLM, and it obtains the stream of events, and it pipes those events back to the client over the connection as server-sent events, right? And this is great, right? It's really",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "easy to get something working. But, this paradigm is kind of fundamentally oriented on the idea of a single client establishing a single connection to a single agent. And today, I'm going to make the case that that fundamentally limits the",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "quality and the richness of the experiences that we can build in our AI products. So, my name is Mike Christensen. I'm a staff engineer at Ably. Ably is a real-time messaging platform, and we build SDKs and APIs for any kind of live",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "or interactive experience, and that includes AI experiences. And we operate our platform at real scale. So, every month, we handle traffic for more than 2 billion devices. We handle more than 30 billion monthly connections. We process more than 2",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "trillion API operations. And over the past year, we've been speaking to engineering teams at more than 40 companies across 10 industries. And these are companies that are shipping AI agents, AI co-pilots, AI assistants in their products to millions of users.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And these companies are really pushing the boundaries of what AI products can feel like, right? Because when you add AI capabilities to your product, it fundamentally changes the user experience. So, these companies are exploring these",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "new interaction models, and they're working through the engineering challenges to deliver these experiences reliably in production. And so, today, I'm going to share what we've learned by talking to these companies. I'm going to show you where the sort of",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "direct HTTP streaming model starts to break down and why. And I'm going to share with you the emerging patterns that we're seeing many engineering teams adopt to tackle these problems. So, we found that companies shipping the",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "best AI experiences really invest in three foundational capabilities. And we think that these capabilities really separate a fragile demo from a great AI product experience. So, the first of these capabilities is resilient delivery. This is about",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "building streams that survive disconnections, right? Think about mobile. You know, you walk out of the house, your phone drops off the Wi-Fi, connects to 5G. That severs the connection, right? Or maybe the user refreshes the page, or they navigate",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "away from the app, and they come back. And what you want is that when the connection drops, clients are able to reconnect and pick up exactly from where they left off. The second core capability is about providing continuity across surfaces,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "right? So, users move between surfaces all the time. You know, you open the experience in a new tab, or you open it on your phone. And really, the conversation session should follow you around, right? No matter which device you're using, the",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "session should be fully in sync, including any live activity. And the third core capability is about live control, right? So, the best AI products do better than a simple sequential request-response pattern, right? They let you communicate",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "with the agent while it's working. So, think about how you use Claude code, right? You know, you can see Claude's doing something, you might send a message, steer it. You send a follow-up, you ask it to do something else. And",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "this requires visibility into what the agent is doing, and it allows clients it requires clients to be able to communicate with the agent while it's working. So, why is this hard with a direct HTTP streaming approach? The root cause is because everything is",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "coupled to a single request, right? So, if you think about that live response stream that you've got from an agent, the health of that stream is essentially tied to the health of that end client's connection, right? So, if that connection drops, stream's gone.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Another problem is with direct HTTP streaming, that connection is now a private pipe between the client and the agent. So, if you open the experience on another tab or on your phone, you have no visibility of that in-progress response.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And a third problem is because this stream, right, isn't a shared resource, other clients and other tabs, other devices, can't communicate with the agent, can't reach the agent to interact with it, steer it, interrupt it. So, a pattern we're seeing many",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "companies adopt is to decouple the agent layer from the client layer. And many teams are doing this with a concept called durable sessions. And so, what this is is a shared resource that sits between the agent layer and the client layer, and it's a",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "persistent and stateful medium through which agents and clients can interact. And as we'll see, this makes it much easier to build resilient streaming experiences, streaming experiences that work across multiple tabs or devices, and it allows",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "any client to interact with agents as they work. So, let's have a quick look at some examples now of where the sort of direct HTTP streaming model breaks down, and we'll see how this durable sessions idea can help us. So, let's look at how you might support",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "resumable HTTP resumable streams with a direct HTTP streaming approach. So, in this scenario, the client sends a request to the agent, and the agent starts streaming the response, and then the client's connection drops halfway through, right? And what we want",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "is the client can re-establish the connection and can resume the stream from where it left off. So, when the client's connection drops, the LLM is still working, right? It's still generating events, and these events have nowhere to go, right? So,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "how do you build resumes? Well, you need to store these events. You remember, you write them to an in-memory store like Redis. You need to store them with sequence numbers, so you know the order of these events. And then, you need some kind of explicit",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "resume handler on your back end, so that when a client tries to reconnect and resume, the resume handler is able to work out the exact set of events that the client missed, and replay those back to the client in the correct order.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "And so, the problem here is that the stream is being explicitly managed by the agent. And so, the agent has to do this for every reconnecting client because, you know, their connections drop at different times, and so, each client has a different set of events",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "that need to be replayed. So, you need to build all of this complex plumbing from scratch, you know, instead of focusing on building great agents. So, how does durable sessions help? So, by decoupling the agent from the client,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "uh you allow the agent to write events directly to the session without thinking about the health of the end client's connection, right? And simultaneously, you let clients connect directly to the session and replay events or resume the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "stream from the session without the agent having to worry about implementing that logic. And there's an interesting problem here if you're using um SSE, server-sent events, um in particular, because there's a conflict between supporting resumability",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "and offering live control over agents to clients. And the reason for this is that SSE is one-way, right? It's a strictly one-way pipe from the server to the client. So, this comes up if you think about you want to add a stop button, right, into",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "your into your experience, and the agent's streaming a response, you hit stop, and it cancels that in-progress generation. And so, the client has no upstream channel through which it can signal to the agent to cancel the generation,",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "right? So, the only thing it can do is close the connection. And that now creates ambiguity because what does the agent do, right? Does it allow the LLM to keep generating events and buffer these events assuming the client's going to try and reconnect and",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "resume later, or does it treat it as a cancellation, cancel the LLM LLM, and stop burning through these expensive tokens? And so, you know, resume and cancel are mutually exclusive when you're using SSE in particular, and there's some evidence",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "for this. So, Vercel's AI SDK, for example, uses SSE by default, and their docs state that a bot is incompatible with resume functionality, and it's for this reason. So, what do we need? We need bidirectional control, right?",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So, maybe we can replace SSE, we can use something like WebSockets. And that then opens up the possibility for much richer interactions where clients can interact with agents. Okay. So, we've swapped out our SSE transport for WebSockets.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "But, as we'll see, a bidirectional transport doesn't solve all of our problems automatically, and these problems arise when you try to interact from multiple devices. So, in this scenario, uh you send a message to the agent, the agent is streaming a response,",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and then you open that same session in another tab, right? And so, the problem is in this second tab, you have no visibility over that live response stream, right? Because the second tab isn't the one that sent the request that invoked the agent and",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "established the connection. So, the second tab doesn't see anything, right? While that response is being streamed, there's no visibility. And then, And presents a problem when we think about steering or controlling or guiding the agent from multiple tabs or",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "devices. So, you send an a message to the agent. In this case, you ask it, \"Book me a flight for next Tuesday.\" Agent's working on this in the background. You swap to your phone, and you have the same problem here. The phone doesn't have visibility of the",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "ongoing work of the agent. But also, the phone has no upstream channel to the agent in order to send your follow-up request, which is, \"Tuesday doesn't work for me. I need I need the flight on Wednesday.\" There's no way to reach the agent.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So, a durable sessions layer again makes this easier for us to support these multi-client experiences with live control. And we can do this because all clients can hold a persistent connection to the durable session that is always active,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "right? So, the connection's not just there when you invoke and initiate a request with an agent. You have constant visibility over the activity in the session through a continuously maintained connection. And clients can continue to resume,",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "right, through the session. But because the session is also a shared resource, right, and the agent has full visibility of the activity in the session as well, it means that any client can route to and interact with the agent. So, you can do this from any",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "tab or any device. And so, the final example I want to talk about is about concurrent activity, right? So, this is about multi-agent architectures. We've got multiple agents that are participating in this session. And so, the pattern we've got here is the",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "user is establishing making a request to an orchestrator agent. And this orchestrator agent is then delegating subtasks to these specialized agents, right? And what we'd like to provide is full visibility of all the granular progress",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "that these sub-agents are working on. Um now, the problem here is the orchestrator is handling the user's request, right? So, we're kind of forcing the orchestrator to do two things. There's a dual-purpose role of both orchestrating the task and",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "delegating tasks, and also proxying back these sort of granular updates from these sub-agents, right? So, this is adding a lot of complexity to your architecture when really the orchestrator only cares about the final results from",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "these sub-agents. It shouldn't need to worry about relaying granular progress. So again, a durable sessions model makes this easier. So, in this model, all agents can write independently to the durable session layer, right? So now, we don't have to",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "flow all these granular updates through some centralized agent to provide full visibility of all the activity in the session. And clients only need to subscribe to a single entity as well, right? Um they only subscribe to the session, and they",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "have full visibility of activity from all these agents, however many there are working on the task, but also activity from other clients. And this pattern can drastically simplify your architecture. So, what we've described here sounds an",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "awful like pub/sub, right? And we can build durable sessions on top of a pub/sub. So, um at Ably, we have this concept called channels, and Ably channels let you communicate. So, publishers of messages and subscribers of messages can",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "communicate with each other, but not directly. They do this through a shared resource, which we call a channel. Um and this inherently decouples uh publishers and subscribers. So, it decouples clients and agents. And Ably channels have the kind of key",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "properties that we would need to build a durable session layer. So, they are independently addressable. So, this means that any client or any agent can connect to this session just by specifying the right channel name. They are persistent, which means the",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "messages on the channel outlive the life cycle of any individual connection, any individual device, any individual agent. And they're fully resumable, right? So, if you're a client that drops a connection, you can automatically",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "reconnect to the channel, and all the events are delivered exactly from where you left off. So, this is how we found many of our customers have built these kind of resilient multi-surface experiences. Um to make building durable sessions",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "even easier, we've been working on something we call Ably AI Transport. This is a drop-in layer for building this durable session pattern. Um and it's a new SDK, which automatically plugs into any event stream format. So, whatever model",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "provider or agent framework you're using, um and under the hood, it's using Ably channels to provide this sort of durable session layer, but with all the complexity of building a durable session handled for you out of the box. So,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "um the channel does some cool things as well, right? So, it like materializes events in the channel. So, you can stream in text chunks that are being generated from the LLM, and the channel automatically materializes that into the complete response.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "They provide automatic resumability. They handle multiplexing, so you can have concurrent activity over the channel, and it's all fully multiplexed and handled. And it supports multi-client and multi-device fanout with full bidirectional control.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "Uh it also includes a suite of additional tools for building great AI user experiences. So, some of these are really important, right? Things like push notifications. If you've got an agent doing some background asynchronous",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "work, you want to be notified when it's completed. There's also things like APIs for shared or subscribable data objects. So, if you've got agents and users kind of collaborating over some shared data in real time, this is possible.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "So, to try make some of this a little bit more concrete, I have a quick demo to show you kind of what this looks like in practice. So, this is a classic kind of AI chat interface for a AI support chat for like an electronics shop, right?",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "Um so, let's see if we can get the video. Cool. So, you know, the usual kind of features exist in this kind of conversational interface. So here, you know, the agent's making a client-side tool tool call to get the user's location. It's making a service-side",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "tool call to show the user a list of stores in its location. And we can see that this works across multiple tabs out of the box. This is because it's powered by this durable session layer underneath, and it gives all clients a shared view of the session.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "Now here, we've got a streamed response. We can refresh the page, and you can see it's all remains absolutely automatically in sync. There is no additional agent logic to make this work, right? This just works from the client consuming and subscribing from",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "the channel. We can even kill the the network here. So, we're forcing the client to disconnect and reconnect, and everything just carries on automatically without any additional complexity. We can also sort of interact from",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "multiple tabs. So here, in the second tab, we've kicked off a specialized sub-agent that's going to do some product research, and we've got some granular visibility. We're going to cancel that from the first tab. So, you can from whichever",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "client or device, you can cancel that that work. Um here, we've kicked off a product research task from one tab. Um this specialized agent is writing these events directly. There's no centralized orchestrator that's managing this.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Um here, the user decided, okay, they're going to purchase a pair of headphones, but at the same time, they're going to cancel their existing order. So now, you've got concurrent activity in the session. Two agents working in the session",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "simultaneously. It's fully synchronized without all this additional coordination. And now, this is quite cool, right? So, the the user here isn't happy with the the return the refund price. So, they want to speak to a human. So, we can now",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "add another participant into this session and transfer them over to a human agent. So, we're going to open up a support agent view over here. And we can see that this human support agent can has full visibility of all of the activity in that session. So, they",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "can see the full interaction history that the customer had with the AI agent, and they can then send a message to follow on as a human participant in that session to now communicate directly with that customer. That's everything for today. Thank you",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "very much. Please check out >> [applause] [music]",
+      "start": 456,
+      "duration": 6
+    }
+  ]
+}

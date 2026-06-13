@@ -1,0 +1,269 @@
+{
+  "videoId": "lOe0zwJkJEI",
+  "title": "FAST '26 - PolarStore: High-Performance Data Compression for Large-Scale Cloud-Native Databases",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 12728,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. I'm Jinrui from Alibaba\nCloud. Today I will present our work\nPolar Store high-performance data\ncompression for large-scale cloud cloud\nnative database.\nI will introduce the background and the\nmotivation.\nLet me start with the background. Polar\nDB is a cloud native relational\ndatabase. It uses storage computer\nseparate architecture. In this\narchitecture, we have a read write node\nthat handles write requests, multiple\nread only nodes for read queries, and a\nshared storage layer at the bottom. The\nkey benefits of this architecture is\nthat elastic computing scaling. Users\ncan scale computing resources up and\ndown without any data migration. This\nsignificantly reduces computing cost.\nHowever, storage cost is a remain\ncritical concern for our users,\nespecially during periods of low\nactivity.\nTherefore, data compression becomes\neffective way to reduce this storage\ncost.\nFrom our users' perspective, there are\ntwo main concerns about the compression.\nFirst, compression ratio. Users want the\nhighest highest possible compression to\nsave money. For cold data and snapshots,\nthey want to even higher ratio.\nSecond, the performance. Users cannot\ntolerate any degradation on latency\nlatency sensitive operations.\nSpecifically, redo log write and\nthe page read latency.\nAnd importantly, compression should not\nconsume extra CPU resources on computer\nnode because these resources are billed\nto users. So, our question is how to do\nit achieve a high compression ratio\nwithout any performance overhead.\nThere are three key dimensions to\nconsider.\nThe first is the compression input input\nsize. This means how much data we feed\ninto the compressor at a time. The\nsecond is the compression algorithm.\nThis\nranges from lightweight algorithm like\nLZ4 to heavy algorithm like gzip.\nThe third is the index granularity. To\nunderstand this, think of the space\nbefore compression as the logical space\nand the space after compression as the\nphysical space. With compression, the\nsystem needs to maintain\nindex that maps the logical space to the\nphysical locations.\nThe index granularity defines the\nsmallest unit that mapping.\nIn other words, it defines the smallest\npiece of compressed data that can be\nindependently located and read.\nFor the compression input block size, a\nlarger block block gives a compression\nalgorithm more information to work with,\nso it achieves a higher compression\nratio, but it also introduces extra\namplification and extra compression and\nor decompression overhead.\nOn the other hand,\na smaller block enables better random\naccess, but gives a lower compression\nratio. This is a foundational trade-off\nbetween compression ratio and\nperformance.\nThe second dimension is the compression\nalgorithm. Software based approach\noffers flexible compression parameters\nand dynamic configurations, but they\ncome with lower performance.\nHardware based approach like FPGA or QAT\nprovide a high performance, but they are\nlimited to fixed configurations. Again,\nthis is a trade-off between compression\nratio and performance.\nThe third dimension is the index\ngranularity. Byte level indexing is a\nspace efficient, but it requires complex\ngarbage collection and space management.\n4 kilobyte level\nindexing is simple, but it wastes\nspace compared to byte level indexing.\nThis is another difficult trade-off\nbetween compression ratio and\nperformance.\nNow, let me show the exciting approaches\nin original Polar DB.\nThe first one is B+ tree compression at\nthe database layer.\nIt takes\n16 kilobyte input,\nuses flexible software compression, but\nindex at 4 kilobyte\ngranularity. The problem The problem is\nthat the 4 kilobyte indexing leads to\nspace fragmentation and sub-optimal\ncompression ratio.\nThe second approach uses computational\nstorage drives or CSD.\nCSD compresses 4 kilobyte input block\nand user level and uses byte level\nindexing handled by the variable\nvariable length FTL. It achieves\nextended space efficiency with zero\nsoftware overhead. However,\nthe input size is fixed at 4 kilobyte\nand the compression algorithm is not a\nflexible. Therefore, neither approach\ncan break the trade-off.\nThis brings our key idea, dual layer\ncompression.\nAs shown in the figure,\nlayer one is the software layer. It\ncompresses 16 kilobyte pages into\nunblocks.\nIt supports flexible input size and\nallows the user to to close choose LZ4\nor ZSTD per page. Layer two is the CSD\nhardware layer. It further compresses\nthese 4 kilobyte blocks into byte\naligned physical blocks. The variable\nlength FTL handles byte level indexing\nwithout any software overhead.\nDual layer compression is the co-design\nof our system. Furthermore,\nsince our storage only serves Polar DB,\ncan do many database specific\noptimizations. Before going into the\ndetails, let me first talk about the two\nkey IO metrics we care about. The first\none is the redo log write latency, which\nis directly affects transaction commit.\nThe second one is the page read latency,\nwhich affects the query performance when\nwe have a buffer pool miss.\nBased on these two metrics, we designed\nthe three optimizations. The first one,\nwe bypass compression for redo logs. We\nuse a non-compression flag combined with\na high-performance SSD such as obtain\nIntel obtain SSD. This works well\nbecause redo logs are small and are\nfrequently recycled.\nThe second one, we do adaptive algorithm\nselection between LZ4 and ZSTD for each\npage to get better page read latency.\nAnd the third one, we introduce a per\npage log mechanism to solve the long\ntail\nlatency problem in page read.\nLet me explain the second optimization\nin detail. Here is the key observation\nbehind the design. Because of 4 kilobyte\nalignment,\neven a tiny size difference between\ncan fill a whole IO block. Look at this\nexample. LZ4 compresses a page into\n4,097\nbytes.\nThat needs 8 kilobyte for all IO, but\nZSTD compresses the same page to 4,096\nbytes, just one byte less, and it only\nneeds 4 kilobyte\nIO.\nThat That is single byte saves 4\nkilobyte IO, which easily outweighs ZSTD\nhigher compression higher decompression\ncost. So, in this case, we use ZSTD.\nBut now look at the in other side. LZ4\ncompresses 4,095\nbytes. That needs 4 kilobyte IO. ZSTD\ncompresses 2,000 bytes.\nAlso 4 kilobyte\nIO. ZSTD saves zero IO here.\nBut it wastes the CPU on decompression.\nSo, in this case, we choose LZ4.\nSo, neither algorithm is always better.\nThe best choice depends on each specific\npage. Our decision run per page per per\npage during page writes, not on the read\npath.\nIf CPU utilization is about 20%, we just\ndefault to use LZ4 for lower head.\nOtherwise, if the page has more than 30%\nof data content, we try both algorithm\nand compute the benefit to overhead\nratio. If the saved\nbytes per extra microsecond\nof decompression exceeds our throughput,\nwe pick ZSTD. Otherwise, we pick LZ4.\nThis threshold comes from the fact that\nsaving 4 kilobyte\nreduces and read latency by about 20 or\n14 microseconds.\nNow, let me explain the third\noptimization, the per page log design.\nIn the normal case, when a page read\narrives, the storage node reads the page\nfrom disk in a single read.\nBut in the worst case, the old page\nneeds to be updated with new redo logs.\nIf these logs have been evicted from\nmemory and are scattered across\ndifferent locations on the disk, the\nstorage node needs multiple disk\ndisk reads.\nFive or more to gather all the logs.\nThis causes high tail latency.\nOur solution is simple. When redo logs\nare about to evicted from memory, we\nwe proactively merge all logs belonging\nto the same page into a dedicated per\npage log space. Now, when a page read\narrives,\nwe only need two IO reads, one for the\nold page and one for the per page log.\nThis is because we pre-merge them into\nthe\nper page log space as a background\nprocess.\nUh now here is a critical point of the\nper page log design.\nOr allocating uh extra 4 kilobyte space\nfor database page would\nwaste uh 25% of space on a normal SSD,\nbut the SSD compresses the unused\nportions of this per page log space. So,\nactually\nactual physical overhead is minimal.\nThis optimization is only feasible with\nthe SSD.\nUm that covers our architecture design.\nNow, let me share about\nwhat we learned from deploying it at\nscale. First, the hardware redesign.\nUh on the hardware side, the first\nchange is the FTL.\nUh Poly Poly SSD\n1 used a host-based FTL with an open\nchannel architecture. While this made\nsoftware iteration\neasier, it caused a serious problem at\nscale.\nThe first problem is stability. We\nobserved\nWe observed many slow IOs exceeding 1\nsecond with some exceeding 10 seconds\nand lasting more than 10 minutes.\nUh and there some kernel bugs\nbring down the entire server.\nUh the second problem is the resource\nconsumption.\nUm the host-based FTL consumed uh 184\nGB of memory and the 24 CPU cores per\nserver for just the 25 devices.\nBecause of this overhead, we had to\ndisable software compression and limited\ndeployment\nto only 10 devices per server.\nuh Poly SSD 2 fixed all of this by\nmoving the\nmoving to a device management\nFTL. This means zero uh\nzero host CPU and the memory contention,\nand device features are contended to\nindividual device rather than affecting\nthe entire server.\nThe second change is the Poly\nSSD 2 is the maximizing the compression\nratio. The average hardware compression\nratio in our environment is about 2.5,\nbut the Poly SSD 1 only achieved a 2.4,\nwhich led to waste\nwasted physical space. To close this\ngap, we need to allocate them more space\nfor index to achieve a higher\ncompression ratio.\nUh beyond host level stability, we also\nencountered uh cluster level challenge.\nThe left finger shows the distribution\nof compression ratio across the storage\nnodes in a cluster.\nAnd the right one shows the physical and\nthe logical space distribution.\nThe compression ratio varied widely for\n1.2\nand the two to 3.8. This created\nproblem. Disks become full for different\nreasons.\nUh nodes with below average compression\nratio run out of physical space first,\nand their logical space is wasted. Nodes\nwith above average compression ratio run\nout of logical space first, and their\nphysical space is wasted because they\ndon't have enough index space to take\nadvantage of the higher compression\nratio.\nIn either case, uh usable capacity is\nwasted.\nUm to address this imbalance, we\ndeveloped a compression-aware scheduling\nstrategy.\nOur solution is\nthe\nas shown in this figure, we plot each\nstorage node with logical space\non horizontal X and physical space on\nthe vertical axis.\nThis divides nodes into four zones. Zone\nA has\nplenty of physical space, but limited\nlogical space.\nUh these are high ratio\nhigh ratio nodes. We migrate low ratio\nchunks out to the reliable and logical\npressure.\nby rebalancing chunks based on their\ncompression ratio, we make sure both\nlogical and physical space are used\nefficiently across the cluster.\nUh now let\nlet's look at the overall results in\nproduction.\nOur compressed storage have over 20,000\nSSD devices managing over 100 GB of\ndata. In this paper, we use four\nclusters in PolyDB to show the benefits\nin both performance and compression\nratio. Cluster Cluster C1 used PolyDB\nSSD Poly SSD 1 with software compression\ndisabled.\nUh Cluster C2 used PolyDB SSD 2\nwith all techniques enabled.\nAnd we compared them with two normal\nclusters, N1 and N2,\nwhich used normal Intel SSD with the\nsame hardware setup. Cluster C2 with\nPoly\nPoly SSD 2 and dual layer software\ncompression achieved a compression ratio\nof 3.55.\nThe cost per physical GB in 1.32,\nbut the effective cost per logical GB\ndropped to 0.37.\nThis is about a 60% cost reduction\ncompared to normal the normal SSD.\nThe natural follow-up question is does\nthis compare hurt the performance? The\nfigure shows the system throughput\nacross the seven\nworkloads. C1 used Poly SSD 1 with a\nhardware-only compression shows some\nperformance drop compared\nto the uncompressed baseline N1, but the\nstate two\nused Poly SSD 2 with dual layer\ncompression achieved similar performance\nto uncompressed cluster N2.\nLet me summarize our three key\ncontributions in our paper. First, the\ndual layer compression that combines\nsoftware flexibility with hardware\nefficiency. Second, three\ndatabase-originated\noptimization targeting the two critical\nIO paths uh in database.\nAnd the third, practical lessons and\nsolutions from large-scale deployment.\nUh thank you for your attention.\nThank you.",
+  "segments": [
+    {
+      "text": "Hi everyone. I'm Jinrui from Alibaba Cloud. Today I will present our work Polar Store high-performance data compression for large-scale cloud cloud native database. I will introduce the background and the motivation. Let me start with the background. Polar",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "DB is a cloud native relational database. It uses storage computer separate architecture. In this architecture, we have a read write node that handles write requests, multiple read only nodes for read queries, and a shared storage layer at the bottom. The",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "key benefits of this architecture is that elastic computing scaling. Users can scale computing resources up and down without any data migration. This significantly reduces computing cost. However, storage cost is a remain critical concern for our users,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "especially during periods of low activity. Therefore, data compression becomes effective way to reduce this storage cost. From our users' perspective, there are two main concerns about the compression. First, compression ratio. Users want the",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "highest highest possible compression to save money. For cold data and snapshots, they want to even higher ratio. Second, the performance. Users cannot tolerate any degradation on latency latency sensitive operations. Specifically, redo log write and",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "the page read latency. And importantly, compression should not consume extra CPU resources on computer node because these resources are billed to users. So, our question is how to do it achieve a high compression ratio without any performance overhead.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "There are three key dimensions to consider. The first is the compression input input size. This means how much data we feed into the compressor at a time. The second is the compression algorithm. This ranges from lightweight algorithm like",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "LZ4 to heavy algorithm like gzip. The third is the index granularity. To understand this, think of the space before compression as the logical space and the space after compression as the physical space. With compression, the system needs to maintain",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "index that maps the logical space to the physical locations. The index granularity defines the smallest unit that mapping. In other words, it defines the smallest piece of compressed data that can be independently located and read.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "For the compression input block size, a larger block block gives a compression algorithm more information to work with, so it achieves a higher compression ratio, but it also introduces extra amplification and extra compression and or decompression overhead.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "On the other hand, a smaller block enables better random access, but gives a lower compression ratio. This is a foundational trade-off between compression ratio and performance. The second dimension is the compression algorithm. Software based approach",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "offers flexible compression parameters and dynamic configurations, but they come with lower performance. Hardware based approach like FPGA or QAT provide a high performance, but they are limited to fixed configurations. Again,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "this is a trade-off between compression ratio and performance. The third dimension is the index granularity. Byte level indexing is a space efficient, but it requires complex garbage collection and space management. 4 kilobyte level",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "indexing is simple, but it wastes space compared to byte level indexing. This is another difficult trade-off between compression ratio and performance. Now, let me show the exciting approaches in original Polar DB. The first one is B+ tree compression at",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the database layer. It takes 16 kilobyte input, uses flexible software compression, but index at 4 kilobyte granularity. The problem The problem is that the 4 kilobyte indexing leads to space fragmentation and sub-optimal compression ratio.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "The second approach uses computational storage drives or CSD. CSD compresses 4 kilobyte input block and user level and uses byte level indexing handled by the variable variable length FTL. It achieves extended space efficiency with zero",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "software overhead. However, the input size is fixed at 4 kilobyte and the compression algorithm is not a flexible. Therefore, neither approach can break the trade-off. This brings our key idea, dual layer compression. As shown in the figure,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "layer one is the software layer. It compresses 16 kilobyte pages into unblocks. It supports flexible input size and allows the user to to close choose LZ4 or ZSTD per page. Layer two is the CSD hardware layer. It further compresses",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "these 4 kilobyte blocks into byte aligned physical blocks. The variable length FTL handles byte level indexing without any software overhead. Dual layer compression is the co-design of our system. Furthermore, since our storage only serves Polar DB,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "can do many database specific optimizations. Before going into the details, let me first talk about the two key IO metrics we care about. The first one is the redo log write latency, which is directly affects transaction commit.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "The second one is the page read latency, which affects the query performance when we have a buffer pool miss. Based on these two metrics, we designed the three optimizations. The first one, we bypass compression for redo logs. We",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "use a non-compression flag combined with a high-performance SSD such as obtain Intel obtain SSD. This works well because redo logs are small and are frequently recycled. The second one, we do adaptive algorithm selection between LZ4 and ZSTD for each",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "page to get better page read latency. And the third one, we introduce a per page log mechanism to solve the long tail latency problem in page read. Let me explain the second optimization in detail. Here is the key observation",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "behind the design. Because of 4 kilobyte alignment, even a tiny size difference between can fill a whole IO block. Look at this example. LZ4 compresses a page into 4,097 bytes. That needs 8 kilobyte for all IO, but ZSTD compresses the same page to 4,096",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "bytes, just one byte less, and it only needs 4 kilobyte IO. That That is single byte saves 4 kilobyte IO, which easily outweighs ZSTD higher compression higher decompression cost. So, in this case, we use ZSTD. But now look at the in other side. LZ4",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "compresses 4,095 bytes. That needs 4 kilobyte IO. ZSTD compresses 2,000 bytes. Also 4 kilobyte IO. ZSTD saves zero IO here. But it wastes the CPU on decompression. So, in this case, we choose LZ4. So, neither algorithm is always better.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "The best choice depends on each specific page. Our decision run per page per per page during page writes, not on the read path. If CPU utilization is about 20%, we just default to use LZ4 for lower head. Otherwise, if the page has more than 30%",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "of data content, we try both algorithm and compute the benefit to overhead ratio. If the saved bytes per extra microsecond of decompression exceeds our throughput, we pick ZSTD. Otherwise, we pick LZ4. This threshold comes from the fact that saving 4 kilobyte",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "reduces and read latency by about 20 or 14 microseconds. Now, let me explain the third optimization, the per page log design. In the normal case, when a page read arrives, the storage node reads the page from disk in a single read.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "But in the worst case, the old page needs to be updated with new redo logs. If these logs have been evicted from memory and are scattered across different locations on the disk, the storage node needs multiple disk disk reads.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "Five or more to gather all the logs. This causes high tail latency. Our solution is simple. When redo logs are about to evicted from memory, we we proactively merge all logs belonging to the same page into a dedicated per page log space. Now, when a page read",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "arrives, we only need two IO reads, one for the old page and one for the per page log. This is because we pre-merge them into the per page log space as a background process. Uh now here is a critical point of the per page log design.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Or allocating uh extra 4 kilobyte space for database page would waste uh 25% of space on a normal SSD, but the SSD compresses the unused portions of this per page log space. So, actually actual physical overhead is minimal.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "This optimization is only feasible with the SSD. Um that covers our architecture design. Now, let me share about what we learned from deploying it at scale. First, the hardware redesign. Uh on the hardware side, the first change is the FTL. Uh Poly Poly SSD",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "1 used a host-based FTL with an open channel architecture. While this made software iteration easier, it caused a serious problem at scale. The first problem is stability. We observed We observed many slow IOs exceeding 1 second with some exceeding 10 seconds",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "and lasting more than 10 minutes. Uh and there some kernel bugs bring down the entire server. Uh the second problem is the resource consumption. Um the host-based FTL consumed uh 184 GB of memory and the 24 CPU cores per server for just the 25 devices.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Because of this overhead, we had to disable software compression and limited deployment to only 10 devices per server. uh Poly SSD 2 fixed all of this by moving the moving to a device management FTL. This means zero uh zero host CPU and the memory contention,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "and device features are contended to individual device rather than affecting the entire server. The second change is the Poly SSD 2 is the maximizing the compression ratio. The average hardware compression ratio in our environment is about 2.5,",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "but the Poly SSD 1 only achieved a 2.4, which led to waste wasted physical space. To close this gap, we need to allocate them more space for index to achieve a higher compression ratio. Uh beyond host level stability, we also",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "encountered uh cluster level challenge. The left finger shows the distribution of compression ratio across the storage nodes in a cluster. And the right one shows the physical and the logical space distribution. The compression ratio varied widely for 1.2",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and the two to 3.8. This created problem. Disks become full for different reasons. Uh nodes with below average compression ratio run out of physical space first, and their logical space is wasted. Nodes with above average compression ratio run",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "out of logical space first, and their physical space is wasted because they don't have enough index space to take advantage of the higher compression ratio. In either case, uh usable capacity is wasted. Um to address this imbalance, we",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "developed a compression-aware scheduling strategy. Our solution is the as shown in this figure, we plot each storage node with logical space on horizontal X and physical space on the vertical axis. This divides nodes into four zones. Zone A has",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "plenty of physical space, but limited logical space. Uh these are high ratio high ratio nodes. We migrate low ratio chunks out to the reliable and logical pressure. by rebalancing chunks based on their compression ratio, we make sure both",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "logical and physical space are used efficiently across the cluster. Uh now let let's look at the overall results in production. Our compressed storage have over 20,000 SSD devices managing over 100 GB of data. In this paper, we use four",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "clusters in PolyDB to show the benefits in both performance and compression ratio. Cluster Cluster C1 used PolyDB SSD Poly SSD 1 with software compression disabled. Uh Cluster C2 used PolyDB SSD 2 with all techniques enabled.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "And we compared them with two normal clusters, N1 and N2, which used normal Intel SSD with the same hardware setup. Cluster C2 with Poly Poly SSD 2 and dual layer software compression achieved a compression ratio of 3.55. The cost per physical GB in 1.32,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "but the effective cost per logical GB dropped to 0.37. This is about a 60% cost reduction compared to normal the normal SSD. The natural follow-up question is does this compare hurt the performance? The figure shows the system throughput across the seven",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "workloads. C1 used Poly SSD 1 with a hardware-only compression shows some performance drop compared to the uncompressed baseline N1, but the state two used Poly SSD 2 with dual layer compression achieved similar performance to uncompressed cluster N2.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Let me summarize our three key contributions in our paper. First, the dual layer compression that combines software flexibility with hardware efficiency. Second, three database-originated optimization targeting the two critical IO paths uh in database.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "And the third, practical lessons and solutions from large-scale deployment. Uh thank you for your attention. Thank you.",
+      "start": 300,
+      "duration": 6
+    }
+  ]
+}

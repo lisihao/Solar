@@ -1,0 +1,844 @@
+{
+  "videoId": "0L4bKL4OEi0",
+  "title": "HM - FMFM _ Fleetscale Memory Fault Management - workstream - (2026-04-21)",
+  "channelName": "Open Compute Project",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 41140,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "That's so cool.\n>> Hi Drew. How are you doing?\n>> Yeah. Yeah. Good morning.\nMorning. Hi. Good morning.\nYeah, it's a little early in the\nmorning, but uh you know, I'm waking up.\nAlthough I I normally would be flying\nright now, and I'm glad\nI'm not today. There's going to be\nthunderstorms here this afternoon.\n>> Oh, yeah. Yeah. Too much rain. Too rain\nall over the bay.\n>> Yeah, we need it. But it's not good\nflying weather.\n>> True. True.\n>> It's It's funny that we are soaked here\nin Houston as well. Same time. Same\nsystem, I believe. Maybe.\n>> Oh, wow. Nice.\n>> Yeah, I think um\n>> Oh, sorry. Can I just say hi to Theo?\n>> Theo's here. Yeah. Heyo.\n>> Anil is here. Kit is here.\n>> Good morning, folks.\n>> Morning.\n>> Good morning. Good morning.\n>> Good.\n>> Good morning.\nAll right, I'm going to pull up my\ntopic spreadsheet here.\nSo, um\nI guess we had a couple of topics today.\none is um\nso the the one topic is alternate\ninternal ECC logging for fleet\nreliability\nand I've been working with uh Adam on\nthat but we are we're not quite there\nyet.\nUm, so I'm not quite ready for that. And\nthen we also had analyzers in time for\nthe RAZ API.\nAnd so, uh, I think\nwhat I'd like to do is show you all, uh,\nkind of a RAS API flow\nthat we're putting in the document, but\nit's it's pretty high level, but talk\nabout what this time series would look\nlike. And um\nyou know I was just talking to Rama\nyesterday and uh\ninside Microsoft we're we're trying to\nget ready for time series analyzers and\nwe want to be ready to intercept them\nand we want to have a plan for them\nbecause we know that you can't really\ndiagnose memory from a single error and\ncounting errors doesn't work nearly as\nwell as looking for patterns of errors.\nSo, uh, so anyway, maybe maybe we can\nstart with that today and then I can\ntalk a little bit about what Adam and I\nhave in mind. Are there other topics\nyou want to cover today?\n>> Okay.\n>> Not that I'm aware of. Anyone else? Any\nopens today?\n>> Any from industry? Anything else want to\ndiscuss?\njust want to u announce that there is a\nJDK forum um next month\num I don't know if anyone in this call\nis planning to attend\nif you are\n>> what is the Jed forum about is it their\nannual thing\n>> yeah I think they do maybe quarterly or\nmaybe twice a year where Um all the\nmemory experts those who have interest\nin memory they join it's open you don't\nhave to be a JC member um there's small\nfee\n>> and uh you can uh join listen in\ninteract with the various uh DM vendor\nexperts and SOC experts and all\nbasically you know it's a community\nevent\nso I will be speaking Mhm. really what\nare you speaking about? Sorry.\n>> Yeah. Uh how we\ndesign memory subsystems\nin our meta infrastructure? What are\nrequirements? How we decide things like\nthat?\n>> Anil, could you throw a link into the\nchat?\n>> Uh yes, actually if you go to just do a\nGoogle search for JDK forum 2026,\nyou will get that. But I I'll put a link\nhere. I'm I'm not in the in front of my\ncomputer right now, but I'll put it once\nI get there.\n>> Yeah, actually I see it. I'll put the\nlink in.\n>> Thanks.\n>> Yep. It's a two-day event. First day is\nclient mobile auto auto industry and\nsecond day is all server AI stuff.\n>> Yep, that's what it is.\n>> Thanks for the link. Thank you, Anil. I\nwonder if Ian is aware you aware of that\nJed forum. You're probably closer than\nanyone else with the Jed.\n>> Yeah, I my team doesn't work super\nclosely with with the the Jed things. Um\nbut yeah, I it has come across. When did\nyou say that was an\n>> May 12th? May\n>> May 12th\n>> 13th.\n>> Yeah, I did see that come across. Um,\nI'm sure we'll have some some people\nfrom our architecture team there.\n>> Yeah, it's a small fee, $50, but I think\nit's worth attending in case you want to\nhear understand what's going on and\nwhat's the future\ndata vendor guys are thinking.\n>> They really want to keep DM cheap, huh?\n[laughter]\nI think the fee was decided long time\nago. Otherwise, it would have been 500\n10x. [laughter]\n>> Maybe maybe it's the same thing. They\nsold out for two years.\n>> Well, hey, the prices are coming back\ndown. But, uh, anyway, okay, this is\nthis sounds good. Um,\nand if anyone's traveling to attend\nthis, maybe we can uh have a get\ntogether of this team, you know, just\ninformally meet somewhere and say hi to\neach other.\nOkay. Um,\nhere's what I wanted to show.\nAnd, um,\nwe'll zoom in a little bit.\nThis is very simple,\nbut um\nwe're putting this in the RAS API, but\nit it it it\nshows how we're uh thinking of, you\nknow, building the the the time series\nanalyzers with RAZ API. The way Oh, we\nhave two people in the in the waiting\nroom. Let's see.\nYou're going to let him letting him in.\n>> Yeah, I I turned on the chime because\notherwise we just miss people. So, I\ndon't know. I I keep resetting this\nthing and it keeps going back to I I\nguess there might be OCP default or\nsomething to force people to be\nadmitted. I don't know if you have a\nsolution, but right now we're just\nmanually doing\n>> I've turned it off, you know, live in\nthe\n>> I did I did too, but that comes back\nevery time. It defaults back to\n>> Yeah.\n>> Yeah. I'm just saying maybe we turn it\noff in the meeting. Yeah. So it doesn't\nbut but I but yeah we\n>> I think it has to be like every meeting.\nThat's okay. Yeah. Let's move on.\n>> Okay. Um\nso I just want I wanted to to to talk\nabout this and and and what our plan is\nfor time series analysis and um\nso you know we have commands get seer\nand and you get a seeper back and so in\nthe context of memory\nwhat we want to happen is when we call\nget seer to get as much information as\nwe and\nas listed in the the FM document and you\nknow really we'd like it all. So you\nknow that includes you know PUMMIC data\nand\nuh you know the the syndrome information\nabout which bits were flipped and uh and\nso we we get that in a in a pile of a we\ncall get seeper and and this get seeper\nmay end up being a push. In fact, you\nknow, pretty much everyone in scale does\nnot like to pull. Uh so there'll be a\nhey give me your I'm registering\ninterest in seers uh get seer and then\nyou know seepers will come from it. But\nfor simplicity sake I'm showing you know\na command and a response\nand\nwhen uh we call that the collection\ninfrastructure will add that to the seer\nhistory and then it will send the new\nseer and seer history to the seer\nanalyzer. And in this particular example\nmemory would be a perfect example. Um,\nyou know, we get the first seer\nand there's nothing to do. And just a a\ngood example of that would be uh you\nknow if we had a radiation strike we\ndon't we could have a a burst of errors\nand uh we we can't assume that we have a\nfailure just because we had an error\nbecause there's no repair for a\nradiation stride.\nSo we'd say, well, there's no action.\nBut [snorts]\nif we call get seer again and get\nanother seeper and we look through the\nhistory what what we're imagining the\nanalyzer is doing is\nyou know looking at the newest seer and\n[snorts] then saying is there anything\nrelevant in older seers that might help\nand look through the older seers and\nthat keeps the analyzer stateless and it\nmeans that we can um\nwe can build cloud software with it.\nLike if the analyzer fails, we can move\nit to another node. And uh so we uh\nwhat we'd like to do is uh is is you\nknow get these series of seepers and\neventually the analyzer decides that you\nknow it wants to do something about the\nerror like a self-repair and so then it\nsends a CPAD to our policy tool. Our\npolicy tool would look at the analyzer\nthat the silicon teams provided\nand say okay you know this is the Intel\nMicron you know analyzer\nuh it's accurate\nwe uh we we believe that this is the\nright action we'll let that one through\nand uh and so then we we send it to the\nRaz endpoint\nand uh the the RAZ endpoint will\nacknowledge the the CPAD uh acknowledge\nreceiving it but then sometime later\nwe'll call get seer and we'll get a\nplatform action event seer\nand the platform action event seer will\nbe what tells us that the action\nsucceeded.\nSo for example, if this was a uh if this\nCPAD was a uh boot time uh post package\nrepair,\nthen uh it may be some time before the\nmachine reboots and we get this platform\naction event. Um but what we've done is\nwe've made it so the platform action\nevent that tells us the status of the\nCPAD is cor it's easy to correlate that\ncontains the CPAD basically in it. So we\ncan tell that oh this this CPAD um\nworked and um we might get a success\nhere and say oh good it looks like it\nworked but if I call get seer again and\nstart getting the same error that I was\ngetting before then I might determine\nthat it didn't work and so you know this\nis something we want to work on you all\nwork with you all on time series\nanalysis because we we believe we you\nknow figure things out like this with\nyou. Go go go go go ahead ma. Um yeah so\nI was wondering in this diagram what's\nthe trigger for get seer like\nwhat\ncauses that to be\n>> that's a really good question I was\nshowing it as polling\nbut\nlike the red fish mapping of API\nyou'll um\nwhat you'll do is you'll register\nfor red fish events.\nSo you'll say\ngive me um\nall the events with these message ids\nand there'll be one message ID per que.\nSo um\nyou you subscribe to four message ids\ncorrected uncorrected or deferred you\nuncorrected\nuh the event Q and information. Um so\nthis get seer would become\nI am registering interest in these seers\nand then the the endpoint would just\nsend them when it got them.\n>> So\n>> okay so like the platform action event\nseer the one at the bottom\nuh that would fall within that like\npulling model\n>> category.\n>> Um we'll we'll handle all seers the same\nway. [snorts]\num they just each queue will have a\ndifferent message ID and um this is in\nwhat we're calling the event Q\nand the event Q is things that aren't\nerrors you\n>> yeah that's one\n>> but they're they're relevant to hardware\nerror so yeah exactly\n[snorts]\n>> um so you I mean like the idea is that\nuh the collection infrastructure\nuh at some interval\n[snorts] asks for sever is is that it of\na certain type\n>> if you want to pull um and polling will\nbe supported with redfish because you\ncan like like uh the seers always go in\na message queue that you can pull but\nthere's also\nuh redfish eventing and so this is why\nwhen we talk about RAS API\nwe talk about it conceptually in the RAS\nAPI spec\nBut when we talk about um the details\nthe details will be in redfish. So with\nred fish eventing again you register\ninterest you say hey uh braz API\nendpoint [snorts]\nwhenever you get a seer\nuh send me the seer in an event and so\nthen it comes as an event but I'm just\nshowing the polling model because it's\nthe most easy to understand but I I\ncould\n>> I believe I believe Drew you are not you\nyou're highlighting only the RAS API\nprimitive commands here and of course\nstructures like Cers and Cpad because we\ndid also talk about other\nacknowledgements you know which\nrepresentation PLDM may be using but\nthat's not where your focus is here in\nthis diagram right\n>> right right well and and I mean yeah but\nif if me I just want to yeah you uh uh\nuh address any concern we will support\neventing so yeah uh but but it's just\nnot shown here exactly because you said\nwe're we're dealing with the RAS API\nprimitives\nand and so Just a just an observation\nDrew. I mean um the I I understand the\nintent of the lowermost get seer. You're\ntrying to show there may be a delay\nbetween put cad and action event seer.\nUh just a preference I think uh you want\nto show you you want maybe think about\nit. It the get seer that is between this\nput cpad and platform action event seer\nseems a little distracting to me\npersonally at least. Just little\nfeedback here.\n>> Well, it's just a seer. You have to get\nit the same way you get all the others.\n>> No, no, no. What I'm saying is you are\ntrying to demonstrate that once you put\na cpad, you get a platform action event\ncer in response to that cpad, right? And\nthis get cer in between the two is a\nlittle distracting. That's all. Yeah.\n>> Yeah. But but that's actually really\nimportant because\n>> Oh, because you're saying it's a pull\nmodel. You still have to do it. I see.\n>> Well, you it's really important. Put\nCPAD\nMike put the CPAD\ntoday and then two months later we see\nthe platform action event when they\nreboot the machine.\n>> Yeah, that's true. That could happen.\nthat will be I think that will not that\nwill be a fairly common thing right is\nthat uh that that for certain RAZ\nactions there will be a precondition\nthat has to be met and um\nyou know sometimes it may be that the OS\nneeds to migrate off a core you know if\nwe want to do core fairing or something\nit might be that we need to reboot a\nmachine for a hard post package repair\nor if we're doing another if we're doing\na runtime post package repair,\nit might be that the previous runtime\npost package repair has to complete\nbefore we can do the next one because\nyou know there's some resources in the\nmemory controller that are are are\nneeded to do the second operation. So\nit's gonna it's really common to have a\nprerequisite for a RAZ action. So like\nlike the timing between putting the CPAD\nand and getting the response for the\naction will generally be you know\nseparate in time. Go ahead Nita.\n>> Yeah. Yeah. Um I'm kind of uh just\nwondering like you said uh the platform\naction event seer could happen two\nmonths later because of the reboot. But\nmy mental model was a little bit\ndifferent uh because I thought we talked\nabout the platform action event seer\nindicating that the action will be taken\non like you know on a reboot for\nexample. So in that case\num it's not like it you know it's not\nlike you have to wait two months for the\nuh platform action event seer to occur.\nyou should be getting something back\nafter the CPAD indicating that the\naction will be taken, you know,\npotentially later.\n>> Is is that's not a that's not a seeper,\nthough. That's a um\nAnd I don't know why.\n>> I thought that was\n>> Yeah,\n>> it's not a seeper. It's a It's a uh\n>> No, no, no. So, no, do the two things.\nYou're talking about the transaction uh\nacknowledgement. That's transport layer.\nWe're not talking about those here at\nall. But I think she's right. We did\ndiscuss that there uh there would be uh\nplatform action seer which may say that\nyou know this action will be deferred\nand taken later. We did discuss that. So\nMita\n>> Yeah. Yeah. Um that that's absolutely\nright. You're right mida. And uh and so\nyou could get multiple platform action\nevent seers. Yes.\n>> Okay. No, you might get you might get\nmultiple, you might get one depending on\nthe timing and we haven't really\n>> Yeah, my mental model is that you'll get\nat least one back in a, you know,\nrelatively soon after the\n>> response. Yeah. As a response, right?\n>> As an indication of success or as an\nindication of of deferred action, which\nwould be like a reboot or Yeah. And then\nYeah, that that that was my mental model\nat least.\nYeah. Yeah, you're right. You might. You\nmight. And um\nI don't think in this example I was\ntrying to to to cover that, but I think\nI will make a mental note to show that\nin another, you know, this is this is\nsupposed to be\nkind of the most common case.\nUh but but you're right. And so I can\nmake I'll make another drawing with a\ndifferent scenario and show that. And I\ncan just say, you know,\nthat we have a long-standing\nprerequisite. So, we get an early status\nback and then we uh we get a later\nstatus back two months later.\n>> And remind me if uh if this is correct,\nbut I think we call themformational\nseeers or something else. I don't know\nwhether they were called plat like maybe\nthat was the one that I was thinking\nabout like\n>> they are called platform action events.\n>> Oh, okay.\n>> Yeah, they're the time. Yeah, they I\nthink uh informational is what we use\nfor Q nomenclature, right?\n>> Right. And and and this is in the event\nqueue, not theformational queue.\n>> Oh, okay. Okay. Okay. Okay. Yeah. Yeah.\n>> So, uh hey Drew, just a thought. I think\nwhen the the last step platform action\nevent seer which says acknowledging the\nlet's say PPR\nI think that message in my opinion\nshould go all the way to the policy\nagent\nand triangulate that okay I I made a\nrequest\nand I have a confirmation that the\nmessage has gone has reached.\n>> Well, it doesn't no we don't do that. We\nbut but directly um that that wouldn't\nquite help and if that's a that's a\nhyperscaler choice at that point.\nbut uh but but see since it's a seeper\nthe uh and and you raised a good point\nthere. My computer's I'm not doing this\nanymore. This is I've let go and it's\nstill moving. [laughter]\nyour grass API is in auto mode\n>> API the AI took over um\nno I mean since it's a since it's a\nseeper\nuh it just takes the flow of a seer and\ngoes to the analyzer if you as a\nhyperscaler also wanted to recognize\nthat was a platform action event and\nsend it to your your policy tool so that\nyou could though the policy tool is\nhyperscaler dependent it. Hyperscalers\nput what they want into it and they feed\nwhat they want into it. So\nif you're, you know, you might feed\nCPADs to it, but you might also feed\ninformation to your policy engine about\nthe workload that's running and you\nmight take you might reject a CPAD\ndepending on the quality you believe the\nCPAD has and the workload that's\nrunning. You might decide that for this\nworkload I'm willing to take a\nperformance hit. It won't hurt the\nworkload, but for another workload, you\nmight say if I'm doing something that's\nyou're going to reduce performance is\nunacceptable, I'm rejecting it. So the\nthings that feed into the policy engine\nare very very very much hyperscaler\ndependent for the hyperscaler's use\ncases. That that's kind of the point of\nit is that it gives the hyperscaler the\nability to make their own decisions.\n>> Yeah. So so one more thing. Sorry. uh um\nso the agent running in the\ninfrastructure okay\nand the policy let's say database\nthey're two different entities or maybe\ntwo different entities\n>> what's the agent running in the\ninfrastructure\n>> yeah ultimately the the agent who\nresponsible to to issue an action or an\nagent who is responsible to collect the\nlogs\nokay uh that agent\nis not the same as policy database. I I\nI'm just thinking out loudly. I don't\nknow if policy it's a policy database,\nright?\n>> It's not a database.\n>> Sorry, policy is not a database.\n>> No, it's a it is a thing that gets a\nCPAD and decides whether to do it or\nnot.\n>> Okay. Okay, so this is this agent\nuh running in the infrastructure along\nwith the policy together.\n>> Well, the collection infrastructure\nwill keep a history of CPADs and pass\nthings around. But\n>> yeah, that's the intermediary, right? Um\nit job is to you know either poll it or\nevent uh get the information pass it on\nto analyzer. That's it.\n>> Yeah, but I'm trying to be as least\nabsolutely least specific about how you\nimplement that as possible. So I'm just\nputting the minimum in and the minimum\nthis has to do is collect seers and keep\na history and feed them to the analyzer.\nThat's like the the bare minimum and the\npolicy engine somehow has to be able to\nget a cadab back to the RAS API\nendpoint. But I am not telling you how\nto do it. If you want to go through the\ncollection infrastructure or if you want\nto have a separate path back it is, you\nknow, entirely up to you. I'm see what\nI'm saying. We don't want to specify\nthat. You have the freedom to do it\nhowever you want. Right here we are not\nspecifying how to do it. What we see\nwhat I'm saying is that whosoever is the\nagent that is putting the seat to the\nmachine should get an acknowledgement\nall the way to the acknowledgement has\nto come back all the way to the agent\nwho actually put the sep. If you\nterminate in between in between then the\nagent doesn't know whether um the the\nthe separate action really got\nacknowledged or not.\n>> Well that the that is your decision. uh\nthe analyzer will see that the action\ncompleted and it could see that the\naction failed and send another CPAD and\nsay oh no uh the the self-repair failed\nI better uh ask to replace the part and\nthe analyzer is in a better position to\ntake first crack at that because it\nknows the all the features especially\nthe proprietary ones and it knows what\nit means when they fail and so it would\nActually if the and we can put it we can\ndo it that's a different example but if\nif there was a failure in a CPAD\nuh then the analyzer might send another\nCPAD saying hey replace the part u so\nthe policy engine doesn't probably get\nit directly in most cases but if you\nwant to do that nothing's stopping you\n>> yeah I'm just\n>> that is broadly that in a logically\nspeaking when in a when the agent that\nsends action is the agent who should\nreceive a response somehow\notherwise the agent is still lingering\nthere uh has no clue whether\n>> right\n>> action was acknowledged or not that's\n>> so so I think what Drew is trying to say\nis you can do that you can do that in\nyour infrastructure but RAS API spec\ndoesn't have to show it that you should\ndo it this way that's all\n>> right\n>> no we are not RAS API here\nRAS API\n>> this is a RAS API flow and what you're\nsaying is in my infrastructure I want\nthe policy engine to see acknowledgement\nfor C cpad what happened with it and you\ncan do it\n>> yeah and a lot of people will want that\nit's going to be a common thing but the\noriginator you actually the actual\noriginator of the action is the analyzer\nnot the policy engine the policy engine\ndidn't have a bright idea oh I'm going\nto take action on an error it um it got\nsomething recommended to it and it said\nthumbs up or thumbs down. So that that's\nwhy I'm saying the analyzer in the RAZ\nAPI flow gets it first and then if\nthere's a subsequent action to take you\nsend it back to the policy engine. But\nif you wanted to send this uh this\nplatform action event seeker to the\nanalyzer and you want to recognize that\nit's special and also send it to your\npolicy engine. Yeah, have at it. It's\nfine but it's not required. The the\nbasic thing is all seepers go to the\nanalyzer and the analyzer spits out\ncpads when it knows what to do when it\nhas an idea.\n>> Anyway, I'm just think um speaking\nloudly here. That's fine. Keep keep\ngoing.\n>> Yeah. And nothing stopping you from\ndoing what you want to do. Um but but\nthis is just kind of an example. But but\nthis is the the you know but the key\nhere\nis that that the analyzer I\n[clears throat] wanted to the only the\nmain reason I wanted to show this\ndrawing is because the analyzer will see\na breadth of history that it could not\nsee before. And so I want to seed the\nthought in memory vendor minds and in\nCPU vendors minds and GPU theo uh that\nthat that we'll be looking at a history\nof seepers and the seepers will contain\nerror data that will also contain what\nhappened in the past in terms of\nactions. So if this if this sequence\nwere to continue we would have another\nyou know get seer and we'd have new\nerrors and new things to analyze\nprobably from this you know machine and\nthey you know they may be different\ncompletely different fus it may be the\nsame fruit it may be that after you try\na couple of self-repairs the analyzer\ngoes n I'm not going to keep repairing\nthis it's a losing battle I'm just gonna\ntell them to replace it So, this is the\nkind of thing I want folks to think\nabout is uh you know like like how do\nyou decide when a part needs to be\nreplaced and and and let me just if I\ncould shout one thing from the\nmountaintop to the CPU and memory\nvendors, this is in your interest\nbecause you get a bigger say than you do\ntoday on when parts get replaced. So, if\nyou do a really good job on this\nanalyzer, you could potentially\nmake your warranty cost substantially\nbetter by optimizing the repairs because\nsometimes, you know, today we have a\nfairly high rate of no fault pounds with\nuh DIMS returned. And I've seen that,\nyou know, pretty much everywhere I work.\nAnd uh if if you all write a good\nanalyzer here, um you could really\nimprove your warranty costs by a\nsignificant amount of money.\nSo I'd like to think about that. And um\nyou know, we we're at Microsoft, we're\ngetting ready to run analyzers like\nthis. I know other hyperscalers are also\nmaking plans here and can some can\nactually probably do it already.\nUm,\nso what do you all think? I mean, and\nwhat I'm looking for is, you know, like\nlike memory people and and uh and CPU\npeople to say, \"Okay, this is I'm\ntracking this makes sense or oh no,\nwe're not planning to do this.\"\nSo, you know, Yogesh, I don't think this\nshould be too much of a surprise for\nyou. Um\n>> uh I mean I think um everyone other than\nmaybe Hankit and Ivan Studi has been\npart of Ras API discussions. So yeah\nthis is no surprise um but I think it's\nimportant uh that you know the in terms\nof expectations from the analyzer\nuh input and output that we have been\ndiscussing in this forum. So that's uh\nthank you for connecting those dots. I\nthink that's critical.\n>> Thank you. And that's a good word for\nit. That's exactly what I'm trying to do\nis connect what we're, you know, the big\npicture with what we're doing here.\nSo So you know, Evan is Yeah, I'm not\ntrying to put you on the spot too much,\nbut you know, does this make sense to\nyou? Are you following the the concept?\n>> Yeah. Yeah, I think it it kind of\nfollows what what we've been thinking\ntoo, Drew. Yeah. I I mean most of this\nis stuff we've kind of talked about\nbefore, right? We just didn't really\nhave it in this chart.\n>> Yeah,\n>> we've had a lot of debates about what's\npolicy and what's what's recommendations\nand etc. But yeah, I think this this\nkind of follows all that.\n>> Okay. I'm just trying to I want to make\nit you know clear and and I think like\nlike the memory analyzer would\n>> be generating CPADs effectively you know\noring or or telling the CPU anal you\nknow like the the CPU to generate CPADs\nthe CPU analyzer because it it may have\nRAS features like like runtime post\npackage repair.\n>> Yep.\n>> Yeah. The analyzer is basically broad\nterm. It will have it will be whatever\nSOC analyzer which has wrapped within it\nvarious DM vendor analyzers and\n>> yeah on right\n>> yeah it'll be the framework we've talked\nabout in this meeting. Exactly.\n>> Um now uh now what is different here\neven is uh this is uh from RAS API spec\nthat is being developed. So that's why I\nmeant to say when I said connecting the\ndots. So all these commands are being\ndefined, data structures are being\nfinalized. So whatever we've been\ndiscussing here is\nuh one what Drew is doing here is trying\nto make sure that we still aligned and\nalso everyone is aware of development in\nthe RAS API.\n>> Yeah.\n>> Yeah. Thanks. appreciate that and I\nthink this this makes sense\n>> and and I think if we can kind like make\nit common enough like like the that's\nthe beauty of the RAZ API is it's a it's\na pipeline with uh with uh clear uh flow\na clear way to get seers input cpads\nand then uh but but the but seer is just\na binary data structure and so is cpad\nSo we can make the seer as rich as we\nneed it to be and uh and and and also\nthe same with the CPAD. You know, if you\nhave a pretty elaborate feature you want\nto drive with it, you can build a CPAD\nto drive it. So uh uh but but if we\nstandardize those flows among the\nhyperscalers, then\num I think it'll be it'll make it easier\nfor us to all make investments in the\nflow.\nAnd that's really what I'm asking so is\nfor you all to make an investment in the\nflow.\nSo you know um you know Roy you know on\nunc on kit do you do you all track with\nwhere we're heading stuti um you know is\nany of this a shock to you or is this\nmaking sense?\n>> Yes. Thanks for explaining. Um I think\nit makes sense to me.\nOkay.\nUh, sounds good. And\n>> Oh, go ahead, Yash.\n>> I think yes, it makes sense.\n>> Oh. Oh, I'm sorry, Sak. I thought that\nwas Roy. Go ahead, Sico.\n>> Well, it makes sense to\n>> So, um, okay. and and and you know Roy\nand I Roy was one of the early people\nthat came to me and said Drew you can't\ncount memory errors and I always agreed\nwith him but so Roy hopefully this is\nthis is not counting this is you know\nlooking at data and drawing patterns out\nso hopefully it doesn't shock you um\nbut uh so so what I'd like to do is try\nto figure out when are we going to have\nthese\nand even,\nyou know, even if the RAZ API is not,\nyou know, out there perfectly,\num,\nyou know, we we're we're getting the\nfirst version of the spec out shortly\nthat we could implement that shows all\nthese things. Um,\nI think we would also like to\num start trying out analyzers.\nSo if you know this is kind of a I what\nI'd like to do is ask you all to go back\nand uh you know think about your plans\nfor analyzers and and when you might\nhave something to for us to try and uh\nyou know we might not be able to\num to discuss it here.\nOh thank you thank you Roy. uh so uh\nyou know like I like even if you can't\ndiscuss your road map here um you know I\nthink I think it it is it is would be\nhelpful if you were could prepare to\ndiscuss with your customers\nuh plans here so that we could um you\nknow make sure that we're ready to\nintercept what you're doing because we\nhave dependencies in each other right\nand so I don't know the best way to\nproceed there Does anyone have a\nsuggestion on like you know how do how\ndo how how do we how do we take the next\nstep?\n>> So Drew the the proof of concept you\nwere you know Microsoft was working on\nuh there must have been a mockup of a\nanalyzer.\n>> Yes.\n>> And we are\n>> I was wondering we are doing that. Yeah.\nSorry I was just going to answer your\nquestion. Yes you're right.\nYeah. So, I was wondering like uh maybe\nto make it easier for the silicon\nvendors and the memory vendors, there's\nprobably like a common template\nthat you know like there's some part of\nit that's just going to be common. uh\ninternally the analyzer is going to do\nwhatever the memory vendor uh would do\nfor their particular silicon, but\nthere's probably like some kind of\nwrapper around it that's RAS API\nspecific that might be a good thing to\njust um share out with with with the\nsilicon vendors as a start. I don't\nknow.\n>> Yeah, ours was pretty crude. Um it was\nit was uh for the mo for the demo it was\nit was you know heavily it was like a\nPython file. It wasn't even a that we\ncalled like a you know called functions\nfrom but uh I mean we could that may be\nsomething we want to work on and maybe\nwe work on that a little bit here. Uh\nso because because we have the most\ncomplicated analyzer requirements here I\nbelieve because we have\n>> sorry um maybe I missed the question a\nlittle bit in terms of deliverable\ndeliverables\nout of this forum what is the question\nagain\n>> when are we going to get analyzers and\nwhen what's the next step in getting\nanalyzers and doing proofs of concept\nand you know we we so we've got the idea\nI think people agree with it. Uh, and so\nwe we know where we want to go. I'm just\nasking how we get there and I don't I\ndon't know the answer. So I'm I'm like\nit's a kind of an open end.\n>> Yeah, I think that's that's more of a\nindividual vendor level question, isn't\nit?\nRight. I mean, we're not going to\ndeliver analyzers out of this FMFM port.\nRight.\n>> Right. We could we could make a common\nframework if people wanted you know the\n>> that would be ultimate goal but I don't\nknow if we're there. Yeah.\n>> Yeah. I don't either. I I don't and I\ndon't know if that's the next right next\nstep or we just let the vendors um you\nknow\n>> no I think I think I think there is a\nthere's a lot of I mean of course memory\nvendors should speak for themselves and\nsilicon vendors but I think uh from what\nI understand there is\nthere is uh you know there are products\nin the on the road map in execution in\ndevelopment and then there is legacy\nSo it is not a clean slate where we can\njust start and everyone will have\ndifferent\nuh [sighs]\napproach in general depending on what's\ngoing on with them, right?\n>> Yes. Yes.\nSo uh is there so so maybe what we need\nyou know what what what we Microsoft\ncould do is reach out to some of the\nvendors and say you know who's ready to\ngo uh and and and try a proof of concept\nfor someone.\nI don't know\n>> yeah that's that's right but actually\nyou know that is a good segue into\nsomething I've been I was thinking about\nin terms of what next for FM\nright right OCP has certain expectation\nright so this is good we are we're\nsolving problems but do we have any do\nwe want to discuss any next uh spec or\ndeliverable plan it may be a white paper\non how to implement RAS API for memory\nsubsystem kind of thing that may be a\ngood bridge Um what do you think? What\ndoes everyone think really?\n>> Um so by the way here's the future work\nstreams. Can you see the tab I'm\nsharing?\n>> Yeah. Yeah. Know the topics. I know I\nwas talking specifically about what do\nwe deliver, right?\n>> Yeah. Yeah. Yeah. But but I mean like we\ncan add it to I was just going to\npropose you know let's discuss it and\nadd it to this and this may jog people's\nmemory. You're you're raising a good\nquestion.\nSo I think it could uh we can we can\ndecide how uh we want to do a spec like\ndocument or we want to do a more\nuh implementation guide kind of document\nwhere we have fill in more details about\nthe data structures from RAS API about\nthe methods that\nuh it should be transparent at the see\nat the DM vendor analyzer level but\nabout the methods that are being used\nfor transport uh by redfish or PLLDM. We\ncan mention those.\nI think I think the idea what I'm trying\nto do here is to educate\neducate uh DM vendors more and and take\nthem to you know the implementation\nstage of RAS API\nuh analyzers for RAS API right?\n>> Yes.\nSo, so I like if you look at the next\ntopics, I think we we need to think\nabout DDR5,\nuh, uh, HPMLP,\nyou know, we kind of have that listed.\nUm,\nyou know, maybe an LP6 logging review,\nbut then in that, you know, I think\nyou're right. Do we do we have a I don't\nI don't know if we want to make a a\nmemory error analysis document that\nshows you know the details of how you\nmap things to subword lines necessarily\nbut we could have a a more detailed\nwalkthrough of how the CPU and memory\nanalyzers work together. Um,\nor we could even have a a prototype\nframework that shows, you know, what\nthat would look like. I I'm not sure\nwhat makes the most sense.\nSo, next week we have or not next week,\nweek after next we have\nuh uh Roy\nwho's going to give us you they have\ntheir their proposal uh for for logging\nand then after that I'm still working\nwith with Adam on an alternate proposal\nand I think he's talked to Anneil about\nit as well. Um\nbut but but then you're right Yagash\nlike like what's next?\nWhat do we do? We like like in in terms\nof the memory vendors, you know how I\nwrote the poison document explaining the\nvalue of\nuh implementing poison correctly and\nthen you know like like the requirements\nfor poison and how it works.\nWe could write a here's why counting is\na bad idea and you should use these\nanalyzers instead document that walks\nthrough a couple of example memory\nscenarios\nin a very general sense. No no no no no\nproprietary data and say look the you\nknow what the historic way of doing this\nis pretty bad. Uh here's a better way.\nBut is that what you were talking about\nyou?\n>> Yeah. Yeah. I think yeah I think I\nwanted to uh focus back a little bit on\nu you know uh what is a most useful next\ndeliverable out of I mean we we are\ndoing we we have been discussing for\npast 3 months four months so some really\ngood topics uh and uh it's all coming\ntogether with um hardware fault\nmanagement framework and now Ras API\ncommands and data structures and uh you\nknow ability to use the uh underlying\nexisting ing industry standard uh layers\nuh from you know DMT. So what\n[clears throat] how do we know um how do\nwe proceed from there? Right. So yeah in\ngeneral you're right.\n>> Yeah. What do people what do you all\nthink? I mean like like we could have a\nuh you know uh like a\nmemory analysis\nwhite paper saying why we want people to\nuse it. I mean I'll see I was trying\n>> how about how about like um I mean uh\nokay so\nhow about some discussion and maybe a\nwhite paper out of it as well um talking\nabout so like you had that paper on like\nyou know why counting is is a bad idea\nsort of thing but uh in this case uh we\ncould have scenarios like uh memory\nerrors occur but you know that it's not\nlike you have a bad dim so that could be\ndue to one of those that you already\nbrought up which is poison. it could be\ndue to um something on the CPU side. And\nhere's how RAZ API kind of would uh\nwould help in in in those situations to\ncorrectly uh uh you know to help uh\nidentify uh where the actual underlying\nhardware problem is even though what's\nbeing manifested in the system is just\nmemory errors whether they be CES or\nUEES just thinking out loud kind kind of\nthere.\n>> Okay. And that's the memory scenarios\ndocument really. I'm thinking now that I\nthink about it,\nright? Like like we can we can work on\nthe memory scenarios some more like like\nbecause that that when you said that you\nreminded me that we had a you know we\nwere working on that.\n>> Yeah, that that's true. Um maybe I mean\nlike maybe we could continue down\nscenarios but then extract out something\nthat uh uh like a common um theme out of\nlike the multiple scenarios and make it\ninto a white paper\n>> because that could tie in RAS API into\nthe whole thing as well. Like if we have\nthese five scenarios where memory errors\nuh occur on a system but you know uh\nonce you analyze them then they turn out\nto be um memory controller issues or or\nlike uh you know your trace on the PCB\nis not good to leading up to the DQ\nlines or um poison from PCI Express like\nyou know those that could be like a\ninteresting angle. Yeah, that that's all\ngood uh good good u you know\nlike\noh sorry Yash\n>> uh uh no I think u I was just saying\nthat's all good uh good add addition to\nthe existing effort in that direction uh\nI think we can what we can do is we can\num uh uh sleep over it and let the DM\nvendors come back with which direction\nthey need uh help in do they need help\non the technique tech tactical side of\nit. how to implement RAS API and uh\nanalyzers or I I think they have pretty\ngood handle on I mean we are learning\nfrom likes of Roy and you know folks\nfrom Samsung and all that here so very\ngood handle on the nature of errors that\nhappen inside and also good feedback\nfrom you know integrators like CSPs and\nOEMs about what goes wrong when you know\ndims fail\nin field. So let's come back to it. I\njust wanted to draw attention. We don't\nhave to decide at this moment like what\nis our next step.\n>> I we put got these things down and and\nand I see Anne Neil typed something and\nanal the memory scenarios is pretty\nsimilar. You know it's it's uh I think I\nthink you know the white paper and what\nyou're talking about the primer probably\nof the same thing but that's awesome. I\nthink we're thinking along similar\nlines.\nSo that that sounds good.\nOkay, I like it. Uh let's uh maybe we\nend a few minutes early today then end\ntoday. That's awesome. [laughter] Then\n>> we can we can think about this, you\nknow, for the upcoming meetings. So So\nnext time Roy is gonna talk about\n>> Yeah. Roy is acknowledged. Yeah. Yeah.\n>> And then and then from there, I'll I'll\nalso look through the scenario document\nand you know, I'm happy to start writing\nthat again. And uh and and what I'd love\nto do in that document is is highlight\nthe value of getting the memory vendor's\nhelp in understanding how memory fails\nand how you know you have to filter out\nradiation and how some memory errors are\nnot that big a deal and some memory\nerrors are really big deal and uh how if\nyou you know listen to your silicon\npartners you might get a better answer\nand then what we'll set we'll do is uh\nset up dem demand for the memory\nanalyzers. So, we'll be sure to get\nthem. That's that's my selfish motive\nfor wanting to do that.\nBut, sounds good.\nOkay. Well, thanks every\n>> Thanks. Bye.\n>> Okay. Talk. See you next time.",
+  "segments": [
+    {
+      "text": "That's so cool. >> Hi Drew. How are you doing? >> Yeah. Yeah. Good morning. Morning. Hi. Good morning. Yeah, it's a little early in the morning, but uh you know, I'm waking up. Although I I normally would be flying right now, and I'm glad",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I'm not today. There's going to be thunderstorms here this afternoon. >> Oh, yeah. Yeah. Too much rain. Too rain all over the bay. >> Yeah, we need it. But it's not good flying weather. >> True. True. >> It's It's funny that we are soaked here",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "in Houston as well. Same time. Same system, I believe. Maybe. >> Oh, wow. Nice. >> Yeah, I think um >> Oh, sorry. Can I just say hi to Theo? >> Theo's here. Yeah. Heyo. >> Anil is here. Kit is here. >> Good morning, folks. >> Morning.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": ">> Good morning. Good morning. >> Good. >> Good morning. All right, I'm going to pull up my topic spreadsheet here. So, um I guess we had a couple of topics today. one is um so the the one topic is alternate internal ECC logging for fleet reliability",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "and I've been working with uh Adam on that but we are we're not quite there yet. Um, so I'm not quite ready for that. And then we also had analyzers in time for the RAZ API. And so, uh, I think what I'd like to do is show you all, uh, kind of a RAS API flow",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "that we're putting in the document, but it's it's pretty high level, but talk about what this time series would look like. And um you know I was just talking to Rama yesterday and uh inside Microsoft we're we're trying to",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "get ready for time series analyzers and we want to be ready to intercept them and we want to have a plan for them because we know that you can't really diagnose memory from a single error and counting errors doesn't work nearly as",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "well as looking for patterns of errors. So, uh, so anyway, maybe maybe we can start with that today and then I can talk a little bit about what Adam and I have in mind. Are there other topics you want to cover today? >> Okay.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": ">> Not that I'm aware of. Anyone else? Any opens today? >> Any from industry? Anything else want to discuss? just want to u announce that there is a JDK forum um next month um I don't know if anyone in this call is planning to attend if you are",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": ">> what is the Jed forum about is it their annual thing >> yeah I think they do maybe quarterly or maybe twice a year where Um all the memory experts those who have interest in memory they join it's open you don't have to be a JC member um there's small fee",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": ">> and uh you can uh join listen in interact with the various uh DM vendor experts and SOC experts and all basically you know it's a community event so I will be speaking Mhm. really what are you speaking about? Sorry. >> Yeah. Uh how we",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "design memory subsystems in our meta infrastructure? What are requirements? How we decide things like that? >> Anil, could you throw a link into the chat? >> Uh yes, actually if you go to just do a Google search for JDK forum 2026,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "you will get that. But I I'll put a link here. I'm I'm not in the in front of my computer right now, but I'll put it once I get there. >> Yeah, actually I see it. I'll put the link in. >> Thanks. >> Yep. It's a two-day event. First day is",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "client mobile auto auto industry and second day is all server AI stuff. >> Yep, that's what it is. >> Thanks for the link. Thank you, Anil. I wonder if Ian is aware you aware of that Jed forum. You're probably closer than anyone else with the Jed.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah, I my team doesn't work super closely with with the the Jed things. Um but yeah, I it has come across. When did you say that was an >> May 12th? May >> May 12th >> 13th. >> Yeah, I did see that come across. Um, I'm sure we'll have some some people",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "from our architecture team there. >> Yeah, it's a small fee, $50, but I think it's worth attending in case you want to hear understand what's going on and what's the future data vendor guys are thinking. >> They really want to keep DM cheap, huh? [laughter]",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "I think the fee was decided long time ago. Otherwise, it would have been 500 10x. [laughter] >> Maybe maybe it's the same thing. They sold out for two years. >> Well, hey, the prices are coming back down. But, uh, anyway, okay, this is this sounds good. Um,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "and if anyone's traveling to attend this, maybe we can uh have a get together of this team, you know, just informally meet somewhere and say hi to each other. Okay. Um, here's what I wanted to show. And, um, we'll zoom in a little bit. This is very simple,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "but um we're putting this in the RAS API, but it it it it shows how we're uh thinking of, you know, building the the the time series analyzers with RAZ API. The way Oh, we have two people in the in the waiting room. Let's see.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "You're going to let him letting him in. >> Yeah, I I turned on the chime because otherwise we just miss people. So, I don't know. I I keep resetting this thing and it keeps going back to I I guess there might be OCP default or something to force people to be",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "admitted. I don't know if you have a solution, but right now we're just manually doing >> I've turned it off, you know, live in the >> I did I did too, but that comes back every time. It defaults back to >> Yeah. >> Yeah. I'm just saying maybe we turn it",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "off in the meeting. Yeah. So it doesn't but but I but yeah we >> I think it has to be like every meeting. That's okay. Yeah. Let's move on. >> Okay. Um so I just want I wanted to to to talk about this and and and what our plan is",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "for time series analysis and um so you know we have commands get seer and and you get a seeper back and so in the context of memory what we want to happen is when we call get seer to get as much information as we and as listed in the the FM document and you",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "know really we'd like it all. So you know that includes you know PUMMIC data and uh you know the the syndrome information about which bits were flipped and uh and so we we get that in a in a pile of a we call get seeper and and this get seeper",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "may end up being a push. In fact, you know, pretty much everyone in scale does not like to pull. Uh so there'll be a hey give me your I'm registering interest in seers uh get seer and then you know seepers will come from it. But",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "for simplicity sake I'm showing you know a command and a response and when uh we call that the collection infrastructure will add that to the seer history and then it will send the new seer and seer history to the seer analyzer. And in this particular example",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "memory would be a perfect example. Um, you know, we get the first seer and there's nothing to do. And just a a good example of that would be uh you know if we had a radiation strike we don't we could have a a burst of errors",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "and uh we we can't assume that we have a failure just because we had an error because there's no repair for a radiation stride. So we'd say, well, there's no action. But [snorts] if we call get seer again and get another seeper and we look through the",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "history what what we're imagining the analyzer is doing is you know looking at the newest seer and [snorts] then saying is there anything relevant in older seers that might help and look through the older seers and that keeps the analyzer stateless and it",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "means that we can um we can build cloud software with it. Like if the analyzer fails, we can move it to another node. And uh so we uh what we'd like to do is uh is is you know get these series of seepers and eventually the analyzer decides that you",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "know it wants to do something about the error like a self-repair and so then it sends a CPAD to our policy tool. Our policy tool would look at the analyzer that the silicon teams provided and say okay you know this is the Intel Micron you know analyzer",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "uh it's accurate we uh we we believe that this is the right action we'll let that one through and uh and so then we we send it to the Raz endpoint and uh the the RAZ endpoint will acknowledge the the CPAD uh acknowledge receiving it but then sometime later",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "we'll call get seer and we'll get a platform action event seer and the platform action event seer will be what tells us that the action succeeded. So for example, if this was a uh if this CPAD was a uh boot time uh post package repair,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "then uh it may be some time before the machine reboots and we get this platform action event. Um but what we've done is we've made it so the platform action event that tells us the status of the CPAD is cor it's easy to correlate that",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "contains the CPAD basically in it. So we can tell that oh this this CPAD um worked and um we might get a success here and say oh good it looks like it worked but if I call get seer again and start getting the same error that I was",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "getting before then I might determine that it didn't work and so you know this is something we want to work on you all work with you all on time series analysis because we we believe we you know figure things out like this with",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "you. Go go go go go ahead ma. Um yeah so I was wondering in this diagram what's the trigger for get seer like what causes that to be >> that's a really good question I was showing it as polling but like the red fish mapping of API you'll um",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "what you'll do is you'll register for red fish events. So you'll say give me um all the events with these message ids and there'll be one message ID per que. So um you you subscribe to four message ids corrected uncorrected or deferred you uncorrected",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "uh the event Q and information. Um so this get seer would become I am registering interest in these seers and then the the endpoint would just send them when it got them. >> So >> okay so like the platform action event seer the one at the bottom",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "uh that would fall within that like pulling model >> category. >> Um we'll we'll handle all seers the same way. [snorts] um they just each queue will have a different message ID and um this is in what we're calling the event Q",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and the event Q is things that aren't errors you >> yeah that's one >> but they're they're relevant to hardware error so yeah exactly [snorts] >> um so you I mean like the idea is that uh the collection infrastructure uh at some interval",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "[snorts] asks for sever is is that it of a certain type >> if you want to pull um and polling will be supported with redfish because you can like like uh the seers always go in a message queue that you can pull but there's also",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "uh redfish eventing and so this is why when we talk about RAS API we talk about it conceptually in the RAS API spec But when we talk about um the details the details will be in redfish. So with red fish eventing again you register",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "interest you say hey uh braz API endpoint [snorts] whenever you get a seer uh send me the seer in an event and so then it comes as an event but I'm just showing the polling model because it's the most easy to understand but I I could",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": ">> I believe I believe Drew you are not you you're highlighting only the RAS API primitive commands here and of course structures like Cers and Cpad because we did also talk about other acknowledgements you know which representation PLDM may be using but",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "that's not where your focus is here in this diagram right >> right right well and and I mean yeah but if if me I just want to yeah you uh uh uh address any concern we will support eventing so yeah uh but but it's just not shown here exactly because you said",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "we're we're dealing with the RAS API primitives and and so Just a just an observation Drew. I mean um the I I understand the intent of the lowermost get seer. You're trying to show there may be a delay between put cad and action event seer.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Uh just a preference I think uh you want to show you you want maybe think about it. It the get seer that is between this put cpad and platform action event seer seems a little distracting to me personally at least. Just little feedback here.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": ">> Well, it's just a seer. You have to get it the same way you get all the others. >> No, no, no. What I'm saying is you are trying to demonstrate that once you put a cpad, you get a platform action event cer in response to that cpad, right? And",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "this get cer in between the two is a little distracting. That's all. Yeah. >> Yeah. But but that's actually really important because >> Oh, because you're saying it's a pull model. You still have to do it. I see. >> Well, you it's really important. Put CPAD",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Mike put the CPAD today and then two months later we see the platform action event when they reboot the machine. >> Yeah, that's true. That could happen. that will be I think that will not that will be a fairly common thing right is",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "that uh that that for certain RAZ actions there will be a precondition that has to be met and um you know sometimes it may be that the OS needs to migrate off a core you know if we want to do core fairing or something it might be that we need to reboot a",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "machine for a hard post package repair or if we're doing another if we're doing a runtime post package repair, it might be that the previous runtime post package repair has to complete before we can do the next one because",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "you know there's some resources in the memory controller that are are are needed to do the second operation. So it's gonna it's really common to have a prerequisite for a RAZ action. So like like the timing between putting the CPAD",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "and and getting the response for the action will generally be you know separate in time. Go ahead Nita. >> Yeah. Yeah. Um I'm kind of uh just wondering like you said uh the platform action event seer could happen two months later because of the reboot. But",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "my mental model was a little bit different uh because I thought we talked about the platform action event seer indicating that the action will be taken on like you know on a reboot for example. So in that case um it's not like it you know it's not",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "like you have to wait two months for the uh platform action event seer to occur. you should be getting something back after the CPAD indicating that the action will be taken, you know, potentially later. >> Is is that's not a that's not a seeper,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "though. That's a um And I don't know why. >> I thought that was >> Yeah, >> it's not a seeper. It's a It's a uh >> No, no, no. So, no, do the two things. You're talking about the transaction uh acknowledgement. That's transport layer.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "We're not talking about those here at all. But I think she's right. We did discuss that there uh there would be uh platform action seer which may say that you know this action will be deferred and taken later. We did discuss that. So Mita",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah. Yeah. Um that that's absolutely right. You're right mida. And uh and so you could get multiple platform action event seers. Yes. >> Okay. No, you might get you might get multiple, you might get one depending on the timing and we haven't really",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah, my mental model is that you'll get at least one back in a, you know, relatively soon after the >> response. Yeah. As a response, right? >> As an indication of success or as an indication of of deferred action, which",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "would be like a reboot or Yeah. And then Yeah, that that that was my mental model at least. Yeah. Yeah, you're right. You might. You might. And um I don't think in this example I was trying to to to cover that, but I think",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "I will make a mental note to show that in another, you know, this is this is supposed to be kind of the most common case. Uh but but you're right. And so I can make I'll make another drawing with a different scenario and show that. And I",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "can just say, you know, that we have a long-standing prerequisite. So, we get an early status back and then we uh we get a later status back two months later. >> And remind me if uh if this is correct, but I think we call themformational",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "seeers or something else. I don't know whether they were called plat like maybe that was the one that I was thinking about like >> they are called platform action events. >> Oh, okay. >> Yeah, they're the time. Yeah, they I",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "think uh informational is what we use for Q nomenclature, right? >> Right. And and and this is in the event queue, not theformational queue. >> Oh, okay. Okay. Okay. Okay. Yeah. Yeah. >> So, uh hey Drew, just a thought. I think",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "when the the last step platform action event seer which says acknowledging the let's say PPR I think that message in my opinion should go all the way to the policy agent and triangulate that okay I I made a request and I have a confirmation that the",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "message has gone has reached. >> Well, it doesn't no we don't do that. We but but directly um that that wouldn't quite help and if that's a that's a hyperscaler choice at that point. but uh but but see since it's a seeper the uh and and you raised a good point",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "there. My computer's I'm not doing this anymore. This is I've let go and it's still moving. [laughter] your grass API is in auto mode >> API the AI took over um no I mean since it's a since it's a seeper uh it just takes the flow of a seer and",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "goes to the analyzer if you as a hyperscaler also wanted to recognize that was a platform action event and send it to your your policy tool so that you could though the policy tool is hyperscaler dependent it. Hyperscalers",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "put what they want into it and they feed what they want into it. So if you're, you know, you might feed CPADs to it, but you might also feed information to your policy engine about the workload that's running and you might take you might reject a CPAD",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "depending on the quality you believe the CPAD has and the workload that's running. You might decide that for this workload I'm willing to take a performance hit. It won't hurt the workload, but for another workload, you might say if I'm doing something that's",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "you're going to reduce performance is unacceptable, I'm rejecting it. So the things that feed into the policy engine are very very very much hyperscaler dependent for the hyperscaler's use cases. That that's kind of the point of",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "it is that it gives the hyperscaler the ability to make their own decisions. >> Yeah. So so one more thing. Sorry. uh um so the agent running in the infrastructure okay and the policy let's say database they're two different entities or maybe",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "two different entities >> what's the agent running in the infrastructure >> yeah ultimately the the agent who responsible to to issue an action or an agent who is responsible to collect the logs okay uh that agent is not the same as policy database. I I",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "I'm just thinking out loudly. I don't know if policy it's a policy database, right? >> It's not a database. >> Sorry, policy is not a database. >> No, it's a it is a thing that gets a CPAD and decides whether to do it or not.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": ">> Okay. Okay, so this is this agent uh running in the infrastructure along with the policy together. >> Well, the collection infrastructure will keep a history of CPADs and pass things around. But >> yeah, that's the intermediary, right? Um",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "it job is to you know either poll it or event uh get the information pass it on to analyzer. That's it. >> Yeah, but I'm trying to be as least absolutely least specific about how you implement that as possible. So I'm just",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "putting the minimum in and the minimum this has to do is collect seers and keep a history and feed them to the analyzer. That's like the the bare minimum and the policy engine somehow has to be able to get a cadab back to the RAS API",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "endpoint. But I am not telling you how to do it. If you want to go through the collection infrastructure or if you want to have a separate path back it is, you know, entirely up to you. I'm see what I'm saying. We don't want to specify",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "that. You have the freedom to do it however you want. Right here we are not specifying how to do it. What we see what I'm saying is that whosoever is the agent that is putting the seat to the machine should get an acknowledgement",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "all the way to the acknowledgement has to come back all the way to the agent who actually put the sep. If you terminate in between in between then the agent doesn't know whether um the the the separate action really got acknowledged or not.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": ">> Well that the that is your decision. uh the analyzer will see that the action completed and it could see that the action failed and send another CPAD and say oh no uh the the self-repair failed I better uh ask to replace the part and",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "the analyzer is in a better position to take first crack at that because it knows the all the features especially the proprietary ones and it knows what it means when they fail and so it would Actually if the and we can put it we can",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "do it that's a different example but if if there was a failure in a CPAD uh then the analyzer might send another CPAD saying hey replace the part u so the policy engine doesn't probably get it directly in most cases but if you",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "want to do that nothing's stopping you >> yeah I'm just >> that is broadly that in a logically speaking when in a when the agent that sends action is the agent who should receive a response somehow otherwise the agent is still lingering",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "there uh has no clue whether >> right >> action was acknowledged or not that's >> so so I think what Drew is trying to say is you can do that you can do that in your infrastructure but RAS API spec doesn't have to show it that you should",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "do it this way that's all >> right >> no we are not RAS API here RAS API >> this is a RAS API flow and what you're saying is in my infrastructure I want the policy engine to see acknowledgement for C cpad what happened with it and you can do it",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": ">> yeah and a lot of people will want that it's going to be a common thing but the originator you actually the actual originator of the action is the analyzer not the policy engine the policy engine didn't have a bright idea oh I'm going",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "to take action on an error it um it got something recommended to it and it said thumbs up or thumbs down. So that that's why I'm saying the analyzer in the RAZ API flow gets it first and then if there's a subsequent action to take you",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "send it back to the policy engine. But if you wanted to send this uh this platform action event seeker to the analyzer and you want to recognize that it's special and also send it to your policy engine. Yeah, have at it. It's",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "fine but it's not required. The the basic thing is all seepers go to the analyzer and the analyzer spits out cpads when it knows what to do when it has an idea. >> Anyway, I'm just think um speaking loudly here. That's fine. Keep keep going.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah. And nothing stopping you from doing what you want to do. Um but but this is just kind of an example. But but this is the the you know but the key here is that that the analyzer I [clears throat] wanted to the only the main reason I wanted to show this",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "drawing is because the analyzer will see a breadth of history that it could not see before. And so I want to seed the thought in memory vendor minds and in CPU vendors minds and GPU theo uh that that that we'll be looking at a history",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "of seepers and the seepers will contain error data that will also contain what happened in the past in terms of actions. So if this if this sequence were to continue we would have another you know get seer and we'd have new errors and new things to analyze",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "probably from this you know machine and they you know they may be different completely different fus it may be the same fruit it may be that after you try a couple of self-repairs the analyzer goes n I'm not going to keep repairing",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "this it's a losing battle I'm just gonna tell them to replace it So, this is the kind of thing I want folks to think about is uh you know like like how do you decide when a part needs to be replaced and and and let me just if I could shout one thing from the",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "mountaintop to the CPU and memory vendors, this is in your interest because you get a bigger say than you do today on when parts get replaced. So, if you do a really good job on this analyzer, you could potentially make your warranty cost substantially",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "better by optimizing the repairs because sometimes, you know, today we have a fairly high rate of no fault pounds with uh DIMS returned. And I've seen that, you know, pretty much everywhere I work. And uh if if you all write a good",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "analyzer here, um you could really improve your warranty costs by a significant amount of money. So I'd like to think about that. And um you know, we we're at Microsoft, we're getting ready to run analyzers like this. I know other hyperscalers are also",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "making plans here and can some can actually probably do it already. Um, so what do you all think? I mean, and what I'm looking for is, you know, like like memory people and and uh and CPU people to say, \"Okay, this is I'm tracking this makes sense or oh no,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "we're not planning to do this.\" So, you know, Yogesh, I don't think this should be too much of a surprise for you. Um >> uh I mean I think um everyone other than maybe Hankit and Ivan Studi has been part of Ras API discussions. So yeah",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "this is no surprise um but I think it's important uh that you know the in terms of expectations from the analyzer uh input and output that we have been discussing in this forum. So that's uh thank you for connecting those dots. I think that's critical.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": ">> Thank you. And that's a good word for it. That's exactly what I'm trying to do is connect what we're, you know, the big picture with what we're doing here. So So you know, Evan is Yeah, I'm not trying to put you on the spot too much,",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "but you know, does this make sense to you? Are you following the the concept? >> Yeah. Yeah, I think it it kind of follows what what we've been thinking too, Drew. Yeah. I I mean most of this is stuff we've kind of talked about",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "before, right? We just didn't really have it in this chart. >> Yeah, >> we've had a lot of debates about what's policy and what's what's recommendations and etc. But yeah, I think this this kind of follows all that. >> Okay. I'm just trying to I want to make",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "it you know clear and and I think like like the memory analyzer would >> be generating CPADs effectively you know oring or or telling the CPU anal you know like the the CPU to generate CPADs the CPU analyzer because it it may have",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "RAS features like like runtime post package repair. >> Yep. >> Yeah. The analyzer is basically broad term. It will have it will be whatever SOC analyzer which has wrapped within it various DM vendor analyzers and >> yeah on right",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": ">> yeah it'll be the framework we've talked about in this meeting. Exactly. >> Um now uh now what is different here even is uh this is uh from RAS API spec that is being developed. So that's why I meant to say when I said connecting the",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "dots. So all these commands are being defined, data structures are being finalized. So whatever we've been discussing here is uh one what Drew is doing here is trying to make sure that we still aligned and also everyone is aware of development in the RAS API.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah. >> Yeah. Thanks. appreciate that and I think this this makes sense >> and and I think if we can kind like make it common enough like like the that's the beauty of the RAZ API is it's a it's a pipeline with uh with uh clear uh flow",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "a clear way to get seers input cpads and then uh but but the but seer is just a binary data structure and so is cpad So we can make the seer as rich as we need it to be and uh and and and also the same with the CPAD. You know, if you",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "have a pretty elaborate feature you want to drive with it, you can build a CPAD to drive it. So uh uh but but if we standardize those flows among the hyperscalers, then um I think it'll be it'll make it easier for us to all make investments in the flow.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "And that's really what I'm asking so is for you all to make an investment in the flow. So you know um you know Roy you know on unc on kit do you do you all track with where we're heading stuti um you know is any of this a shock to you or is this making sense?",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": ">> Yes. Thanks for explaining. Um I think it makes sense to me. Okay. Uh, sounds good. And >> Oh, go ahead, Yash. >> I think yes, it makes sense. >> Oh. Oh, I'm sorry, Sak. I thought that was Roy. Go ahead, Sico. >> Well, it makes sense to",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": ">> So, um, okay. and and and you know Roy and I Roy was one of the early people that came to me and said Drew you can't count memory errors and I always agreed with him but so Roy hopefully this is this is not counting this is you know",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "looking at data and drawing patterns out so hopefully it doesn't shock you um but uh so so what I'd like to do is try to figure out when are we going to have these and even, you know, even if the RAZ API is not, you know, out there perfectly, um,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "you know, we we're we're getting the first version of the spec out shortly that we could implement that shows all these things. Um, I think we would also like to um start trying out analyzers. So if you know this is kind of a I what",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "I'd like to do is ask you all to go back and uh you know think about your plans for analyzers and and when you might have something to for us to try and uh you know we might not be able to um to discuss it here. Oh thank you thank you Roy. uh so uh",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "you know like I like even if you can't discuss your road map here um you know I think I think it it is it is would be helpful if you were could prepare to discuss with your customers uh plans here so that we could um you know make sure that we're ready to",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "intercept what you're doing because we have dependencies in each other right and so I don't know the best way to proceed there Does anyone have a suggestion on like you know how do how do how how do we how do we take the next step?",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": ">> So Drew the the proof of concept you were you know Microsoft was working on uh there must have been a mockup of a analyzer. >> Yes. >> And we are >> I was wondering we are doing that. Yeah. Sorry I was just going to answer your question. Yes you're right.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. So, I was wondering like uh maybe to make it easier for the silicon vendors and the memory vendors, there's probably like a common template that you know like there's some part of it that's just going to be common. uh",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "internally the analyzer is going to do whatever the memory vendor uh would do for their particular silicon, but there's probably like some kind of wrapper around it that's RAS API specific that might be a good thing to just um share out with with with the",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "silicon vendors as a start. I don't know. >> Yeah, ours was pretty crude. Um it was it was uh for the mo for the demo it was it was you know heavily it was like a Python file. It wasn't even a that we called like a you know called functions",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "from but uh I mean we could that may be something we want to work on and maybe we work on that a little bit here. Uh so because because we have the most complicated analyzer requirements here I believe because we have >> sorry um maybe I missed the question a",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "little bit in terms of deliverable deliverables out of this forum what is the question again >> when are we going to get analyzers and when what's the next step in getting analyzers and doing proofs of concept and you know we we so we've got the idea",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "I think people agree with it. Uh, and so we we know where we want to go. I'm just asking how we get there and I don't I don't know the answer. So I'm I'm like it's a kind of an open end. >> Yeah, I think that's that's more of a",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "individual vendor level question, isn't it? Right. I mean, we're not going to deliver analyzers out of this FMFM port. Right. >> Right. We could we could make a common framework if people wanted you know the >> that would be ultimate goal but I don't",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "know if we're there. Yeah. >> Yeah. I don't either. I I don't and I don't know if that's the next right next step or we just let the vendors um you know >> no I think I think I think there is a there's a lot of I mean of course memory",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "vendors should speak for themselves and silicon vendors but I think uh from what I understand there is there is uh you know there are products in the on the road map in execution in development and then there is legacy So it is not a clean slate where we can",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "just start and everyone will have different uh [sighs] approach in general depending on what's going on with them, right? >> Yes. Yes. So uh is there so so maybe what we need you know what what what we Microsoft could do is reach out to some of the",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "vendors and say you know who's ready to go uh and and and try a proof of concept for someone. I don't know >> yeah that's that's right but actually you know that is a good segue into something I've been I was thinking about in terms of what next for FM",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "right right OCP has certain expectation right so this is good we are we're solving problems but do we have any do we want to discuss any next uh spec or deliverable plan it may be a white paper on how to implement RAS API for memory",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "subsystem kind of thing that may be a good bridge Um what do you think? What does everyone think really? >> Um so by the way here's the future work streams. Can you see the tab I'm sharing? >> Yeah. Yeah. Know the topics. I know I",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "was talking specifically about what do we deliver, right? >> Yeah. Yeah. Yeah. But but I mean like we can add it to I was just going to propose you know let's discuss it and add it to this and this may jog people's memory. You're you're raising a good",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "question. So I think it could uh we can we can decide how uh we want to do a spec like document or we want to do a more uh implementation guide kind of document where we have fill in more details about the data structures from RAS API about the methods that",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "uh it should be transparent at the see at the DM vendor analyzer level but about the methods that are being used for transport uh by redfish or PLLDM. We can mention those. I think I think the idea what I'm trying to do here is to educate",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "educate uh DM vendors more and and take them to you know the implementation stage of RAS API uh analyzers for RAS API right? >> Yes. So, so I like if you look at the next topics, I think we we need to think about DDR5, uh, uh, HPMLP,",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "you know, we kind of have that listed. Um, you know, maybe an LP6 logging review, but then in that, you know, I think you're right. Do we do we have a I don't I don't know if we want to make a a memory error analysis document that",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "shows you know the details of how you map things to subword lines necessarily but we could have a a more detailed walkthrough of how the CPU and memory analyzers work together. Um, or we could even have a a prototype framework that shows, you know, what",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "that would look like. I I'm not sure what makes the most sense. So, next week we have or not next week, week after next we have uh uh Roy who's going to give us you they have their their proposal uh for for logging and then after that I'm still working",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "with with Adam on an alternate proposal and I think he's talked to Anneil about it as well. Um but but but then you're right Yagash like like what's next? What do we do? We like like in in terms of the memory vendors, you know how I",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "wrote the poison document explaining the value of uh implementing poison correctly and then you know like like the requirements for poison and how it works. We could write a here's why counting is a bad idea and you should use these",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "analyzers instead document that walks through a couple of example memory scenarios in a very general sense. No no no no no proprietary data and say look the you know what the historic way of doing this is pretty bad. Uh here's a better way.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "But is that what you were talking about you? >> Yeah. Yeah. I think yeah I think I wanted to uh focus back a little bit on u you know uh what is a most useful next deliverable out of I mean we we are doing we we have been discussing for",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "past 3 months four months so some really good topics uh and uh it's all coming together with um hardware fault management framework and now Ras API commands and data structures and uh you know ability to use the uh underlying",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "existing ing industry standard uh layers uh from you know DMT. So what [clears throat] how do we know um how do we proceed from there? Right. So yeah in general you're right. >> Yeah. What do people what do you all think? I mean like like we could have a",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "uh you know uh like a memory analysis white paper saying why we want people to use it. I mean I'll see I was trying >> how about how about like um I mean uh okay so how about some discussion and maybe a white paper out of it as well um talking",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "about so like you had that paper on like you know why counting is is a bad idea sort of thing but uh in this case uh we could have scenarios like uh memory errors occur but you know that it's not like you have a bad dim so that could be",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "due to one of those that you already brought up which is poison. it could be due to um something on the CPU side. And here's how RAZ API kind of would uh would help in in in those situations to correctly uh uh you know to help uh",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "identify uh where the actual underlying hardware problem is even though what's being manifested in the system is just memory errors whether they be CES or UEES just thinking out loud kind kind of there. >> Okay. And that's the memory scenarios",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "document really. I'm thinking now that I think about it, right? Like like we can we can work on the memory scenarios some more like like because that that when you said that you reminded me that we had a you know we were working on that.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah, that that's true. Um maybe I mean like maybe we could continue down scenarios but then extract out something that uh uh like a common um theme out of like the multiple scenarios and make it into a white paper >> because that could tie in RAS API into",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "the whole thing as well. Like if we have these five scenarios where memory errors uh occur on a system but you know uh once you analyze them then they turn out to be um memory controller issues or or like uh you know your trace on the PCB",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "is not good to leading up to the DQ lines or um poison from PCI Express like you know those that could be like a interesting angle. Yeah, that that's all good uh good good u you know like oh sorry Yash >> uh uh no I think u I was just saying",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "that's all good uh good add addition to the existing effort in that direction uh I think we can what we can do is we can um uh uh sleep over it and let the DM vendors come back with which direction they need uh help in do they need help",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "on the technique tech tactical side of it. how to implement RAS API and uh analyzers or I I think they have pretty good handle on I mean we are learning from likes of Roy and you know folks from Samsung and all that here so very",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "good handle on the nature of errors that happen inside and also good feedback from you know integrators like CSPs and OEMs about what goes wrong when you know dims fail in field. So let's come back to it. I just wanted to draw attention. We don't",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "have to decide at this moment like what is our next step. >> I we put got these things down and and and I see Anne Neil typed something and anal the memory scenarios is pretty similar. You know it's it's uh I think I think you know the white paper and what",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "you're talking about the primer probably of the same thing but that's awesome. I think we're thinking along similar lines. So that that sounds good. Okay, I like it. Uh let's uh maybe we end a few minutes early today then end",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "today. That's awesome. [laughter] Then >> we can we can think about this, you know, for the upcoming meetings. So So next time Roy is gonna talk about >> Yeah. Roy is acknowledged. Yeah. Yeah. >> And then and then from there, I'll I'll",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "also look through the scenario document and you know, I'm happy to start writing that again. And uh and and what I'd love to do in that document is is highlight the value of getting the memory vendor's help in understanding how memory fails",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "and how you know you have to filter out radiation and how some memory errors are not that big a deal and some memory errors are really big deal and uh how if you you know listen to your silicon partners you might get a better answer",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "and then what we'll set we'll do is uh set up dem demand for the memory analyzers. So, we'll be sure to get them. That's that's my selfish motive for wanting to do that. But, sounds good. Okay. Well, thanks every >> Thanks. Bye.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": ">> Okay. Talk. See you next time.",
+      "start": 990,
+      "duration": 6
+    }
+  ]
+}

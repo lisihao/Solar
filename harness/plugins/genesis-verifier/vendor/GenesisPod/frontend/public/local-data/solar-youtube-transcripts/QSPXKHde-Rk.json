@@ -1,0 +1,1229 @@
+{
+  "videoId": "QSPXKHde-Rk",
+  "title": "Live Virtual Hands On Lab: Distributed Training at Scale with Ray and PyTorch",
+  "channelName": "Anyscale",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 61002,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Okay, uh\nhello everyone. Um good morning, good\nafternoon,\ngood evening, depending on from where\nyou are joining from.\nThank you so much for joining and\ntoday what we are going to do is we are\ngoing to\ngo over what is distributed training and\nthis time\nI thought to do something different.\nSo, we did this\nhands-on\nworkshop\ncouple of months back where we just\nspend more time on distributed training\nand\nwent over\nthe core concepts of distributed\ntraining and then we we saw how you can\nimplement it with the array. This time\nwe are going to do the same thing, but I\nthought that it is it might be useful\nto dive deep a little bit more on few of\nthe challenges that we see in\ndistributed training as well. And how\nyou can make use of Ray\nwith PyTorch to mitigate those\nbottlenecks. Okay, so there's something\nthat\nI thought that we can cover\nalong with getting started with\ndistributed training. Okay. So,\nbefore we get started\na few logistics,\nyou know, because these are the\nquestions that we get quite often.\nAll the presentation, all the slides\nwill be shared. I'll be sharing\nyou the QR code\nduring this webinar\nand you can always have a look at later\npoint in time.\nI assume that most of you, if not\neveryone, have already created an\nAnyscale account\nso that you can follow along or you can\ndo it after this\n1-hour session.\nI would recommend to just follow the\nsession now and then go over the\nhands-on once this is done so that you\ncan focus\nyou know on the on the lecture so that\nwhen you go through the notebook it\nbecomes very natural. So,\njust to avoid distraction. Okay.\nIf you have any question, feel free to\nask in the Q&A. I'll have a\nyou know, I I'll keep an eye on that\nand shall try to cover\nas many questions as possible. In case\nwe I cannot cover,\njust rest assured by by the weekend I'll\nI'll reply you back because I get all\nthe questions from the back-end team.\nAnd they have nicely marked which\nquestion was answered and which question\nwasn't. Okay.\nWith that, let's\nlet's get started. So, give me 1 second.\nAll right. So,\nlet me quickly\ngo over a\nsmall presentation just to set the stage\nand if you are new to\ndistributed training, which I assume\nbecause that's the whole purpose of this\nwebinar,\nthis might give you an intuition of what\nis distributed training and later on\nwe will go through the code and see how\nwe can implement few of these ideas.\nOkay.\nSo, first thing is why\nwhy we are talking about distributed\ntraining.\nBut before that, I guess\nyou may like to\ntake a screenshot or just uh\nscan this QR code. This So, this is the\nGitHub where you will have all the\nsource code\nand I'll share it again once we are into\nthe notebook and in the console.\nBut I'll just pause for 2 seconds so\nthat you get a chance to take an image\nor screenshot. Okay.\nAll right. So,\nfirst is why we need distributed\ntraining in the first place.\nIf you think about\nany training and if you have done any uh\ndeep learning training,\nyou will see that\nthe training typically consists of the\nmodel and the data.\nAnd for the purpose of today's webinar\nlet's assume that the model is small\nenough it is of course it's big, but it\nis small enough to get accommodated\nwithin one GPU. So, that's this is an\nassumption that we are making throughout\nthis webinar.\nThere are cases when the GPU memory is\nnot\nbig enough to accommodate the whole\nmodel. So, that's a\nthat's a separate topic altogether. But\nfor now, just assume that my model can\nfit in the GPU.\nNow, what else consumes the GPU memory\nis the model and the data.\nNow, assume that we have this one batch\nof data and if you want to\ncontinue the training\nwith multiple batches\nit will take more time because my GPU is\nlimited within the system and the more\ndata that we pump in\nit will take more time.\nNow, how we can mitigate that? How we\ncan make this efficient by distributing\nthe training?\nOne way to do it is we will\ncopy the model across all the GPUs. So,\nthis this this pink color block\nthis model, this is the exact same copy\nin all the GPUs\nand then the data are all four different\nmicro batch of data. The color is same,\nbut\nthe idea is these are four different\nbatch of data.\nNow, if we do that in this setup\nwe will get roughly around four times\nefficiency or the training will will be\nfaster four times.\nNot exactly four times, but because\nthere will be some\noverhead because of this\nsynchronization which we are going to\ntalk about, but uh\nI assume that you appreciate the fact\nthat now with multiple GPUs we can\nefficiently do the\ntraining.\nNow, in this\nimage you might get a feel that these\nfour GPUs are sitting in four different\nmachines, but it's agnostic to that.\nAssume that these four GPU\nare in the same machine or it could be\nin four different machines. It doesn't\nmatter. It's just that\nyou might get more latency when you go\nout of the box to a different physical\nmachine because there is a network\nlatency that will come into picture.\nBut the idea is we have the same model\ncopied in all the GPUs and four\ndifferent set of data or different batch\nof data going through.\nNow, if you\nsee how this will work out is\nwe cannot just do the forward pass and\nbackward pass\nlike any deep learning model. Because if\nwe do that we will end up getting four\ndifferent models.\nBecause our model is copied across all\nthe GPUs.\nNow, let's see\nwhere where we need to make some changes\nso that we can have this distributed\ntraining work perfectly and at the end\nwe get one single model, right? Because\nthat is the whole purpose of scaling\nthis model at scale distributing this\ntraining at scale.\nSo, in the forward pass we can just pass\nthat data all four different micro batch\nof data\nand\nit will just work fine because the model\nis same across all the GPUs.\nBut in the backward pass\nwe can easily calculate the loss. So,\nthere is no problem with the loss\ncalculation.\nBut we cannot update the model.\nThe reason that we cannot update the\nmodel is that all different GPUs\nhave four different gradients because\nthere are four different micro batch of\ndata has been used. So, at this time,\nbefore updating the models, I have to\nsynchronize the gradients.\nAnd that is what\nwe can do by leveraging the back-end\nnickel communication library or from the\nfrom our GPU provider. In this case,\nlet's say if you use an Nvidia GPU,\nwe can use the back-end primitive called\nall reduce, which will just accommodate\nor accumulate all the gradients and it\nwill\nshare the average to all of the GPUs.\nSo, now at this point in time\nall the models all the copies of models\nin all the GPUs will have same gradient.\nYou can think of it that you know, it is\nit will just add all the gradients and\nit will average it out and give it to\nall the models. But you this is this has\nnothing to do with Ray or PyTorch. This\nwill be taken care by the back-end\ncommunication library in this case\nnickel for Nvidia.\nBecause we are assuming that it is an\nNvidia GPU.\nOnce that is done, we can update the\nparameter based on the optimizers\nstates and\nwe can just start with a new batch of\ndata, right? And the training can\ncontinue.\nSo, if you think about it\nwhat we did was exactly how we used to\ntrain in a single GPU, but at in this\ncase we just have to communicate before\nupdating the model updating the weights\nso that I have the same set of\ngradients.\nSo, the training loop is a little bit\ndifferent, but when you see the code\nyou you will not realize much of a\nchange.\nAnd this is what we called distributed\ndata parallel and that is what\nwe are going to see\ntoday's lab. Okay?\nSo,\nso far,\ndo you have any questions on distributed\ndata parallel? Because next we are going\nto see\nhow we can implement this with Ray.\nIf you have any questions, please let me\nknow. Okay, there is one question on the\nOkay, for the lab part, if you are if\nyou are having\nany issue with\nthe console or access or spinning up a\ncluster,\nwe'll discuss that, but I guess if you\nare not able to get a cluster,\njust wait for some time or do it little\nlater.\nSo,\nPablo is asking, is the data in each\nlocal VM beforehand?\nIs the data in each local VM beforehand,\nright? So, we are going to talk about\nthat, Pablo. So, the question is\nwill how we will distribute this data to\ndifferent machines? So, that that we are\ngoing to talk about.\nThere is one attendee who is asking,\nwhere does that gradient accumulation\nhappen? Yeah, so we are not talking\nabout\nyou know, gradient accumulation. This is\none of the way to optimize the training,\nbut if you think about it, where that\ngradient accumulation happens, it\nhappens when we\nperform\nthe a forward pass, and it it doesn't it\nit is a trick where it doesn't uh\nit doesn't store all the\na gradient. It just\nIt just saves the gradient after\na micro batch within a machine, so that\nyou know, when when we do the backprop,\nit it does a small forward pass to get\nthe activation. So, it's a trick. I have\nwritten a blog on that, so if you are\ninterested to know how that gradient\naccumulation happens, you can read\nthrough that.\nOkay.\nWhy do we need all reduce sync gradient,\nnot all reduce sync parameters?\nWe don't need that for the parameters\nbecause parameters are shared across all\nthe\nall the GPUs. So, we don't need to do\nany synchronization for the parameters\nbecause parameter we can update in all\nthe GPUs independently. Right? So, we we\ncan just do that independently in all\nthe GPUs at the same time once the\ngradient is synchronized. So, we don't\nhave to do\ntwo times synchronization. So, all we\nneed to synchronize is the\ngradient.\nAll right.\nAre these the same batch of data given\nto the GPU? No, these are all different\nbatch of data. Okay? So, I guess you get\nthat intuition. Now, when we\nwhen we when we see how this is\nimplemented\nand see the code, you will\nyou will get an intuition.\nOne thing is I think one question which\nI have parked is how we distribute the\ndata across all the GPUs so that\ntraining can\nwork properly. So, let's see how\nRay Train can help.\nNow, assume that this is your training\nfunction. So, this is the\nfunction or this is the code which\nyou had to train in single GPU.\nNow, first thing that you need to do is\nyou need to make some changes,\nand that is what we are going to do when\nwe look at the code. We have to make\nsome changes in the code which will\nenable that code to get distributed\nacross multiple machines.\nNow, that is what we call the training\nfunction.\nAnd then you need to have few other\nconfiguration like a scaling\nconfiguration, running configuration,\nand checkpoint configuration. So, these\nare the\nset up you can think of which we need\nbefore starting a distributed training.\nSo, scaling configuration would be\nsomething like how many GPUs you want to\ndistribute. A runtime running\nconfiguration would be Okay, where you\nwant the checkpoint to be saved because\nif you are doing a distributed training,\nthe checkpoint\nwe need to save in some central location\nbecause it might happen that during the\ntraining some GPU might go off, some GPU\nmight uh\nmight get faulty, and we just have to\nspin up a new\nworker instance and start the\nresume the training from there. So, in\nthat case, we cannot just store the\ncheckpoint locally in in that machine.\nSo, we have to destage\nthe\ncheckpoint in some shared storage. So,\nthat is what we can configure in the\nruntime configuration and checkpoint\nconfiguration.\nSo, together, what we call is Ray Train.\nSo, you have to thread this all together\ninto a single object,\nand then you can start the training. So,\nin the code,\nhow this would look like is\nwe will import TorchTrainer, which will\nbe the glue to connect all of this.\nAnd we have to first import scaling\nconfiguration, run config all from Ray\nTrain.\nAnd then,\nwe can\njust wrap everything together.\nThat means here, if I just show you,\nso I will\ntake this function,\nand I will\nadd this into this wrapper,\nTorchTrainer,\nas the training function.\nAnd then, the scaling configuration I\nwill\nsupply here. Similarly, the running\nconfiguration, and the checkpoint.\nOkay? So, all of this together\nall of this together\nI'm tying within the Torch\nTrainer.\nOkay? So,\nonce this is done,\nwe can simply say trainer.fit.\nSo, previously, when you are not running\nit in a distributed fashion, you would\nhave run\njust\npython\ntrainer train.py. Or if you are using\nnative\ndistributed training from PyTorch, you\nwould have used\ntorch run, right? Something like that.\nBut in this case, you don't have to do\nanything. You just have to run\ntrainer.fit.\nThe moment you do that,\nbased on the scaling configuration, if\nyou have in the scaling configuration\nthe number of worker is let's say four,\nin that case, it will spin up four\ndifferent workers in the Ray cluster,\nand it will\nit will start the training all at the\nsame time.\nAnd it will save the checkpoint\ndepending on what configuration that you\nhave set up in this running\nconfiguration and checkpoint checkpoint\nconfiguration, and it will just save the\ncheckpoint there.\nSo, that's about\nRay Train at a very high level. And now\nwe are going to see the code and and see\nthis in action. Okay? So, I'll just take\na pause,\nand uh\nlook at few of the\nquestions. Okay? So, give me 1 second.\nLet me just\nOkay. Yeah, so let's see what are the\nquestions that we have.\nHow torch run is different from Ray?\nYeah, so if you do torch run, you have\nto copy that code or the training\nfunction in all the machines, and you\nhave to go to each and every machine.\nYou have to do SSH to all these machine,\nand run torch run from there.\nAnd then, it will start. And also,\nthere are a lot of limitations with\ntorch run. You have to manage off your\nown like observability, failure,\nhow\nhow one one machine failure can be\nrecovered. And it might happen that you\nstart your distributed training with\nlet's say\n10 GPUs, and after some time, uh\nyou had some failed GPU, but you have to\nresume with let's say eight GPUs. There\nare a lot of things that\nthat goes\nunder the hood,\nwhich is very tricky when you have to\nimplement it through torch run, but with\nwith Ray, it becomes very seamless. And\nI'm going to show you how you can make\nthis training even more efficient with\nRay Train and Ray Data. You know, that\nis the most important part of today's\nworkshop.\nSo, what we just talked about is how we\ncan\nperform a distributed training with Ray\nTrain at a high level.\nNext, we will see at the towards the end\nthat how you can use Ray Train with Ray\nData to make your training even more\nefficient. Okay?\nSo,\nwhat else? Uh\nThere is a question, can the GPU scale\nup and down\nlike auto scaling? Yes, we can configure\nthat.\nIt can just\nauto scale.\nBut you have to define, you know, from a\nNow,\nif I understand correctly, that auto\nscaling that you mentioned is from an\ninfrastructure standpoint. You have to\ndefine how many GPUs that you want to\nstart the training. That is something\nthat you have to define.\nNow, that many that many number of GPUs\nare available or not,\nthat Ray can take care. You know, if you\nask for 10 let's say eight GPUs, and in\nthe Ray cluster there is no instance\nwith eight GPUs, it will auto scale\nprovided that you have configured it it\nin that way, and auto scaling is\nenabled, it will just spin up a the\ncluster like that. I mean, resources\nthat are needed for the training.\nOkay.\nOkay, so I think there was one question\non uh\nwhat, you know, he's asking There is no\nThere is no name, but I think he's\nasking about how how to follow along.\nOkay, so let me\nuh I shared the GitHub.\nLet me just\nSo, this is the\nGitHub.\nOkay? Now, what you have to do now is\nthis or after\nthe webinar,\nonce you create an Anyscale account,\nyou can come to workspace\nand click on create,\nand you can click on create a blank\nworkspace. You can always\nclick on any of these uh template, which\nwill which have some code and also the\ncluster that is needed for to run that\nworkload. But, if you want to do it from\nscratch,\nyou can just click on create a blank\nworkspace. You can give some name, let's\nsay demo workspace.\nYou can keep everything as default.\nHead node,\nyou can keep it as default. In the\nworker node,\nwhat you can do is you can\nclick here\nand change the instance type to L4 GPU\nand a bit 32 gig.\nAnd you can say the number of node\nneeded is two. That's all.\nAnd see this here,\nthere is an option called auto scaling\ndisabled and enabled. If you enable it,\nit will just auto scale. So, that means\nyou know, Ray if whenever you submit a\njob, Ray will see that if it has the\nresources\nfor running the job or not. If not, then\nit will just auto scale. Um but, let's\ndisable this,\nuh which is by default, and then click\non create. That's all. So, all you have\nto do is you have to just select a T4\nGPU, 32 gig or 16 gig. I think both of\nthem should work.\nOnce you do that\nand click on create,\nyou will see something like this.\nBased on the workspace name, the status\nwould be preparing or starting.\nWait till it is in the running state.\nOnce that is done,\nyou can click on that,\nand you will end up coming in a\ndashboard, which would look something\nlike this.\nAnd here,\nif you come to Visual Studio Code,\nyou can see\nyou can see an IDE kind of an\nenvironment.\nAnd here,\nthe first thing that you have to do is\nget clone that GitHub repo, which I have\nshared,\nwhich is\nwhich is this.\nOkay? VHOL Ray Train.\nAll right. So,\nnow let's go over the code. So, what I\nhave done, I have come here to Visual\nStudio Code, and then from here, if you\nclick on\nVS Code, you can just click on this open\nin a new tab, because it makes it a\nlittle better. Uh and or you can also\nselect to open in cursor or VS Code. And\nthis is the console of Anyscale,\nright? We are going to go over few of\nthe different options, but uh\nI have just clicked here and open in a\nnew tab, and this is where I end up\ncoming. Okay?\nSo, inside this GitHub repository, once\nyou clone it,\nlet me show you in the GitHub itself.\nSo, once you clone it, you will see that\nthere is an folder called DDP PyTorch.\nCome inside,\nand then open this notebook, Ray Train\nIntro. And this is the notebook, which\nwe are going to follow. I have made a\ncopy of this and renamed that to Ray\nTrain Intro Live, because I'm I might\nmake some changes, but it's the same\nnotebook. Okay? So, from now onwards, we\nare going to go over\nthis notebook.\nOkay. So,\nnow let's\nlet's see how how we can\ndo this distributed training with Ray\nTrain. But, before that,\nlet's see how a\nregular PyTorch\ntraining loop looks like.\nWe take a data set,\nand then we\npick a model or we define the model, and\nthen we perform the forward pass, then\nthe backward pass, update the weights,\nand save the checkpoint. And if you see\nhere, the forward pass and the backward\npass and updating the weights,\neverything happens within the GPU.\nAnd the model checkpoint, once we save\nthat model, it goes it's it's a\nit taken care by the CPU, and it is\nstored in some place, maybe local device\nor let's say on an S3 bucket or any\nblock storage.\nNow, if you see a\nthe training loop,\nI'm just importing few of the libraries,\ntorch, data loader, very generic thing.\nThe And now we are not talking about\ndistributed training. Okay? So, we are\njust\ntalking about simple\nvanilla PyTorch training.\nFirst, we define the training data\nand the test data. And this is the data\nset coming from PyTorch.\nUh here we are using CIFAR-10.\nAnd\nthen we wrap it with data loader, and we\ndefine what is the batch size, whether\nshuffle is true or false, whatever.\nThese are standard PyTorch data data set\ncreation or data loader\ndefining step.\nOnce that is there,\nwe can write the\ntrainer function, where we define the\nlearning rate, epoch, and batch size.\nWe take the training loader and the\nvalidate validation loader from the\nfunction that we have just seen.\nWe define the model.\nWe move the model to CPU or GPU,\nwherever we would like to.\nWe define the loss.\nWe define the optimizer.\nAnd we just start the training loop,\nwhich is very straightforward, nothing\nvery fancy.\nAnd we at the end we just,\nyou know, update the loss and the\naccuracy.\nNow, we are not going to run this,\nbut this is a simple training loop.\nNow, let's see how we can take that same\nfunction\nand make it run in a distributed fashion\nusing Ray Train.\nSo,\nthis is something that we have seen in\nthe in the slides. When we run torch\ntrainer.fit,\nit actually runs on the driver node. So,\nbefore that, let me just show you or let\nme just give you uh\nhow the Ray cluster looks like. So, Ray\ncluster has a head node\nand some worker node. So, the worker\nnode is where the training happens.\nOkay?\nAnd head node is for basically this is\nfor cluster creation, cluster\nmanagement.\nSo, in this head node,\nthere is no training happening.\nBut,\nwhen we submit any\ncode,\nit generally runs from the driver node\nwhich is typically the head node. So,\nyou are instantiating the training from\nthere, but the actual training is\nhappening in the worker node. Since we\nhave two nodes here,\nit will happen in this case in these two\nworker nodes.\nSo, now,\nif you see,\nwhen we\nrun trainer.fit,\nit will spin up the worker trainer\nworkers in the nodes which are available\nin my cluster.\nAnd\nevery time the training is happening, it\nis going to save uh it will make sure\nthat the checkpoint is saved, and you\nknow, it is it's going to make sure that\nthe model is model artifacts are saved\nin a shared location\ndefined in the torch trainer loop, which\nwe are going to see.\nAnd the these are the responsibility of\nthe train driver.\nIt will manage everything, like resource\nresource management,\ntrainer scheduling, etc. etc. Okay?\nSo,\nnow let's see how we can change that\ncode into\na distributed training code.\nAnd this is something that the same\nimage which we have seen in the\npresentation, if you remember,\nthis one.\n>> [clears throat]\n>> This is the same image, where we have a\ntrainer function and scaling\nconfiguration. And once the training\nstarts, it just distributes the training\ninto multiple workers defined in the\nscaling configuration. So, same way\nhere,\nin the trainer, we will have the scaling\nconfiguration and the actual trainer\nfunction. In this case, it is PyTorch,\nbut it could be\nany other library of your choice.\nAnd depending on the scaling\nconfiguration, it will just launch those\nmany number of workers and will start\nthe training.\nNow,\nlet me just go down and show you the\ncode and come back there a little later.\nOkay? So, this is what we are going to\ndo now.\nWe are going to take a data set.\nAnd now that data set need to be sharded\nbecause now we are going to train it in\ntwo GPUs. Uh so, somebody need to take\ncare of sharding the data into two\ndifferent micro batch.\nAnd\nthen we can perform the forward pass in\nboth the GPUs at the same time.\nBut we have to make sure that the model\nis also prepared. That means the model\nshould start with some initial state,\nwhich would be a random state. But that\nrandom state should be same and\nsynchronized,\nand we are going to see that how we can\ndo this.\nSo, we have to prepare the data set so\nthat it can shard properly, and we have\nto prepare the model so that it has the\ninitial sync.\nAnd then the forward pass can happen\njust like before.\nSimilarly, the backward pass will also\nhappen just like before. But before\nupdating the weights, we have to have\nthe gradient synchronization, which we\nhave seen a while back. And that is\ntaken care by the backend\nall reduce\nprimitive.\nAnd then we can update the models.\nAnd finally, we can save the model\ncheckpoints and metrics to the backend\nstorage. It could be an S3 or a shared\nstorage.\nAnd in this case, since we have the same\nmodel in multiple GPUs, ideally what\npeople do is they just save the model\nartifacts from the rank zero or the\nfirst GPU\nin the cluster. So,\nthis is a best practice because\nall the models artifacts are same. So,\nthere is no point of saving the same\nartifact multiple times.\nBut you can very well save it from rank\none or any other rank of your choice.\nSo, now let's see how we can\ndo this.\nSo, we will import Ray Train, Run\nConfig, Scaling Config, and Torch our\ntrainer. Again, these are the three\nthings that we have seen here. I just\nwant to connect you with what we have\nseen in the presentation\nso that you can relate.\nSo, the first thing that we need to do\nis we need to change the training\nfunction\nslightly, right? And if you if you\nremember what is the training function,\nthis is the training function which\nwhich we want every GPU to execute or\nrun, right? So, we have to make some\nchanges in the training function. So,\nlet's see what are the changes that we\nhave to make.\nFirst,\nwe have to load the data. This is\nexactly same as before. We are loading\nthe PyTorch data loader. We are using\nthe native PyTorch data loader. But now\nthat we have to make sure that we get\ndifferent micro batch of data in\ndifferent GPUs,\nwe can wrap this with the prepared data\nloader from Ray Train. So, we don't have\nto worry about\nhow these distributed batches are going\ninto multiple GPUs. We can just wrap it\nwith Ray Train Torch prepared data\nloader, and it will make sure that\na different micro batch is going in\ndifferent GPUs, right? So, this is what\nthe prepared data loader step does.\nAnd then the model is as you know, as\nbefore. You can define your model.\nThere's no change there. But now, before\nwe start the training loop, we have to\nmake sure that the model have\nsynchronized\nwhen it starts the training,\nit should it should know that it has to\nshard across multiple GPUs. And who will\ntell that?\nYou can define this by Ray Train Torch\nprepared model. Just like\nwe prepared the data, here we can just\ncall prepared model. And by default, it\nuses DDP. But if you use different\ntechniques like FSDP or any other\ntechnique, you can just define the\nsharding technique\nwhile you are preparing the model. But\nit is just one single line, which will\nmake that model\navailable in all the GPUs that you\ndefine based on the scaling\nconfiguration.\nAnd then the loss function optimizer\nremains the same.\nAnd during the\ntraining, there is one small change that\nyou have to\ndo. Okay, we don't have to do now, but a\nsmall change that we need to do when we\nreplace this default data loader with\nRay data, which we will see at later\npoint in time.\nBut once this is done, we can start the\ntraining, and there is one step that\nthat was not there before is this one\nwhere we\ntake for every epoch,\nwe take\nwe are just\nadding\nshuffle within each epoch.\nBecause what we want is when when we are\ndoing a distributed training,\nwe can shuffle the data set at various\nplaces.\nOne is at the very beginning when we\nload the data, but it is very\nyou know, resource intensive because you\nhave to you know, make sure of\nall different data in different shards.\nBut\nwhat is a better way to do it is you\nknow, for every epoch,\nwhatever a GPU gets the data, you\nshuffle it within that. So, that is what\nwe are doing here. We are just\nshuffling for each of the\neach of the epoch.\nAnd we are checking that do this only\nwhen you have more than one GPU because\nthat is when it makes sense.\nBecause if you are running it in a\nnormal environment, one GPU, you don't\nneed that because data would be already\nwill get shuffled by the Torch loader.\nSo, that's about\nthe distributed training with Ray Train.\nSo, just to recap, we did two changes.\nWe prepared the model.\nAnd we prepared\nthe data. That's all.\nAnd once these two are changed,\nthese two are updated,\nthe remaining\ncode is exactly same as before.\nThe last thing that we need to do is we\nneed to save the checkpoints in a more\nsmarter way, right? What we have seen\nlike you have to save the checkpoint\nall the model artifacts from the let's\nsay the first GPU. How we can do that?\nSo, we are just\nyou know, defining a function called\nsave checkpoint and metrics. The first\none is just to print the metrics.\nWe are just uh\nprinting the loss and\nand which epoch the training is at. And\nit should print for each of the GPUs.\nAnd how it is going to get which GPU it\nis,\nwe can just use the\nray.train.get_context\nand world_rank. What is this world_rank?\nIf you have a cluster of let's say two\nnodes and each has two GPUs, let's say\nGPU zero and GPU one, and uh this node\nis also having GPU zero and GPU\none. So, this has a local rank\nof uh\nlocal rank zero,\nand this will have a local rank\none. Okay? So, this is same as\nin the other node as well.\nBut\nthere is something called global rank.\nSo, this global rank would be zero for\nthis one, and this one would be\nglobal rank one, and this one would be\nglobal rank two, and this one would be\nglobal rank three. Okay? So, what we are\ndoing is we are just\nchecking which\nrank global rank this GPU is, and\nprinting the loss, and that is what we\nare doing. We are trying to find because\nthis code will run in all the GPUs. So,\nPyTorch should know or Ray should know\nwhich GPU it is running so that while\nprinting the loss, I can print what is\nthe rank of the GPU.\nSo, this is about you know, printing the\nmetrics from all the GPUs. But for\nsaving the checkpoint, we don't we don't\nwant to save the checkpoint from all the\nGPUs because it's the same model. You\ncan always do that, but\njust to make it more efficient, we can\njust\ngo to\nGPU number world rank zero, which is the\nfirst GPU, that is\nglobal rank zero.\nWe can save the model just like how we\nsave any PyTorch model like torch.save,\nand it will it will get saved in some\nlocal directory\nlocal file file system of that node.\nThat is not shared across multiple\nmachines. So, we will save it in a\nin a local machine wherever is that GPU\nzero is running.\nAnd we will have that checkpoint.\nAnd then we will\nrun ray.train.report\nto move that checkpoint to the shared\nstorage. And this\nlocation of that shared storage is\nprovided while we start the training,\nwhich we are going to see next. So, just\nto set the context,\nwe modified this function,\nand\nnow we are talking about the checkpoint\nconfiguration. So, these are the\nconfiguration that we will give. And\nwhen we start the training, we will\nprovide all this information to torch\ntrainer so that it knows, you know,\nwhere to save\nthe\nshared checkpoint, okay, or the final\ncheckpoint.\nSo, this is the shared location.\nAnd if you see,\nthis is\nnot within this if condition because\nthis is a blocking call. So, if the\ntraining is happening in let's say\n10 GPUs or 10 worker nodes,\nit will wait for all those 10 worker\nnodes to\nshare their\ncheckpoint. So, if I just move this\nwithin that if condition, it will just\nwait because it will not get\nyou know, it will hang basically. The\ntraining will hang because it is not\ngoing to get\nthe checkpoint from other ranks because\nthis would be\nthis will get executed only in a rank\nzero, right? So, we should move this\noutside that if condition and we can\njust save the checkpoint from uh\nevery machine's local directory. In this\ncase, it would be only from\nthe rank zero GPU.\nSo, now that we defined that training\nfunction which which we want to run in\nall the workers, we can define the\nconfiguration and\nthe training loop configuration and\nscaling configuration. So, let's see how\nwe can do do that. We can define how\nmany workers we want, whether we want\nGPU or not. This is the global batch\nsize.\nThe the total batch size that we want\nto execute. And this is the training\nconfiguration. So, the global batch size\ndivided by the number of workers is the\nlocal batch size. So, if you have let's\nsay two GPU and my batch size is\n256 512, there will be 256 data point in\neach batch.\nYou know, it will\ndistribute and start the training.\nScaling configuration, I will just pass\nthat number of workers and whether we\nwant GPU or not.\nAnd in run config, we can define what is\nthe share storage. So, this is an NFS\nbased basically EFS storage.\nBut if you want, this can be an S3\nbucket as well.\nAnd this is the training run\nunique name and just to\ndefine which what is the\nname of the training run for our\nadministrative purpose.\nAnd then we can just run torch.train.\nSo, we define the function\nand we define the training\nconfiguration. So, whatever we define\nthe training configuration will go as an\nargument\nto this training\nfunction. So, the training config if you\nsee,\nwe are passing\nlearning rate, epoch and the batch size.\nAnd this will go as an argument to this\ntraining function per worker func\nfunction that we have defined. And if\nyou see this function, this is the same\nfunction which we have written here.\nWhich we have gone through.\nAnd it takes the configuration and we\nare just reading from that\nconfiguration.\nLearning rate, epoch and batch size. And\nthis is exactly what we are passing\nhere.\nTraining rate, epoch and batch per\nworker, okay?\nOnce we do that,\nwe can\nsimply start trainer.fit\nand we can\nget you know, wait for the training to\nget over. And if you see the logs,\nit will first go from initializing to\nscheduling. So, this is who is doing\nthis? This is the trainer\ndriver\nfrom where we have executed this. Like\nin this case, it is in this Jupiter\nnotebook when I\nwhen I hit enter or shift enter,\nthis gets started from the driver node\nand it is trying to search for two GPUs.\nAnd why two GPUs? Because that is the\nconfiguration that I have provided here.\nSo, it will go and search for two GPUs.\nOnce it gets that,\nit will assign two workers.\nAnd if you see this, it it found out\nthere is\none worker here and the other worker\nhere. And see this, both of them have\nlocal rank zero, but global rank is zero\nand one,\nand these two are coming from two\ndifferent machine.\nOkay? So, once\nthe\ntrainer driver found out the resource\nthat was needed,\nit can go from scheduling to the running\nstate. And then the training will start\nin both the machines at the same time.\nAnd if you see this, this is\nthis is\nthese are the logs coming from this\nmachine. These are the logs coming from\nthe other machine. And since we wrapped\nthe model using Ray Train prepared data,\nunder the hood, it uses the distributed\ndata parallel technique\nfrom PyTorch. So,\nyou don't have to we have not written\nany code for this, but we just wrapped\nit with Ray Train and it has taken care\nof that.\nAnd once it continues after that, you\nwill get the final checkpoint, the\nlocation where\nthe model.pt\nfile is stored. So, that's about\nwe can actually see this as well. So, if\nI just uh\ncopy this path.\nIf I just copy this path and\nsee this.\nWe can see that model.pt is saved.\nRight? So, this is a shared location\nacross\nall the head all the worker node and the\nhead node. So, this location\nthis location is saved across uh\nboth the machines and the head node.\nThat's why I was able to get that\nyou know, while I'm in the head node.\nOkay. So, now to summarize,\nthe sharding of the data was taken care\nby prepared data loader.\nThe sharding of the model in this case,\nthe model was not shard, but we have to\ndefine that the model\nshould train using DDP, which is by\ndefault. So, initial synchronization\nand these all reduce synchronization,\neverything\nshould take place. And how we are\ndefining that? We are defining it by\nrate\ntrain.torch_prepared_model.\nSo, these two wrappers prepares the data\nset as well as the model. And finally,\nwe are using\ntrain.report to save the checkpoint from\nwherever it is. So, in this case, we are\nsaving the checkpoint from rank zero,\nright? So, this is\nhappening in the CPU and the training is\nhappening in the GPU and data loading is\nalso happening in the CPU, okay? So,\nthat's about Ray Train.\nSo, now\nI want to\nI want to show you few of the\nlimitations of this way of doing the\ntraining, right? And how we can mitigate\nthose limitations\nwith Ray data, okay? So,\nlet me just uh\nGive me 1 second, okay?\nSo, let me just show you this uh\nOkay.\nSo,\nassume that we are running running it in\na single GPU. We\nwe train it like this and this is how we\nhave\nrun the training, right?\nIn multiple GPUs, we can just define the\nnumber of workers\nas two and the training will happen in\ntwo GPUs at the same time.\nAnd we can scale it to multiple nodes\nand all that. So, it's pretty\nstraightforward. There's nothing\ndifficult in this case.\nNow,\nif you look at how this training is\nhappening,\nin every training worker, we are using\nthe PyTorch data loader.\nAnd this PyTorch data loader, you can\nscale. So, when you define a PyTorch\ndata loader, you can always say that\nnumber of workers as four. So, it will\njust create four\nmultiple threads within the same node.\nSo, in this case, this is the same GPU\nnode where I'm running the training and\nthese are this will be executed in the\nCPU, which is\nwithin that GPU node.\nNow, if you see that this is\nthis is not very good.\nAnd the reason is your GPU will be\nalways hungry for data.\nAnd now you are kind of bottleneck\nbecause of your CPU within that GPU node\nbecause it cannot scale beyond a point.\nAnd what GPU would expect is\nyou know,\nit it would it would uh\nit would just wait for data.\nSo, it would expect that okay, I'm ready\nfor the training, but you are not giving\nme the data that I need.\nAnd why it would take why CPU takes time\nfor this\ndata loading?\nBecause\nwhen you look at this data loading,\nlet me show you this 1 second.\nOkay, I don't have uh\nGive me 1 second.\nYeah. if you see that\nworker you know the data loading worker,\nit performs multiple things. It It reads\nthe data. It might transform the data\nlike cropping the image or tokenizing or\nwhatever and then it also do some\ncollation like padding the image to make\nsure that all the images in the batch\nare same or and also converting that to\na tensor and then finally moving it to\nthe GPU, right? So, these are the things\nthat\nthat happens within the data loader,\nright? And this this is not good, and if\nwe move\nif you if you do this into the same\nworker, it adds more pressure in this\nnode, right? And these are the\nbottlenecks and how you can see these\nbottlenecks, if you see the stat of\nGPU SM,\nyou will see that during the training\ntime there is some peak and there is\nsome down, right? And when it is down,\nthis is when it is waiting for the data\nto feed,\nand similarly in during the checkpoint,\nthere is GPU is completely idle.\nSimilarly for the validation, you see\nthe same\nyou know up and down in the utilization\nbecause of the same reason, right?\nBecause it has to\nload the data, do the pre-processing and\nthen do the\ninference or basically\ngo to the model, but it is little less\nbecause there is no\nback propagation here and that's why the\nresource utilization is pretty low,\nso now\nif you see just the training, how Ray\ndata can help here.\nWhat we can do is we can take out this\ndata loading from this GPU node\ncompletely.\nSo, if you see the data loading what it\ncomprises of,\nit it it has to read the data, it has to\nperform some operation, some batch\ncollection collation and then moving to\nthe GPU, right? So, these are the things\nwhich is happening within the CPU of the\nGPU node, okay? So, now\nif you see if you have one GPU node\nand in this GPU you have in this node\nyou have eight GPUs\nand total and number of CPUs is 96. So,\nyou roughly have a 1:12\nratio, right? For one GPU, there are 12\nCPU which which will be helping you to\nload the data. So, you are already\ncapped by the CPU.\nSo, now with Ray train,\nwhat you can do is you can completely\nwith Ray train, you can completely\noffload this\nto Ray data. And this is how it would\nwork.\nI'll just reduce the\nI'll just zoom out, okay.\nSo, now what we can do is\nnow let's\npick one example with single node and\nthen we will move it to the multi node.\nLet's say this is just one GPU node\nwhich has some CPU and one GPU.\nIn this,\nnow you are performing\nthe reading and transformation using Ray\ndata and Ray data will store the\ntransformed data into an object store\nwhich is in memory.\nAnd\nthe trainer worker will fetch the data\nfrom the object store.\nAnd how it will fetch, it will we have\nan object called iter\ntorch batches which will prefetch\nthe or it will just fetch the data as it\nis needed from the object store, right?\nSo, you don't have to worry about uh\npre-processing and moving into the GPU,\neverything will be taken care by this.\nNow, this is not what we would like to\nhave because at the end of the day this\nis also happening in the same one\nmachine.\nWhat is ideal is we completely take this\ninto\ninto a different machine. So, it would\nbe something like this.\nSo,\nyou will have a separate node for which\nmight have just CPU,\nthere's no GPU there and you load the\ndata using Ray data there\nand it will do all the transformation\nand this can scale independent of how\nmany GPU nodes that you have.\nAnd as and when your data is ready and\nstored in the object store,\nyou can push it I mean Ray will push the\ndata to the training worker and the\ntraining worker will take the blocks of\nstorage which is needed to perform the\ntraining. Now, here also I have shown\nread and transform. This is just for\nillustration purpose that in case you\nwant to use the CPU within the GPU node,\nyou can also use it, but uh\nwhat we have seen the customers are\ndoing is they they completely isolate\nthe data loading and data preparation in\na CPU node and perform the training only\nin the GPU node. So, both of them can\nscale independently.\nAnd one thing to note here is that\nit might so happen that while you are\npreparing the data, at that time also\nyou might need some GPU. Let's say you\nwant to\ngenerate the embedding of an image,\nright? So, that's that you might need\nthat embedding to\nto to be used in some training. So, in\nthat case here also you might need a\nGPU, but that GPU might be of smaller\nsize or not of let's say A100 or H100,\nmight be a small\na small GPU. So, you can always have a\nGPU here as well as a CPU, but the point\nis this CPU and GPU node is completely\nisolated from your training\nGPU, right? So, both of them can scale\nindependently.\nNow, if you see the code,\nnow that we we took off the data part\nfrom the training loop,\nuh and we are just using Ray data\nto load the data, uh we can just define\nwhere my data set is. It could be a\nshared storage on S3 or\nuh whatever.\nWe can just read the data using Ray data\nread parquet. So, we have a lot of APIs,\nread parquet, read CSV, read images,\netc. etc.\nSo, you just read the data\nand\nonce that is done,\nyou can also perform some transformation\nand this all we would like to have it\nseparately outside the GPU node,\nso we can always have some\ntransformation and we can use the\nmap\nfunction to transform the data set\nand this is kind of the pre-processing\nof the data before the training starts.\nAnd now in the training loop, we just\nhave to make one change.\nIn the training loop,\nnow we can just use\nRay train {dot} get data shard for\ntraining and use iter torch batches. So,\nnow there is no PyTorch data loader in\nthis function. Uh here we are telling\nRay train that get the shard for the\ntraining and give me\nthe data that is coming that you are\ngetting from Ray data and I will perform\nthe training.\nAnd how it is going to get this train\nand validate data set, uh this it will\nget\nif you see here when we start the\ntraining,\nwe will add a new line called data set\nand here we are parsing that train data\nand the test data. So, if you want to\nsee that in parallel, I'll just show it\nto you here\nso that you can see what is happening.\nSo, this was previously without Ray data\nand this is on the left hand side\nit is with Ray data. So, if you see\neverything is same, there is no\ndifference here in in the configuration.\nUh in the training configuration also it\nis the same. The only change is\nwe added this one single line called\ndata set. In this case, there was no\ndata set because data set was defined\nwithin the training function itself, but\nnow we have disaggregated that outside\nthe training loop.\nAnd now that I have the data set with\ntrain and validate, this can be read by\nthis training function.\nSo, now if I just scroll up,\nyou will see\nthat this train and\nvalidation data set is read by Ray train\nget shard.\nAnd how it is going to iterate, it is\ngoing to iterate using the torch batches\nand you can actually define\nthe\nprefetch. That means when the training\nis happening for one micro batch, at\nthat time\nRay train can generate separate thread\nto prefetch\nthe data from the Ray data data set.\nSo, it can happen all in parallel.\nSo, when you do this, you will see that\nyour training pipeline\nis more efficient because now you are\nable to train faster because of your\ndata processing you are offloading and\nthe other advantage is both of them\nis happening at the same time and they\nall can scale independently. Your\ntraining worker can scale independently\nand your\ndata preparation\nworker can scale independently. So, what\nI mean by that is something like this.\nSo, if you see here\nIf you see here\nSo, this is my\nThis is my GPU node, right? So, this is\nwhere I I was doing the training as well\nas the PyTorch data loader, everything\nwas here. But now, I have used Ray data\nand in this case, I have some a\ntransformation which needs some CPU and\nsome GPU.\nAnd this can be a single machine.\nThis can be a single machine. And\nI can scale this independently.\nAnd then the rate the Ray train will\ntake the shard\nfrom this Ray data\nas per the GPU requirement like the it\ncan if it if it is if it is needed, it\ncan have more uh\nbatch of data it it might ask for more\nbatch of data from the CPU node and you\ndon't have to worry about that. So, we\nhave some back pressure we have some\ntechnique in the back end\nwhich which will tell the Ray data to\npush more data because GPU is starving,\nright? It is waiting for for that.\nAnd the best part is now you can scale\nindependently. So, you might have\nfour CPU nodes two GPU nodes just for\ndata processing or let's say four GPU\nnodes and four CPU nodes for the data\nprocessing, but you can still continue\nwith one GPU node for the training. So,\nnow you have disaggregated the data\npipeline from data preparation pipeline\nfrom your actual training.\nAnd who is doing this split?\nWho is making sure that this pipeline or\nthis is never empty? That means the GPU\nis all\nalways very very busy. Who will take\ncare of that?\nIt is taken care by\nthis function.\nIter torch batch where we we can define\nwhat is the prefetch and we don't have\nto worry about how how to scale. We can\nwe can let Ray train and Ray data to\ndecide\non your behalf so that your GPU is\nalways busy.\nOkay? And once this is done\nyou can just perform the training just\nlike before and there is no difference.\nThe only difference is you are now\nadding this Ray data in the\nconfiguration.\nAnd now when you start the training, you\nwill see that\nyou know\nthis time the Ray data since we have\nRay data in the pipeline, it is spinning\nup workers to read the data, perform the\ntransformation and all of that and\nstoring into into the object store.\nAnd while this is happening\nthe Ray\nRay train will perform the training on a\ndifferent batch of data. Right? So, we\nare kind of\nyou know making use of the resources\nthat we have\nwithin the cluster. Okay? So, that's all\nthat I have.\nNow, when you start the notebook, I\nwould recommend that you go over this\nRay train. There are some images and\nexplanation of\nhow Ray train and Ray data works and\nalso some resources.\nAnd if you want at later point in time,\nyou can use this FSDP which is another\ntechnique to for\ndistributed data parallel where you\nactually shard the model as well\nfor uh\nIt is still a data parallel, but we\nshard the model so that\nwe can efficiently do the training and\nthis is more applicable when the model\nis so big that you cannot you cannot\nhave\ngradients, parameters as well as the\noptimizer state all at the same time in\nall the GPUs. Right? So, this is when\nyour model is very big, you may like to\nuse FSDP. So, we have some tutorial on\nthe FSDP as well.\nAnd at the end, if you really want to\nbuild something, there is a Gwen-3\ntext-to-speech fine-tuning with with\nFSDP.\nYou can do that\nif you want to fine-tune\na text-to-speech model. Okay? So, now we\nwill go through a few of the questions.\nI think we are almost on time, but\nI if you are fine, I can spend time on\nquestions.\nSo, let me go over the questions.\nOkay.\nThere is one question is that okay uh\nGitHub repo and everything let me just\nkeep that in the slide so that while I\nanswer the question\nyou can see that. Okay, so this is the\nslide and I'll share you the GitHub\nin the next slide.\nSo, this are the slide and GitHub I'll\nshare it.\nOkay. So\nCan we have another session on FSDP in\nfuture? Yeah, sure. So, we had one\nsession on FSDP on the YouTube. Maybe\nI'll request Bill to share that.\nBut we have that. But we will surely\ndo something with FSDP.\nThere is a question that if the data set\nis big enough we are going to fill the\nobject store. How can we avoid this\nsomeone? Yeah, that's correct Pablo. So,\nif the data set is very big, we we can\nalways\nuse the object store and if if it is\nspilling over, we can de-stage it to the\nback end storage. So, that is there\nwithin\nwithin the implementation as well. So,\nyou don't have to\nworry about that.\nAnd also, you can define how much of the\nmemory you want to use in the object\nstore. And just for clarification, here\nthe object store is an Ray construct.\nIt is not the object store like S3. It\nis part of your RAM in the machine.\nWhich function handles the failure?\nOkay. Uh\nWhen we perform the uh\ntorch trainer, it has uh\nIt we have wrapped the model with a Ray\nobject, right? So, now it can take care\nof a failure and recovery.\nIn fact, when you go to the dashboard\nand come to Ray dashboard\nand\nin fact, Ray workload, you can come to\ntraining\nand you can select every training run\nand you will see that how many workers\nit has used for the training and you can\nsee you know what is happening into the\nGPU if it is any failed job or if it is\nfailing, then it has been up a new actor\nor new worker for that. So, you can see\neverything in the dashboard, but you\ndon't have to worry about that because\nthis this will be this is what Ray train\nwill take care of your\nfailure and restart. You can always\naugment that with the more logics on\nretry and other things,\nbut you don't have to worry or you have\nto you don't have to code for that.\nThere is a question from Stephen. If you\nmove the data off from the GPU, how\nsensitive it is from the network\nlatency? What are the trade-off\nfor by making the data non-local to the\nmodel and the GPU? Okay, that's a good\nquestion. Uh\nuh Stephen. So, here if you see\nHere if you see this uh\nYou can ignore this GPU node because we\nare assuming that the data processing\nneeds some GPU, but for the sake of it,\nyou can just you know\njust ignore this GPU node. Uh\nJust assume that you have some CPU node\nwhere you are processing the data and\nthen it it is going to serve the data\nfor your training. So, in this case\nsince it is coming out from outside the\nbox, of course there is a network\nlatency involved,\nbut we can always have\nmultiple of them, right? And these are\ncheap very cheap nodes with respect to\nthe GPU nodes.\nSo, we can always have enough amount of\ndata which is always ready for my GPU\nnodes to pick up.\nAnd also\njust like\nwe have seen earlier, within the GPU\nnode also, you can use the CPU that you\nhave here\nfor for data loading. Although\nyou know that is not recommended, but uh\nof course there is a\nnetwork\nthroughput limit because it is coming\nfrom outside box, but what we have seen\nis that you know it it works pretty\nwell.\nIt makes your GPU more efficient. In\nfact, there is a stat that I have\nwhich I forgot to share.\nSo, we did some benchmark\non a ResNet model with 16 A100 and this\nwas purely GPU node\nwith PyTorch data loader\nand we could complete it in these 1800\nseconds. And when we used Ray data and\nwe used 10 CPU nodes for data\npre-processing and loading and the same\nA100, so you can say that we added more\nresource. Of course, we added more\nresource, so that would cost more. But,\nat the same time,\nour training run time reduced by almost\n70%. Right? So, that means you will not\nhave to pay for that amount of time for\nyour A100. Right? So, effective cost\ngoes down, although you have added some\nresource for data preparation. Right?\nOkay.\nAll right. So, uh\nwhere is the shuffling happening? Okay.\nSo, the shuffling happen\nin multiple places. So, let me just show\nit to you here.\nSo, the first So,\nthere are two ways that you can think of\nshuffling. So, one is when the data set\nyou are,\nyou know, loading and then sharing it to\nmultiple GPUs. And the second one is\nwithin the GPU itself, like within that\nworker node itself. And if you see,\nwhen we have this uh\nMhm.\nLet me scroll up. Yeah.\nIter torch batch, here you have the\nshuffle. In fact, I can show it to you.\nMhm.\nWhat is that uh\ndata set name? I guess it is train.\nRight. So, if you see here,\nif you see here, we have this\nlocal shuffle buffer and local shuffle\nseed. So, this is where it will it will\nshuffle\nwithin\nwithin that\nworker node itself. So, you can define\nall of that there. Uh and there is one\nmore place where that shuffle is\nhappening\nis uh\nLet me just go up.\nYeah. So, this is where you are actually\nmaking sure that for each epoch, you are\ngetting a different,\nyou know, set of data for\nfor each of those GPUs that is coming\nfrom the distributed data loader. Okay.\nAll right. So, then,\nlet's see what other questions we have.\nWhich line of code actually does the\nsynchronization? Okay. Which line\nthat synchronization happens?\nIf you see this, this is the training\ncode.\nThis is the forward pass. There's no\nsynchronization. This is a loss\ncalculation of the loss. No\nsynchronization.\nThis is where we are zero, you know,\nmaking resetting the optimizer to zero\ngrad.\nThis is when we calculate the gradients.\nNow, at this step, when we do\noptimizer.step, this is when we have all\nthese,\nyou know, back-end synchronization\nusing\nnickel. Right? So, like all reduce in\nthis case. But, this is the step when\nyou go through that back-end\ncommunication. In fact, all this you can\nsee\nby profiling the GPU.\nIf you come to\nRay dashboard and come to metrics,\nWhat\nI think we can see it here.\nLet's say this is my head node and there\nare two worker node. And if you go to\nany of these worker node, let me just\nshow you 1 second. Uh\nMhm.\nYeah. So, if you see here, you can see\nwhat is happening in all the GPUs and\nthis is the snapshot that I've taken in\nthe presentation.\nThis is the SM activity and if you want\nto do\nuse any profiler, you can also do that.\nAnd\nyou can see this here in the in the\ndashboard.\nOkay. So,\nlet's see. I'll have maybe 5 more\nminutes. Uh\nAnd And again, we might have few\nquestions unanswered. I'll make sure\nthat I'll answer,\nyou know, after this session.\nOkay. So, what happens when one GPU\nfails during the training? So, when one\nGPU fails, the Ray will take care of\nof spinning up a new GPU and it will\nstart\nfrom the last checkpoint. And there are\ndifferent configurations that you can\nset up in the checkpoint configuration.\nSo, you don't have to\nworry about that. Okay? And while I\nanswer the questions, uh\nuh this is a\nThis is a blog which I've written\nsometime back and it it has all those\ndetails on\ngradient accumulation,\n010203\nDDP, etc. So, you may like to\nhave a look. And this is my LinkedIn.\nSo, in case you have any questions, you\nknow, feel free to\njust\nshoot me a DM. I'll be more than happy\nto answer. Okay? So, I'll just take\n5 more minutes and answer few other\nquestions. Yeah.\nThere is a question on\nHow can we Okay, let me just I scrolled\nto a different question. Okay. Uh\nIs Ray aware of cluster topology?\nI need to, you know, I I don't know if I\nunderstand your question correctly.\nIf you If you If you think about a Ray\ncluster,\nit has a\nhead node and a multiple worker node and\nthat is what you define at the time of\ncreating a cluster and you always define\nthat what\nthat worker nodes consist of, what GPU\nit consist of. And Ray is very much\naware of which node contains\nwhat type of accelerator.\nAnd in fact, you can define that during\nthe training as well. So, if you see in\nthe code, when we start the training,\nwhen we start the training, you can\nactually define here which which type of\nCPU GPU instance you want to use. In\ncase, in your cluster, you have\ndifferent types of GPUs.\nAnd this is what\nis important when you run something like\nthis.\nWhere your cluster might have GPU nodes\nfor data preprocessing, you have a GPU\nnode for actual training, and CPU node\nfor data preprocessing. So,\nin these cases,\nyou should explicitly say what type of\naccelerator Ray should pick when it\nstarts the worker nodes for training.\nRight? So,\nyou know, so in that sense, Ray is very\nmuch aware of your cluster, what is\nhappening, and\nwho are the members of that cluster.\nThere is one question on\nYeah, checkpoint configuration, you are\nright. I have not shown that, but that's\nan optional thing. By default, it will\nit will take care of\nof those checkpoints. But, in case you\nwant to define,\nyou can always define it. So, let me\njust show it to you. Uh\nSo, if you see here,\nyou are right. So, we have not defined\nthese checkpoint configuration. Like\nwhat metrics to take care\nand uh\nnumber of, you know, all these details\nof uh\nhow many checkpoints to keep always in\nfor in the cluster for my training. And\nthen you pass this in the run config,\nwhich we have not done, but those are\nthe\noptions that you can have and you can\njust add it in the run config. But, you\nare right. In this training, we have not\ndone that. Yeah.\nThere is a question on Ray data versus\nPySpark. Yeah. So, PySpark is by\nyou know, by\nby the library itself, PyTorch is\nPySpark is very good for\ndistributed data which is text or which\nwhich works in uh\nuh which doesn't need any GPU\nprocessing. Whereas, Ray data is more\nmultimodal in nature by the principle\nitself. So, it is not that uh\nunlike\nSpark, it is very much agnostic to\ndifferent types of accelerator.\nAnd when you use Ray train with Ray\ndata,\nit knows the semantics and that's how,\nyou know, we have seen that how you can\nuse iter batch to prefetch the data from\nthe object store for the training to\nmake sure that it is always,\nyou know, saturating the GPU or making\nthe best utilization of the GPU. Okay?\nAll right. So, I guess we are almost on\ntime. Thank you so much uh for hanging\naround. Uh feel free to uh\nyou know, ping me uh\non uh LinkedIn or if you want to email\nme, that is also fine. Uh uh my email is\nuh Suman, s u m a n, at any scale.com.\nAnd uh there are few questions which uh\nwe didn't answer or we which we couldn't\nanswer, so I'll make sure that I reply\nback to all of you uh by the weekend,\nokay? And uh in the meantime,\nuh I took some notes. We wanted to have\nan uh session on FSDP uh\nuh with distributed training\nuh with Ray Train and Ray Data. Uh and\nthere was some question on\ncheckpoint configuration. So, that is\nalso something that uh uh we can\ndiscuss. And the last one is uh failure\nhandling. So, maybe this is a getting\nstarted, so we did not add all of that.\nUh but, that's a good point. So, maybe\nin one of the webinar uh next, we will\nfocus more on observability part, not on\nthe training part, but more on uh you\nknow, uh observability, troubleshooting,\netc., okay?\nAll right. Uh with that, uh\nuh thank you so much and uh I wish you\nuh a great day uh\nahead, yeah. Thank you.",
+  "segments": [
+    {
+      "text": "Okay, uh hello everyone. Um good morning, good afternoon, good evening, depending on from where you are joining from. Thank you so much for joining and today what we are going to do is we are going to go over what is distributed training and this time",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I thought to do something different. So, we did this hands-on workshop couple of months back where we just spend more time on distributed training and went over the core concepts of distributed training and then we we saw how you can",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "implement it with the array. This time we are going to do the same thing, but I thought that it is it might be useful to dive deep a little bit more on few of the challenges that we see in distributed training as well. And how you can make use of Ray",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "with PyTorch to mitigate those bottlenecks. Okay, so there's something that I thought that we can cover along with getting started with distributed training. Okay. So, before we get started a few logistics, you know, because these are the",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "questions that we get quite often. All the presentation, all the slides will be shared. I'll be sharing you the QR code during this webinar and you can always have a look at later point in time. I assume that most of you, if not",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "everyone, have already created an Anyscale account so that you can follow along or you can do it after this 1-hour session. I would recommend to just follow the session now and then go over the hands-on once this is done so that you can focus",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "you know on the on the lecture so that when you go through the notebook it becomes very natural. So, just to avoid distraction. Okay. If you have any question, feel free to ask in the Q&A. I'll have a you know, I I'll keep an eye on that and shall try to cover",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "as many questions as possible. In case we I cannot cover, just rest assured by by the weekend I'll I'll reply you back because I get all the questions from the back-end team. And they have nicely marked which question was answered and which question",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "wasn't. Okay. With that, let's let's get started. So, give me 1 second. All right. So, let me quickly go over a small presentation just to set the stage and if you are new to distributed training, which I assume because that's the whole purpose of this",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "webinar, this might give you an intuition of what is distributed training and later on we will go through the code and see how we can implement few of these ideas. Okay. So, first thing is why why we are talking about distributed training.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "But before that, I guess you may like to take a screenshot or just uh scan this QR code. This So, this is the GitHub where you will have all the source code and I'll share it again once we are into the notebook and in the console.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "But I'll just pause for 2 seconds so that you get a chance to take an image or screenshot. Okay. All right. So, first is why we need distributed training in the first place. If you think about any training and if you have done any uh deep learning training,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "you will see that the training typically consists of the model and the data. And for the purpose of today's webinar let's assume that the model is small enough it is of course it's big, but it is small enough to get accommodated",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "within one GPU. So, that's this is an assumption that we are making throughout this webinar. There are cases when the GPU memory is not big enough to accommodate the whole model. So, that's a that's a separate topic altogether. But",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "for now, just assume that my model can fit in the GPU. Now, what else consumes the GPU memory is the model and the data. Now, assume that we have this one batch of data and if you want to continue the training with multiple batches",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "it will take more time because my GPU is limited within the system and the more data that we pump in it will take more time. Now, how we can mitigate that? How we can make this efficient by distributing the training? One way to do it is we will",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "copy the model across all the GPUs. So, this this this pink color block this model, this is the exact same copy in all the GPUs and then the data are all four different micro batch of data. The color is same, but the idea is these are four different",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "batch of data. Now, if we do that in this setup we will get roughly around four times efficiency or the training will will be faster four times. Not exactly four times, but because there will be some overhead because of this",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "synchronization which we are going to talk about, but uh I assume that you appreciate the fact that now with multiple GPUs we can efficiently do the training. Now, in this image you might get a feel that these four GPUs are sitting in four different",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "machines, but it's agnostic to that. Assume that these four GPU are in the same machine or it could be in four different machines. It doesn't matter. It's just that you might get more latency when you go out of the box to a different physical",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "machine because there is a network latency that will come into picture. But the idea is we have the same model copied in all the GPUs and four different set of data or different batch of data going through. Now, if you see how this will work out is",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "we cannot just do the forward pass and backward pass like any deep learning model. Because if we do that we will end up getting four different models. Because our model is copied across all the GPUs. Now, let's see where where we need to make some changes",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "so that we can have this distributed training work perfectly and at the end we get one single model, right? Because that is the whole purpose of scaling this model at scale distributing this training at scale. So, in the forward pass we can just pass",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that data all four different micro batch of data and it will just work fine because the model is same across all the GPUs. But in the backward pass we can easily calculate the loss. So, there is no problem with the loss calculation.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "But we cannot update the model. The reason that we cannot update the model is that all different GPUs have four different gradients because there are four different micro batch of data has been used. So, at this time, before updating the models, I have to",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "synchronize the gradients. And that is what we can do by leveraging the back-end nickel communication library or from the from our GPU provider. In this case, let's say if you use an Nvidia GPU, we can use the back-end primitive called",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "all reduce, which will just accommodate or accumulate all the gradients and it will share the average to all of the GPUs. So, now at this point in time all the models all the copies of models in all the GPUs will have same gradient.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "You can think of it that you know, it is it will just add all the gradients and it will average it out and give it to all the models. But you this is this has nothing to do with Ray or PyTorch. This will be taken care by the back-end",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "communication library in this case nickel for Nvidia. Because we are assuming that it is an Nvidia GPU. Once that is done, we can update the parameter based on the optimizers states and we can just start with a new batch of data, right? And the training can",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "continue. So, if you think about it what we did was exactly how we used to train in a single GPU, but at in this case we just have to communicate before updating the model updating the weights so that I have the same set of gradients.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "So, the training loop is a little bit different, but when you see the code you you will not realize much of a change. And this is what we called distributed data parallel and that is what we are going to see today's lab. Okay? So, so far,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "do you have any questions on distributed data parallel? Because next we are going to see how we can implement this with Ray. If you have any questions, please let me know. Okay, there is one question on the Okay, for the lab part, if you are if you are having",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "any issue with the console or access or spinning up a cluster, we'll discuss that, but I guess if you are not able to get a cluster, just wait for some time or do it little later. So, Pablo is asking, is the data in each local VM beforehand?",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Is the data in each local VM beforehand, right? So, we are going to talk about that, Pablo. So, the question is will how we will distribute this data to different machines? So, that that we are going to talk about. There is one attendee who is asking,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "where does that gradient accumulation happen? Yeah, so we are not talking about you know, gradient accumulation. This is one of the way to optimize the training, but if you think about it, where that gradient accumulation happens, it happens when we perform",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "the a forward pass, and it it doesn't it it is a trick where it doesn't uh it doesn't store all the a gradient. It just It just saves the gradient after a micro batch within a machine, so that you know, when when we do the backprop,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "it it does a small forward pass to get the activation. So, it's a trick. I have written a blog on that, so if you are interested to know how that gradient accumulation happens, you can read through that. Okay. Why do we need all reduce sync gradient,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "not all reduce sync parameters? We don't need that for the parameters because parameters are shared across all the all the GPUs. So, we don't need to do any synchronization for the parameters because parameter we can update in all",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "the GPUs independently. Right? So, we we can just do that independently in all the GPUs at the same time once the gradient is synchronized. So, we don't have to do two times synchronization. So, all we need to synchronize is the gradient. All right.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "Are these the same batch of data given to the GPU? No, these are all different batch of data. Okay? So, I guess you get that intuition. Now, when we when we when we see how this is implemented and see the code, you will you will get an intuition.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "One thing is I think one question which I have parked is how we distribute the data across all the GPUs so that training can work properly. So, let's see how Ray Train can help. Now, assume that this is your training function. So, this is the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "function or this is the code which you had to train in single GPU. Now, first thing that you need to do is you need to make some changes, and that is what we are going to do when we look at the code. We have to make some changes in the code which will",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "enable that code to get distributed across multiple machines. Now, that is what we call the training function. And then you need to have few other configuration like a scaling configuration, running configuration, and checkpoint configuration. So, these",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "are the set up you can think of which we need before starting a distributed training. So, scaling configuration would be something like how many GPUs you want to distribute. A runtime running configuration would be Okay, where you",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "want the checkpoint to be saved because if you are doing a distributed training, the checkpoint we need to save in some central location because it might happen that during the training some GPU might go off, some GPU might uh",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "might get faulty, and we just have to spin up a new worker instance and start the resume the training from there. So, in that case, we cannot just store the checkpoint locally in in that machine. So, we have to destage the",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "checkpoint in some shared storage. So, that is what we can configure in the runtime configuration and checkpoint configuration. So, together, what we call is Ray Train. So, you have to thread this all together into a single object,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "and then you can start the training. So, in the code, how this would look like is we will import TorchTrainer, which will be the glue to connect all of this. And we have to first import scaling configuration, run config all from Ray Train. And then, we can",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "just wrap everything together. That means here, if I just show you, so I will take this function, and I will add this into this wrapper, TorchTrainer, as the training function. And then, the scaling configuration I will supply here. Similarly, the running",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "configuration, and the checkpoint. Okay? So, all of this together all of this together I'm tying within the Torch Trainer. Okay? So, once this is done, we can simply say trainer.fit. So, previously, when you are not running",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "it in a distributed fashion, you would have run just python trainer train.py. Or if you are using native distributed training from PyTorch, you would have used torch run, right? Something like that. But in this case, you don't have to do",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "anything. You just have to run trainer.fit. The moment you do that, based on the scaling configuration, if you have in the scaling configuration the number of worker is let's say four, in that case, it will spin up four different workers in the Ray cluster,",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "and it will it will start the training all at the same time. And it will save the checkpoint depending on what configuration that you have set up in this running configuration and checkpoint checkpoint configuration, and it will just save the checkpoint there.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "So, that's about Ray Train at a very high level. And now we are going to see the code and and see this in action. Okay? So, I'll just take a pause, and uh look at few of the questions. Okay? So, give me 1 second. Let me just",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "Okay. Yeah, so let's see what are the questions that we have. How torch run is different from Ray? Yeah, so if you do torch run, you have to copy that code or the training function in all the machines, and you have to go to each and every machine.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "You have to do SSH to all these machine, and run torch run from there. And then, it will start. And also, there are a lot of limitations with torch run. You have to manage off your own like observability, failure, how how one one machine failure can be",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "recovered. And it might happen that you start your distributed training with let's say 10 GPUs, and after some time, uh you had some failed GPU, but you have to resume with let's say eight GPUs. There are a lot of things that that goes under the hood,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "which is very tricky when you have to implement it through torch run, but with with Ray, it becomes very seamless. And I'm going to show you how you can make this training even more efficient with Ray Train and Ray Data. You know, that",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "is the most important part of today's workshop. So, what we just talked about is how we can perform a distributed training with Ray Train at a high level. Next, we will see at the towards the end that how you can use Ray Train with Ray",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "Data to make your training even more efficient. Okay? So, what else? Uh There is a question, can the GPU scale up and down like auto scaling? Yes, we can configure that. It can just auto scale. But you have to define, you know, from a Now,",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "if I understand correctly, that auto scaling that you mentioned is from an infrastructure standpoint. You have to define how many GPUs that you want to start the training. That is something that you have to define. Now, that many that many number of GPUs",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "are available or not, that Ray can take care. You know, if you ask for 10 let's say eight GPUs, and in the Ray cluster there is no instance with eight GPUs, it will auto scale provided that you have configured it it in that way, and auto scaling is",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "enabled, it will just spin up a the cluster like that. I mean, resources that are needed for the training. Okay. Okay, so I think there was one question on uh what, you know, he's asking There is no There is no name, but I think he's",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "asking about how how to follow along. Okay, so let me uh I shared the GitHub. Let me just So, this is the GitHub. Okay? Now, what you have to do now is this or after the webinar, once you create an Anyscale account, you can come to workspace",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "and click on create, and you can click on create a blank workspace. You can always click on any of these uh template, which will which have some code and also the cluster that is needed for to run that workload. But, if you want to do it from scratch,",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "you can just click on create a blank workspace. You can give some name, let's say demo workspace. You can keep everything as default. Head node, you can keep it as default. In the worker node, what you can do is you can click here",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "and change the instance type to L4 GPU and a bit 32 gig. And you can say the number of node needed is two. That's all. And see this here, there is an option called auto scaling disabled and enabled. If you enable it, it will just auto scale. So, that means",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "you know, Ray if whenever you submit a job, Ray will see that if it has the resources for running the job or not. If not, then it will just auto scale. Um but, let's disable this, uh which is by default, and then click on create. That's all. So, all you have",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "to do is you have to just select a T4 GPU, 32 gig or 16 gig. I think both of them should work. Once you do that and click on create, you will see something like this. Based on the workspace name, the status would be preparing or starting.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "Wait till it is in the running state. Once that is done, you can click on that, and you will end up coming in a dashboard, which would look something like this. And here, if you come to Visual Studio Code, you can see you can see an IDE kind of an environment.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "And here, the first thing that you have to do is get clone that GitHub repo, which I have shared, which is which is this. Okay? VHOL Ray Train. All right. So, now let's go over the code. So, what I have done, I have come here to Visual",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Studio Code, and then from here, if you click on VS Code, you can just click on this open in a new tab, because it makes it a little better. Uh and or you can also select to open in cursor or VS Code. And this is the console of Anyscale,",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "right? We are going to go over few of the different options, but uh I have just clicked here and open in a new tab, and this is where I end up coming. Okay? So, inside this GitHub repository, once you clone it, let me show you in the GitHub itself.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So, once you clone it, you will see that there is an folder called DDP PyTorch. Come inside, and then open this notebook, Ray Train Intro. And this is the notebook, which we are going to follow. I have made a copy of this and renamed that to Ray",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "Train Intro Live, because I'm I might make some changes, but it's the same notebook. Okay? So, from now onwards, we are going to go over this notebook. Okay. So, now let's let's see how how we can do this distributed training with Ray Train. But, before that,",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "let's see how a regular PyTorch training loop looks like. We take a data set, and then we pick a model or we define the model, and then we perform the forward pass, then the backward pass, update the weights, and save the checkpoint. And if you see",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "here, the forward pass and the backward pass and updating the weights, everything happens within the GPU. And the model checkpoint, once we save that model, it goes it's it's a it taken care by the CPU, and it is stored in some place, maybe local device",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "or let's say on an S3 bucket or any block storage. Now, if you see a the training loop, I'm just importing few of the libraries, torch, data loader, very generic thing. The And now we are not talking about distributed training. Okay? So, we are just",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "talking about simple vanilla PyTorch training. First, we define the training data and the test data. And this is the data set coming from PyTorch. Uh here we are using CIFAR-10. And then we wrap it with data loader, and we",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "define what is the batch size, whether shuffle is true or false, whatever. These are standard PyTorch data data set creation or data loader defining step. Once that is there, we can write the trainer function, where we define the",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "learning rate, epoch, and batch size. We take the training loader and the validate validation loader from the function that we have just seen. We define the model. We move the model to CPU or GPU, wherever we would like to. We define the loss.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "We define the optimizer. And we just start the training loop, which is very straightforward, nothing very fancy. And we at the end we just, you know, update the loss and the accuracy. Now, we are not going to run this, but this is a simple training loop.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "Now, let's see how we can take that same function and make it run in a distributed fashion using Ray Train. So, this is something that we have seen in the in the slides. When we run torch trainer.fit, it actually runs on the driver node. So,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "before that, let me just show you or let me just give you uh how the Ray cluster looks like. So, Ray cluster has a head node and some worker node. So, the worker node is where the training happens. Okay? And head node is for basically this is",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "for cluster creation, cluster management. So, in this head node, there is no training happening. But, when we submit any code, it generally runs from the driver node which is typically the head node. So, you are instantiating the training from",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "there, but the actual training is happening in the worker node. Since we have two nodes here, it will happen in this case in these two worker nodes. So, now, if you see, when we run trainer.fit, it will spin up the worker trainer",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "workers in the nodes which are available in my cluster. And every time the training is happening, it is going to save uh it will make sure that the checkpoint is saved, and you know, it is it's going to make sure that the model is model artifacts are saved",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "in a shared location defined in the torch trainer loop, which we are going to see. And the these are the responsibility of the train driver. It will manage everything, like resource resource management, trainer scheduling, etc. etc. Okay? So,",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "now let's see how we can change that code into a distributed training code. And this is something that the same image which we have seen in the presentation, if you remember, this one. >> [clears throat] >> This is the same image, where we have a",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "trainer function and scaling configuration. And once the training starts, it just distributes the training into multiple workers defined in the scaling configuration. So, same way here, in the trainer, we will have the scaling",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "configuration and the actual trainer function. In this case, it is PyTorch, but it could be any other library of your choice. And depending on the scaling configuration, it will just launch those many number of workers and will start the training. Now,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "let me just go down and show you the code and come back there a little later. Okay? So, this is what we are going to do now. We are going to take a data set. And now that data set need to be sharded because now we are going to train it in",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "two GPUs. Uh so, somebody need to take care of sharding the data into two different micro batch. And then we can perform the forward pass in both the GPUs at the same time. But we have to make sure that the model is also prepared. That means the model",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "should start with some initial state, which would be a random state. But that random state should be same and synchronized, and we are going to see that how we can do this. So, we have to prepare the data set so that it can shard properly, and we have",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "to prepare the model so that it has the initial sync. And then the forward pass can happen just like before. Similarly, the backward pass will also happen just like before. But before updating the weights, we have to have the gradient synchronization, which we",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "have seen a while back. And that is taken care by the backend all reduce primitive. And then we can update the models. And finally, we can save the model checkpoints and metrics to the backend storage. It could be an S3 or a shared storage.",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "And in this case, since we have the same model in multiple GPUs, ideally what people do is they just save the model artifacts from the rank zero or the first GPU in the cluster. So, this is a best practice because all the models artifacts are same. So,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "there is no point of saving the same artifact multiple times. But you can very well save it from rank one or any other rank of your choice. So, now let's see how we can do this. So, we will import Ray Train, Run Config, Scaling Config, and Torch our",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "trainer. Again, these are the three things that we have seen here. I just want to connect you with what we have seen in the presentation so that you can relate. So, the first thing that we need to do is we need to change the training function",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "slightly, right? And if you if you remember what is the training function, this is the training function which which we want every GPU to execute or run, right? So, we have to make some changes in the training function. So,",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "let's see what are the changes that we have to make. First, we have to load the data. This is exactly same as before. We are loading the PyTorch data loader. We are using the native PyTorch data loader. But now that we have to make sure that we get",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "different micro batch of data in different GPUs, we can wrap this with the prepared data loader from Ray Train. So, we don't have to worry about how these distributed batches are going into multiple GPUs. We can just wrap it with Ray Train Torch prepared data",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "loader, and it will make sure that a different micro batch is going in different GPUs, right? So, this is what the prepared data loader step does. And then the model is as you know, as before. You can define your model. There's no change there. But now, before",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "we start the training loop, we have to make sure that the model have synchronized when it starts the training, it should it should know that it has to shard across multiple GPUs. And who will tell that? You can define this by Ray Train Torch",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "prepared model. Just like we prepared the data, here we can just call prepared model. And by default, it uses DDP. But if you use different techniques like FSDP or any other technique, you can just define the sharding technique",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "while you are preparing the model. But it is just one single line, which will make that model available in all the GPUs that you define based on the scaling configuration. And then the loss function optimizer remains the same. And during the",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "training, there is one small change that you have to do. Okay, we don't have to do now, but a small change that we need to do when we replace this default data loader with Ray data, which we will see at later point in time.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "But once this is done, we can start the training, and there is one step that that was not there before is this one where we take for every epoch, we take we are just adding shuffle within each epoch. Because what we want is when when we are",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "doing a distributed training, we can shuffle the data set at various places. One is at the very beginning when we load the data, but it is very you know, resource intensive because you have to you know, make sure of all different data in different shards. But",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "what is a better way to do it is you know, for every epoch, whatever a GPU gets the data, you shuffle it within that. So, that is what we are doing here. We are just shuffling for each of the each of the epoch. And we are checking that do this only",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "when you have more than one GPU because that is when it makes sense. Because if you are running it in a normal environment, one GPU, you don't need that because data would be already will get shuffled by the Torch loader. So, that's about",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "the distributed training with Ray Train. So, just to recap, we did two changes. We prepared the model. And we prepared the data. That's all. And once these two are changed, these two are updated, the remaining code is exactly same as before.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "The last thing that we need to do is we need to save the checkpoints in a more smarter way, right? What we have seen like you have to save the checkpoint all the model artifacts from the let's say the first GPU. How we can do that? So, we are just",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "you know, defining a function called save checkpoint and metrics. The first one is just to print the metrics. We are just uh printing the loss and and which epoch the training is at. And it should print for each of the GPUs.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "And how it is going to get which GPU it is, we can just use the ray.train.get_context and world_rank. What is this world_rank? If you have a cluster of let's say two nodes and each has two GPUs, let's say GPU zero and GPU one, and uh this node",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "is also having GPU zero and GPU one. So, this has a local rank of uh local rank zero, and this will have a local rank one. Okay? So, this is same as in the other node as well. But there is something called global rank. So, this global rank would be zero for",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "this one, and this one would be global rank one, and this one would be global rank two, and this one would be global rank three. Okay? So, what we are doing is we are just checking which rank global rank this GPU is, and printing the loss, and that is what we",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "are doing. We are trying to find because this code will run in all the GPUs. So, PyTorch should know or Ray should know which GPU it is running so that while printing the loss, I can print what is the rank of the GPU. So, this is about you know, printing the",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "metrics from all the GPUs. But for saving the checkpoint, we don't we don't want to save the checkpoint from all the GPUs because it's the same model. You can always do that, but just to make it more efficient, we can just go to",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "GPU number world rank zero, which is the first GPU, that is global rank zero. We can save the model just like how we save any PyTorch model like torch.save, and it will it will get saved in some local directory local file file system of that node.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "That is not shared across multiple machines. So, we will save it in a in a local machine wherever is that GPU zero is running. And we will have that checkpoint. And then we will run ray.train.report to move that checkpoint to the shared storage. And this",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "location of that shared storage is provided while we start the training, which we are going to see next. So, just to set the context, we modified this function, and now we are talking about the checkpoint configuration. So, these are the",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "configuration that we will give. And when we start the training, we will provide all this information to torch trainer so that it knows, you know, where to save the shared checkpoint, okay, or the final checkpoint. So, this is the shared location.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "And if you see, this is not within this if condition because this is a blocking call. So, if the training is happening in let's say 10 GPUs or 10 worker nodes, it will wait for all those 10 worker nodes to share their checkpoint. So, if I just move this",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "within that if condition, it will just wait because it will not get you know, it will hang basically. The training will hang because it is not going to get the checkpoint from other ranks because this would be this will get executed only in a rank",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "zero, right? So, we should move this outside that if condition and we can just save the checkpoint from uh every machine's local directory. In this case, it would be only from the rank zero GPU. So, now that we defined that training",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "function which which we want to run in all the workers, we can define the configuration and the training loop configuration and scaling configuration. So, let's see how we can do do that. We can define how many workers we want, whether we want",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "GPU or not. This is the global batch size. The the total batch size that we want to execute. And this is the training configuration. So, the global batch size divided by the number of workers is the local batch size. So, if you have let's",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "say two GPU and my batch size is 256 512, there will be 256 data point in each batch. You know, it will distribute and start the training. Scaling configuration, I will just pass that number of workers and whether we want GPU or not.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "And in run config, we can define what is the share storage. So, this is an NFS based basically EFS storage. But if you want, this can be an S3 bucket as well. And this is the training run unique name and just to define which what is the",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "name of the training run for our administrative purpose. And then we can just run torch.train. So, we define the function and we define the training configuration. So, whatever we define the training configuration will go as an argument to this training",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "function. So, the training config if you see, we are passing learning rate, epoch and the batch size. And this will go as an argument to this training function per worker func function that we have defined. And if you see this function, this is the same",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "function which we have written here. Which we have gone through. And it takes the configuration and we are just reading from that configuration. Learning rate, epoch and batch size. And this is exactly what we are passing here.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "Training rate, epoch and batch per worker, okay? Once we do that, we can simply start trainer.fit and we can get you know, wait for the training to get over. And if you see the logs, it will first go from initializing to scheduling. So, this is who is doing",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "this? This is the trainer driver from where we have executed this. Like in this case, it is in this Jupiter notebook when I when I hit enter or shift enter, this gets started from the driver node and it is trying to search for two GPUs.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "And why two GPUs? Because that is the configuration that I have provided here. So, it will go and search for two GPUs. Once it gets that, it will assign two workers. And if you see this, it it found out there is one worker here and the other worker",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "here. And see this, both of them have local rank zero, but global rank is zero and one, and these two are coming from two different machine. Okay? So, once the trainer driver found out the resource that was needed, it can go from scheduling to the running",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "state. And then the training will start in both the machines at the same time. And if you see this, this is this is these are the logs coming from this machine. These are the logs coming from the other machine. And since we wrapped",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "the model using Ray Train prepared data, under the hood, it uses the distributed data parallel technique from PyTorch. So, you don't have to we have not written any code for this, but we just wrapped it with Ray Train and it has taken care of that.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "And once it continues after that, you will get the final checkpoint, the location where the model.pt file is stored. So, that's about we can actually see this as well. So, if I just uh copy this path. If I just copy this path and see this.",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "We can see that model.pt is saved. Right? So, this is a shared location across all the head all the worker node and the head node. So, this location this location is saved across uh both the machines and the head node. That's why I was able to get that",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "you know, while I'm in the head node. Okay. So, now to summarize, the sharding of the data was taken care by prepared data loader. The sharding of the model in this case, the model was not shard, but we have to define that the model",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "should train using DDP, which is by default. So, initial synchronization and these all reduce synchronization, everything should take place. And how we are defining that? We are defining it by rate train.torch_prepared_model.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So, these two wrappers prepares the data set as well as the model. And finally, we are using train.report to save the checkpoint from wherever it is. So, in this case, we are saving the checkpoint from rank zero, right? So, this is",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "happening in the CPU and the training is happening in the GPU and data loading is also happening in the CPU, okay? So, that's about Ray Train. So, now I want to I want to show you few of the limitations of this way of doing the",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "training, right? And how we can mitigate those limitations with Ray data, okay? So, let me just uh Give me 1 second, okay? So, let me just show you this uh Okay. So, assume that we are running running it in a single GPU. We",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "we train it like this and this is how we have run the training, right? In multiple GPUs, we can just define the number of workers as two and the training will happen in two GPUs at the same time. And we can scale it to multiple nodes",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "and all that. So, it's pretty straightforward. There's nothing difficult in this case. Now, if you look at how this training is happening, in every training worker, we are using the PyTorch data loader. And this PyTorch data loader, you can",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "scale. So, when you define a PyTorch data loader, you can always say that number of workers as four. So, it will just create four multiple threads within the same node. So, in this case, this is the same GPU node where I'm running the training and",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "these are this will be executed in the CPU, which is within that GPU node. Now, if you see that this is this is not very good. And the reason is your GPU will be always hungry for data. And now you are kind of bottleneck",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "because of your CPU within that GPU node because it cannot scale beyond a point. And what GPU would expect is you know, it it would it would uh it would just wait for data. So, it would expect that okay, I'm ready for the training, but you are not giving",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "me the data that I need. And why it would take why CPU takes time for this data loading? Because when you look at this data loading, let me show you this 1 second. Okay, I don't have uh Give me 1 second. Yeah. if you see that",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "worker you know the data loading worker, it performs multiple things. It It reads the data. It might transform the data like cropping the image or tokenizing or whatever and then it also do some collation like padding the image to make",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "sure that all the images in the batch are same or and also converting that to a tensor and then finally moving it to the GPU, right? So, these are the things that that happens within the data loader, right? And this this is not good, and if we move",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "if you if you do this into the same worker, it adds more pressure in this node, right? And these are the bottlenecks and how you can see these bottlenecks, if you see the stat of GPU SM, you will see that during the training",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "time there is some peak and there is some down, right? And when it is down, this is when it is waiting for the data to feed, and similarly in during the checkpoint, there is GPU is completely idle. Similarly for the validation, you see the same",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "you know up and down in the utilization because of the same reason, right? Because it has to load the data, do the pre-processing and then do the inference or basically go to the model, but it is little less because there is no",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "back propagation here and that's why the resource utilization is pretty low, so now if you see just the training, how Ray data can help here. What we can do is we can take out this data loading from this GPU node completely.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So, if you see the data loading what it comprises of, it it it has to read the data, it has to perform some operation, some batch collection collation and then moving to the GPU, right? So, these are the things which is happening within the CPU of the",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "GPU node, okay? So, now if you see if you have one GPU node and in this GPU you have in this node you have eight GPUs and total and number of CPUs is 96. So, you roughly have a 1:12 ratio, right? For one GPU, there are 12 CPU which which will be helping you to",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "load the data. So, you are already capped by the CPU. So, now with Ray train, what you can do is you can completely with Ray train, you can completely offload this to Ray data. And this is how it would work. I'll just reduce the I'll just zoom out, okay.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "So, now what we can do is now let's pick one example with single node and then we will move it to the multi node. Let's say this is just one GPU node which has some CPU and one GPU. In this, now you are performing the reading and transformation using Ray",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "data and Ray data will store the transformed data into an object store which is in memory. And the trainer worker will fetch the data from the object store. And how it will fetch, it will we have an object called iter torch batches which will prefetch",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "the or it will just fetch the data as it is needed from the object store, right? So, you don't have to worry about uh pre-processing and moving into the GPU, everything will be taken care by this. Now, this is not what we would like to",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "have because at the end of the day this is also happening in the same one machine. What is ideal is we completely take this into into a different machine. So, it would be something like this. So, you will have a separate node for which might have just CPU,",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "there's no GPU there and you load the data using Ray data there and it will do all the transformation and this can scale independent of how many GPU nodes that you have. And as and when your data is ready and stored in the object store,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "you can push it I mean Ray will push the data to the training worker and the training worker will take the blocks of storage which is needed to perform the training. Now, here also I have shown read and transform. This is just for",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "illustration purpose that in case you want to use the CPU within the GPU node, you can also use it, but uh what we have seen the customers are doing is they they completely isolate the data loading and data preparation in",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "a CPU node and perform the training only in the GPU node. So, both of them can scale independently. And one thing to note here is that it might so happen that while you are preparing the data, at that time also you might need some GPU. Let's say you want to",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "generate the embedding of an image, right? So, that's that you might need that embedding to to to be used in some training. So, in that case here also you might need a GPU, but that GPU might be of smaller size or not of let's say A100 or H100,",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "might be a small a small GPU. So, you can always have a GPU here as well as a CPU, but the point is this CPU and GPU node is completely isolated from your training GPU, right? So, both of them can scale independently. Now, if you see the code,",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "now that we we took off the data part from the training loop, uh and we are just using Ray data to load the data, uh we can just define where my data set is. It could be a shared storage on S3 or uh whatever. We can just read the data using Ray data",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "read parquet. So, we have a lot of APIs, read parquet, read CSV, read images, etc. etc. So, you just read the data and once that is done, you can also perform some transformation and this all we would like to have it separately outside the GPU node,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "so we can always have some transformation and we can use the map function to transform the data set and this is kind of the pre-processing of the data before the training starts. And now in the training loop, we just have to make one change.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "In the training loop, now we can just use Ray train {dot} get data shard for training and use iter torch batches. So, now there is no PyTorch data loader in this function. Uh here we are telling Ray train that get the shard for the training and give me",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "the data that is coming that you are getting from Ray data and I will perform the training. And how it is going to get this train and validate data set, uh this it will get if you see here when we start the training, we will add a new line called data set",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "and here we are parsing that train data and the test data. So, if you want to see that in parallel, I'll just show it to you here so that you can see what is happening. So, this was previously without Ray data and this is on the left hand side",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "it is with Ray data. So, if you see everything is same, there is no difference here in in the configuration. Uh in the training configuration also it is the same. The only change is we added this one single line called data set. In this case, there was no",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "data set because data set was defined within the training function itself, but now we have disaggregated that outside the training loop. And now that I have the data set with train and validate, this can be read by this training function.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "So, now if I just scroll up, you will see that this train and validation data set is read by Ray train get shard. And how it is going to iterate, it is going to iterate using the torch batches and you can actually define the",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "prefetch. That means when the training is happening for one micro batch, at that time Ray train can generate separate thread to prefetch the data from the Ray data data set. So, it can happen all in parallel. So, when you do this, you will see that",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "your training pipeline is more efficient because now you are able to train faster because of your data processing you are offloading and the other advantage is both of them is happening at the same time and they all can scale independently. Your",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "training worker can scale independently and your data preparation worker can scale independently. So, what I mean by that is something like this. So, if you see here If you see here So, this is my This is my GPU node, right? So, this is",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "where I I was doing the training as well as the PyTorch data loader, everything was here. But now, I have used Ray data and in this case, I have some a transformation which needs some CPU and some GPU. And this can be a single machine.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "This can be a single machine. And I can scale this independently. And then the rate the Ray train will take the shard from this Ray data as per the GPU requirement like the it can if it if it is if it is needed, it can have more uh",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "batch of data it it might ask for more batch of data from the CPU node and you don't have to worry about that. So, we have some back pressure we have some technique in the back end which which will tell the Ray data to push more data because GPU is starving,",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "right? It is waiting for for that. And the best part is now you can scale independently. So, you might have four CPU nodes two GPU nodes just for data processing or let's say four GPU nodes and four CPU nodes for the data processing, but you can still continue",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "with one GPU node for the training. So, now you have disaggregated the data pipeline from data preparation pipeline from your actual training. And who is doing this split? Who is making sure that this pipeline or this is never empty? That means the GPU is all",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "always very very busy. Who will take care of that? It is taken care by this function. Iter torch batch where we we can define what is the prefetch and we don't have to worry about how how to scale. We can we can let Ray train and Ray data to decide",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "on your behalf so that your GPU is always busy. Okay? And once this is done you can just perform the training just like before and there is no difference. The only difference is you are now adding this Ray data in the configuration.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "And now when you start the training, you will see that you know this time the Ray data since we have Ray data in the pipeline, it is spinning up workers to read the data, perform the transformation and all of that and storing into into the object store.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "And while this is happening the Ray Ray train will perform the training on a different batch of data. Right? So, we are kind of you know making use of the resources that we have within the cluster. Okay? So, that's all that I have.",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "Now, when you start the notebook, I would recommend that you go over this Ray train. There are some images and explanation of how Ray train and Ray data works and also some resources. And if you want at later point in time,",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "you can use this FSDP which is another technique to for distributed data parallel where you actually shard the model as well for uh It is still a data parallel, but we shard the model so that we can efficiently do the training and",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "this is more applicable when the model is so big that you cannot you cannot have gradients, parameters as well as the optimizer state all at the same time in all the GPUs. Right? So, this is when your model is very big, you may like to",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "use FSDP. So, we have some tutorial on the FSDP as well. And at the end, if you really want to build something, there is a Gwen-3 text-to-speech fine-tuning with with FSDP. You can do that if you want to fine-tune a text-to-speech model. Okay? So, now we",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "will go through a few of the questions. I think we are almost on time, but I if you are fine, I can spend time on questions. So, let me go over the questions. Okay. There is one question is that okay uh GitHub repo and everything let me just",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "keep that in the slide so that while I answer the question you can see that. Okay, so this is the slide and I'll share you the GitHub in the next slide. So, this are the slide and GitHub I'll share it. Okay. So Can we have another session on FSDP in",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "future? Yeah, sure. So, we had one session on FSDP on the YouTube. Maybe I'll request Bill to share that. But we have that. But we will surely do something with FSDP. There is a question that if the data set is big enough we are going to fill the",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "object store. How can we avoid this someone? Yeah, that's correct Pablo. So, if the data set is very big, we we can always use the object store and if if it is spilling over, we can de-stage it to the back end storage. So, that is there within",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "within the implementation as well. So, you don't have to worry about that. And also, you can define how much of the memory you want to use in the object store. And just for clarification, here the object store is an Ray construct.",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "It is not the object store like S3. It is part of your RAM in the machine. Which function handles the failure? Okay. Uh When we perform the uh torch trainer, it has uh It we have wrapped the model with a Ray object, right? So, now it can take care",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "of a failure and recovery. In fact, when you go to the dashboard and come to Ray dashboard and in fact, Ray workload, you can come to training and you can select every training run and you will see that how many workers it has used for the training and you can",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "see you know what is happening into the GPU if it is any failed job or if it is failing, then it has been up a new actor or new worker for that. So, you can see everything in the dashboard, but you don't have to worry about that because",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "this this will be this is what Ray train will take care of your failure and restart. You can always augment that with the more logics on retry and other things, but you don't have to worry or you have to you don't have to code for that.",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "There is a question from Stephen. If you move the data off from the GPU, how sensitive it is from the network latency? What are the trade-off for by making the data non-local to the model and the GPU? Okay, that's a good question. Uh",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "uh Stephen. So, here if you see Here if you see this uh You can ignore this GPU node because we are assuming that the data processing needs some GPU, but for the sake of it, you can just you know just ignore this GPU node. Uh",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "Just assume that you have some CPU node where you are processing the data and then it it is going to serve the data for your training. So, in this case since it is coming out from outside the box, of course there is a network latency involved,",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "but we can always have multiple of them, right? And these are cheap very cheap nodes with respect to the GPU nodes. So, we can always have enough amount of data which is always ready for my GPU nodes to pick up. And also just like",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "we have seen earlier, within the GPU node also, you can use the CPU that you have here for for data loading. Although you know that is not recommended, but uh of course there is a network throughput limit because it is coming",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "from outside box, but what we have seen is that you know it it works pretty well. It makes your GPU more efficient. In fact, there is a stat that I have which I forgot to share. So, we did some benchmark on a ResNet model with 16 A100 and this",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "was purely GPU node with PyTorch data loader and we could complete it in these 1800 seconds. And when we used Ray data and we used 10 CPU nodes for data pre-processing and loading and the same A100, so you can say that we added more",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "resource. Of course, we added more resource, so that would cost more. But, at the same time, our training run time reduced by almost 70%. Right? So, that means you will not have to pay for that amount of time for your A100. Right? So, effective cost",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "goes down, although you have added some resource for data preparation. Right? Okay. All right. So, uh where is the shuffling happening? Okay. So, the shuffling happen in multiple places. So, let me just show it to you here. So, the first So,",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "there are two ways that you can think of shuffling. So, one is when the data set you are, you know, loading and then sharing it to multiple GPUs. And the second one is within the GPU itself, like within that worker node itself. And if you see,",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "when we have this uh Mhm. Let me scroll up. Yeah. Iter torch batch, here you have the shuffle. In fact, I can show it to you. Mhm. What is that uh data set name? I guess it is train. Right. So, if you see here, if you see here, we have this",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "local shuffle buffer and local shuffle seed. So, this is where it will it will shuffle within within that worker node itself. So, you can define all of that there. Uh and there is one more place where that shuffle is happening is uh Let me just go up.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. So, this is where you are actually making sure that for each epoch, you are getting a different, you know, set of data for for each of those GPUs that is coming from the distributed data loader. Okay. All right. So, then,",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "let's see what other questions we have. Which line of code actually does the synchronization? Okay. Which line that synchronization happens? If you see this, this is the training code. This is the forward pass. There's no synchronization. This is a loss",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "calculation of the loss. No synchronization. This is where we are zero, you know, making resetting the optimizer to zero grad. This is when we calculate the gradients. Now, at this step, when we do optimizer.step, this is when we have all these,",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "you know, back-end synchronization using nickel. Right? So, like all reduce in this case. But, this is the step when you go through that back-end communication. In fact, all this you can see by profiling the GPU. If you come to",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "Ray dashboard and come to metrics, What I think we can see it here. Let's say this is my head node and there are two worker node. And if you go to any of these worker node, let me just show you 1 second. Uh Mhm. Yeah. So, if you see here, you can see",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "what is happening in all the GPUs and this is the snapshot that I've taken in the presentation. This is the SM activity and if you want to do use any profiler, you can also do that. And you can see this here in the in the dashboard. Okay. So,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "let's see. I'll have maybe 5 more minutes. Uh And And again, we might have few questions unanswered. I'll make sure that I'll answer, you know, after this session. Okay. So, what happens when one GPU fails during the training? So, when one",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "GPU fails, the Ray will take care of of spinning up a new GPU and it will start from the last checkpoint. And there are different configurations that you can set up in the checkpoint configuration. So, you don't have to worry about that. Okay? And while I",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "answer the questions, uh uh this is a This is a blog which I've written sometime back and it it has all those details on gradient accumulation, 010203 DDP, etc. So, you may like to have a look. And this is my LinkedIn. So, in case you have any questions, you",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "know, feel free to just shoot me a DM. I'll be more than happy to answer. Okay? So, I'll just take 5 more minutes and answer few other questions. Yeah. There is a question on How can we Okay, let me just I scrolled to a different question. Okay. Uh",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "Is Ray aware of cluster topology? I need to, you know, I I don't know if I understand your question correctly. If you If you If you think about a Ray cluster, it has a head node and a multiple worker node and that is what you define at the time of",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "creating a cluster and you always define that what that worker nodes consist of, what GPU it consist of. And Ray is very much aware of which node contains what type of accelerator. And in fact, you can define that during the training as well. So, if you see in",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "the code, when we start the training, when we start the training, you can actually define here which which type of CPU GPU instance you want to use. In case, in your cluster, you have different types of GPUs. And this is what",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "is important when you run something like this. Where your cluster might have GPU nodes for data preprocessing, you have a GPU node for actual training, and CPU node for data preprocessing. So, in these cases, you should explicitly say what type of",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "accelerator Ray should pick when it starts the worker nodes for training. Right? So, you know, so in that sense, Ray is very much aware of your cluster, what is happening, and who are the members of that cluster. There is one question on",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, checkpoint configuration, you are right. I have not shown that, but that's an optional thing. By default, it will it will take care of of those checkpoints. But, in case you want to define, you can always define it. So, let me just show it to you. Uh",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "So, if you see here, you are right. So, we have not defined these checkpoint configuration. Like what metrics to take care and uh number of, you know, all these details of uh how many checkpoints to keep always in for in the cluster for my training. And",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "then you pass this in the run config, which we have not done, but those are the options that you can have and you can just add it in the run config. But, you are right. In this training, we have not done that. Yeah. There is a question on Ray data versus",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "PySpark. Yeah. So, PySpark is by you know, by by the library itself, PyTorch is PySpark is very good for distributed data which is text or which which works in uh uh which doesn't need any GPU processing. Whereas, Ray data is more",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "multimodal in nature by the principle itself. So, it is not that uh unlike Spark, it is very much agnostic to different types of accelerator. And when you use Ray train with Ray data, it knows the semantics and that's how,",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "you know, we have seen that how you can use iter batch to prefetch the data from the object store for the training to make sure that it is always, you know, saturating the GPU or making the best utilization of the GPU. Okay?",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "All right. So, I guess we are almost on time. Thank you so much uh for hanging around. Uh feel free to uh you know, ping me uh on uh LinkedIn or if you want to email me, that is also fine. Uh uh my email is uh Suman, s u m a n, at any scale.com.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "And uh there are few questions which uh we didn't answer or we which we couldn't answer, so I'll make sure that I reply back to all of you uh by the weekend, okay? And uh in the meantime, uh I took some notes. We wanted to have an uh session on FSDP uh",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "uh with distributed training uh with Ray Train and Ray Data. Uh and there was some question on checkpoint configuration. So, that is also something that uh uh we can discuss. And the last one is uh failure handling. So, maybe this is a getting",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "started, so we did not add all of that. Uh but, that's a good point. So, maybe in one of the webinar uh next, we will focus more on observability part, not on the training part, but more on uh you know, uh observability, troubleshooting, etc., okay?",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "All right. Uh with that, uh uh thank you so much and uh I wish you uh a great day uh ahead, yeah. Thank you.",
+      "start": 1452,
+      "duration": 6
+    }
+  ]
+}

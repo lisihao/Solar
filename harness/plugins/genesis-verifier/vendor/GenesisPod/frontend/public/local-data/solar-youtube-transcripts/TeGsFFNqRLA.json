@@ -1,0 +1,394 @@
+{
+  "videoId": "TeGsFFNqRLA",
+  "title": "Fast Models Need Slow Developers — Sarah Chieng, Cerebras",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 18434,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. So we'll just get right\ninto it. So over the past few years, we\nas developers have developed a series of\nbad habits when it comes to developing\nas a result of slow AI code generation.\nAnd so we we're all familiar with it. We\ndo things like write massive prompts and\ntry to oneshot. We'll make huge commits\nor we'll have our 10 agents all on the\nscreen at the same time combulating,\ncoitating, thinking. And so about a\nmonth ago, we at Cerebrus and OpenAI\nreleased a new model, state-of-the-art\nmodel called Codex Spark. Codex Spark\ncan generate code at 1,200 tokens per\nsecond. And to put that into\nperspective, if you look at the Sonnet\nfamily or the Opus family, those can\ngenerate code at about 40 to 60 tokens\nper second. So in this new era, as we're\nstarting to see much faster coding\nmodels, this is 20 times faster. Not\nonly does it unlock new capabilities and\nuse cases, but it also requires us to\nrethink how we as developers interact\nwith the coding model. And a lot of\nthese bad habits that we had before that\nwere generating maybe 50 tokens per\nsecond of bad code. Unless we fix them,\nthey're going to start generating 1,200\ntokens per second of bad code. And so\nthat is the topic of today's uh talk.\nSo to get started, my name is Sarah\nChang. I'm the head of developer\nexperience at Cerebrris where we are\nbuilding the world's largest and fastest\nAI processor.\nA large part of my job is that I get to\nintroduce fast inference and fast coding\nmodels to developers for the very first\ntime. And for most people, it's a very\nexciting moment. There's no thinking and\nwaiting and starting up that you might\nbe really annoyed about. But at the same\ntime as I said unless we change our\nhabits\nwe are not going to have good code in\nthe future. And so this talk really is a\npractical playbook for how we as\ndevelopers can think about how we\ninteract with the models in this new\nregime\nespecially in a future where the models\nare generating code faster than we the\nhuman can keep up.\nSo I want to look back at history a\nlittle bit. We've had a very exciting\npast two years. The models have gotten\nbigger, they're getting smarter, we have\nbigger context windows, but the thing\nthat has remained relatively constant\nover the past two years is coding speeds\nis model speed. So if we look at a lot\nof the popular families, we have Gemini,\nClaude, GPT, Sonnet. Over the past two\nyears, they've always been within, you\nknow, 50 to 150 tokens per second.\nAnd this is Codex Spark. Again, codec\nSpark is just the first of many models\nthat we as developers can expect to be\nmuch faster than what we're previously\nused to. And we even had to change the\nY-axis because it's so much faster. And\nso before we get into the actual\nplaybook and tips, I want to talk about\nwhy this is happening. Why are we\nsuddenly seeing such faster models? And\nit's actually a very exciting\ndevelopment. It's it's what many of you\nprobably work on on a day-to-day, but\nit's there's so many companies that are\nworking on this problem all at the same\ntime. And as a result, the entire AI\ninference stack is getting optimized all\nat once. And so breaking it down, let's\ngo through really quickly. We have\nhardware. This is a physical device that\ninference, training, all of our compute\nis happening on. One of the biggest\nthings that we have to think about with\nhardware is the memory wall. And this is\nexactly why hardware and memory movement\ntakes up 50 to 80% of that latency time\nfor inference. This is where a lot of\nthe frustration comes from. And so when\nwe are running inference, we have to\nconstantly move our weights and KV cache\nvalues between memory and our actual\nchip. On the NVIDIA GPU, this is the\nmost traditional type of hardware. All\nof this memory is stored off chip on\noffchip HBM. And we're now have a memory\nbandwidth bottleneck. What a lot of\nnewer companies are doing are thinking\nabout companies like Cerebrus or Gro,\nthey're thinking about how do we move\nthis memory to be as close to the chip\nas possible. And so here's an example of\nthe cerebrus wafer where all of the chip\nis um all the memory is distributed\nacross the chip in SRAMM. So every core\nhas direct access to the values it\nneeds. Even more exciting we have\ndisagregated inference and this is an in\num disagregated inference really has\nbecome commercialized in the last few\nmonths. This is why Nvidia bought Grock\nfor $20 billion a few months ago. And\nthis is also why Cerebrus and AWS are\nnow partnering to serve the wafer and\nAWS trainium together. So in traditional\ninference, there's two steps. There's\nprefill and there's decode.\nTraditionally, both of these steps have\nalways been run on the same piece of\nhardware. Prefill is where we're taking\nevery token that the user inputs and\nprocessing it, embedding it, and adding\nit to our KV cache. This is a sequent\nthis is a step that can happen in\nparallel and so it's computebound.\nDecode on the other hand is where we're\nactually generating the output token by\ntoken and this is sequential and is as\nwe mentioned memory bound. Again it goes\nto the same problems that we mentioned\nbefore. And so what we're doing and\nseeing now commercially is that we're\nsplitting up these two steps so that\nprefill is done on one type of hardware\nthat is compute optimized and decode is\ndone on another piece of hardware that\nis memory optimized. Going up the stack,\nthere's the diagram. Going up the stack,\nwe look at model architecture. There's\nso many ways that we are training our\nmodels and shaping our models to cater\nto our hardware. We have specific layer\ndimensions and memory and model size\nthat we're always thinking about. A\ngreat example is a very standard model\narchitecture mixture of experts. here.\nInstead of activating the entire model\nall at once for every single token,\nwe're only activating a subset of\nexperts for every time. And what this\ndoes is it allows us to have the\nintelligence of a much small larger\nmodel for the compute cost of a much\nsmaller model. And again, we're always\nthinking about memory and the size of\nour models. And a lot of people have\nbeen building on top of this in recent\nyears. An example is reap router\nweighted expert activation pruning. I\nhad to read that one. Um, and here we're\nlooking at the specific use case. We're\nseeing which experts aren't being\nactivated all at all and we're pruning\nthem all together. We're getting rid of\nthem. Again, we're always thinking about\nmodel size. And then at the very top\nlayer of the stack, we have inference\noptimizations. And this is where many of\nyou might be working in and a lot of\ncompanies that you're probably familiar\nare also working at. These are companies\nlike together, base 10, modal, who's\nalso here, fireworks. And one of the\nbiggest things that we're thinking about\nat this level is KV cache reuse. And so\nby storing and reusing previously\ncomputed token representations, we don't\nhave to recalculate attention over the\nsequence at every step.\nAnd now I want to get to the very top\nand most exciting part, the developer.\nThis is the current state of what the\ninternet looks like or what Twitter\nLinkedIn looks like. We have someone\nrunning six cloud code terminals at\nonce. A 500 plus agent coding swarm. um\nsomeone running eight agents across five\nscreens. And I get how tempting doing\nsomething like this can be. I feel like\nif you're on Twitter at all these days,\nunless you are doing something like\nthat, the internet is basically\nconvincing you that you are living in\nthe stone age and that you need to catch\nup. But the reality, what is the reality\nof what is happening in all these setups\nis that we're generating massive amounts\nof code that nobody is verifying.\nAnd in the new future with much faster\ninference, this becomes increasingly\ndangerous.\nAnd so, especially with fast inference,\nwe're now going to be generating\ntechnical debt at a level that we've\nnever seen before. And we're not going\nto know what to do with it. And so, I'm\ngoing to pivot now to spend the rest of\nthe talk on the practical playbook and\ntips and workflows and how we can\nreimagine how we as a developer should\noperate in this new regime of faster\ninference. And as I mentioned, Codex\nSpark operates at 1,200 tokens per\nsecond, but it really is just the first\nmodel and what we should as developers\nexpect and prepare for to be a new\nregime of faster models across the\nboard. And so starting with the first\none, the first category is just choosing\nthe right models and how do we\norchestrate our agents so that we're\nleveraging different model strengths. I\nthink historically we always think about\nintelligence. There's no is no secret\nthat we as developers are not\nparticularly loyal and that we will\nswitch to whatever model whatever family\nis most intelligent at a given time and\nmaybe we also think about cost unless\nour company pays for whatever we want\nand so here now the inference speed is a\n20x difference now we also have another\nvertical to think about speed and so a\ngood mental model is to use a larger\nmodel like GBT 5.4 for 5.3 for your\nplanning or your long horizon workflows\nand then using a faster model like Codex\nSpark as your actual executor.\nAnd so here's an example. You might ask\nyour 5 GBT 5.4 to generate your plan.\nYou would generate a um you would spawn\nall of your sub agents with codecs spark\nand have it actually operate uh have it\nactually execute on all of those steps\num one by one. Another really helpful\ntrick is to actually make skills out of\nsuccessful sessions and capture\ntrajectories that are working really\nwell. A thing that you can do here is\nuse a model like GPT 5.4 to actually\nhave it do the initial harder larger\ntask, capture that as a skill and\ntherefore making it a verifiable\nrepeatable workflow and then having a\nsmall um faster agent like codec spark\njust do it again and again in the\nbackground.\nThe next category I think is even more\nexciting because this is a category of\nthings that just were not possible and\nwere not practical. These are things we\nwouldn't do because we're tired of the\ncogitating justiculating\ngerminating that you might have seen.\nAnd so here I really want us to think\nabout this and internalize this. But at\n1200 tokens per second a model like\ncodec spark makes validation basically\nfree. There is no excuse and no reason\nwhy you should not be doing things like\nthis. Test suites, linting, pre-commit\nhooks, diff reviews, browserbased QA\nautomations. There's all these things\nthat you can add to every step of your\nworkflow because it is instant. It's not\nslowing you down and it's not you do\nthis all of this at the very end or\nright before you're about to push your\ncode.\nAnother tip that I really like is\nexploring cherrypicking.\nSo let's say that I want to code a\nnavbar and I want it to be midnight\nblue. I want four different icons. I\ngive it to the model and the result's\nfine. Instead, what I can do with Codeex\nSpark or much faster model is I can have\nit tell it to generate 15 versions in\nthe same time that it would have taken\nthe a previous model to generate one\nversion and I can cherrypick the version\nthat I like the best. Even better, I can\ngenerate five sub aents that are each\ngenerating 15 versions and now I have 75\nversions and I pick the one that's best.\nAnd this is great for things where we\nreally value quantity or variety. So\nthings like research direction,\ndifferent types of architecture d um\ndirections, or even just graphic design.\nAnd the reason why I really like this\none is because it almost allows us to\nartificially induce taste into our model\noutput. So traditionally, it's no secret\nit's very easy to sniff out any UI or\ntext that a model writes. The models\nthemselves do not have taste. And the\nways that we've kind of brute force\nworked around this is that we either\ncreate an example ourselves or we find\nexamples for the model which is\ntimeconuming or we give the prompt so\nmuch detail that we might as well have\ncompleted the task ourselves. This is a\ngreat way of saving our time and also\ngetting much better results.\nThe next tip is kind of more more so a a\nmental model where now that the models\nare so fast, it should not be you spawn\na session, you go get a hamburger, you\nscroll Twitter,\nand then you come back. Now you can\nactually sit down and it's a real time\ncollaboration that you're able to have\nwith this model. You should view it much\nmore as a pure programmer. And this is\nthe only way that you are going to avoid\nhaving bad code. So you can sit down and\nask questions like h having it collect\nall the context across your repo and\nactually asking it how does it work\nbeing the one in the front seat making\ndecisions and implementations. The AI\nshould always be helping you make\ndecisions not the other way around.\nThe next one I hate this slide because\nit's everyone's trigger word and\noverused word but h how do we avoid\nslob?\nSo, as I was mentioning before, it\nreally shouldn't be, you know, you spawn\n10 agents, you never verify the code.\nYou don't know what's happening under\nthe scene. Someone asks you to explain,\nyou have to read the code for the first\ntime. Now, you can actually have two to\nthree sessions and actually sit down\nnext to your code. And I know this is\nsomething we're not really used to, but\nsit down with it and actually steer it,\nunderstand what's happening, because\nagain, we are now experiencing real-time\ncollaboration as we code with this\nagent. You can be super specific. You\ncan think do things like ban the model\nfrom deleting files, give it a max diff\nsize, the model, have the model only\nread and write, and even give it\nsteering directions, things like only\nchange this, don't touch types yet.\nWait, that implementation wasn't quite\nright. Let's redo that. The graph on the\nleft is a is a helpful mental model as\nan example of how the developer, the AI\nagent, and the codebase can all work\ntogether and what that should look like.\nThis next step, refactoring is very\nsimilar to what I was talking about with\nvalid with verification. Just like with\nverification, something like constantly\nrefactoring and cleaning up your code\nautomatically is basically free at 1,200\ntokens per second. So you can do things\ninstead of doing it at the very end\nright before you're about to commit your\ncode. You can just re you can just bake\nthis into your automatic workflow so\nthat after every single task on that\nchecklist is complete, you're just\nasking the model to automatically, you\nknow, delete unused imports, clean up\nunnecessary lines of code, make it so\nthat all of my functions are structured\nthe same way.\nThe last category that I want to talk\nabout, and I'm sure that so many of you\nguys have already heard these two words\na countless amount of time over the past\nfew days and across so many talks, is\ncontext management. But the reason I'm\ngoing to talk to you about it again is\nbecause let's say that historically it\ntook you 10 minutes to fill up your\ncontext before you saw, you know, the\ngod-feared word compaction.\nNow, if you take 10 minutes, divide it\nby 20, you are now getting compaction in\n30 seconds. And so, context management,\nespecially with fast inference, is more\nimportant to think about than ever. And\nyou can't get away with sloppy practices\nanymore. And so, all of these these\nreally are just good practices no matter\nwhat coding model you are using or what\nspeeds. But a general very high level\nframework is just always always break up\nlarge tasks into smaller bounded goals.\nAnd this graph on the right is a good\nmental model for how how full your\ncontext is will then affect your\nbehavior, the model behavior. So you\nalways want to avoid the 80 to 100%\nbecause you're going to get compaction.\nAnd right now we all know some things\nmight get lost. And so a good way that\nyou can think about how do I externalize\nthis memory so that I can have these\nsmall bounded goals like what does that\nlook like? So an example of how you can\ndo this and set up an external memory\nsystem that is persistent every time you\nset up a new session is with this four\nfile system. We have agents MD which is\nwhere we're actually defining all our\nagents our sub agents. We have plan MD\nwhich is what we're creating at the very\nbeginning and this is where we're just\ngenerating the entire plan and step by\nstep ch stepby-step checklist that we're\ngoing to go through. We have progress MD\nwhich is where we're keeping track of\nwhat's do we need to do and what has\nbeen done before. So every time you\nspawn a new agent or session is no\ncontext. It comes in it looks at\nprogress MD. It sees what's been done\nbefore and it's like okay here's where I\npick up. Here's where the next task\nneeds to be done. And then the last is\nverify MD. And this is what we're using\nat every single step to just make sure\neverything looks good. It's clean code\nand we can move on to the next step. And\nso an example of this is again\nleveraging different models using a GPT\n5.3 or 5.4 codeex having it create your\nplan and then having your GPT 5.3 codec\nspark actually execute the checklist one\nby one much faster than before. And as a\nfinal slide I want to do these um few\nhelpful commands for how you can get the\nbest out of codecs. Things like\npermissions experimental skills review\nand rename. But the biggest thing that I\nreally want to emphasize here is that\nhonestly it's not really about just\nhaving faster coding models. What it\nreally means is that the developer\nexperience is actually going to become\nso much better. And when it's becoming\nso much better, there's so much more we\ncan do. And there's so many ways that we\ncan now avoid creating bad clo bad code\nin a way that isn't miserable or us\nstaring at a screen for 30 minutes. So\nthank you guys so much for welcoming\ntoday me today. My name is Sarah Chang.\nUm, I'm visiting from SF. It's an honor\nto be here in London. Um, if you have\nany questions or need any credits, my\nhandle is milks and matcha across every\nplatform. Thank you guys.",
+  "segments": [
+    {
+      "text": "Hi everyone. So we'll just get right into it. So over the past few years, we as developers have developed a series of bad habits when it comes to developing as a result of slow AI code generation. And so we we're all familiar with it. We",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "do things like write massive prompts and try to oneshot. We'll make huge commits or we'll have our 10 agents all on the screen at the same time combulating, coitating, thinking. And so about a month ago, we at Cerebrus and OpenAI",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "released a new model, state-of-the-art model called Codex Spark. Codex Spark can generate code at 1,200 tokens per second. And to put that into perspective, if you look at the Sonnet family or the Opus family, those can generate code at about 40 to 60 tokens",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "per second. So in this new era, as we're starting to see much faster coding models, this is 20 times faster. Not only does it unlock new capabilities and use cases, but it also requires us to rethink how we as developers interact",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "with the coding model. And a lot of these bad habits that we had before that were generating maybe 50 tokens per second of bad code. Unless we fix them, they're going to start generating 1,200 tokens per second of bad code. And so",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "that is the topic of today's uh talk. So to get started, my name is Sarah Chang. I'm the head of developer experience at Cerebrris where we are building the world's largest and fastest AI processor. A large part of my job is that I get to",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "introduce fast inference and fast coding models to developers for the very first time. And for most people, it's a very exciting moment. There's no thinking and waiting and starting up that you might be really annoyed about. But at the same",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "time as I said unless we change our habits we are not going to have good code in the future. And so this talk really is a practical playbook for how we as developers can think about how we interact with the models in this new regime",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "especially in a future where the models are generating code faster than we the human can keep up. So I want to look back at history a little bit. We've had a very exciting past two years. The models have gotten bigger, they're getting smarter, we have",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "bigger context windows, but the thing that has remained relatively constant over the past two years is coding speeds is model speed. So if we look at a lot of the popular families, we have Gemini, Claude, GPT, Sonnet. Over the past two",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "years, they've always been within, you know, 50 to 150 tokens per second. And this is Codex Spark. Again, codec Spark is just the first of many models that we as developers can expect to be much faster than what we're previously",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "used to. And we even had to change the Y-axis because it's so much faster. And so before we get into the actual playbook and tips, I want to talk about why this is happening. Why are we suddenly seeing such faster models? And it's actually a very exciting",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "development. It's it's what many of you probably work on on a day-to-day, but it's there's so many companies that are working on this problem all at the same time. And as a result, the entire AI inference stack is getting optimized all",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "at once. And so breaking it down, let's go through really quickly. We have hardware. This is a physical device that inference, training, all of our compute is happening on. One of the biggest things that we have to think about with",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "hardware is the memory wall. And this is exactly why hardware and memory movement takes up 50 to 80% of that latency time for inference. This is where a lot of the frustration comes from. And so when we are running inference, we have to",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "constantly move our weights and KV cache values between memory and our actual chip. On the NVIDIA GPU, this is the most traditional type of hardware. All of this memory is stored off chip on offchip HBM. And we're now have a memory",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth bottleneck. What a lot of newer companies are doing are thinking about companies like Cerebrus or Gro, they're thinking about how do we move this memory to be as close to the chip as possible. And so here's an example of",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "the cerebrus wafer where all of the chip is um all the memory is distributed across the chip in SRAMM. So every core has direct access to the values it needs. Even more exciting we have disagregated inference and this is an in",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "um disagregated inference really has become commercialized in the last few months. This is why Nvidia bought Grock for $20 billion a few months ago. And this is also why Cerebrus and AWS are now partnering to serve the wafer and",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "AWS trainium together. So in traditional inference, there's two steps. There's prefill and there's decode. Traditionally, both of these steps have always been run on the same piece of hardware. Prefill is where we're taking every token that the user inputs and",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "processing it, embedding it, and adding it to our KV cache. This is a sequent this is a step that can happen in parallel and so it's computebound. Decode on the other hand is where we're actually generating the output token by",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "token and this is sequential and is as we mentioned memory bound. Again it goes to the same problems that we mentioned before. And so what we're doing and seeing now commercially is that we're splitting up these two steps so that",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "prefill is done on one type of hardware that is compute optimized and decode is done on another piece of hardware that is memory optimized. Going up the stack, there's the diagram. Going up the stack, we look at model architecture. There's",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "so many ways that we are training our models and shaping our models to cater to our hardware. We have specific layer dimensions and memory and model size that we're always thinking about. A great example is a very standard model",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "architecture mixture of experts. here. Instead of activating the entire model all at once for every single token, we're only activating a subset of experts for every time. And what this does is it allows us to have the intelligence of a much small larger",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "model for the compute cost of a much smaller model. And again, we're always thinking about memory and the size of our models. And a lot of people have been building on top of this in recent years. An example is reap router weighted expert activation pruning. I",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "had to read that one. Um, and here we're looking at the specific use case. We're seeing which experts aren't being activated all at all and we're pruning them all together. We're getting rid of them. Again, we're always thinking about",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "model size. And then at the very top layer of the stack, we have inference optimizations. And this is where many of you might be working in and a lot of companies that you're probably familiar are also working at. These are companies",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "like together, base 10, modal, who's also here, fireworks. And one of the biggest things that we're thinking about at this level is KV cache reuse. And so by storing and reusing previously computed token representations, we don't",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "have to recalculate attention over the sequence at every step. And now I want to get to the very top and most exciting part, the developer. This is the current state of what the internet looks like or what Twitter LinkedIn looks like. We have someone",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "running six cloud code terminals at once. A 500 plus agent coding swarm. um someone running eight agents across five screens. And I get how tempting doing something like this can be. I feel like if you're on Twitter at all these days,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "unless you are doing something like that, the internet is basically convincing you that you are living in the stone age and that you need to catch up. But the reality, what is the reality of what is happening in all these setups",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "is that we're generating massive amounts of code that nobody is verifying. And in the new future with much faster inference, this becomes increasingly dangerous. And so, especially with fast inference, we're now going to be generating",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "technical debt at a level that we've never seen before. And we're not going to know what to do with it. And so, I'm going to pivot now to spend the rest of the talk on the practical playbook and tips and workflows and how we can",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "reimagine how we as a developer should operate in this new regime of faster inference. And as I mentioned, Codex Spark operates at 1,200 tokens per second, but it really is just the first model and what we should as developers",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "expect and prepare for to be a new regime of faster models across the board. And so starting with the first one, the first category is just choosing the right models and how do we orchestrate our agents so that we're leveraging different model strengths. I",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "think historically we always think about intelligence. There's no is no secret that we as developers are not particularly loyal and that we will switch to whatever model whatever family is most intelligent at a given time and",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "maybe we also think about cost unless our company pays for whatever we want and so here now the inference speed is a 20x difference now we also have another vertical to think about speed and so a good mental model is to use a larger",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "model like GBT 5.4 for 5.3 for your planning or your long horizon workflows and then using a faster model like Codex Spark as your actual executor. And so here's an example. You might ask your 5 GBT 5.4 to generate your plan.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "You would generate a um you would spawn all of your sub agents with codecs spark and have it actually operate uh have it actually execute on all of those steps um one by one. Another really helpful trick is to actually make skills out of",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "successful sessions and capture trajectories that are working really well. A thing that you can do here is use a model like GPT 5.4 to actually have it do the initial harder larger task, capture that as a skill and therefore making it a verifiable",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "repeatable workflow and then having a small um faster agent like codec spark just do it again and again in the background. The next category I think is even more exciting because this is a category of things that just were not possible and",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "were not practical. These are things we wouldn't do because we're tired of the cogitating justiculating germinating that you might have seen. And so here I really want us to think about this and internalize this. But at 1200 tokens per second a model like",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "codec spark makes validation basically free. There is no excuse and no reason why you should not be doing things like this. Test suites, linting, pre-commit hooks, diff reviews, browserbased QA automations. There's all these things",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "that you can add to every step of your workflow because it is instant. It's not slowing you down and it's not you do this all of this at the very end or right before you're about to push your code. Another tip that I really like is exploring cherrypicking.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "So let's say that I want to code a navbar and I want it to be midnight blue. I want four different icons. I give it to the model and the result's fine. Instead, what I can do with Codeex Spark or much faster model is I can have",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "it tell it to generate 15 versions in the same time that it would have taken the a previous model to generate one version and I can cherrypick the version that I like the best. Even better, I can generate five sub aents that are each",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "generating 15 versions and now I have 75 versions and I pick the one that's best. And this is great for things where we really value quantity or variety. So things like research direction, different types of architecture d um",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "directions, or even just graphic design. And the reason why I really like this one is because it almost allows us to artificially induce taste into our model output. So traditionally, it's no secret it's very easy to sniff out any UI or",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "text that a model writes. The models themselves do not have taste. And the ways that we've kind of brute force worked around this is that we either create an example ourselves or we find examples for the model which is timeconuming or we give the prompt so",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "much detail that we might as well have completed the task ourselves. This is a great way of saving our time and also getting much better results. The next tip is kind of more more so a a mental model where now that the models",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "are so fast, it should not be you spawn a session, you go get a hamburger, you scroll Twitter, and then you come back. Now you can actually sit down and it's a real time collaboration that you're able to have with this model. You should view it much",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "more as a pure programmer. And this is the only way that you are going to avoid having bad code. So you can sit down and ask questions like h having it collect all the context across your repo and actually asking it how does it work",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "being the one in the front seat making decisions and implementations. The AI should always be helping you make decisions not the other way around. The next one I hate this slide because it's everyone's trigger word and overused word but h how do we avoid slob?",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "So, as I was mentioning before, it really shouldn't be, you know, you spawn 10 agents, you never verify the code. You don't know what's happening under the scene. Someone asks you to explain, you have to read the code for the first",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "time. Now, you can actually have two to three sessions and actually sit down next to your code. And I know this is something we're not really used to, but sit down with it and actually steer it, understand what's happening, because",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "again, we are now experiencing real-time collaboration as we code with this agent. You can be super specific. You can think do things like ban the model from deleting files, give it a max diff size, the model, have the model only",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "read and write, and even give it steering directions, things like only change this, don't touch types yet. Wait, that implementation wasn't quite right. Let's redo that. The graph on the left is a is a helpful mental model as",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "an example of how the developer, the AI agent, and the codebase can all work together and what that should look like. This next step, refactoring is very similar to what I was talking about with valid with verification. Just like with",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "verification, something like constantly refactoring and cleaning up your code automatically is basically free at 1,200 tokens per second. So you can do things instead of doing it at the very end right before you're about to commit your",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "code. You can just re you can just bake this into your automatic workflow so that after every single task on that checklist is complete, you're just asking the model to automatically, you know, delete unused imports, clean up",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "unnecessary lines of code, make it so that all of my functions are structured the same way. The last category that I want to talk about, and I'm sure that so many of you guys have already heard these two words a countless amount of time over the past",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "few days and across so many talks, is context management. But the reason I'm going to talk to you about it again is because let's say that historically it took you 10 minutes to fill up your context before you saw, you know, the god-feared word compaction.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "Now, if you take 10 minutes, divide it by 20, you are now getting compaction in 30 seconds. And so, context management, especially with fast inference, is more important to think about than ever. And you can't get away with sloppy practices",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "anymore. And so, all of these these really are just good practices no matter what coding model you are using or what speeds. But a general very high level framework is just always always break up large tasks into smaller bounded goals.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "And this graph on the right is a good mental model for how how full your context is will then affect your behavior, the model behavior. So you always want to avoid the 80 to 100% because you're going to get compaction. And right now we all know some things",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "might get lost. And so a good way that you can think about how do I externalize this memory so that I can have these small bounded goals like what does that look like? So an example of how you can do this and set up an external memory",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "system that is persistent every time you set up a new session is with this four file system. We have agents MD which is where we're actually defining all our agents our sub agents. We have plan MD which is what we're creating at the very",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "beginning and this is where we're just generating the entire plan and step by step ch stepby-step checklist that we're going to go through. We have progress MD which is where we're keeping track of what's do we need to do and what has",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "been done before. So every time you spawn a new agent or session is no context. It comes in it looks at progress MD. It sees what's been done before and it's like okay here's where I pick up. Here's where the next task needs to be done. And then the last is",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "verify MD. And this is what we're using at every single step to just make sure everything looks good. It's clean code and we can move on to the next step. And so an example of this is again leveraging different models using a GPT",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "5.3 or 5.4 codeex having it create your plan and then having your GPT 5.3 codec spark actually execute the checklist one by one much faster than before. And as a final slide I want to do these um few helpful commands for how you can get the",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "best out of codecs. Things like permissions experimental skills review and rename. But the biggest thing that I really want to emphasize here is that honestly it's not really about just having faster coding models. What it really means is that the developer",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "experience is actually going to become so much better. And when it's becoming so much better, there's so much more we can do. And there's so many ways that we can now avoid creating bad clo bad code in a way that isn't miserable or us",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "staring at a screen for 30 minutes. So thank you guys so much for welcoming today me today. My name is Sarah Chang. Um, I'm visiting from SF. It's an honor to be here in London. Um, if you have any questions or need any credits, my",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "handle is milks and matcha across every platform. Thank you guys.",
+      "start": 450,
+      "duration": 6
+    }
+  ]
+}

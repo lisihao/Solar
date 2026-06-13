@@ -1,0 +1,919 @@
+{
+  "videoId": "ZjT2f9cfZYA",
+  "title": "From Prototype to Production: Securely Accelerating Physical AI with Vision-Language-Action Models",
+  "channelName": "Anyscale",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 44966,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So, thanks everyone for joining. Uh this\nis going to be a webinar around how do\nyou do production scale and production\ngrade uh fine-tuning and customization\nuh of visual language action models.\nAnd to take you to the journey on that,\nit's going to be uh two of us on screen\nand then one person helping us with uh\nQ&A. So, want to do a quick intro of\nwho's going to be on screen. So, from my\nside, Julian, I lead the product\ngo-to-market uh team. Uh been in the\ninfra space and AI space for over 12\nyears. Uh you can trust me that I was\nhelping customers figure out how to run\nSpark on prem. And so, it's been a long\njourney till the world we are in today.\nAnd then I'm joined by who's going to be\nthe star of the show and talking taking\nus through all the demo and technical\nside of things. Uh Omar, do you want to\ndo a quick intro on your side?\nSure. Hello, everyone, and welcome. Omar\nHarbaji, I am an engineer with the field\nengineering team here at Anyscale.\nOver the past um couple of years, I've\nhad the opportunity to work with a lot\nof robotics and autonomous vehicle\ncompanies. And VLAs, of course, are an\nimportant part of that.\nToday, I'll be walking you through\narchitecture and code how to scale VLAs.\nSo, I will be showing a notebook, and\nyou will be able to follow along as\nwell. Looking forward to engagement.\nDon't hesitate to ask questions along\nthe way.\nYeah, and then there's going to be\nsomeone from Omar's team behind the\nscenes, Ian, uh who is going to be\nhelping answer Q&A along the way. So,\nlike I said, use the Q&A functionality.\nUh we're going to be doing some ad hoc\nalong the way, but then also saving some\ntime to do more like live Q&A at the\nend.\nOkay, so what's in it for today? So,\npretty much is I kind of saw the sign-up\nregistration. There's a few of you that\nare like robotics engineers. Some of you\nare maybe coming from a different side\nof AI. and just to make sure that we're\nall on the same page around like what\nVLAs are and kind of how we got here,\nI'm just going to do a quick intro and\nthen from there Omar is going to take it\nto talk about Anyscale as well as go\nthrough the uh demo that he talked\nabout. So, give me 6 7 minutes and then\nyou guys will be on on your journey uh\nwith Omar.\nSo, really all I want to highlight is\nthat if you think about physical AI,\nthere's many ways to think about this\nstack. Uh but in some way a way to think\nabout it is\nwhat's been the functionality that's\nbeen added over time so that you can\nreally go from\nproblem and executing and building\neverything around an actual action that\na robotic system is going to take.\nAnd so really from the beginning, we've\nkind of started on this world of just\nenabling vision, right? How do we do\nobject detection? How do we enable\nrobots to see? And that was kind of like\nthe journey that we were on, right? How\ndo we build models? Maybe one model's\ngood at this versus the other one,\nsegmenting, learning how things are in\nthere.\nBut there wasn't really like a lot of\nunderstanding beyond looking for a\nspecific item, right? Which is where we\nhad many different models for different\nobjects that need to be recognized.\nAnd once LLMs came in, kind of this\nadded a new world like, \"Hey, what if I\ncould use all this pre-trained knowledge\non the world?\"\nRight? We had these like multimodal\nmodels that could like see pictures and\nthen describe the pictures and so how do\nwe bring that into the world of\nrobotics? And that kind of brought kind\nof like unlocking cognition next to\nperception.\nimages could be described and then they\ncould kind of reason around the things\nthat the system was looking at.\nAnd then now of course I think a big\nmoment was sort of like when physical\nintelligence launched uh the PaLM-E\nmodel,\nwhich is really that big moment that\nsaid, \"Hey,\nby building these sort of like you can\nthink of them as foundational models for\nuh robotics, these visual language\naction models, they really think about\nthe process end to end. And so, it's\nlike a single system that can go from\nwhat do you see to how do you act\nuh and do that all as part of a unified\nway to think about the model.\nAnd so, it's pretty awesome kind of like\nhow we've gotten there, but that's kind\nof meant a lot of things, right? We\ntalked about they had to use a lot of\ndata to do that, and we've kind of built\nlarger architectures on the models.\nAnd so, what I want to uh us to kind of\nlike ground on like where in the\nrobotics workflow in the physical AI\nworkflow are we going to be talking\nabout today?\nBroadly, you can kind of think of like\nthere is your compute-intensive data\npreparation and model training\nfine-tuning steps that you typically do\nin something like a on-prem HPC cluster.\nIn this case, we're going to talk about\nit in the context of the cloud.\nAnd then, of course, your low-latency\nserving side of things on device.\nAnd something that I want to say is that\nas we've moved towards these more\nadvanced model capabilities, right? You\nwant to get to that fine-tuning model\nstep uh at the end, but really there's a\nlot of data preparation that happens\nalong the way. And while there used to\nbe a lot of data preparation that was\nmostly CPU-based, we've started to add\nmore GPU-based uh steps by using models\nthemselves, whether it's like ones that\nyou're training or off-the-shelf models\nto do some additional enhancements to\nyour data. And sometimes that may even\ninclude using some LLMs, right? To be um\ngenerating certain descriptions or\ndifferent features around your data. And\nthen, of course, it's not just images.\nMany times you're going to have to also\nprocess logs alongside and do uh\nsynchronization and alignment and run\nalso some new uh GPU steps on that like\nembedding generation.\nAnd so, what happens is that as a\nsomeone that's working in this space,\nwhether you're a perception engineer, a\nrobotics engineer, an ML engineer,\nright? You're kind of dealing with this\nworld of\nnot only CPU uh\nfor data preparation and GPU for, uh,\nfine-tuning, you're kind of using these\nheterogeneous compute resources\nend-to-end along your experimentation,\nuh, journey.\nAnd you're having to think about doing\nthings like, how do I run batch AI\ninference to do some data\npre-processing?\nMany of you have kind of started to do\nat scale. You realize that one of the\nchallenges in making your GPUs run\nefficiently is like, how do I load the\ndata how do I load the data fast enough\ninto the GPUs?\nAnd then of course, because the data\nsets and the models have gotten larger,\nsingle node computer or like eight GPUs\neven is not enough, uh, to get this\nthing across the way. And so that's\nsomething that Omar is going to touch on\nspecifically.\nNow, what I want to highlight before\ngoing to the into the tech is that, uh,\nAny Scale's customers who have been\nsolving these challenges. One of them is\nPhysical Intelligence, uh, who, uh, is\nable to empower their engineers to focus\nand their researchers to focus on model\ndevelopment by abstracting the\ncomplexity of doing the data processing.\nRight? They're analyzing terabytes worth\nof logs and video. And how do they do\nthis in a way that helps them stay\nfocused on the model development side of\nthings. And one of the things we talked\nabout, right, is there's a lot of GPU\nsteps that need to be used now, not only\non the fine-tuning, but also on the data\npreparation.\nAnd so then how do you access this like\nsort of, uh, capacity, uh, constrained\nresource right now, which is GPUs? And\nso being able to do this across clouds.\nAnd so currently we support them on\ntheir journey using both AWS and GCP.\nBut you could say like, hey, Physical\nIntelligence, right, kind of like\nthey're at the cutting edge because\nthey're the ones that created these like\nVLAs that a lot of us use as foundation\nmodels.\nBut as more robotics organizations and\nteams are to use this, right, they're\nrunning into pretty much the same\nchallenges because you want to build\ncustomizations with your own proprietary\ndata sets. And so Bonsai Robotics is an\nexample of this.\nThey had purchased a node that they were\nrunning on prem, but this was leading to\nsome challenges in scaling both the team\nand the workloads. And so, even though\nit's a small team of like two engineers\nthat started growing into more,\nthey're able to use the AnyScale\nplatform to do something very similar\nand be able to do that end-to-end\nexperimentation loop with the same\ntechnology and the same ability to scale\ninfrastructure just like any large AI\nlab.\nAnd so, with that,\nI have a couple questions for the\naudience to kind of ground us on where\neveryone is on\ntheir journey.\nAnd so,\nthe first question to kind of get a\nglimpse of like where the audience is at\nand to kind of tailor things a little\nbit more,\nwanted to see\nhow where everyone is on their journey.\nAwesome. Keep your eye It's really cool\nto see kind of like live data and\neveryone being able to vote. So, I think\nwhat's what's really awesome\nis that many of you guys are kind of\nlike where Bonsai was a few months ago,\nright? Very early on their VL journey,\ntrying to figure out what the right\nstack and the right technology to use.\nSo, it's awesome to see all of that.\nWe have a second question and so, we're\ngoing to end this one. Thanks for\neveryone that participated\nand it's kind of cool to see everyone\ncan see kind of like who else is in the\nroom. We have a second question, which\nhow data is organized for robotics has\nalso evolved. And so, we're curious if\nyou've already adapted into newer, more\nmodern data formats in\nrobotics. And so, we're going to ask a\nsecond\npoll and we'll see where\neveryone is on their data journey.\n>> We'll run this one for just a couple\nseconds and then we'll get started with\nOmar section.\nThis one is multiple choice so make sure\nthat if you pick one you have the option\nto pick a second one or a third one\nalong the way.\nAwesome. Looks like still a lot of\nparquet but some some growing trends in\nusing MCAP\nso that's super interesting.\nOkay, I think last time we got a little\nbit over close to 90 people. We're\ngetting close to 70 so I think with that\nwe're just going to end the poll here\nand then go to our next section.\nOmar, take it from here.\nPerfect. Thanks Julian. Um\nnext up in the next half hour I want to\nwalk you through the technical aspects\nof fine-tuning VLAs.\nI'll show you three things. First, we'll\ntalk about the actual challenge and\narchitecture for scaling out VLAs.\nThen I'll show you some code running\nlive and third I'll talk about how Ray\nand Anyscale come together\nto make that accessible.\nSo let's get started. First, what is the\nchallenge really stepping back? Um\nThe first challenge comes from a need\nfor scale. These VLA models are already\nbigger than the classical\nperception or planning models that\nyou've been working on.\nAnd they also open up more data for you\nto do the training. You can mix both\nexternally cross embodiment data that's\navailable on the internet in addition to\nyours.\nAnd what that means is it's going to go\nbeyond the infrastructure you currently\nhave. So, if you're a researcher, the\nGPUs that you have in your workstation\nwill not be enough. Maybe the cluster\nthat you're provided is not big enough.\nAnd for platform folks, it means\nyou need to be able to provide your\nresearchers a lot more capacity.\nAnd the backdrop is that the robotics\nindustry is just accelerated and\nenergized by the VLAs. And now, just to\nremain current and competitive, you have\nto iterate faster, faster than ever\nbefore. And because these VLAs are\nbigger and require more data, training\nruns are longer than they're used to.\nAnd third, you start bumping into\nresources.\nThey require more GPUs, bigger GPUs, but\nalso the limits of you as individuals,\nML researchers and platform teams. And\nthat's\nwhat is driving the need for scaling.\nNow, what we've seen is that\nfolks like you who are starting their\nVLA journey begin to think, \"Well, if\none GPU and my CPUs are not enough,\nhow about I try vertical scaling?\nWhat if I try um\ngoing with a larger machine? So, bigger\nGPUs or a machine with a lot more GPUs.\nLet's say eight, which is the current\nmaximum that cloud providers are going\nto give you.\"\nNow, this approach has some benefits.\nFirst of all, it's simple. You get your\naccess to a bigger machine with bigger\nGPUs\nuh when you can get them, and you get\nspeed up. So, in many ways it just works\nas long as you can get those uh\nmachines.\nBut, does it really solve the problem?\nAnd the answer is no, it can only get\nyou so far.\nFirst of all, we've we're seeing folks\nlike Bonzai and others who when they do\nthat are still not meeting the iteration\nspeed they require. They're still seeing\nthese runs go for multiple days.\nAnd that's because you can't scale\nbeyond the eight GPUs.\nAnd second, this approach will not\naddress the data load loading\nbottleneck. Uh one of the things that\nfrequently happen is as you load your\ndata, as you have to decode videos that\nare larger and larger resolutions,\nthe bottleneck becomes the data\npreprocessing, the normalization, the\ndecoding of that video before you load\nit into the GPU.\nAnd so, going to more GPUs on the same\nnode with the same CPU GPU ratio doesn't\nfix that. In fact, going from one GPU to\neight\nuh makes the problem eight times bigger.\nThe bottleneck is bigger and you have\nmore underutilized GPUs.\nAnd it doesn't address cost efficiency\nwhen it comes to that.\nSo, yes, the vertical scaling approach\nis going to get you to some speed up,\nbut it's not going to really address the\nproblem.\nSo, what you need to then be\nthink about is distributing the work.\nYou need to find a way to\nget your data from the source and stream\nit through CPUs with that preprocessing\ninto your GPUs,\nbut do it in a way that independently\nscales uh the data streaming and the\nloading from the training\nso that you can get more and more CPUs\ndoing that preprocessing\nso that you can then saturate the GPUs\nand get to maximum speed up, maximum\nutilization.\nNow, distributed computing is going to\nspeed things up uh to the extent that\nyou can scale beyond the eight GPUs. It\ngets you closer to where you want to get\nwith iteration speed.\nIt will address the bottleneck with data\nloading because now you can scale CPUs\nuntil your GPUs are full\nto get to 100% or close to it and\ntherefore improve cost efficiency.\nThe challenge is um\nas you think about distributed\ncomputing, you bump against a new issue.\nIt really isn't simple to do distributed\ncomputing. It's complex. There are a lot\nof complexities\nand it can feel like you're jumping out\nof the frying pan into a fire. You're\nswapping one set of challenges with a\nnew set of challenges.\nDistributed computing is going to\nintroduce\nuh three categories of problems. First,\nhow do you actually distribute the\ncomputation? How do you make sure that\nyou're sending and orchestrating your\ndata processing to some nodes and your\ntraining to others while making sure\neverything is running as close to\nmaximum utilization as possible.\nAnd second, how do you do that without\nimpacting the developer experience? How\ndo you minimize code rewrites?\nHow do you use existing tooling? You\ndon't want to change your framework from\nPyTorch to something else.\nAnd how do you manage dependencies and\ndistribute them? And for the platform\nfolks, how do you provision those\nclusters making sure that you're\ngoverning across users and teams,\nhandling failures, provisioning\nclusters, and optimizing cost when it\ncomes to those GPUs?\nSo,\nthe risk is going to distributed\ncomputing can introduce new challenges\nand a lot of folks hold back from doing\nthat and just continue to settle for the\niteration speeds that you already have.\nWell, in this webinar, what I want to\ntalk to you is show you that with Ray,\nyou can actually take Python code in a\nsimple way using the tooling that you\nalready have, whether it's PyTorch or\nHugging Face Python,\ntake it through Ray\nto get to distribute VLA fine-tuning\nvery quickly.\nSo, what is Ray? Ray is a library, it's\na Python library, you can do pip install\nRay and you are good to go.\nAt its core, it has some fundamental\nabstractions for distributing code.\nAnd then what we did was write a few\nlibraries on top of that to make it\nreally easy to abstract\nyour AI workloads. And the two that I'm\ngoing to call out today are Ray data and\nRay train. Let me show you how those\ncome together.\nNow, let's have a look at an example of\nusing Ray data and Ray train. The idea\nis to get parallel data processing and\nloading\nseparate from distributed training.\nHow do you express that in Python?\nWell, first, you import Ray\nand then you specify your data loading\nand preprocessing pipeline and you\nexpress it in pipeline using Ray data\nRay data.\nIn this example,\nwe start with reading a parquet data\nset, which is still one of the most\ncommon\nformats still in use today.\nAnd then typically what you need to do\nis your parquet represents an index of\nepisodes that has references to where\nyour videos and your action and state\ndata is.\nAnd there's typically a step to take\nevery episode and convert it into rows\nof frames. So, typically you have a flat\nmap that takes an episodes and for every\nepisodes returns a row for every\nconnection of frames depending on the\nnumber of cameras that you have.\nWell, after you do that, there might be\na couple of pre-processing steps\nincluding normalizing your data or other\npre-processing that you may choose to do\nas you load things into the VLA and that\nmay include tokenization or whatever it\nis your particular experiment requires\nyou to do.\nSo, you can see in\nuh four or five lines of code, what I've\ndone is I've specified at a high level\nwhat my pipeline looks like.\nThat is Ray data.\nThe second part is about Ray train.\nAnd what Ray train does is it gives you\nthe ability to express\na few things. First, you use a trainer\nthat matches your framework of of\nchoice. So, if you're using iTorch, then\nyou would use a torch trainer.\nAnd then what you'd have to do to\nprepare is a few things. First, you'll\ntake your training loop and adapt it in\nmaybe four lines of code to be ready for\nRay train to distribute.\nYou would specify the parameters that\nyou want your training loop to take. You\nspecify how you want to scale in terms\nof number of GPUs and some other running\nconfiguration, you pass it the data set.\nSo, that second step step two is about\nspecifying how you want your training to\nrun based on torch. Now, I will get into\ndetails of that when I show the demo,\nbut a high-level that's how it works.\nAnd then and only then when you execute\nthe training using a trainer fit.\nWhat Ray takes care of is the following.\nIt sets up the entire pipeline,\nseparating out the data streaming part,\nthe pre-processing and the data loading,\nand scaling that to as many CPUs are\nneeded\nto feed those GPUs, so the training code\nis sent over to the GPUs or the GPU\nnodes, and the pre-processing is sent to\nCPUs and CPU nodes, and all of this is\ngoing to run in your cloud, in your\nchoice of environment, whether it's the\nhyper-scalers,\nthe neo clouds, or even your on-prem\nenvironments.\nAnd Ray makes this possible because it\nconnects code on the left\nto infrastructure on the right.\nNow, for many of you, you may be saying,\n\"Well, Omar, you're hiding a lot of\ncomplexity here. How challenging is it\ngoing to be to express my data\npipelines? How challenging is it going\nto be to wrap my training loop in Ray?\"\nAnd that's what I want to show you next.\nIt really isn't that complex. It's well\ndocumented. And in today's demo, what\nI'm going to do is show you how I took\nan open data set, the Droid data set\n1.0.1,\nand how I connect that to Physical\nIntelligence's Pi 0.5 VLA, and I do\nfine-tuning.\nLet's have a look together, and I'll\nstart here [snorts]\non my Anyscale environment. So, very\nquickly, Anyscale is Omar, you're not\nsharing your screen yet.\nOkay, let's go ahead and do that.\nSo, so far I've been speaking about Ray.\nRay is open source, you can get it\ndeployed in your own environment. Um you\ncan do it yourself. It's open source.\nUh what we've built in Anyscale is the\nbest way to run Ray clusters. And so you\ncan see that\non the interface, you have access to a\nset of cloud environments. I'm currently\non AWS, but I could be on Azure, Google,\nor on-prem.\nAnd what Anyscale in a nutshell is, it\nmakes it really easy for me to spin up\nRay clusters.\nAnd Ray clusters on Anyscale come in\nthree flavors.\nMost relevant to the robotics industry\nare going to be jobs,\nwhich are just like they sound like,\nclusters that are there to run a job and\nthen stop.\nThey're ephemeral.\nAnd then we have workspaces,\nwhich are Ray clusters\nthat also are development workstations.\nand it's really easy to do those. Let me\nshow you how that works.\nI am going to create a workspace, and\nI'm going to do it based on a template.\nWe actually have a template that you can\nbegin to use and follow along as well.\nWe'll be sharing\na link to this template with uh you're a\nchance to get credit, so you can get\nstarted for free using these.\nAnd what I'll then do is just launch a\nworkspace uh based on that.\nAnd what Anyscale is going to do now is\ngo ahead,\ntake the time to launch on my AWS\naccount, um a\na Ray cluster with the compute\nconfiguration I need and the code that I\nneed as well.\nThis will take about a minute to a\nminute and a half. Instead of having you\nall wait, what I've done is actually\ncreated\na workspace already.\nAnd here is what it looks like.\nThis is what my workspace looks like. I\nhave the chance of\nconnecting to it through a variety of of\nways. After all, it's a development\nworkstation.\nBut it is also a Ray cluster. And in\nthis case, it is running a head node for\nRay,\nsome CPU nodes for CPU processing, and I\npre-allocated two GPUs already, some\nL40s.\nSo, I have two things: a development\nworkspace\nand a Ray cluster combined. Let's dive\nin to the actual code. Here is my\nconnection to my workspace.\nThis is a workspace where you two, once\nyou launch that workspace using that\ntemplate, you'll have access to all this\ncode.\nAnd to give you a quick tour, the main\npart of the code is this notebook called\nVLA.\nAnd it references code in the\nsubdirectory where I have my data\npreprocessing code, my training code\nwrapped in Ray, and some code to compute\nfrom the data set for the purpose of\nnormalization.\nLet's go through this together.\nthe first step that I you will face is\nsome setup, and that includes, you know,\ninstalling your dependencies,\nuh adding your Hugging Face token. You\nknow, it turns out that Pi 0.5\nrequires access to hugging face in order\nto pull the VLM, the backbone, which is\nPaliGemma. So, that's going to be a\nprerequisite.\nAnd once I have my token in there, I run\nsome initial code to initialize Ray.\nLet's do that together.\nAnd in a few moments, what I'll find is\nthat my Ray cluster is running. It is\nbased on a specific version of Python\nand a specific version of Ray.\nNow, as I go through this exercise, I've\nprepopulated some constants. I have, for\nexample, a path\nto my episode index. This is basically a\nparquet file that lists my episodes and\npasses URI that includes URIs to where\nmy action and state data is. And then\nfor every episode, there is a one-to-one\nmapping to an MP4 for every camera. If\nyou're familiar with the Droid data set,\nthere are typically three uh cameras,\nand so every episode has three MP4\nfiles.\nAnd I specify my accelerator is going to\nbe an L40S for the purpose of this, and\nI point to where my data set exists, the\nDroid data set I made a copy.\nNow, working with data typically\nrequires a normalization step.\nI precomputed these. You can look at the\ncode later, but it is going to be what\nyou expect it to do. I run through the\ndata set before training and get\nstatistics around\nso that I can later use that to\nnormalize. So, standard deviation and\nmean.\nNow, let's look at the data set pipeline\nitself.\nThe goal is to read the data,\ndecode the frames, the videos, and\ncreate the frames, connect them to the\naction and state,\nand then do some pre-processing\nbefore on GPU doing the actual\nfine-tuning.\nAnd I start with the data set first.\nSo, here I import Ray, and for my own\nlibrary, I import the functions for\ntaking an episode and converting it\nto rows ready for training.\nSome pre-processing as well.\nAnd\nI think that is sufficient for this\ncase.\nThere is a utility function that I use\nto make sure that the paths associated\nwith episodes are clean.\nI define my pipeline as reading from S3.\nFor this demo, I limit the number of\nepisodes to just a few, just because I\ndon't want to launch a large-scale job.\nI clean up the\nthe URIs, and then I convert every\nepisode to a set of training rows before\nrunning the pre-processing.\nI use Ray data's lazy evaluation and\nstreaming constructs to specify the\npipeline and get it planned without\nactually executing it. And so, when I\nspecify my pipeline, it takes about a\nsecond.\nNothing has happened except the planning\nof of the pipeline at a high level.\nThe next step is the second half,\nspecifying the training. And here I'll\ngo into a little bit\nof detail.\nThe Ray Train library provides a few\nconcepts that include\na scaling config where you specify how\nyou want to scale your VLA fine-tuning,\na running config there in which you pass\nparameters around the running itself,\nand a failure config around how you want\nto deal with failures along the way,\nand it provides utility functions for\nthe training.\nThe other thing I import is a training\nloop\nper worker function that I wrote, and I\nwill be showing you in a bit. And to be\nmore accurate, my colleague Ian has\nwrote that um that function.\nAll right, let's dive into each of these\nconcepts.\nMy scaling config in this case is two\nworkers where each worker is going to\nuse a GPU, and if I want to, I can\nspecify the accelerator.\nIf not, it'll use whatever GPUs that it\nhas.\nA running config is going to provide\nthings like a name for the run, a path\nwhere we can put checkpoints, and how to\ndeal with failure config. There are a\nlot of\nuh parameters that you can tune when you\nspecify the your running config.\nAnd then, I think about the training\nloop itself, every worker, what config\ninformation it has. This includes hyper\nparameters like the learning rate, the\nbatch size, number of epochs, et cetera,\nas well as other parameters.\nNow, when I\nhave these all configured,\nwhat you do is with Ray Train,\nyou initialize a Torch Trainer, specify\nthe training loop, its config,\nhow you want to scale the running\nconfig, and pass it the data sets as a\nparameter before you actually run the\ntraining fit.\nThis template of specifying the\nthe data pipeline, the data loading\npipeline followed by the trainer is\nquite standard.\nAnd it is the way where you can get to\nscale beyond the single node, scaling up\nto not just eight GPUs with 16, 32, 128,\nand beyond.\nNow, as this gets started, one of the\nthings you'll notice is it starts by\num processing\nsome dependencies. And what's happening\nis Ray is taking care of spinning up\nworkers on the GP nodes.\nAnd\nusing UV to deploy any dependencies.\nNow, because this is my second run, this\nis almost instant. The training begins,\nand it begins to execute.\nWhat I will show you next is two things.\nFirst, I'll go back to the web portal\nand show you the metrics\nand the observability that we provide.\nAs you run this workspace or whether\nyou're running a job, you're going to\nsee all sorts of metrics and logs,\nincluding things like infrastructure,\nthe count of nodes, the hardware\nutilization, the CPU usage, memory, etc.\nAnd GP usage. At this stage, nothing has\nstarted yet.\nUm and you can go down to the specifics\nof actually for a training run, what is\nhappening for the data processing,\nspecifically, what is happening. And if\nwe dive a little bit deep deeper, we now\nsee that in a prior run, this is how the\nRay data pipeline has processed. There's\nthe input listing all the files, reading\nthem,\ntaking them through the pre-processing\nand reading. You can watch these and\nactually see them in a DAG view. In\naddition to training runs, there is one\nthat I aborted before, but there is now\nthe training run that is currently\nrunning. You can watch logs, see the\nmetrics, controllers, et cetera. As you\ncan see, there are\ntwo trainers already running. I can do\nprofiling and really understand\ncapacity.\nSo, we don't only provide in any scale\nthe Ray tooling,\nbut we also provide\nthe\nuh the\nthe developer experience around it.\nNow, conscious of time, what I'll do is\nshow you as this training is running,\nwhat I did or what Ian did in order to\ntake existing code and wrap it in Ray\ntrain. And specifically, I'll take you\nthrough the code available in the code\nfor train worker\nand take you down to the training loop\nspecifically.\nHere on\nthe right is the training loop per\nworker.\nThis code is primarily adapted from the\nopen pi um repo. So, this starts with\ncode that was provided by\nuh physical intelligence themselves.\nAnd we do we make four changes to the\ncode.\nThe first change we make is\nwrap the model in DDP.\nAnd the idea is the architecture that I\nhave shown so far is about distributing\ntraining across multiple workers and\ndoing DDP based\ntraining or distribution.\nAnd doing that is as simple as calling\nthis Ray Train utility function prepare\nmodel with the policy as downloaded in\nthis case from the robot.\nThat is change number one to your\ntraining loop.\nAs you can see the rest is going to be\nthings like forward pass and so on. But\nbefore that, the second change that you\nwill have to do is\nRay data is going to stream the data,\nbut it's going to stream it because it's\ndata parallel into shards. So the second\nthing that you do is you will use your\ndata, you will get a data shard, and\nthat will represent your data loading.\nThat would be the second change.\nAnd the third change would be using that\nshard data shard\niterating using this utility function\niter torch batches. What this is going\nto give you is a set of batches that you\ncan then take through the loop. So a\nforward pass, a backward pass. This is\nall standard.\nAnd fourth,\nyou make a change by actually running\ncheckpointing\nevery certain number of steps, and Ray\nTrain has some capabilities for doing\nthat.\nAnd so,\nwhat I hope I've shown you in the last 2\nminutes going through this code is there\nare there is a finite list, in this case\nfour changes you make, and you can take\nany open source\nrepo or even your own training code,\nwrap it in Ray Train, so that then you\ncan go back and do this. Pass that\ntraining loop back to the worker.\nThe same concept applies to the data\nprocessing workloads that you have.\nSo, just to summarize then, what I hope\nthat I've shown you so far is\nthat you can take code like this,\nexpress it in Python,\nand get automatically\nto this architecture independent scaling\nof streaming and training across CPU and\nGPU nodes,\nwhatever you want to run your scaling,\nto get to 100% utilization\nwith the limited resources you have,\nwhich is your time and the underlying\ninfrastructure.\nThat wraps it for the demo.\nNow, there was a question, how much time\nare we going to spend on Ray, and are we\ngoing to talk about Anyscale? Well, so\nfar we've been talking about Ray. I do\nwant to wrap by talking about what\nAnyscale adds in addition to Ray.\nRay is open source. You can download it\nas a researcher and code in it. As a\nplatform team, you can build Ray\nclusters and manage them yourself.\nAnyscale takes Ray,\noptimizes it, and adds that layer we\ncall the Anyscale runtime. So, we have a\nversion of Ray that performs just a\nlittle bit better. It has certain\ncapabilities that are not open source.\nWe add developer central. I gave you a\ntaste of that, which is just workspaces\nand observability. I showed you the kind\nof graphs that you can see and how you\ncan spin up a Ray cluster, so that you\ncan start developing.\nAnd in the\nsouthbound way to interact with the\ncloud, making it really easy for\nplatform teams, we have the cluster\ncontroller that orchestrates the\ninfrastructure with monitoring,\ngovernance, and budgets.\nSo, Anyscale takes Ray and makes it easy\nto use so that you get efficiency for\ndevelopers, ML researchers, as well as\nplatform teams.\nNow, with that, I'll hand it back to\nyou, Julian, to moderate Q&A.\nYeah, I think let's go to the next slide\nand just leave that in the background\num as we go through Q&A. So,\nuh the the resource that was shared Oh,\nOmar, do you mind sharing the screen?\nYeah. So, the we shared on the chat the\ndemo, so you guys can go play with that.\nUh all it takes is signing up to uh\nAnyscale account\nuh to be able to do that. So, you don't\nhave to worry about the cluster\nmanagement and all that kind of stuff.\nUh we do have a recently Omar wrote a\nblog on VLA, so definitely check that\nout. And then, if any of you are coming\nto NVIDIA GTC in maybe a little bit over\na week, uh we're hosting an event there,\nhappy hour with Weights & Biases. So,\nwe'd definitely love to meet some of you\nguys in the in the real world. Now, with\nthat in mind, yeah, let's go through\nsome some Q&A. And I'm going to start\nmaybe kind of thinking from the top. One\nof the questions that came in that I\nthink will be good for everyone to hear\nwhat is when I install Ray, am I getting\nRay core, Ray data? What's the\ndifference between kind of like the core\nversus the libraries uh when installing\nthat?\nUm so, I'll I'll take that. And so, uh\nRay, when you pip install Ray, you get\nall the libraries, and you can be\nselective, so you can ins- pip install\nRay data or Ray train. Um it's open\nsource, so you get the full\nuh setup.\nThat is what a developer would use to\nset things up.\nThe other side of the story is you need\nan environment where you can deploy Ray\nclusters and so on. And so the platform\nteam, your platform team, has to do some\nwork for you in order to go from your\nlaptop or your development station to\nproduction. Anyscale is one way to do\nthat. Some platform teams may choose to\ndo it themselves.\nUh we are the best way to do it and you\nwould see if you give it a try.\nLet us know if that answers your\nquestion or if you have a follow-up.\nNo, no. I think it's the Sometimes how I\nlike to summarize it is like you kind of\nget everything, but just know that the\nlibraries, data, trainer abstractions on\ntop of Ray core. You can always use the\nabstraction or you can go all the way\ndown and implement everything in Ray\ncore.\nUm I think there's another one that very\ncommon and especially those that come\nfrom academia. Uh what's the difference\nbetween Ray and Slurm? What would be\nkind of like your answer uh to that,\nOmar?\nSo, uh\nRay\ndoes a few things that Slurm does not.\nand likewise for Slurm.\nWhat Ray does is it allows you to\nexpress in Python\nhow you want to distribute your code\nacross CPUs and GPUs.\nSo within Python, you're able to express\nyour pipelines and how you distribute\nthem. What Ray then does is it manages\nthe communication for you. So if your\ndata workers need to communicate with\nthe with the GPU training workers, you\ndon't need to actually think about that\nbecause of the abstraction.\nUm and second, Ray does a great job\nmanaging heterogeneous compute. And VL\nfine-tuning is heterogeneous cuz you\nneed a lot of CPU processing and a lot\nof GPU processing and you want to do\nthat on the fly with auto scaling,\nbecause you don't know how one\nadditional pre-processing step is going\nto impact the ratio of GPUs to CPUs. So,\nRay's going to do that dynamically with\nauto scaling and so on.\nAnd there are a few other changes. I\nmean, there are places where Slurm\nreally works. It's come from an HPC\nhomogeneous computing backdrop and it is\nwidely used.\nRay is surpassing that for AI workloads\nincreasingly.\nNo, I think that that's a great answer.\nUh here's another one that maybe uh good\nto clarify.\nWhat is the role of something like\nPyTorch FSDP versus Ray and how do I\nthink about those two together?\nSo, they are not exclusive\nuh of each other. Uh so, you can combine\nboth of them. Um the the topic is\nprobably beyond the scope today, but\njust keep in mind that you can work both\nof them. We actually have templates on\nAnyScale where you combine Ray Train\nwith FSDP and get them to work together.\nUm they work at different layers and\nit's a common use case to combine them.\nAgain, the Ray Train approach is about\nworking with whatever tooling you're\nusing in order to do that.\nWhat I can do is as we take more\nquestions, point you to a template that\nyou can look up um\nwhen looking at that in more detail.\nThat'd be awesome. And then kind of I'm\nseeing another question that I think\nmaybe we always assume it's common\nknowledge, but what why is it that\nthere's an AGPU limit? You kind of\nmentioned this at the beginning. You can\ngo from one to eight, but why is it that\nI am limited to eight when I do vertical\nscaling?\nUm good good question. It's just that as\nyou go to vertical scaling, uh if you\nwant a node with more GPUs,\ncloud providers don't give more than\neight GPUs in one node, right? Um so you\nget eight into H100 or eight into A100\nand so on. So there's a limit how big\nthese nodes actually get and become\navailable.\nSo if you're vertically scaling, that's\nthe limit.\nIn the future, there may be nodes that\nhave more GPUs. Uh maybe there are\ncurrently, but uh that's the simple\nreason.\nNow, if you want to get to 128 nodes\nbecause you want to speed up your\ntraining, um\nand you want to get results a lot\nquicker,\nyou're not going to get a single node\nthat has that result. So you have to\nthink about distributing training then.\nYeah, I think I have another one that's\ngoing to be maybe not easy to\novergeneralize, but uh the question\ngoes,\nI've added a few CPU-only nodes to my\nheterogeneous cluster to handle the data\nloading and preprocessing.\nAnd so what are your recommendations to\noptimize the data transfer between the\ndata loading nodes and the GPU-based\nworker nodes?\nso there are\ngoing to be a few considerations.\nFirst of all,\nyou have to\nbegin by trying to think about the ratio\nof CPU nodes to GPU nodes. And\nthat is can be challenging without a\nframework like Ray because first, it's\nhard to understand how much processing.\nIt's a bit of trial and error. And\nsecond,\nby the nature of experimentation, you're\ngoing to be introducing new steps along\nthe way. And so, if you get to a ratio,\nit's going to change as you experiment.\nAnd so, what you want to do is make sure\nthat you have auto scaling. So, you have\na good guess to the number of CPU nodes\nyou need,\nbut allow room to scaling. And\ntypically, what I do is I take a guess,\nand then I have auto scaling from a\nlittle less than that to double the\namount.\nAnd that allows me the ability to\nefficiently scale out.\nSecond, what you can do in some use\ncases, if you feel like you may be IO\nnetwork bottlenecked, what you can do is\nthink about your choice of CPU nodes\nand the networking underlying them. So,\nif you have your cloud provider has\nuh networking optimized uh\nnodes, you can choose those over the\nothers. If the pre-processing is CPU\nbound, then you could choose. And so,\nthat is a second way to do that.\nAnd by the combination of scaling auto\nscaling the CPUs and being selective\nabout them,\nyou can fairly easily get to saturation.\nUh if that answers the question, great.\nIf not, feel free to type in a\nfollow-up.\nAwesome. Yeah, Florian, let us know if\nyou have any other questions.\nUm I think here's one that I think it's\nworth acknowledging and then kind of I\ncan share some some insights on that,\nbut is\nuh the Nvidia NVL 72. That one has more\nthan eight GPUs.\nAnd so, what does that mean in terms of\nvertical scaling?\nWell, you know, the number is going to\nincrease over time. So, you know, if it\ngets you past eight, then then good. For\nthe vast majority, they may not have\naccess\num to that. Um and that is why I\nmentioned the eight uh GPU. Now, I\nappreciate you sharing. Yeah, yeah. Now,\nI think uh for for you guys that are\nthinking about that, one is yeah, not\neveryone is going to have access to the\n72 uh racks on a single on a or 72 GPUs\non a single rack. Uh but, if you do,\nyou're going to run into a different set\nof challenges. And so, we're going to be\nmaking some announcements at GTC of how\nwe're working with some of the large AI\nlabs\nuh to get the most right cuz now you're\ngoing to be thinking about how do I know\nthat this GPU is close to the other one\nand how do I optimize how things get\ncommunicated with each other. And so, uh\nvertical scaling does not make things\neasier nor faster if you don't have the\nright uh orchestration handling your um\nmulti-step heterogeneous workloads.\nUh let's see if Florian added anything\nelse. No, I think we're good.\nFlorian says, \"Great answer and thanks,\nOmar.\"\nUm we've answered a lot of the other\nquestions, Ian. Thank you so much for\nhelping answer questions along the way\nso that Omar uh could get us through the\nfull presentation. Uh like we said,\nplease check out the fine-tuning\nresource. Uh if you're going to be on\nsite at GTC, definitely come hang out\nwith us at the happy hour.\nAnd uh for now, if there's any other\nquestions, feel free to reach out. We're\ngoing to be sending the recording. We're\ngoing to be sending the link to the\nfine-tuning demo as well.\nAnd then uh along the way, again, if you\nhave questions on your VLA journey, uh\nreach out. Thanks, Omar, for the time\nand putting all of this together. I do I\ndo actually want to tackle two more\nquestions and answer the caller. I know,\nthanks, Julian. So, there was a question\nabout best practices around scaling\nmassively. So, obviously, the focus of\nthis webinar is getting started on the\ndistributed journey.\nand specifically, there was a question\nabout GCS becoming a bottleneck.\nUh in the In world of Ray, GCS can mean\ntwo things. It could be Google Cloud\nStorage or the internal Ray component\nthat is called GCS.\nif this is a matter of Google Cloud\nStorage becoming the bottleneck, there\nare some best practices about how you\nlay out your data in order to make sure\nthat that is not the case.\nIf the problem is about\nscaling Ray itself and it becoming the\nproblem,\nlet's talk. Uh we have a few\noptimization for the version of Ray we\nrun on the route time, which has a\nbigger scaling envelope, and our\nengineering team will work with you um\nto work through those. We've seen many\ncustomers who felt that there were\nbottlenecks related to Ray, but through\nchanges in code and architecture, we've\nmanaged to get them past through that.\nWe're happy to share that. And the last\nquestion I'll take is, is there a\npreferred data format for VLA?\nWe don't have a preferred uh framework.\nThe ones we've listed are what we're\nseeing.\nHDF5\nhas a legacy, so does Parquet. We've\nseen a transition to MCAP, particularly\nfor AV companies.\nUm and because of MCAP's integration\nwith ROS, um we in Ray uh have Ray data\nread MCAP, so you can read directly from\nMCAP files.\nUm but we're also seeing increased\ndemand for the Le Robot dataset. In\nfact, with Le Robot, we're seeing\ndemand for not being able to read just\none Le Robot dataset, but to pull from\nmany these datasets, both public and\nprivate, to combine them into one\ndataset abstraction. Uh stay tuned.\nWe're going to be releasing a Le Robot\ndata source for Ray data, so that's\nnatively integrated um and we'll keep\nyou posted about that.\nIn a nutshell, we'll work with your data\nset. You'll be able to tweak it. It's\nPython under the hood with some Ray\nabstractions on top.\nAnd so with that, back to you Julian to\nclose.\nNow, I think thanks for taking those\nadditional two. I think we're starting\nto see people jump off and so not going\nto repeat myself. Thanks everyone for\njoining and if you have any questions,\nfeel free to reach out. Have a good one\neveryone.",
+  "segments": [
+    {
+      "text": "So, thanks everyone for joining. Uh this is going to be a webinar around how do you do production scale and production grade uh fine-tuning and customization uh of visual language action models. And to take you to the journey on that,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "it's going to be uh two of us on screen and then one person helping us with uh Q&A. So, want to do a quick intro of who's going to be on screen. So, from my side, Julian, I lead the product go-to-market uh team. Uh been in the",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "infra space and AI space for over 12 years. Uh you can trust me that I was helping customers figure out how to run Spark on prem. And so, it's been a long journey till the world we are in today. And then I'm joined by who's going to be",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "the star of the show and talking taking us through all the demo and technical side of things. Uh Omar, do you want to do a quick intro on your side? Sure. Hello, everyone, and welcome. Omar Harbaji, I am an engineer with the field",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "engineering team here at Anyscale. Over the past um couple of years, I've had the opportunity to work with a lot of robotics and autonomous vehicle companies. And VLAs, of course, are an important part of that. Today, I'll be walking you through",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "architecture and code how to scale VLAs. So, I will be showing a notebook, and you will be able to follow along as well. Looking forward to engagement. Don't hesitate to ask questions along the way. Yeah, and then there's going to be",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "someone from Omar's team behind the scenes, Ian, uh who is going to be helping answer Q&A along the way. So, like I said, use the Q&A functionality. Uh we're going to be doing some ad hoc along the way, but then also saving some",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "time to do more like live Q&A at the end. Okay, so what's in it for today? So, pretty much is I kind of saw the sign-up registration. There's a few of you that are like robotics engineers. Some of you are maybe coming from a different side",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "of AI. and just to make sure that we're all on the same page around like what VLAs are and kind of how we got here, I'm just going to do a quick intro and then from there Omar is going to take it to talk about Anyscale as well as go",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "through the uh demo that he talked about. So, give me 6 7 minutes and then you guys will be on on your journey uh with Omar. So, really all I want to highlight is that if you think about physical AI, there's many ways to think about this",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "stack. Uh but in some way a way to think about it is what's been the functionality that's been added over time so that you can really go from problem and executing and building everything around an actual action that a robotic system is going to take.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "And so really from the beginning, we've kind of started on this world of just enabling vision, right? How do we do object detection? How do we enable robots to see? And that was kind of like the journey that we were on, right? How",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "do we build models? Maybe one model's good at this versus the other one, segmenting, learning how things are in there. But there wasn't really like a lot of understanding beyond looking for a specific item, right? Which is where we",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "had many different models for different objects that need to be recognized. And once LLMs came in, kind of this added a new world like, \"Hey, what if I could use all this pre-trained knowledge on the world?\" Right? We had these like multimodal",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "models that could like see pictures and then describe the pictures and so how do we bring that into the world of robotics? And that kind of brought kind of like unlocking cognition next to perception. images could be described and then they",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "could kind of reason around the things that the system was looking at. And then now of course I think a big moment was sort of like when physical intelligence launched uh the PaLM-E model, which is really that big moment that said, \"Hey,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "by building these sort of like you can think of them as foundational models for uh robotics, these visual language action models, they really think about the process end to end. And so, it's like a single system that can go from",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "what do you see to how do you act uh and do that all as part of a unified way to think about the model. And so, it's pretty awesome kind of like how we've gotten there, but that's kind of meant a lot of things, right? We talked about they had to use a lot of",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "data to do that, and we've kind of built larger architectures on the models. And so, what I want to uh us to kind of like ground on like where in the robotics workflow in the physical AI workflow are we going to be talking about today?",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Broadly, you can kind of think of like there is your compute-intensive data preparation and model training fine-tuning steps that you typically do in something like a on-prem HPC cluster. In this case, we're going to talk about it in the context of the cloud.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "And then, of course, your low-latency serving side of things on device. And something that I want to say is that as we've moved towards these more advanced model capabilities, right? You want to get to that fine-tuning model",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "step uh at the end, but really there's a lot of data preparation that happens along the way. And while there used to be a lot of data preparation that was mostly CPU-based, we've started to add more GPU-based uh steps by using models",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "themselves, whether it's like ones that you're training or off-the-shelf models to do some additional enhancements to your data. And sometimes that may even include using some LLMs, right? To be um generating certain descriptions or",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "different features around your data. And then, of course, it's not just images. Many times you're going to have to also process logs alongside and do uh synchronization and alignment and run also some new uh GPU steps on that like embedding generation.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "And so, what happens is that as a someone that's working in this space, whether you're a perception engineer, a robotics engineer, an ML engineer, right? You're kind of dealing with this world of not only CPU uh for data preparation and GPU for, uh,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "fine-tuning, you're kind of using these heterogeneous compute resources end-to-end along your experimentation, uh, journey. And you're having to think about doing things like, how do I run batch AI inference to do some data pre-processing?",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "Many of you have kind of started to do at scale. You realize that one of the challenges in making your GPUs run efficiently is like, how do I load the data how do I load the data fast enough into the GPUs? And then of course, because the data",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "sets and the models have gotten larger, single node computer or like eight GPUs even is not enough, uh, to get this thing across the way. And so that's something that Omar is going to touch on specifically. Now, what I want to highlight before",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "going to the into the tech is that, uh, Any Scale's customers who have been solving these challenges. One of them is Physical Intelligence, uh, who, uh, is able to empower their engineers to focus and their researchers to focus on model",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "development by abstracting the complexity of doing the data processing. Right? They're analyzing terabytes worth of logs and video. And how do they do this in a way that helps them stay focused on the model development side of",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "things. And one of the things we talked about, right, is there's a lot of GPU steps that need to be used now, not only on the fine-tuning, but also on the data preparation. And so then how do you access this like sort of, uh, capacity, uh, constrained",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "resource right now, which is GPUs? And so being able to do this across clouds. And so currently we support them on their journey using both AWS and GCP. But you could say like, hey, Physical Intelligence, right, kind of like they're at the cutting edge because",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "they're the ones that created these like VLAs that a lot of us use as foundation models. But as more robotics organizations and teams are to use this, right, they're running into pretty much the same challenges because you want to build",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "customizations with your own proprietary data sets. And so Bonsai Robotics is an example of this. They had purchased a node that they were running on prem, but this was leading to some challenges in scaling both the team and the workloads. And so, even though",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "it's a small team of like two engineers that started growing into more, they're able to use the AnyScale platform to do something very similar and be able to do that end-to-end experimentation loop with the same technology and the same ability to scale",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "infrastructure just like any large AI lab. And so, with that, I have a couple questions for the audience to kind of ground us on where everyone is on their journey. And so, the first question to kind of get a glimpse of like where the audience is at",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "and to kind of tailor things a little bit more, wanted to see how where everyone is on their journey. Awesome. Keep your eye It's really cool to see kind of like live data and everyone being able to vote. So, I think what's what's really awesome",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is that many of you guys are kind of like where Bonsai was a few months ago, right? Very early on their VL journey, trying to figure out what the right stack and the right technology to use. So, it's awesome to see all of that.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "We have a second question and so, we're going to end this one. Thanks for everyone that participated and it's kind of cool to see everyone can see kind of like who else is in the room. We have a second question, which how data is organized for robotics has",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "also evolved. And so, we're curious if you've already adapted into newer, more modern data formats in robotics. And so, we're going to ask a second poll and we'll see where everyone is on their data journey. >> We'll run this one for just a couple",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "seconds and then we'll get started with Omar section. This one is multiple choice so make sure that if you pick one you have the option to pick a second one or a third one along the way. Awesome. Looks like still a lot of",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "parquet but some some growing trends in using MCAP so that's super interesting. Okay, I think last time we got a little bit over close to 90 people. We're getting close to 70 so I think with that we're just going to end the poll here",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "and then go to our next section. Omar, take it from here. Perfect. Thanks Julian. Um next up in the next half hour I want to walk you through the technical aspects of fine-tuning VLAs. I'll show you three things. First, we'll",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "talk about the actual challenge and architecture for scaling out VLAs. Then I'll show you some code running live and third I'll talk about how Ray and Anyscale come together to make that accessible. So let's get started. First, what is the",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "challenge really stepping back? Um The first challenge comes from a need for scale. These VLA models are already bigger than the classical perception or planning models that you've been working on. And they also open up more data for you",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "to do the training. You can mix both externally cross embodiment data that's available on the internet in addition to yours. And what that means is it's going to go beyond the infrastructure you currently have. So, if you're a researcher, the",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "GPUs that you have in your workstation will not be enough. Maybe the cluster that you're provided is not big enough. And for platform folks, it means you need to be able to provide your researchers a lot more capacity. And the backdrop is that the robotics",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "industry is just accelerated and energized by the VLAs. And now, just to remain current and competitive, you have to iterate faster, faster than ever before. And because these VLAs are bigger and require more data, training",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "runs are longer than they're used to. And third, you start bumping into resources. They require more GPUs, bigger GPUs, but also the limits of you as individuals, ML researchers and platform teams. And that's what is driving the need for scaling.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Now, what we've seen is that folks like you who are starting their VLA journey begin to think, \"Well, if one GPU and my CPUs are not enough, how about I try vertical scaling? What if I try um going with a larger machine? So, bigger",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "GPUs or a machine with a lot more GPUs. Let's say eight, which is the current maximum that cloud providers are going to give you.\" Now, this approach has some benefits. First of all, it's simple. You get your access to a bigger machine with bigger GPUs",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "uh when you can get them, and you get speed up. So, in many ways it just works as long as you can get those uh machines. But, does it really solve the problem? And the answer is no, it can only get you so far. First of all, we've we're seeing folks",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "like Bonzai and others who when they do that are still not meeting the iteration speed they require. They're still seeing these runs go for multiple days. And that's because you can't scale beyond the eight GPUs. And second, this approach will not",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "address the data load loading bottleneck. Uh one of the things that frequently happen is as you load your data, as you have to decode videos that are larger and larger resolutions, the bottleneck becomes the data preprocessing, the normalization, the",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "decoding of that video before you load it into the GPU. And so, going to more GPUs on the same node with the same CPU GPU ratio doesn't fix that. In fact, going from one GPU to eight uh makes the problem eight times bigger.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "The bottleneck is bigger and you have more underutilized GPUs. And it doesn't address cost efficiency when it comes to that. So, yes, the vertical scaling approach is going to get you to some speed up, but it's not going to really address the problem.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So, what you need to then be think about is distributing the work. You need to find a way to get your data from the source and stream it through CPUs with that preprocessing into your GPUs, but do it in a way that independently",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "scales uh the data streaming and the loading from the training so that you can get more and more CPUs doing that preprocessing so that you can then saturate the GPUs and get to maximum speed up, maximum utilization. Now, distributed computing is going to",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "speed things up uh to the extent that you can scale beyond the eight GPUs. It gets you closer to where you want to get with iteration speed. It will address the bottleneck with data loading because now you can scale CPUs until your GPUs are full",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "to get to 100% or close to it and therefore improve cost efficiency. The challenge is um as you think about distributed computing, you bump against a new issue. It really isn't simple to do distributed computing. It's complex. There are a lot of complexities",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "and it can feel like you're jumping out of the frying pan into a fire. You're swapping one set of challenges with a new set of challenges. Distributed computing is going to introduce uh three categories of problems. First, how do you actually distribute the",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "computation? How do you make sure that you're sending and orchestrating your data processing to some nodes and your training to others while making sure everything is running as close to maximum utilization as possible. And second, how do you do that without",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "impacting the developer experience? How do you minimize code rewrites? How do you use existing tooling? You don't want to change your framework from PyTorch to something else. And how do you manage dependencies and distribute them? And for the platform",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "folks, how do you provision those clusters making sure that you're governing across users and teams, handling failures, provisioning clusters, and optimizing cost when it comes to those GPUs? So, the risk is going to distributed",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "computing can introduce new challenges and a lot of folks hold back from doing that and just continue to settle for the iteration speeds that you already have. Well, in this webinar, what I want to talk to you is show you that with Ray,",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "you can actually take Python code in a simple way using the tooling that you already have, whether it's PyTorch or Hugging Face Python, take it through Ray to get to distribute VLA fine-tuning very quickly. So, what is Ray? Ray is a library, it's",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "a Python library, you can do pip install Ray and you are good to go. At its core, it has some fundamental abstractions for distributing code. And then what we did was write a few libraries on top of that to make it really easy to abstract",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "your AI workloads. And the two that I'm going to call out today are Ray data and Ray train. Let me show you how those come together. Now, let's have a look at an example of using Ray data and Ray train. The idea is to get parallel data processing and loading",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "separate from distributed training. How do you express that in Python? Well, first, you import Ray and then you specify your data loading and preprocessing pipeline and you express it in pipeline using Ray data Ray data. In this example,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "we start with reading a parquet data set, which is still one of the most common formats still in use today. And then typically what you need to do is your parquet represents an index of episodes that has references to where",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "your videos and your action and state data is. And there's typically a step to take every episode and convert it into rows of frames. So, typically you have a flat map that takes an episodes and for every episodes returns a row for every",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "connection of frames depending on the number of cameras that you have. Well, after you do that, there might be a couple of pre-processing steps including normalizing your data or other pre-processing that you may choose to do",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "as you load things into the VLA and that may include tokenization or whatever it is your particular experiment requires you to do. So, you can see in uh four or five lines of code, what I've done is I've specified at a high level what my pipeline looks like.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "That is Ray data. The second part is about Ray train. And what Ray train does is it gives you the ability to express a few things. First, you use a trainer that matches your framework of of choice. So, if you're using iTorch, then",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "you would use a torch trainer. And then what you'd have to do to prepare is a few things. First, you'll take your training loop and adapt it in maybe four lines of code to be ready for Ray train to distribute. You would specify the parameters that",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "you want your training loop to take. You specify how you want to scale in terms of number of GPUs and some other running configuration, you pass it the data set. So, that second step step two is about specifying how you want your training to",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "run based on torch. Now, I will get into details of that when I show the demo, but a high-level that's how it works. And then and only then when you execute the training using a trainer fit. What Ray takes care of is the following.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "It sets up the entire pipeline, separating out the data streaming part, the pre-processing and the data loading, and scaling that to as many CPUs are needed to feed those GPUs, so the training code is sent over to the GPUs or the GPU",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "nodes, and the pre-processing is sent to CPUs and CPU nodes, and all of this is going to run in your cloud, in your choice of environment, whether it's the hyper-scalers, the neo clouds, or even your on-prem environments. And Ray makes this possible because it",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "connects code on the left to infrastructure on the right. Now, for many of you, you may be saying, \"Well, Omar, you're hiding a lot of complexity here. How challenging is it going to be to express my data pipelines? How challenging is it going",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "to be to wrap my training loop in Ray?\" And that's what I want to show you next. It really isn't that complex. It's well documented. And in today's demo, what I'm going to do is show you how I took an open data set, the Droid data set 1.0.1,",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "and how I connect that to Physical Intelligence's Pi 0.5 VLA, and I do fine-tuning. Let's have a look together, and I'll start here [snorts] on my Anyscale environment. So, very quickly, Anyscale is Omar, you're not sharing your screen yet.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "Okay, let's go ahead and do that. So, so far I've been speaking about Ray. Ray is open source, you can get it deployed in your own environment. Um you can do it yourself. It's open source. Uh what we've built in Anyscale is the",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "best way to run Ray clusters. And so you can see that on the interface, you have access to a set of cloud environments. I'm currently on AWS, but I could be on Azure, Google, or on-prem. And what Anyscale in a nutshell is, it",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "makes it really easy for me to spin up Ray clusters. And Ray clusters on Anyscale come in three flavors. Most relevant to the robotics industry are going to be jobs, which are just like they sound like, clusters that are there to run a job and then stop.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "They're ephemeral. And then we have workspaces, which are Ray clusters that also are development workstations. and it's really easy to do those. Let me show you how that works. I am going to create a workspace, and I'm going to do it based on a template.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "We actually have a template that you can begin to use and follow along as well. We'll be sharing a link to this template with uh you're a chance to get credit, so you can get started for free using these. And what I'll then do is just launch a",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "workspace uh based on that. And what Anyscale is going to do now is go ahead, take the time to launch on my AWS account, um a a Ray cluster with the compute configuration I need and the code that I need as well. This will take about a minute to a",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "minute and a half. Instead of having you all wait, what I've done is actually created a workspace already. And here is what it looks like. This is what my workspace looks like. I have the chance of connecting to it through a variety of of",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "ways. After all, it's a development workstation. But it is also a Ray cluster. And in this case, it is running a head node for Ray, some CPU nodes for CPU processing, and I pre-allocated two GPUs already, some L40s. So, I have two things: a development",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "workspace and a Ray cluster combined. Let's dive in to the actual code. Here is my connection to my workspace. This is a workspace where you two, once you launch that workspace using that template, you'll have access to all this code.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "And to give you a quick tour, the main part of the code is this notebook called VLA. And it references code in the subdirectory where I have my data preprocessing code, my training code wrapped in Ray, and some code to compute",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "from the data set for the purpose of normalization. Let's go through this together. the first step that I you will face is some setup, and that includes, you know, installing your dependencies, uh adding your Hugging Face token. You",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "know, it turns out that Pi 0.5 requires access to hugging face in order to pull the VLM, the backbone, which is PaliGemma. So, that's going to be a prerequisite. And once I have my token in there, I run some initial code to initialize Ray.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "Let's do that together. And in a few moments, what I'll find is that my Ray cluster is running. It is based on a specific version of Python and a specific version of Ray. Now, as I go through this exercise, I've prepopulated some constants. I have, for",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "example, a path to my episode index. This is basically a parquet file that lists my episodes and passes URI that includes URIs to where my action and state data is. And then for every episode, there is a one-to-one mapping to an MP4 for every camera. If",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "you're familiar with the Droid data set, there are typically three uh cameras, and so every episode has three MP4 files. And I specify my accelerator is going to be an L40S for the purpose of this, and I point to where my data set exists, the",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Droid data set I made a copy. Now, working with data typically requires a normalization step. I precomputed these. You can look at the code later, but it is going to be what you expect it to do. I run through the data set before training and get",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "statistics around so that I can later use that to normalize. So, standard deviation and mean. Now, let's look at the data set pipeline itself. The goal is to read the data, decode the frames, the videos, and create the frames, connect them to the",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "action and state, and then do some pre-processing before on GPU doing the actual fine-tuning. And I start with the data set first. So, here I import Ray, and for my own library, I import the functions for taking an episode and converting it",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "to rows ready for training. Some pre-processing as well. And I think that is sufficient for this case. There is a utility function that I use to make sure that the paths associated with episodes are clean. I define my pipeline as reading from S3.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "For this demo, I limit the number of episodes to just a few, just because I don't want to launch a large-scale job. I clean up the the URIs, and then I convert every episode to a set of training rows before running the pre-processing.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "I use Ray data's lazy evaluation and streaming constructs to specify the pipeline and get it planned without actually executing it. And so, when I specify my pipeline, it takes about a second. Nothing has happened except the planning",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "of of the pipeline at a high level. The next step is the second half, specifying the training. And here I'll go into a little bit of detail. The Ray Train library provides a few concepts that include a scaling config where you specify how",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "you want to scale your VLA fine-tuning, a running config there in which you pass parameters around the running itself, and a failure config around how you want to deal with failures along the way, and it provides utility functions for the training.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "The other thing I import is a training loop per worker function that I wrote, and I will be showing you in a bit. And to be more accurate, my colleague Ian has wrote that um that function. All right, let's dive into each of these concepts.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "My scaling config in this case is two workers where each worker is going to use a GPU, and if I want to, I can specify the accelerator. If not, it'll use whatever GPUs that it has. A running config is going to provide things like a name for the run, a path",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "where we can put checkpoints, and how to deal with failure config. There are a lot of uh parameters that you can tune when you specify the your running config. And then, I think about the training loop itself, every worker, what config",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "information it has. This includes hyper parameters like the learning rate, the batch size, number of epochs, et cetera, as well as other parameters. Now, when I have these all configured, what you do is with Ray Train, you initialize a Torch Trainer, specify",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "the training loop, its config, how you want to scale the running config, and pass it the data sets as a parameter before you actually run the training fit. This template of specifying the the data pipeline, the data loading pipeline followed by the trainer is",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "quite standard. And it is the way where you can get to scale beyond the single node, scaling up to not just eight GPUs with 16, 32, 128, and beyond. Now, as this gets started, one of the things you'll notice is it starts by um processing",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "some dependencies. And what's happening is Ray is taking care of spinning up workers on the GP nodes. And using UV to deploy any dependencies. Now, because this is my second run, this is almost instant. The training begins, and it begins to execute.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "What I will show you next is two things. First, I'll go back to the web portal and show you the metrics and the observability that we provide. As you run this workspace or whether you're running a job, you're going to see all sorts of metrics and logs,",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "including things like infrastructure, the count of nodes, the hardware utilization, the CPU usage, memory, etc. And GP usage. At this stage, nothing has started yet. Um and you can go down to the specifics of actually for a training run, what is",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "happening for the data processing, specifically, what is happening. And if we dive a little bit deep deeper, we now see that in a prior run, this is how the Ray data pipeline has processed. There's the input listing all the files, reading them,",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "taking them through the pre-processing and reading. You can watch these and actually see them in a DAG view. In addition to training runs, there is one that I aborted before, but there is now the training run that is currently",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "running. You can watch logs, see the metrics, controllers, et cetera. As you can see, there are two trainers already running. I can do profiling and really understand capacity. So, we don't only provide in any scale the Ray tooling, but we also provide the",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "uh the the developer experience around it. Now, conscious of time, what I'll do is show you as this training is running, what I did or what Ian did in order to take existing code and wrap it in Ray train. And specifically, I'll take you",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "through the code available in the code for train worker and take you down to the training loop specifically. Here on the right is the training loop per worker. This code is primarily adapted from the open pi um repo. So, this starts with",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "code that was provided by uh physical intelligence themselves. And we do we make four changes to the code. The first change we make is wrap the model in DDP. And the idea is the architecture that I have shown so far is about distributing",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "training across multiple workers and doing DDP based training or distribution. And doing that is as simple as calling this Ray Train utility function prepare model with the policy as downloaded in this case from the robot. That is change number one to your",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "training loop. As you can see the rest is going to be things like forward pass and so on. But before that, the second change that you will have to do is Ray data is going to stream the data, but it's going to stream it because it's",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "data parallel into shards. So the second thing that you do is you will use your data, you will get a data shard, and that will represent your data loading. That would be the second change. And the third change would be using that shard data shard",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "iterating using this utility function iter torch batches. What this is going to give you is a set of batches that you can then take through the loop. So a forward pass, a backward pass. This is all standard. And fourth, you make a change by actually running",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "checkpointing every certain number of steps, and Ray Train has some capabilities for doing that. And so, what I hope I've shown you in the last 2 minutes going through this code is there are there is a finite list, in this case",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "four changes you make, and you can take any open source repo or even your own training code, wrap it in Ray Train, so that then you can go back and do this. Pass that training loop back to the worker. The same concept applies to the data",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "processing workloads that you have. So, just to summarize then, what I hope that I've shown you so far is that you can take code like this, express it in Python, and get automatically to this architecture independent scaling",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "of streaming and training across CPU and GPU nodes, whatever you want to run your scaling, to get to 100% utilization with the limited resources you have, which is your time and the underlying infrastructure. That wraps it for the demo.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "Now, there was a question, how much time are we going to spend on Ray, and are we going to talk about Anyscale? Well, so far we've been talking about Ray. I do want to wrap by talking about what Anyscale adds in addition to Ray.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "Ray is open source. You can download it as a researcher and code in it. As a platform team, you can build Ray clusters and manage them yourself. Anyscale takes Ray, optimizes it, and adds that layer we call the Anyscale runtime. So, we have a",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "version of Ray that performs just a little bit better. It has certain capabilities that are not open source. We add developer central. I gave you a taste of that, which is just workspaces and observability. I showed you the kind",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "of graphs that you can see and how you can spin up a Ray cluster, so that you can start developing. And in the southbound way to interact with the cloud, making it really easy for platform teams, we have the cluster controller that orchestrates the",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "infrastructure with monitoring, governance, and budgets. So, Anyscale takes Ray and makes it easy to use so that you get efficiency for developers, ML researchers, as well as platform teams. Now, with that, I'll hand it back to you, Julian, to moderate Q&A.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, I think let's go to the next slide and just leave that in the background um as we go through Q&A. So, uh the the resource that was shared Oh, Omar, do you mind sharing the screen? Yeah. So, the we shared on the chat the",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "demo, so you guys can go play with that. Uh all it takes is signing up to uh Anyscale account uh to be able to do that. So, you don't have to worry about the cluster management and all that kind of stuff. Uh we do have a recently Omar wrote a",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "blog on VLA, so definitely check that out. And then, if any of you are coming to NVIDIA GTC in maybe a little bit over a week, uh we're hosting an event there, happy hour with Weights & Biases. So, we'd definitely love to meet some of you",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "guys in the in the real world. Now, with that in mind, yeah, let's go through some some Q&A. And I'm going to start maybe kind of thinking from the top. One of the questions that came in that I think will be good for everyone to hear",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "what is when I install Ray, am I getting Ray core, Ray data? What's the difference between kind of like the core versus the libraries uh when installing that? Um so, I'll I'll take that. And so, uh Ray, when you pip install Ray, you get",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "all the libraries, and you can be selective, so you can ins- pip install Ray data or Ray train. Um it's open source, so you get the full uh setup. That is what a developer would use to set things up. The other side of the story is you need",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "an environment where you can deploy Ray clusters and so on. And so the platform team, your platform team, has to do some work for you in order to go from your laptop or your development station to production. Anyscale is one way to do",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "that. Some platform teams may choose to do it themselves. Uh we are the best way to do it and you would see if you give it a try. Let us know if that answers your question or if you have a follow-up. No, no. I think it's the Sometimes how I",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "like to summarize it is like you kind of get everything, but just know that the libraries, data, trainer abstractions on top of Ray core. You can always use the abstraction or you can go all the way down and implement everything in Ray core.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "Um I think there's another one that very common and especially those that come from academia. Uh what's the difference between Ray and Slurm? What would be kind of like your answer uh to that, Omar? So, uh Ray does a few things that Slurm does not.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "and likewise for Slurm. What Ray does is it allows you to express in Python how you want to distribute your code across CPUs and GPUs. So within Python, you're able to express your pipelines and how you distribute them. What Ray then does is it manages",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "the communication for you. So if your data workers need to communicate with the with the GPU training workers, you don't need to actually think about that because of the abstraction. Um and second, Ray does a great job managing heterogeneous compute. And VL",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "fine-tuning is heterogeneous cuz you need a lot of CPU processing and a lot of GPU processing and you want to do that on the fly with auto scaling, because you don't know how one additional pre-processing step is going to impact the ratio of GPUs to CPUs. So,",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "Ray's going to do that dynamically with auto scaling and so on. And there are a few other changes. I mean, there are places where Slurm really works. It's come from an HPC homogeneous computing backdrop and it is widely used.",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "Ray is surpassing that for AI workloads increasingly. No, I think that that's a great answer. Uh here's another one that maybe uh good to clarify. What is the role of something like PyTorch FSDP versus Ray and how do I think about those two together?",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So, they are not exclusive uh of each other. Uh so, you can combine both of them. Um the the topic is probably beyond the scope today, but just keep in mind that you can work both of them. We actually have templates on AnyScale where you combine Ray Train",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "with FSDP and get them to work together. Um they work at different layers and it's a common use case to combine them. Again, the Ray Train approach is about working with whatever tooling you're using in order to do that. What I can do is as we take more",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "questions, point you to a template that you can look up um when looking at that in more detail. That'd be awesome. And then kind of I'm seeing another question that I think maybe we always assume it's common knowledge, but what why is it that",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "there's an AGPU limit? You kind of mentioned this at the beginning. You can go from one to eight, but why is it that I am limited to eight when I do vertical scaling? Um good good question. It's just that as you go to vertical scaling, uh if you",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "want a node with more GPUs, cloud providers don't give more than eight GPUs in one node, right? Um so you get eight into H100 or eight into A100 and so on. So there's a limit how big these nodes actually get and become available.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "So if you're vertically scaling, that's the limit. In the future, there may be nodes that have more GPUs. Uh maybe there are currently, but uh that's the simple reason. Now, if you want to get to 128 nodes because you want to speed up your training, um",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "and you want to get results a lot quicker, you're not going to get a single node that has that result. So you have to think about distributing training then. Yeah, I think I have another one that's going to be maybe not easy to",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "overgeneralize, but uh the question goes, I've added a few CPU-only nodes to my heterogeneous cluster to handle the data loading and preprocessing. And so what are your recommendations to optimize the data transfer between the",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "data loading nodes and the GPU-based worker nodes? so there are going to be a few considerations. First of all, you have to begin by trying to think about the ratio of CPU nodes to GPU nodes. And that is can be challenging without a",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "framework like Ray because first, it's hard to understand how much processing. It's a bit of trial and error. And second, by the nature of experimentation, you're going to be introducing new steps along the way. And so, if you get to a ratio,",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "it's going to change as you experiment. And so, what you want to do is make sure that you have auto scaling. So, you have a good guess to the number of CPU nodes you need, but allow room to scaling. And typically, what I do is I take a guess,",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "and then I have auto scaling from a little less than that to double the amount. And that allows me the ability to efficiently scale out. Second, what you can do in some use cases, if you feel like you may be IO network bottlenecked, what you can do is",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "think about your choice of CPU nodes and the networking underlying them. So, if you have your cloud provider has uh networking optimized uh nodes, you can choose those over the others. If the pre-processing is CPU bound, then you could choose. And so,",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "that is a second way to do that. And by the combination of scaling auto scaling the CPUs and being selective about them, you can fairly easily get to saturation. Uh if that answers the question, great. If not, feel free to type in a follow-up.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "Awesome. Yeah, Florian, let us know if you have any other questions. Um I think here's one that I think it's worth acknowledging and then kind of I can share some some insights on that, but is uh the Nvidia NVL 72. That one has more than eight GPUs.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "And so, what does that mean in terms of vertical scaling? Well, you know, the number is going to increase over time. So, you know, if it gets you past eight, then then good. For the vast majority, they may not have access um to that. Um and that is why I",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "mentioned the eight uh GPU. Now, I appreciate you sharing. Yeah, yeah. Now, I think uh for for you guys that are thinking about that, one is yeah, not everyone is going to have access to the 72 uh racks on a single on a or 72 GPUs",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "on a single rack. Uh but, if you do, you're going to run into a different set of challenges. And so, we're going to be making some announcements at GTC of how we're working with some of the large AI labs uh to get the most right cuz now you're",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "going to be thinking about how do I know that this GPU is close to the other one and how do I optimize how things get communicated with each other. And so, uh vertical scaling does not make things easier nor faster if you don't have the",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "right uh orchestration handling your um multi-step heterogeneous workloads. Uh let's see if Florian added anything else. No, I think we're good. Florian says, \"Great answer and thanks, Omar.\" Um we've answered a lot of the other",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "questions, Ian. Thank you so much for helping answer questions along the way so that Omar uh could get us through the full presentation. Uh like we said, please check out the fine-tuning resource. Uh if you're going to be on",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "site at GTC, definitely come hang out with us at the happy hour. And uh for now, if there's any other questions, feel free to reach out. We're going to be sending the recording. We're going to be sending the link to the fine-tuning demo as well.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "And then uh along the way, again, if you have questions on your VLA journey, uh reach out. Thanks, Omar, for the time and putting all of this together. I do I do actually want to tackle two more questions and answer the caller. I know,",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "thanks, Julian. So, there was a question about best practices around scaling massively. So, obviously, the focus of this webinar is getting started on the distributed journey. and specifically, there was a question about GCS becoming a bottleneck.",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "Uh in the In world of Ray, GCS can mean two things. It could be Google Cloud Storage or the internal Ray component that is called GCS. if this is a matter of Google Cloud Storage becoming the bottleneck, there are some best practices about how you",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "lay out your data in order to make sure that that is not the case. If the problem is about scaling Ray itself and it becoming the problem, let's talk. Uh we have a few optimization for the version of Ray we run on the route time, which has a",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "bigger scaling envelope, and our engineering team will work with you um to work through those. We've seen many customers who felt that there were bottlenecks related to Ray, but through changes in code and architecture, we've",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "managed to get them past through that. We're happy to share that. And the last question I'll take is, is there a preferred data format for VLA? We don't have a preferred uh framework. The ones we've listed are what we're seeing. HDF5",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "has a legacy, so does Parquet. We've seen a transition to MCAP, particularly for AV companies. Um and because of MCAP's integration with ROS, um we in Ray uh have Ray data read MCAP, so you can read directly from MCAP files. Um but we're also seeing increased",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "demand for the Le Robot dataset. In fact, with Le Robot, we're seeing demand for not being able to read just one Le Robot dataset, but to pull from many these datasets, both public and private, to combine them into one dataset abstraction. Uh stay tuned.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "We're going to be releasing a Le Robot data source for Ray data, so that's natively integrated um and we'll keep you posted about that. In a nutshell, we'll work with your data set. You'll be able to tweak it. It's Python under the hood with some Ray",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "abstractions on top. And so with that, back to you Julian to close. Now, I think thanks for taking those additional two. I think we're starting to see people jump off and so not going to repeat myself. Thanks everyone for joining and if you have any questions,",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "feel free to reach out. Have a good one everyone.",
+      "start": 1080,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,289 @@
+{
+  "videoId": "5z3NJGVj0AE",
+  "title": "SREcon26 Americas - Keeping a Hypervisor Fleet Up to Date with Minimal Customer Disruption",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 13718,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone.\nMy name is Atalay Kutlay. I'm a senior\nsoftware engineer at Akamai's network\noptimization team, where I focus on\nincreasing Akamai Akamai's global fleet\nefficiency.\nSo you may know Akamai as a CDN company,\nbut we're also a cloud provider now.\nWe're in more than 40 data centers\naround the world,\nwhere customers can create virtual\nmachines, block storage, object storage,\nalong with other products.\nAnd as a cloud provider, it's our\nresponsibility and our SRE team's job to\nkeep our global fleet healthy and\nup-to-date.\nSo this requires being on top of\nnever-ending kernel, OS, and firmware\nupdates, as well as doing some\npreventative hardware maintenance before\num before issues happen.\nAnd in most of these cases, the host\nneeds to be rebooted, and that can only\nhappen once all the VMs are off of the\nhost.\nIn a typical maintenance, you have old\nversion hosts and you have some spare\ncapacity that's already upgraded to the\nnewest version.\nThe first step of the maintenance is to\nnotify the customer and wait for the\nagreed notification time.\nAnd then the migration start, and once\nthe host is empty, now we can update the\nold host with the new software. And if\neverything goes well,\nuh and the software update is\nsuccessful, then the old host now\nbecomes a spare capacity, so that we can\ndo it one more.\nAnd now another host\ncan migrate to this new spare capacity\nhost, and we can keep doing this\nforever.\nThen and this process continues until\nall hosts in the data center are\nupdated.\nSo for one host, this sounds pretty\nsimple.\nBut, the actual challenge of the\nhypervisor maintenance at scale starts\nwhen you need to do a large number of\nthese updates at the same time.\nImagine yourself as the SRE team that\nowns this fleet. And on Monday morning,\nyour boss comes and tells you that\nthere's a new kernel version that has an\nimportant fix, and we need to roll that\nout to 10,000 hosts.\nThere is no live patch, so the host\nneeds to be rebooted, and the VMs need\nto be migrated.\nBecause of the migration, customers need\nto be modified through APIs and\nmetadata.\nAnd we have only 90 days to do this.\nSo, this sounds complicated, but we take\nit one step at a time.\nSo, 10,000 hosts in 90 days, that means\nroughly 100 hosts a day need to be\nupdated every day for the next 3 months.\nSo, when you try to come up with that\n100 hosts, you run into three major\nissues.\nThe first is capacity. We're running VMs\naround. So, we need to find enough\ncapacity,\nuh and specifically updated capacity for\nthose VMs to go to.\nAt the same time, the data center cannot\nrun out of capacity, because that would\nmean preventing new customers from\ncreating VMs, and that means revenue\nloss.\nSo, the maintenance can only use the the\ncapacity that we budgeted for\nmaintenance, and not the public\ncapacity.\nThe second problem is conflict.\nCustomers expect some\ntolerate some disruption uh in a cloud\nenvironment.\nBut, during a planned maintenance, any\nextreme disruption is not acceptable.\nBecause we're trying to evacuate a lot\nof hosts at the same time, there is a\nrisk of um\nimpacting some customers unfairly or\nasymmetrically.\nThis is challenging for us, because each\nhost may have hundreds of customers, and\nthe same host uh being evacuated can\ncause different levels of disruption to\ndifferent customers.\nA large customer that has thousands of\nVMs in the data center may not care too\nmuch about a couple of VMs going down.\nHowever, there could be a customer on\nthe house that has only a couple of VMs\nand that could be their whole\ninfrastructure.\nSo, if the host selection is not not\ndone cleverly, you can end up in a\nsituation like this where you take down\nsomeone's VM replicas all at the same\ntime.\nThe The third problem is concurrency.\nMigrations are resource intensive\nprocesses.\nThey basically copy large amounts of\ndata over the network from host to\nanother.\nUh it uses CPU, disk IO, and network\nbandwidth on the host as well as the\nbandwidth of the top of rack router.\nSo, if too many migrations happen at the\nsame time, you can cause bottleneck uh\nnetwork bottlenecks, performance issues,\nor you could even cause the migrations\nthemselves to fail.\nSo, the host selection must also account\nfor the physical limits\nuh of the data center.\nSo, with these three problems,\nmaintenance becomes a complex task. How\ncan we solve it?\nOne option is to put a bunch of data on\na spreadsheet and try to find a set of\nhosts until you find a list that\nsatisfies your criteria.\nI'm not saying you can't do this, but\nthis takes a lot of work and because\nmaintenance is continuous work that\nnever ends, this would mean that you're\ngoing to do this for the rest of your\ncareer.\nSo, obviously we don't want that. We\nwant some automation. So, why don't we\nwrite an algorithm that finds a set of\nhosts, checks all these constraints that\nI talked about?\nUm this is easy to say, but hard to get\nit right and it's for two reasons. The\nfirst is when you write an algorithm,\nyou don't know how good your algorithm\nis.\nIf your algorithm tells you that you can\nupdate a data center in 100 days, you\ndon't know if you could do it in less\ntime unless you come up with a better\nalgorithm.\nAnd the second problem is it's hard to\nwrite such algorithm uh to be flexible\nenough for changing constraints that may\ncome up with a new product launch or\nchanging business constraints, maybe due\nto a new customer arrival.\nSo, what is the solution?\nThe solution comes from operations\nresearch.\nOR is a field that's been providing ways\nto model and solve complex problems to\nimprove decision-making processes.\nAnd mathematical optimization is a\nfundamental tool in OR.\nSo, what is mathematical optimization?\nWell, to explain it in two minutes, I'm\ngoing to use a metaphor.\nThink of a genie.\nA genie is capable of giving you\nanything you want as long as you can\nimagine it and articulate it.\nSo, if if a kid finds a genie,\nhe asks for ice cream.\nHowever, if the if the kid just says\ngive me ice cream, now the genie could\ngive 50 scoops of garlic ice cream and I\nhope we can all agree that that's that\nwouldn't be good.\nSo, a smart kid specifies the flavors\nlike chocolate and Oreo\nand it asks for\nsome number of scoops because he knows\nthat more than that makes him sick and\nthe kid wants to be happy. He doesn't\nwant to be sick.\nSo, with this information, the genie can\ngive the exact kind of ice cream to the\nkid.\nAnd mathematical optimization is just\nlike a genie.\nYou give it variables that you want it\nto decide\nand you specify the constraints that it\nmust follow and it finds the values for\nyour variables that maximize your\nobjective.\nSo, how does this translate to\nmaintenance scheduling?\nIn maintenance scheduling, we have hosts\nand VMs and we ask the model to find the\nbest times to migrate those VMs off of\nthe host and best times to update the\nhosts.\nAnd it needs to do that while taking\ninto those constraints into\nconsideration, the ones I talked about,\ncapacity, customer disruption, and\nconcurrency.\nAnd the model must also find a solution\nthat minimizes the total time to update\nthe data center.\nSo, this is how you model it, but what\nexactly finds these values?\nWell, that's what a what a mathematical\nsolver does. It gives you an interface\nto model your problem, and it finds a\nsolution.\nOur solver of choice was OR-Tools\nCP-SAT. This is an open-source project\ndeveloped by Google.\nAnd the the reason why we chose the\nsolver was because it's easy to use\neasy-to-use interface for scheduling\nproblems.\nCP-SAT has a variable type called\ninterval variable.\nAnd what it does that it takes a start\ntime, an end time, and a duration.\nAnd if you think about VM migration, it\nhas the same qualities. It It starts at\nsome point, ends at some point, and it\ntakes an expected durational time.\nAnd CP-SAT can also express constraints,\nsuch as add no overlap, which says\ndo only one task at a time.\nAnd if you think of\nwhat I said earlier about disruption and\ncustomer disruption budget, um that's\nexactly what we tried to do here. So,\nthis is a very direct way of expressing\nthe same kind of constraint.\nSo, say you have a host, and you have\nfour VMs on this host, and trying to\nbuild a model to minimize the\nmaintenance time for this host.\nOne thing you do is you give it a\nconstraint for how many VMs can be\nmigrated at the same time, and you ask\nthe model to find the the shortest time\nto update this host.\nThe model would give you a schedule like\nthis one. It puts the VMs It schedules\nthe VMs\nuh such that it minimizes the model's\nmaintenance.\nSo, now I add another layer, and color\nthe VMs based on which customer owns it.\nAnd I add an add no overlap constraint\nfor each customer.\nSo, you can see that VM two and four\nbelonging to the same customer\nare migrating at the same time. So, now\nmy add no overlap constraint um\nwill be unsatisfied because they're\nhappening at the same time. So, it can't\nexceed one.\nSo, what the solver would do is then to\nfind another solution\nwhich does make the host maintenance\ntime a little longer, but also keeps the\ncustomer happier.\nSo, this is a toy example, but the\nimplementation is not that different\nwhen you try to apply this across hosts\nand apply this to hundreds of hosts.\nSo, with this powerful engine, we built\na new service that's dedicated to\ncreating maintenance schedules.\nFleet maintenance planner creates all\nthe data that our control plane needs to\nschedule the maintenance, and it\ncentralizes who and when gets\nmaintained, and leaves the rest to the\ncontrol plane. So, control plane still\ndoes all the hows, how the migration is\nscheduled, how it goes to the host, how\nit's retried, etc. And it only strips\nout the who and when.\nAnd this enables us to do optimal\nmaintenance scheduling at scale.\nSo, before I show you how we placed in\nour control plane, let me also remind\nyou what happened before this.\nOur SREs were responsible of\nunderstanding the spare capacity and\navailability in each of these data\ncenters, and they would run queries\nagainst the database to understand what\nhosts need to be updated.\nAnd most importantly, they would\nactively decide every day what set of\nhosts, out of all the potential hosts,\nto be updated.\nAnd they would do that by looking at the\nhosts hosts hosts and understanding\nwhich customers are there, and trying to\nmake sure they don't cause disruption to\nanyone significantly.\nThis is very high toil work.\nAnd how we replace this is by making SRE\nstill responsible for\ndeclaring what versions a host should be\non,\nbut making our control plane take care\nof the rest. So, SRE still decide what\nhosts are going to be on what version\nand do that and they do that with the\ncoordination of the software teams,\nbut our control plane takes that\ninformation and decides\nuh what exactly to\nuh to migrate or update.\nAnd it does that by playing this\nping-pong with the fleet maintenance\nplanner. It asks for a schedule daily\nand the fleet maintenance planner\ngives a response daily.\nAnd while doing that, this new service\ntakes feedback from the\nuh from the fleet. It understands the\navailable capacity. It understands the\nplatform health to decide the\nconcurrency limits for the migrations.\nAnd it also understands the VMs on the\nhost because the the fleet state in our\ndata centers are quite dynamic. The\ncustomers create VMs and remove them\nvery fast.\nSo, this dynamic nature requires us to\nalso schedule these maintenances\num ev- every day instead of scheduling\nall the maintenance for the next 2\nmonths because that schedule would have\na lot of VMs that won't even exist and\nit would consider limits that won't hold\ntrue in the future.\nSo, I talked about how it may be hard to\num know the quality of the solution that\nyou get if you just write an algorithm.\nBut a mathematical model like this, it\ncomes for free\nbecause the model is also able to give\nyou the theoretical minimum along with\nthe solution that it gave you. So, you\nget to compare\nfor example, how many days\nuh the solution that you got take\nuh takes in the data center and what\nwill be the theoretical minimum? So, if\nthe theoretical minimum is 100 days, and\nyou get a solution with 105 days, you\nmay be fine with the 5% difference\nor unoptimality.\nSo, at this point it just becomes a\ntrade-off between how sensitive you are\nto unoptimality and how fast do you want\nthe schedule to to be generated.\nAnother side benefit of having a model\nlike this is to be able to do scenario\nanalysis.\nBy tweaking the values that go into this\nmodel, maybe in a simulation\nenvironment, you can now answer business\nquestions like, what if we scale the\ndata center by twice as much in a year,\nor what if this customer scales 10x?\nWould that change our ability to do\nmaintenance?\nAnd this is exactly how we decided how\nmuch spare capacity we need in each of\nour data centers by running these\nnumbers throughout our data centers with\ndifferent spare capacity\nwith respect to like as a percentage of\nour total hosts.\nAnd then gave the business a clear\ntrade-off between how much money we want\nto spend and how fast we can we can do\nthe maintenance in our data centers.\nSo, in summary,\nmathematical optimization can solve\nproblems at scale.\nIt is flexible and it allows for\nincremental development.\nAnd it gives you tools to answer ad hoc\nbusiness questions while solving your\nproblem day-to-day.\nThank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. My name is Atalay Kutlay. I'm a senior software engineer at Akamai's network optimization team, where I focus on increasing Akamai Akamai's global fleet efficiency. So you may know Akamai as a CDN company, but we're also a cloud provider now.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "We're in more than 40 data centers around the world, where customers can create virtual machines, block storage, object storage, along with other products. And as a cloud provider, it's our responsibility and our SRE team's job to",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "keep our global fleet healthy and up-to-date. So this requires being on top of never-ending kernel, OS, and firmware updates, as well as doing some preventative hardware maintenance before um before issues happen. And in most of these cases, the host",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "needs to be rebooted, and that can only happen once all the VMs are off of the host. In a typical maintenance, you have old version hosts and you have some spare capacity that's already upgraded to the newest version. The first step of the maintenance is to",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "notify the customer and wait for the agreed notification time. And then the migration start, and once the host is empty, now we can update the old host with the new software. And if everything goes well, uh and the software update is",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "successful, then the old host now becomes a spare capacity, so that we can do it one more. And now another host can migrate to this new spare capacity host, and we can keep doing this forever. Then and this process continues until",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "all hosts in the data center are updated. So for one host, this sounds pretty simple. But, the actual challenge of the hypervisor maintenance at scale starts when you need to do a large number of these updates at the same time.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Imagine yourself as the SRE team that owns this fleet. And on Monday morning, your boss comes and tells you that there's a new kernel version that has an important fix, and we need to roll that out to 10,000 hosts. There is no live patch, so the host",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "needs to be rebooted, and the VMs need to be migrated. Because of the migration, customers need to be modified through APIs and metadata. And we have only 90 days to do this. So, this sounds complicated, but we take it one step at a time.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "So, 10,000 hosts in 90 days, that means roughly 100 hosts a day need to be updated every day for the next 3 months. So, when you try to come up with that 100 hosts, you run into three major issues. The first is capacity. We're running VMs",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "around. So, we need to find enough capacity, uh and specifically updated capacity for those VMs to go to. At the same time, the data center cannot run out of capacity, because that would mean preventing new customers from creating VMs, and that means revenue",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "loss. So, the maintenance can only use the the capacity that we budgeted for maintenance, and not the public capacity. The second problem is conflict. Customers expect some tolerate some disruption uh in a cloud environment.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "But, during a planned maintenance, any extreme disruption is not acceptable. Because we're trying to evacuate a lot of hosts at the same time, there is a risk of um impacting some customers unfairly or asymmetrically. This is challenging for us, because each",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "host may have hundreds of customers, and the same host uh being evacuated can cause different levels of disruption to different customers. A large customer that has thousands of VMs in the data center may not care too much about a couple of VMs going down.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "However, there could be a customer on the house that has only a couple of VMs and that could be their whole infrastructure. So, if the host selection is not not done cleverly, you can end up in a situation like this where you take down",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "someone's VM replicas all at the same time. The The third problem is concurrency. Migrations are resource intensive processes. They basically copy large amounts of data over the network from host to another. Uh it uses CPU, disk IO, and network",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth on the host as well as the bandwidth of the top of rack router. So, if too many migrations happen at the same time, you can cause bottleneck uh network bottlenecks, performance issues, or you could even cause the migrations themselves to fail.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "So, the host selection must also account for the physical limits uh of the data center. So, with these three problems, maintenance becomes a complex task. How can we solve it? One option is to put a bunch of data on a spreadsheet and try to find a set of",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "hosts until you find a list that satisfies your criteria. I'm not saying you can't do this, but this takes a lot of work and because maintenance is continuous work that never ends, this would mean that you're going to do this for the rest of your career.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "So, obviously we don't want that. We want some automation. So, why don't we write an algorithm that finds a set of hosts, checks all these constraints that I talked about? Um this is easy to say, but hard to get it right and it's for two reasons. The",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "first is when you write an algorithm, you don't know how good your algorithm is. If your algorithm tells you that you can update a data center in 100 days, you don't know if you could do it in less time unless you come up with a better algorithm.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And the second problem is it's hard to write such algorithm uh to be flexible enough for changing constraints that may come up with a new product launch or changing business constraints, maybe due to a new customer arrival. So, what is the solution?",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "The solution comes from operations research. OR is a field that's been providing ways to model and solve complex problems to improve decision-making processes. And mathematical optimization is a fundamental tool in OR. So, what is mathematical optimization?",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Well, to explain it in two minutes, I'm going to use a metaphor. Think of a genie. A genie is capable of giving you anything you want as long as you can imagine it and articulate it. So, if if a kid finds a genie, he asks for ice cream.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "However, if the if the kid just says give me ice cream, now the genie could give 50 scoops of garlic ice cream and I hope we can all agree that that's that wouldn't be good. So, a smart kid specifies the flavors like chocolate and Oreo and it asks for",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "some number of scoops because he knows that more than that makes him sick and the kid wants to be happy. He doesn't want to be sick. So, with this information, the genie can give the exact kind of ice cream to the kid. And mathematical optimization is just",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "like a genie. You give it variables that you want it to decide and you specify the constraints that it must follow and it finds the values for your variables that maximize your objective. So, how does this translate to maintenance scheduling?",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "In maintenance scheduling, we have hosts and VMs and we ask the model to find the best times to migrate those VMs off of the host and best times to update the hosts. And it needs to do that while taking into those constraints into",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "consideration, the ones I talked about, capacity, customer disruption, and concurrency. And the model must also find a solution that minimizes the total time to update the data center. So, this is how you model it, but what exactly finds these values?",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Well, that's what a what a mathematical solver does. It gives you an interface to model your problem, and it finds a solution. Our solver of choice was OR-Tools CP-SAT. This is an open-source project developed by Google. And the the reason why we chose the",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "solver was because it's easy to use easy-to-use interface for scheduling problems. CP-SAT has a variable type called interval variable. And what it does that it takes a start time, an end time, and a duration. And if you think about VM migration, it",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "has the same qualities. It It starts at some point, ends at some point, and it takes an expected durational time. And CP-SAT can also express constraints, such as add no overlap, which says do only one task at a time. And if you think of",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "what I said earlier about disruption and customer disruption budget, um that's exactly what we tried to do here. So, this is a very direct way of expressing the same kind of constraint. So, say you have a host, and you have four VMs on this host, and trying to",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "build a model to minimize the maintenance time for this host. One thing you do is you give it a constraint for how many VMs can be migrated at the same time, and you ask the model to find the the shortest time to update this host.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "The model would give you a schedule like this one. It puts the VMs It schedules the VMs uh such that it minimizes the model's maintenance. So, now I add another layer, and color the VMs based on which customer owns it. And I add an add no overlap constraint",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "for each customer. So, you can see that VM two and four belonging to the same customer are migrating at the same time. So, now my add no overlap constraint um will be unsatisfied because they're happening at the same time. So, it can't exceed one.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So, what the solver would do is then to find another solution which does make the host maintenance time a little longer, but also keeps the customer happier. So, this is a toy example, but the implementation is not that different",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "when you try to apply this across hosts and apply this to hundreds of hosts. So, with this powerful engine, we built a new service that's dedicated to creating maintenance schedules. Fleet maintenance planner creates all",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "the data that our control plane needs to schedule the maintenance, and it centralizes who and when gets maintained, and leaves the rest to the control plane. So, control plane still does all the hows, how the migration is",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "scheduled, how it goes to the host, how it's retried, etc. And it only strips out the who and when. And this enables us to do optimal maintenance scheduling at scale. So, before I show you how we placed in our control plane, let me also remind",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "you what happened before this. Our SREs were responsible of understanding the spare capacity and availability in each of these data centers, and they would run queries against the database to understand what hosts need to be updated.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "And most importantly, they would actively decide every day what set of hosts, out of all the potential hosts, to be updated. And they would do that by looking at the hosts hosts hosts and understanding which customers are there, and trying to",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "make sure they don't cause disruption to anyone significantly. This is very high toil work. And how we replace this is by making SRE still responsible for declaring what versions a host should be on, but making our control plane take care",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "of the rest. So, SRE still decide what hosts are going to be on what version and do that and they do that with the coordination of the software teams, but our control plane takes that information and decides uh what exactly to uh to migrate or update.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "And it does that by playing this ping-pong with the fleet maintenance planner. It asks for a schedule daily and the fleet maintenance planner gives a response daily. And while doing that, this new service takes feedback from the",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "uh from the fleet. It understands the available capacity. It understands the platform health to decide the concurrency limits for the migrations. And it also understands the VMs on the host because the the fleet state in our data centers are quite dynamic. The",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "customers create VMs and remove them very fast. So, this dynamic nature requires us to also schedule these maintenances um ev- every day instead of scheduling all the maintenance for the next 2 months because that schedule would have",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "a lot of VMs that won't even exist and it would consider limits that won't hold true in the future. So, I talked about how it may be hard to um know the quality of the solution that you get if you just write an algorithm. But a mathematical model like this, it",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "comes for free because the model is also able to give you the theoretical minimum along with the solution that it gave you. So, you get to compare for example, how many days uh the solution that you got take uh takes in the data center and what",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "will be the theoretical minimum? So, if the theoretical minimum is 100 days, and you get a solution with 105 days, you may be fine with the 5% difference or unoptimality. So, at this point it just becomes a trade-off between how sensitive you are",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "to unoptimality and how fast do you want the schedule to to be generated. Another side benefit of having a model like this is to be able to do scenario analysis. By tweaking the values that go into this model, maybe in a simulation",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "environment, you can now answer business questions like, what if we scale the data center by twice as much in a year, or what if this customer scales 10x? Would that change our ability to do maintenance? And this is exactly how we decided how",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "much spare capacity we need in each of our data centers by running these numbers throughout our data centers with different spare capacity with respect to like as a percentage of our total hosts. And then gave the business a clear",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "trade-off between how much money we want to spend and how fast we can we can do the maintenance in our data centers. So, in summary, mathematical optimization can solve problems at scale. It is flexible and it allows for incremental development.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "And it gives you tools to answer ad hoc business questions while solving your problem day-to-day. Thank you.",
+      "start": 324,
+      "duration": 6
+    }
+  ]
+}

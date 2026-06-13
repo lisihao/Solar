@@ -1,0 +1,40 @@
+flowchart TD
+  START(["claude CLI"]) --> ENTRY["main.tsx Module Evaluation"]
+
+  ENTRY --> PAR1["Parallel Side Effects"]
+
+  PAR1 --> SE1["profileCheckpoint\nMark startup time"]
+  PAR1 --> SE2["startMdmRawRead\nMDM subprocess · plutil / reg"]
+  PAR1 --> SE3["startKeychainPrefetch\nmacOS Keychain parallel read"]
+
+  SE1 & SE2 & SE3 --> IMPORTS["Heavy Imports ~135ms\nCommander / React / Ink / ..."]
+
+  IMPORTS --> FEATURE{"feature() Compile-Time\nFeature Flag"}
+  FEATURE -->|BRIDGE_MODE| BRIDGE["Load Bridge"]
+  FEATURE -->|COORDINATOR_MODE| COORD["Load Coordinator"]
+  FEATURE -->|KAIROS| KAIROS["Load Assistant"]
+  FEATURE -->|Standard| STD["Standard CLI"]
+
+  STD --> INIT_PHASE["Init Phase"]
+  INIT_PHASE --> I1["init()\nTelemetry / Auth / Config"]
+  INIT_PHASE --> I2["initializeGrowthBook()\nExperiment Config"]
+  INIT_PHASE --> I3["loadPolicyLimits()"]
+  INIT_PHASE --> I4["initBuiltinPlugins()"]
+  INIT_PHASE --> I5["initBundledSkills()"]
+
+  I1 & I2 & I3 & I4 & I5 --> AUTH{"Auth Check"}
+  AUTH -->|Logged In| TRUST{"Trust Dialog\nAccepted?"}
+  AUTH -->|Not Logged In| LOGIN["OAuth Login"]
+  LOGIN --> TRUST
+
+  TRUST -->|Yes| CONTEXT["Build Context"]
+  TRUST -->|No| TRUST_DLG["Show Trust Dialog"]
+  TRUST_DLG --> CONTEXT
+
+  CONTEXT --> CTX1["getSystemContext()\ngit status / branch"]
+  CONTEXT --> CTX2["getUserContext()\nCLAUDE.md / memory"]
+  CONTEXT --> CTX3["getTools()\nRegister 40+ tools"]
+  CONTEXT --> CTX4["getCommands()\nRegister 80+ commands"]
+
+  CTX1 & CTX2 & CTX3 & CTX4 --> LAUNCH["launchRepl()"]
+  LAUNCH --> REPL(["REPL Interactive Loop"])

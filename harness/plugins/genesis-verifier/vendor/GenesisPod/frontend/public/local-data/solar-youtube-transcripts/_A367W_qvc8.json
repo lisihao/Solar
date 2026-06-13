@@ -1,0 +1,364 @@
+{
+  "videoId": "_A367W_qvc8",
+  "title": "Gemma 4 Deep Dive — Cassidy Hardin, Researcher, Google DeepMind",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 17237,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. My name is Cassidy and I'm\na researcher at Google DeepMind. Today,\nI'm really excited to share with you\nsome of the technical improvements and\narchitecture that we have with Gemma 4.\nLast week, we launched Gemma 4, which is\nthe latest addition to our family of\nopen-source models.\nGemma 4 brought incredible improvements\nat a scale that has not been seen\nbefore. We have a family of very small\nmodels with incredible performance\nsetting a new precedent for what's\npossible with small open-source models.\nGemma 4 comes in four sizes. We have two\nsmaller effective models which are\ngeared towards on-device applications.\nThese models have been adapted and and\nimproved in order to provide incredible\nperformance at a small scale which are\nable to run locally on phones, iPads,\nand laptops.\nWe have two larger models starting with\na 26B mixture of experts model, which is\nthe first ever Gemma MoE. This model has\nbeen adapted to have incredible\nperformance while only requiring 3.9\nbillion active parameters.\nAnd our largest model is our 31B dense.\nThis has insane performance, a huge\nimprovement upon what existed within\nGemma 3\nat a new precedent that hasn't been seen\nbefore.\nTaking a look at our larger models, our\n31B and our 26B, these models have both\nranked in the top six of all open-source\nmodels on the LM the LM arena.\nOne of the most exciting improvements\nand things that we've launched alongside\nGemma 4 is the move to an Apache 2.0\nlicense. This was deliberately done in\norder to make our models more accessible\nfor the everyday developer. You should\neasily be able to integrate Gemma into\nyour life cycle of development through\ninitial testing all the way to\ndeployment and building within the Gemma\nin in within the Gemma universe.\nNow, let's take a little look at what\neach of these models are and some of the\nuse cases that we've adapted this for.\nStarting with our 31B dense model. This\nis a state-of-the-art multimodal model,\nwhich has been purposely built for\nadvanced reasoning.\nThis model ranked number three on the\nglobal arena for the AI leaderboard.\nThis is outperforming models over 20\ntimes its size. This is a huge\nimprovement.\nThe 31B has a 256K\ncontext length, which has been\npurpose-built for autonomous workflows\nwith native support for thinking,\nfunction calling, and structured JSON\noutputs.\nWe also have a slightly smaller 26B.\nThis 26B is the first edition of a\nmixture of experts model into the Gemma\nfamily.\nOnly requiring 3.8 billion parameters\nduring any forward pass, this model is\nsmall and efficient.\nUtilizing a total of 128 experts while\nonly requiring eight experts during any\ninference, this is efficient for running\nwhile still maintaining some of the\nincredible performance that we saw with\nour 31B.\nOn the smaller side, we introduced two\neffective models. These models are\ngeared towards on-device applications\nwith the additional support of audio.\nThese are vision, text, and image\nvision, text, and audio input models\nwhile remaining being text-only output\nmodels.\nSimilarly, we have our effective 2B\nmodel.\nAcross a variety of benchmarks, these\nmodels are incredible. Looking at our\nperformance across agentic capabilities,\ncoding, multimodal, multilingual, we've\ntruly set a new frontier for what's\ncapable with the Gemma models. This is\nsignificantly outperforming everything\nwe had with the Gemma 3 family of\nmodels.\nNow, let's take a look at what's\nactually new in Gemma 4 and what have we\ndone and how have we actually been able\nto achieve this incredible performance.\nStarting on the architecture side.\nWe have our standard dense model. This\nis our 31B as well as our smaller\neffective 2B and 4B models.\nWe have our standard decoder block. What\nwe've done with Gemma 4 is we've made\nseveral improvements within attention.\nWe've introduced a 5:1 ratio of\ninterleaving local to global layers\nwith our smaller effective 2B having a\n4:1 ratio.\nThis means that within our local layers,\nwe have a sliding window of how many\ntokens we're attending to.\nAnd lastly, with our global layers,\nwe've now ensured that the last layer is\nalways a global layer, meaning that our\nlast layer is attending to all preceding\ntokens.\nIn practice, what this looks like is our\nglobal layers are attending to every\ntoken that is preceded within this,\nwhereas our local models are only\nattending to a specific number of\npreceding tokens. In our smaller models,\nwe have a sliding window of 512 tokens,\nwhile in our larger models, we have a\nsliding window of 1,024 tokens.\nThis sliding window has provided\nsignificant improvements in the\nefficiency and optimizations of our\nlocal layers while still maintaining\npassing through information to the\npreceding layers.\nHowever, our global layers remain to be\nquite expensive. Despite this\ninterleaving of local and global layers,\nall of our global layers are still\nrequired to attend to all preceding\ntokens, which makes it quite memory\nintensive and expensive to run.\nAnd this is where we've looked into\nintroducing grouped query attention.\nWithin our local layers, we group\ntogether two queries to share the same\nkey and value heads.\nHowever, in our global layers, we're\ngrouping together eight queries sharing\nthe same key and value heads.\nSince reducing the number of key and\nvalue heads can have a big impact on\nperformance, we've doubled the length of\nthe key value heads within our global\nlayers to have a length of 512 as\nopposed to 256 as used within the local\nlayers.\nThis grouped query attention has\nprovided significant performance\nimprovements without massive memory cost\nand inference increases in the cost of\nbeing able to serve these models. This\nratio of eight queries to one key value\nacross all of our models has provided\nsignificant improvements in the\nefficiency of our global layers.\nThese attention changes were present\nacross all of our models, but we also\nintroduced a new architecture with Gemma\n4, and this is our MoE.\nOur MoE has one shared router expert\nwith a total of 128 total experts with\neight activated experts on each forward\npass.\nAll of these experts are small\nfeedforward neural networks.\nSimilar to the architecture that we had\nwith our dense model, we've now replaced\nthat standard feedforward neural network\nwith an MoE.\nIn practice, what this looks like is\nhaving our constant shared expert, which\nis activated on every pass of the model.\nThis shared expert is three times the\nsize of our of our regular experts.\nWe then have 128 experts, each of which\neight of which are selected by the\nrouter during any pass of the model.\nAnd lastly, on an architecture side, we\nget into our dense effective models.\nSo, what does it mean when we're saying\nour model is effectively 2B, effectively\n4B? This is where we're looking at the\ndifference in the number of parameters\nwhich are required to operate the model\nas opposed to the total number of\nrepresentational parameters present.\nOur 2B is effectively 2.3 billion\nparameters while having a\nrepresentational depth of 5.1 billion\nparameters.\nThese models have been specifically\ndesignated and optimized in order to\nhave the best on-device performance.\nThese are designed to run on phones, run\non laptops without requiring expensive\nAPI calls to models served somewhere\nelse in the world.\nThese advancements were made possible\nthrough PLE. This is our per-layer\nembeddings, where within each of our\nlayers, we now have a dedicated\nembedding table.\nBefore digging into exactly how our\nper-layer layer embedding table looks,\nlet's take a look at how the entire\ntoken embedding layer works. This hasn't\nbeen replaced within our\neffective models. We still have your\nstandard embedding table where you're\nlooking at the mapping of an ID for a\ntoken into our towards its embedding\nvector.\nIn our E2B, we have an embedding vector\nsize of 1,536,\nand in our larger E4B, we have an\nembedding vector size of 2,560.\nThis is where we're storing the vector\nembeddings of each of these tokens.\nNow, we also have a per-embedding table.\nA per-layer embedding table. This is\nwhere, similarly, we have our entire\nvocabulary size and have an embedding\nrepresentation for each of these tokens,\nbut now we also have one of these for\neach of the layers. The big advancement\nthat comes here is the fact that we\nstore our PLE, our per-layer embedding\ntable, in flash memory as opposed to\nVRAM. VRAM is one of the largest\nconstraints on on-device. It's where you\nquickly run out of memory in phones and\nlaptops. So, by requiring that we no\nlonger need to store this additional\nembedding table in VRAM, and we can\nstore it in flash memory, we're able to\nget incredible improvements on the\ninference side without having an\nexpensive cost of this additional\nstorage and memory.\nThe big difference in our PLE embedding\ntable as opposed to the standard\nembedding table is our embedding\ndimension now is only 256.\nSo, this is significantly reduced from\nthe size of the full model.\nFor each token, for example, hi, we now\nhave an embedding for this token at each\nseparate layer within the model. And as\nyou progress through the layers of the\nmodels, 35 for the 2B and 42 for our\nlarger model, you'll see the progression\nand improvements in the embedding\nrepresentation for each of these tokens\nat the next sequential layer.\nAnd how does this work in practice? Now,\nat the end of our decoder block, we're\nable to look up the per-layer embedding\nfor each of our tokens. This is where\nwe're able to look up the 256-dimension\nand project this up to the full\nembedding size that's expected for each\nof our models.\nUltimately, these improvements with PLE\nallow for our E2B and our E4B to be\nsignificantly outperforming prior\ngenerations of Gemma small models.\nIn addition to everything that we've\ndone on an architecture side, we've also\nreally set a new frontier for what's\npossible with multi-modality.\nIn Gemma 3, we introduced vision for the\nfirst time. We added vision in Gemma 3,\nadding support across all of our sizes.\nAnd in the Gemma 3N model, we launched\nopen-sourced audio, vision, and text\nmodel for the first time.\nThis really paved the way for Gemma 4\nbeing natively multimodal models.\nMultimodal has been integrated from the\nvery beginning across all of these\nmodels with quite incredible\nperformance.\nStarting on the vision side, our 31B\nmodel you and 26B model both use a 550\nmillion parameter vision encoder.\nOur effective 2B and effective 4B have a\nsmaller\ncompact, more designed encoder of 150\nmillion parameters.\nWe've made big strides and improvements\nfrom Gemma 3 by the introduction of\nvariable aspect ratios and variable\nresolutions.\nWhat this means in practice for you as\ndevelopers is you now have a choice when\nyou're running a Gemma model to select\nthe resolution and the soft token budget\nthat you want to allocate for images.\nThis is available in five different\nresolutions across all of our models.\nLet's take a second to revisit how our\nvision encoder works. What we want to\nunderstand here is we get an initial\nimage, and this image is split into\npatches, patches of 16 by 16 pixels.\nThese patches are then flattened and\nlinear projected up into patch\nembeddings. These embeddings are then\ntransformed to account for their\npositional encodings, and this is what's\nultimately showed to our model.\nWith this in mind, let's take a look\nback at variable aspect.\nWe can have images of different variable\naspects where we have an image of 4 by 2\nand image of 3 by 3.\nWhat's important to under\nOkay, what's important to understand\nhere now is patch four is now in a\ncompletely different position. If we're\nencoding both of these images in the\nsame way, we need our model to\nunderstand that patch four\nin the one on the left is in the second\nrow. It's right below our first. Versus\npatch four in the image on the right is\nnow at the very end. So, what's been a\ncritical development here is that we\nneed to ensure that the spatial\npositional encoding is also passed\nthrough to our model.\nIn addition to variable aspect ratios,\nwe've also had to introduce variable\nresolution.\nThis is where, despite the fact that\nboth of our images have a ratio of 3 to\n2, they're both very different\nresolutions. We have a higher resolution\non the right with a lower resolution on\nthe left. And this is where we introduce\nthe variable resolutions where you can\nselect how many images and token how\nmany tokens you want to allocate to each\nimage.\nThis is critical because it allows you\nto determine how much of your token\nbudget you want to be spent on images.\nFor tasks such as OCR, spatial object\nrecognition,\nyou want to allocate a much higher\nbudget to ensure that you're processing\nhigh-quality, high-resolution images. If\nyour applications are purely text-based\nand you're not using some of the\nmultimodal capabilities, you can\nallocate a much smaller and low lower\ntoken budget.\nWhat's important to understand here is\nthis is a huge improvement from Gemma 3.\nIn Gemma 3, we had to introduce pan and\nscan. And this is where you would give\nan image of variable resolutions,\nvariable aspect ratios, and we split it\ninto a sequence of squares and padded\nwhatever else was necessary. Then your\none image was passed to the model as\ntwo, three, four different images, which\nwere each processed sequentially.\nNow, with these advancements across\nvariable resolution and variable aspect\nratios, we're now able to process images\nwith varying number of patches depending\nupon the actual image which was provided\nby the user.\nThe next thing to understand here is how\ndo we actually take these patches of\nimages and patch and pass this through\nto the model?\nThis is where we take 3 by 3 grids of\npatches and they become a single\nembedding. And this single embedding is\nthen passed forward to a model.\nSo, if you're running a Gemma model with\na token budget of 280, this actually\nequates to 2,520\ndifferent patches which will be\nconstructed from each of your images.\nFor anything that doesn't fit within a\nsequence of 16 by 16 patches of 16 by 16\npixels for each of the patches, we'll\nprovide additional padding.\nFor an example of square images across\nthe five different soft token budgets\nand resolutions which are supported with\nGemma, here's an instance of the\nresolutions, patches, and the pooled\nelements embeddings which would exist at\neach of these different sizes.\nAnd this is where you really see that if\nyou're doing something such as object\ndetection, OCR, you really want to be\nrunning with a higher quality\nresolution and token budget. And this is\nwhere we have 560 and 1120 available for\nthese use cases.\nAnd pulling this all together, we start\nwith an image of N patches. These\npatches are each turned into N patch\nembeddings. We then pull this together\nto produce N over 9 soft tokens, and\nthese soft tokens are linear projected\nup to what is actually showed to our\nmodels.\nNow, for the audio side.\nAudio has been added into the E2B and\nthe E4B with the goal of being able to\nsupport translation and speak speech\nrecognition. This is made possible\nthrough the combination of an audio\ntokenizer and a conformer.\nThis is a 305\nmillion parameter conformer which\nprocesses as an audio encoder processing\nembeddings rather than tokens.\nOn the audio tokenizer side, we start\nwith raw audio. This raw audio is run\nthrough a mel spectrogram which is able\nto process features out of the raw audio\nfiles. This mel spectrogram is then\nsplit into N mel chunks which are\ndownsampled through two convolutional\nlayers. This ultimately outputs N over 4\nsoft tokens. These audio embeddings are\nwhat's passed forward into the\nconformer.\nOur conformer follows a similar\narchitecture to what we've already seen\nacross the dense models and the MoE\narchitecture. Although this time we're\nadding in a convolutional layer.\nReturning back to where we started\ntoday, the Gemma family of models has\nfour models which we've released to you\nexternally last week. We have two\nsmaller models which have been geared\ntowards on-device applications with\nsupport for text, vision, and audio. Our\ntwo larger models are designed for more\ncomplex and reasoning tasks with support\nfor agentic workflows and coding.\nAnd that's what brings us to what can\nyou do with Gemma today and how can you\nget started?\nThere's two main options for getting\nstarted with Gemma. You have the option\nto download and self-host all of our\nmodels. These are available across\nHugging Face, Kaggle, and Ollama.\nWe also have cloud-hosted options for\nour larger models, our 31B and our 26B,\nand these can be accessible across AI\nStudio and Vertex.\nThis is what's going to allow you to\nimmediately get started with\nprototyping, building agentic workflows,\nand testing out function calling in\nthese larger models.\nThank you, and I'm happy to answer any\nquestions about Gemma.",
+  "segments": [
+    {
+      "text": "Hi everyone. My name is Cassidy and I'm a researcher at Google DeepMind. Today, I'm really excited to share with you some of the technical improvements and architecture that we have with Gemma 4. Last week, we launched Gemma 4, which is",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the latest addition to our family of open-source models. Gemma 4 brought incredible improvements at a scale that has not been seen before. We have a family of very small models with incredible performance setting a new precedent for what's",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "possible with small open-source models. Gemma 4 comes in four sizes. We have two smaller effective models which are geared towards on-device applications. These models have been adapted and and improved in order to provide incredible",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "performance at a small scale which are able to run locally on phones, iPads, and laptops. We have two larger models starting with a 26B mixture of experts model, which is the first ever Gemma MoE. This model has been adapted to have incredible",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "performance while only requiring 3.9 billion active parameters. And our largest model is our 31B dense. This has insane performance, a huge improvement upon what existed within Gemma 3 at a new precedent that hasn't been seen before.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Taking a look at our larger models, our 31B and our 26B, these models have both ranked in the top six of all open-source models on the LM the LM arena. One of the most exciting improvements and things that we've launched alongside",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Gemma 4 is the move to an Apache 2.0 license. This was deliberately done in order to make our models more accessible for the everyday developer. You should easily be able to integrate Gemma into your life cycle of development through",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "initial testing all the way to deployment and building within the Gemma in in within the Gemma universe. Now, let's take a little look at what each of these models are and some of the use cases that we've adapted this for.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "Starting with our 31B dense model. This is a state-of-the-art multimodal model, which has been purposely built for advanced reasoning. This model ranked number three on the global arena for the AI leaderboard. This is outperforming models over 20",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "times its size. This is a huge improvement. The 31B has a 256K context length, which has been purpose-built for autonomous workflows with native support for thinking, function calling, and structured JSON outputs. We also have a slightly smaller 26B.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "This 26B is the first edition of a mixture of experts model into the Gemma family. Only requiring 3.8 billion parameters during any forward pass, this model is small and efficient. Utilizing a total of 128 experts while only requiring eight experts during any",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "inference, this is efficient for running while still maintaining some of the incredible performance that we saw with our 31B. On the smaller side, we introduced two effective models. These models are geared towards on-device applications",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "with the additional support of audio. These are vision, text, and image vision, text, and audio input models while remaining being text-only output models. Similarly, we have our effective 2B model. Across a variety of benchmarks, these",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "models are incredible. Looking at our performance across agentic capabilities, coding, multimodal, multilingual, we've truly set a new frontier for what's capable with the Gemma models. This is significantly outperforming everything",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "we had with the Gemma 3 family of models. Now, let's take a look at what's actually new in Gemma 4 and what have we done and how have we actually been able to achieve this incredible performance. Starting on the architecture side.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "We have our standard dense model. This is our 31B as well as our smaller effective 2B and 4B models. We have our standard decoder block. What we've done with Gemma 4 is we've made several improvements within attention. We've introduced a 5:1 ratio of",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "interleaving local to global layers with our smaller effective 2B having a 4:1 ratio. This means that within our local layers, we have a sliding window of how many tokens we're attending to. And lastly, with our global layers,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "we've now ensured that the last layer is always a global layer, meaning that our last layer is attending to all preceding tokens. In practice, what this looks like is our global layers are attending to every token that is preceded within this,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "whereas our local models are only attending to a specific number of preceding tokens. In our smaller models, we have a sliding window of 512 tokens, while in our larger models, we have a sliding window of 1,024 tokens. This sliding window has provided",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "significant improvements in the efficiency and optimizations of our local layers while still maintaining passing through information to the preceding layers. However, our global layers remain to be quite expensive. Despite this",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "interleaving of local and global layers, all of our global layers are still required to attend to all preceding tokens, which makes it quite memory intensive and expensive to run. And this is where we've looked into introducing grouped query attention.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Within our local layers, we group together two queries to share the same key and value heads. However, in our global layers, we're grouping together eight queries sharing the same key and value heads. Since reducing the number of key and",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "value heads can have a big impact on performance, we've doubled the length of the key value heads within our global layers to have a length of 512 as opposed to 256 as used within the local layers. This grouped query attention has",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "provided significant performance improvements without massive memory cost and inference increases in the cost of being able to serve these models. This ratio of eight queries to one key value across all of our models has provided",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "significant improvements in the efficiency of our global layers. These attention changes were present across all of our models, but we also introduced a new architecture with Gemma 4, and this is our MoE. Our MoE has one shared router expert",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "with a total of 128 total experts with eight activated experts on each forward pass. All of these experts are small feedforward neural networks. Similar to the architecture that we had with our dense model, we've now replaced",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "that standard feedforward neural network with an MoE. In practice, what this looks like is having our constant shared expert, which is activated on every pass of the model. This shared expert is three times the size of our of our regular experts.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "We then have 128 experts, each of which eight of which are selected by the router during any pass of the model. And lastly, on an architecture side, we get into our dense effective models. So, what does it mean when we're saying",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "our model is effectively 2B, effectively 4B? This is where we're looking at the difference in the number of parameters which are required to operate the model as opposed to the total number of representational parameters present.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Our 2B is effectively 2.3 billion parameters while having a representational depth of 5.1 billion parameters. These models have been specifically designated and optimized in order to have the best on-device performance. These are designed to run on phones, run",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "on laptops without requiring expensive API calls to models served somewhere else in the world. These advancements were made possible through PLE. This is our per-layer embeddings, where within each of our layers, we now have a dedicated embedding table.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Before digging into exactly how our per-layer layer embedding table looks, let's take a look at how the entire token embedding layer works. This hasn't been replaced within our effective models. We still have your standard embedding table where you're",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "looking at the mapping of an ID for a token into our towards its embedding vector. In our E2B, we have an embedding vector size of 1,536, and in our larger E4B, we have an embedding vector size of 2,560. This is where we're storing the vector",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "embeddings of each of these tokens. Now, we also have a per-embedding table. A per-layer embedding table. This is where, similarly, we have our entire vocabulary size and have an embedding representation for each of these tokens,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "but now we also have one of these for each of the layers. The big advancement that comes here is the fact that we store our PLE, our per-layer embedding table, in flash memory as opposed to VRAM. VRAM is one of the largest",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "constraints on on-device. It's where you quickly run out of memory in phones and laptops. So, by requiring that we no longer need to store this additional embedding table in VRAM, and we can store it in flash memory, we're able to",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "get incredible improvements on the inference side without having an expensive cost of this additional storage and memory. The big difference in our PLE embedding table as opposed to the standard embedding table is our embedding dimension now is only 256.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "So, this is significantly reduced from the size of the full model. For each token, for example, hi, we now have an embedding for this token at each separate layer within the model. And as you progress through the layers of the",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "models, 35 for the 2B and 42 for our larger model, you'll see the progression and improvements in the embedding representation for each of these tokens at the next sequential layer. And how does this work in practice? Now,",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "at the end of our decoder block, we're able to look up the per-layer embedding for each of our tokens. This is where we're able to look up the 256-dimension and project this up to the full embedding size that's expected for each of our models.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Ultimately, these improvements with PLE allow for our E2B and our E4B to be significantly outperforming prior generations of Gemma small models. In addition to everything that we've done on an architecture side, we've also really set a new frontier for what's",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "possible with multi-modality. In Gemma 3, we introduced vision for the first time. We added vision in Gemma 3, adding support across all of our sizes. And in the Gemma 3N model, we launched open-sourced audio, vision, and text model for the first time.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "This really paved the way for Gemma 4 being natively multimodal models. Multimodal has been integrated from the very beginning across all of these models with quite incredible performance. Starting on the vision side, our 31B",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "model you and 26B model both use a 550 million parameter vision encoder. Our effective 2B and effective 4B have a smaller compact, more designed encoder of 150 million parameters. We've made big strides and improvements from Gemma 3 by the introduction of",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "variable aspect ratios and variable resolutions. What this means in practice for you as developers is you now have a choice when you're running a Gemma model to select the resolution and the soft token budget that you want to allocate for images.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "This is available in five different resolutions across all of our models. Let's take a second to revisit how our vision encoder works. What we want to understand here is we get an initial image, and this image is split into patches, patches of 16 by 16 pixels.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "These patches are then flattened and linear projected up into patch embeddings. These embeddings are then transformed to account for their positional encodings, and this is what's ultimately showed to our model. With this in mind, let's take a look",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "back at variable aspect. We can have images of different variable aspects where we have an image of 4 by 2 and image of 3 by 3. What's important to under Okay, what's important to understand here now is patch four is now in a",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "completely different position. If we're encoding both of these images in the same way, we need our model to understand that patch four in the one on the left is in the second row. It's right below our first. Versus patch four in the image on the right is",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "now at the very end. So, what's been a critical development here is that we need to ensure that the spatial positional encoding is also passed through to our model. In addition to variable aspect ratios, we've also had to introduce variable resolution.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "This is where, despite the fact that both of our images have a ratio of 3 to 2, they're both very different resolutions. We have a higher resolution on the right with a lower resolution on the left. And this is where we introduce",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "the variable resolutions where you can select how many images and token how many tokens you want to allocate to each image. This is critical because it allows you to determine how much of your token budget you want to be spent on images.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "For tasks such as OCR, spatial object recognition, you want to allocate a much higher budget to ensure that you're processing high-quality, high-resolution images. If your applications are purely text-based and you're not using some of the",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "multimodal capabilities, you can allocate a much smaller and low lower token budget. What's important to understand here is this is a huge improvement from Gemma 3. In Gemma 3, we had to introduce pan and scan. And this is where you would give",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "an image of variable resolutions, variable aspect ratios, and we split it into a sequence of squares and padded whatever else was necessary. Then your one image was passed to the model as two, three, four different images, which",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "were each processed sequentially. Now, with these advancements across variable resolution and variable aspect ratios, we're now able to process images with varying number of patches depending upon the actual image which was provided by the user.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "The next thing to understand here is how do we actually take these patches of images and patch and pass this through to the model? This is where we take 3 by 3 grids of patches and they become a single embedding. And this single embedding is",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "then passed forward to a model. So, if you're running a Gemma model with a token budget of 280, this actually equates to 2,520 different patches which will be constructed from each of your images. For anything that doesn't fit within a",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "sequence of 16 by 16 patches of 16 by 16 pixels for each of the patches, we'll provide additional padding. For an example of square images across the five different soft token budgets and resolutions which are supported with Gemma, here's an instance of the",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "resolutions, patches, and the pooled elements embeddings which would exist at each of these different sizes. And this is where you really see that if you're doing something such as object detection, OCR, you really want to be running with a higher quality",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "resolution and token budget. And this is where we have 560 and 1120 available for these use cases. And pulling this all together, we start with an image of N patches. These patches are each turned into N patch embeddings. We then pull this together",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "to produce N over 9 soft tokens, and these soft tokens are linear projected up to what is actually showed to our models. Now, for the audio side. Audio has been added into the E2B and the E4B with the goal of being able to support translation and speak speech",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "recognition. This is made possible through the combination of an audio tokenizer and a conformer. This is a 305 million parameter conformer which processes as an audio encoder processing embeddings rather than tokens. On the audio tokenizer side, we start",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "with raw audio. This raw audio is run through a mel spectrogram which is able to process features out of the raw audio files. This mel spectrogram is then split into N mel chunks which are downsampled through two convolutional",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "layers. This ultimately outputs N over 4 soft tokens. These audio embeddings are what's passed forward into the conformer. Our conformer follows a similar architecture to what we've already seen across the dense models and the MoE",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "architecture. Although this time we're adding in a convolutional layer. Returning back to where we started today, the Gemma family of models has four models which we've released to you externally last week. We have two smaller models which have been geared",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "towards on-device applications with support for text, vision, and audio. Our two larger models are designed for more complex and reasoning tasks with support for agentic workflows and coding. And that's what brings us to what can",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "you do with Gemma today and how can you get started? There's two main options for getting started with Gemma. You have the option to download and self-host all of our models. These are available across Hugging Face, Kaggle, and Ollama.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "We also have cloud-hosted options for our larger models, our 31B and our 26B, and these can be accessible across AI Studio and Vertex. This is what's going to allow you to immediately get started with prototyping, building agentic workflows,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "and testing out function calling in these larger models. Thank you, and I'm happy to answer any questions about Gemma.",
+      "start": 414,
+      "duration": 6
+    }
+  ]
+}

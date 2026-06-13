@@ -1,0 +1,1509 @@
+{
+  "videoId": "A48uhxfxbsM",
+  "title": "Agent Optimization with Pydantic AI: GEPA, Evals, Feedback Loops — Samuel Colvin, Pydantic",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 74346,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I'm Samuel. I'm uh probably best known\nas the creator of Pydantic, the the open\nsource library. Now I run Pydantic the\ncompany.\nWe do a bunch of stuff. Um Pydantic we\nstill maintain Pydantic validation, of\ncourse. We have Pydantic AI, the agent\nframework. And then we have Pydantic\nLogfire uh observability platform. How\nmany people coming into this\nknow have heard the word Pydantic? Just\njust to Okay, that's reassuring. Um and\nhow many people have at some point\nplayed with Pydantic AI? Yeah, Pydantic\nAI?\nAnd Logfire?\nOkay, so most people.\nUm Logfire's fundamentally under the\nhood of general observability platform,\nOpenTelemetry, logs, metrics, traces.\nI don't really believe in AI\nobservability. I think it's a feature,\nnot a category, and it will get eaten by\neither observability or AI at some\npoint. But today we sell as AI\nobservability because that is\nunderstandably the thing that people\nwant.\none of So we go beyond like the standard\nobservability of logs, metrics, traces.\nWe do stuff like evals, which I'll talk\nabout a bit today. And managed variables\nis one of the one of the newer features.\nUm and then the step beyond managed\nmanaged variables, which we're working\non the moment, is then\noptimizing your agent uh autonomously\neffectively from the platform. That's\nnot what I'm going to demonstrate today.\nI'm going to talk about Jeppa and how\nyou can use it with managed variables\nkind of in a somewhat Heath Robinson way\nuntil we have the full end-to-end all\nsinging, all dancing, you give us uh\nyour money and we magically optimize\nyour agent. Probably also more\ninteresting than the like magically we\nmake your agent better argument anyway.\nSo yeah, there are two there are two um\ncore subjects I'm going to talk about\nand then I'm going to try and put them\ntogether at the end. So Jeppa um is a\nlibrary. How many people here have heard\nof have heard of Jeppo?\nAnd and kind of feel like they\nunderstand what it does.\nOkay, well that that that probably\nincludes me to an extent.\nSo, it the name comes from\ngenetic parado. So, it's a genetic\nalgorithm in the sense that it looks for\nthe best\nvalue of some kind.\nAnd then once it's found a good value,\nit kind of mixes it with some other\nvalues that appear to be good and\nproduces a new candidate. And and it\ntries to\noptimize that. So, it's ultimately an\noptimization library. It optimizes a\nstring. Now, that string can be a simple\ntext prompt or it can be some JSON data\nwhich ultimately contains whatever you\nwant.\nAnd the parado bit comes from it\nbasically takes candidate from the kind\nof parado frontier of the best\nexamples it has. So, it is effectively\nif you imagine you're breeding race\nhorses, you take the best race horses\nand you breed them each time. You don't\nfor the most part go and take some\nreally slow horse and like add it into\nthe mix to see what happens. You take\nall of the like best race horses and\nbreed them and hope to get to to better\nbetter race horses and it does a similar\nthing.\nAnd then the second is managed\nvariables. So,\nlots of platforms including ours have\nprompt management. So, basically the\nidea that you can have your text prompt\nin the platform and you can edit it from\nthere. We take managed variables one\nstep further.\nSorry, we take\nprompt management one step further and\nwe have managed variables. So, they\ndon't have to be just text. They can be\neffectively any object that you can\ndefine with a pedantic model can be\nmanaged inside inside log file. And so,\nwe're going to we're going to kind of\ntry and combine those two things today.\nI will say at the beginning of this due\nto some family situations, I wrote most\nof this talk overnight. So, there may be\nin keeping with the rest of this\nconference, it may be slightly\nchaotic. If I if what I'm saying doesn't\nmake sense or I go to sleep at any point\nin this talk, please throw something at\nme and I will endeavor\nto make more sense.\nSo, I'm going to talk quickly about\nthe subject that we're going to go and\noptimize. It has to do with politics.\nDon't worry, it's not particularly\ncontroversial politics relative to\nwhat's going on at the moment. But, um\nhow many people Actually, I won't I\nwon't do the how many people. There's a\nThere's a um podcast called um The Rest\nIs Politics, which I'm a big big fan of\nand a big listener to. They were having\na conversation back in April last year,\nalmost exactly a year ago, in fact,\nabout how many politicians basically\ncome from like political um dynasties,\nfamilies of of politicians.\nAnd there was a lot of like bluster\nabout what the answer might be, and I\nused Pydantic AI to go and analyze the\nWikipedia article for each MP to\nbasically look for references to\num their relations who were also\npoliticians, and therefore was able to\ncome up with some percentage. I think it\nmight have been 24% of MPs have\nuh some kind of uh ancestor who is a who\nis a politician. But, at the time, I\nbasically just ran it with whatever\nmodel I could get, got an answer,\nsubmitted my question to The Rest Is\nPolitics. They read it out. That was\nvery nice. But, like, I didn't actually\ngo and check how well it had done. And\nso, here we're going to take\num that challenge and try to optimize it\nto improve the prompt that we use.\nUh the the subtlety Let me Let me go\ninto some code here and and talk through\nthe task.\nSo, hopefully this is a scale you can\nread.\nThere's a bunch of uh fluff here. In\nparticular, there's a there's a um\narchive file here that will be\nautomatically downloaded if you run the\nscript, so you don't have to go and do\nall the scraping from Wikipedia,\nwhich just contains the the basically\nthe raw HTML of the Wikipedia pages.\nWe then have some schema for for the for\nthe MPs' data, and then we have schema\nfor their relations. So, in particular,\nso this is obviously the name, the role\nthey might have had, in particular,\ntheir relation. So, whether they are\nlike sibling or spouse or grandparent.\nAnd in particular, with regard to the\nquestion that we're trying to answer\nabout\nuh kind of um political dynasties, it\nisn't really relevant if someone has a\nchild or a spouse or a sibling who is\nalso a politician. It's to do with their\nlike parents' generation or parents'\nparents, basically ancestors. And this\nis something that I found really hard to\nget models to\num to respect. Once you said relations,\nit just couldn't help but add spouse or\nchildren or uh\nsister-in-law into the into the mix. And\nso, the way I actually went and solved\nthis last year was I basically said,\n\"Include the relation, whatever it is.\"\nAnd then afterwards, I went through and\nscanned and removed the ones which were\nobviously\num the same generation or beneath, as it\nwere. So, here, one of the things we're\ntrying to optimize is finding a prompt\nwhich will\nget the agent to efficiently discount\nyeah, non-non-ancestors.\nUm so, this is a schema we have.\nUm we've got a task input, which is\nwhich is relevant. We have some some\nvery basic um initial instructions\nuh for the agent. We have some slightly\nmore advanced instructions, so we can\nkind of see how the two perform. And\nthen ultimately, we're going to try to\noptimize\nto find an even better prompt.\nSo,\nuh the the core of this is this this\nPydantic AI agent. Uh it's actually just\nusing a hardcoded model. It's a variable\nbecause in theory, you can substitute it\nwith the command line, but I don't think\nwe need to today.\nUm the most interesting bit is that the\nthe way that we're doing this is\neffectively a structured output\nquestion. So, this could be\nThis is equivalent to any other\nstructured output. Find the address in\nthis email.\nUm find the invoice lines in this PDF,\nwhatever it might be. But we're using\nthe same idea of structured outputs to\ngo and find this this political\nrelation. So, we're just we're just\nsubstituting in\nUh yes, so we're just we're just setting\nthe output type to be list of uh\npolitical relations.\nwe set the instructions from above.\nUm and then ultimately when we go and\nrun the agent, all we're doing is taking\nthe HTML, doing a little bit of\nprocessing with beautiful soup to strip\nto get out the text so we don't have to\ntake all of the like\nother crap going on in the HTML page.\nAnd then we're passing it to the agent.\nAnd this works surprisingly surprisingly\nwell. If you go and if you go and read\nthrough the\nthe cases, you will see that it is\npretty damn accurate at finding all\npolitical relations. Even the\nrelatively dumb models do a pretty good\njob. The main place where they get\nconfused is\nare their relations political versus\nlike otherwise uh like public figures\nand\nthis idea of a relation being an\nancestor seemed to really confuse the\nmodels.\nUm you will see if you look in the rest\nof uh the files here. I'm sorry if the\nif the file explorer is small,\nbut um once you run it once, you'll have\nthis MPs directory which contains\nuh a JSON file with um\nthe MPs and the URLs and the the the raw\ndata\num and most importantly of all the\npages, which is the the HTML pages. As I\nsay, that will just be downloaded and\nput into that directory the first time\nyou run it.\nyeah. And then there's also\nthis golden relations. So, this is\nsupposedly the exactly correct answer\nfor each politician. So,\nStephen Kinnock has\nuh I mean, for anyone who's British will\nknow a like reasonably famous political\nname. He has a bunch of political\nrelations.\nuh you see here that again, it's\nincluded his wife who was the prime\nminister of Denmark, even though um\nI'm seeing some question questions out.\nI believe that's true. Um,\neven though we we said don't include\nrelations, that's why I used this\ntechnique of basically including those\nrelations and then stripping them out\nbased on what the relation is.\nUm,\netc. etc. And this um,\nI believe this is pretty accurate. Truth\nis we ran it we just ran a similar\nscript with the with the like with Opus\n4.6 to get that data, but I've I've\nchecked it quite a lot and it appears to\nbe pretty much correct.\nAnd so in terms of the the first step\nhere is to run some evals against this\nand um,\nuh, demonstrate that it's the like\nperformance relative to the golden data\nset. But before we do that, I'm just\ngoing to run it\num,\nrun a single tech case in the terminal\nand\nshow what's going on just so that you\nhave some feeling for what we're doing\nhere.\nSo I think if I look in task here,\nuh, yeah. If I go um, UV run task\nuh, two is the ID of the the first\npolitician. For some reason, Stephen\nKinnock, we'll go and run the model\nand successfully find the two relations.\nAnd in this case we've prompted it and\nsaid uh, don't include only include\nancestors. So it's done that correctly\nand it's excluded his wife.\nUm,\ndo I mean, I guess people want to kind\nof would prefer to to like run along\nwith this and and try this themselves.\nIs that Is that true? Okay. So you will\nto do that you will need and um,\nyou ideally you'd have a log file\naccount that would allow you to do the\nmanaged variable stuff. You can use a\nfree log file account. The the free tier\nis extremely generous, so everything\nyou're doing there is free. The other\nthing you need is obviously an API key\nto connect to the models.\nYou have two choices there. Either\nin the code we'll basically be using\nuh, Padan AI gateway as a simple way of\nbeing able to access all of the models.\nSo, you just see gateway prefix in front\nof the model name. Uh, if you have your\nown OpenAI or Anthropic key and you want\nto use that, just remove the gateway\nprefix and it will work.\nUm, if you want to use Pydantic Gateway\nso that everything just works, I'm just\ngoing to generate an API key in Logfire\nand share it with you all. Hence that\nchannel and\nput a put a limit on it and hope you\ndon't No one goes and uses it all up\nbefore we finish the lesson.\nFinish the finish the workshop. So,\num, I'm in in Logfire here. I'm going to\ngo into gateway.\nUm,\nif I had set this up more formally, we\ncould basically invite you all and you\ncould all go and generate your own keys\nand you'd all have your own limits.\nI have not prepped that and so I'm just\ngoing to generate one key\nuh, with a thousand dollar limit and\nhope we that does the does the job\ntoday. Uh, and then delete it after\nafter the workshop.\nUh,\nSo, I'm just going to copy that into\nthis channel here.\nUm, so you should just be able to export\nthat environment variable. Um, and then\nwhen you run your code, for example,\nthis this task here, you rerun task two,\num,\nyou should get get an output there.\nUm,\nshould I wait a couple of minutes for\neveryone to The other thing you'll need\nto do is set up Logfire for when you\nrun, um,\nthe evals and then the the simplest way\nof doing that is\nonce you run UV sync\nin this So, you'll be in this directory,\nyou'll run UV sync. So, note we're in\nthe we're in the subdirectory for this\nthis talk. We'll run UV sync.\nUm, and then to connect it to your your\nproject, you'll see here my project is\ncalled uh, demo.\nSo, I'm going to run UV uh, run Logfire\nprojects.\nUm,\ndemo\ndemo being the name of the project that\nI want to connect it to and that will go\nand connect logfire in this directory to\nthe demo. So, when I go and run stuff,\nit will output\nrecord traces to logfire and use the\nmanaged variables from there.\nI'll wait a couple of minutes cuz I sure\npeople want to get a bit set up and get\nthat kind of like very simple hello\nworld thing thing working and then we\ncan move on. Anyone got any any\nquestions while we're just getting that\nset up?\nYeah, what what is gateway you mean in\nthe model?\nUh so, AI gateways we have one but we're\nby no means the only ones.\nThe idea is you can basically make\nrequests to\nmost models through through our gateway\nwith one API key and in particular we we\nhave observability. So, if you're if\nyou're using the the production version,\nyou can see requests that your team are\nmaking or that your agents are making.\nUm we have things like caching and fall\nback. So, if one model fails, we can\nfall back to another one\netc. etc.\nBut in this context, it just means you\ncan have one API key and connect to\nAnthropic\nor OpenAI or Grok with a Q or Gemini\nmodels.\nSo, gateway's your own product then.\nYes.\nBut as I say, you don't have to use it\nhere but it might just make things\neasier to to get all of the models\nworking.\nI'll wait a couple of minutes but any\nany questions or should I go on?\nWhat was the directory in the repository\nthen? Sorry? Directory in there.\nUh so, it's it's\nthe the repo itself\nis um\nuh GitHub pydantic/talks and then the\ndirectory is 2026_04_ai_engineer.\nOkay.\nAI engineer.\nHave you logged in with Log Fire before?\nNo.\nOkay, so you'll need to do that so that\nyou have the um machine key.\nSo, I think if you run Log Fire off,\nsorry, I've done that.\nSo, I'm going to keep going just to to\nkeep things moving, but like unless\nanyone has any any questions. So,\nwe now have the very basic case working.\nWhat we want to do is run an eval to see\nhow um\nuh our model with this with our prompt\nis per- per- performing relative to our\ngolden data set. So, you will see if we\ngo into evals here, we have um\nuh where's the data set defined? Sorry.\nYou'll see at the top um we have the\nload data set, which is going to\nbasically create our\num our data set, which is the the object\nthat we can then call eval on.\nUm this is going to load um\nthe the\nthe cases, which um\nand and basically create one case for\neach of the each of the MPs that we're\nthat we're going to run. Uh and then\nit's going to create you go through and\ngenerate these cases and ultimately\nreturn this data set data set object.\nAnd we're going to\nregister one custom evaluator here,\nwhich um in turn actually generates a\nwhole bunch of metrics or assertions for\nlike how accurate this um\nuh this run is\nI don't think I mean you can go and read\nthrough the logic. I'm not going to go\nthrough each individual bit. I'm not\nclaiming here that these are the perfect\nset of evals in terms of the actual\nevaluators, but they're they're a useful\nstart. Um the point is if you go\nI can you can look through the docs, but\nwe have a bunch of pre-built evaluators\nlike LLM as a judge, um and then we\nallow you to\ndefine your own. And generally defining\nyour own is far better than LLM as a\njudge cuz\nthe LLM as a judge is effectively the\nkind of you know\nI don't know if it's politically\nacceptable, but the kind of lunatics\nrunning the asylum and it can lead to\nlead to slight issues. So, if you can\nhave a like deterministic eval like this\nwhere we're comparing what the result is\nversus a golden data set, that's much\nbetter.\nUh and so, if you look in main where\nwe're going to go and run this,\nultimately main is really just a CLI.\nSo,\nwe set up a bunch of CLI cases and then\nin the case of eval we run the run\nevaluation function. If you look in\nhere,\nultimately what we're doing, we print\nout better stuff, and then we're just\ngoing to call this evaluate function.\nWe're using Pydantic AI's override\nfunctionality to override\nuh the prompt that is set by default\nwith um\nwith the custom prompt that we're using\nfor that particular that we're\nevaluating, and a model that we're\nevaluating. We're not actually going to\nchange model in this case.\nand so we yeah, we're going to and we'll\nthen go and call So, ultimately, we're\ncalling dataset evaluate, which takes a\nfunction, which is the actual function\nwe're going to go and um\nperform the evaluation on, and that will\nin parallel with a\nuh max concurrency of five go and run uh\nall of our cases, um which we will you\nwill see in a minute. Um and then we're\ngoing to give it some name\nso that we can look at it in Logfire.\nNow, we you will also see here we've set\nup Logfire at the at the top here.\nIf token present just means it would run\nwithout causing an error if you don't\nhave the the token set.\nUh and we set an environment service\nname. We're not going to print to the\nconsole because\nuh in these complex cases, it's actually\nvery quite tricky to see what's going on\nin the terminal. It doesn't really help\nto have Logfire kind of printing to the\nterminal. And then we've switched off\nscrubbing because occasionally something\nlike the word password or auth or\nsomething will appear in an output, and\nwe we're happy to for that to go to\nLogfire. And then we're going to\ninstrument Pydantic AI. We don't\nactually need it in now. Uh so, I won't\ninstrument prints, but when we get to\nusing Jeppa, instrument prints just as a\nnice way of getting the output from\nJeppa into Logfire, as well.\nUm and so, if I look the and the as you\nmay have realized, the help file has\nhelp.md has some useful examples of what\nwe're going to run.\nSo, we're going to go and run um this\nscript\nhere. So, we're going to UV run uh\nmain.py. We're going to call with the\narguments eval. We'll split, so we're\nwe're splitting it based on just the\ntest cat set that we're running, and\nthen the prompt is the the initial one,\nso the very simple prompt.\nKind of one-liner\ndescription of what the agent should do\nrather than the more complex prompt.\nAnd if we go and run this eval,\nyou won't see that much in the terminal\nbecause we we\nswitched off terminal, but you will see\nit running through the cases. If we go\nand look in log fire, you can see\nthose cases running and their their\ncosts etc. We can dive into what an\nindividual case looks like.\nSo if you look here, we're running um\nthe agent and I guess that's probably\nquite small, but I will try and zoom in\nthat you see what's happening here. We\nhave the system input. Again, we're at\nthe very the\nsimple instructions that we talked\nabout. And then we have the input, which\nis the the contents of the Wikipedia\npage as text. Then we have the final\noutput and in this particular case it\nfound no no relations.\nThat has now finished and so as well as\nthis view of the individual cases here,\nwe can go into evals in log fire and you\nwill see\nthis case here.\nAnd you will sorry, this data set and\nthen within the data set you will see\nthat most recent case from 1 minute ago.\nIf we go in and look at that,\nwe should get a view of what's going on.\nSo again, this is pretty small on the\nbig screen, I guess, but it'll look much\nclearer on your screen. We can see where\nthe cases of the most most relevant\nmetric is um\naccuracy where you'll see there are ones\nwhere it's correct and zeros where it's\nincorrect and you'll see a a few values\nwhere it's lower where the output from\nthe golden data set is slightly\ndifferent to the output from the from\nthe model that we're running here.\nSo you see here, this guy has a father\nwho is a\nsomething to do with UKIP.\nAnd it's it's got it correctly, his\nname, but it there's a slight difference\nin the description, hence it's like got\na 0.9 score.\nAnd you can see the overall performance\nof 85%. So, 85% of the time it got it\ngot all of the stuff right.\nThat's not particularly good. It's also\nnot particularly interesting in its um\nuntil we go and compare it to running\nwith a with a better prompt.\nSo, um how many people are up to kind of\nbeing able to run that run that eval?\nA few people. Okay, I'll wait a couple\nof minutes cuz I think it's probably a\nslightly more entertaining for us to We\nwe Yeah, we're 20 minutes in. We've got\nquite a lot of time. I'm going to wait a\ncouple of minutes. Can you show the\ncommand again, please?\nYeah.\nSo, it's it's this command. It's If you\nlook in um\nhelp.md, we're basically running the the\neval command.\nI'm\njust It's taking some time.\nYeah. It says it's taking a while, about\n7 minutes.\nRunning eval? Yeah.\nIt took I'm getting it's roughly\n9% uh 7 minutes to go.\nIt ran really quickly for me.\nUm Me, too. Yeah, it took 30 seconds.\nI think it should take about 30 seconds,\nso I don't know whether\nyou're on a different internet or\nchanged the changed the model. Um\nAh, yeah, that will be much lower than I\nthink we're using\nWell, A Anthropic was down this morning\nwhen I was trying to use it a lot, so\nit's being really really slow, and\nGPT-4.1 is flying cuz not many people\nare using it, and it's doing a\nreasonable job. That's why I'm using one\nof those models is partly to like show\nthe eval performance, but also bluntly\nto get the answers more quickly.\nWhile people are getting that, I'm just\ngoing to run this the the next one,\nwhich is compare. If you go and look at\nwhat this is doing, it's basically just\nrunning the eval twice with the with the\nlike\n>> bad prompt and the good prompt, and then\nwe'll be able to\nuh compare those outputs in in log file\nand kind of see where the differences\nare coming from.\nUm and then we can go on to the full\nJEPA optimization step. I'll just run\nthe compare, which should be\ntake a little bit more time, but still\nstill hopefully relatively quick here\nwith these models.\nYou see, we're just running the 65 uh\ntest cases here rather than the full 650\nMPs as we'll use when we get to the full\noptimization.\nIf you If you accidentally run the same\nparameter twice,\nit'll just create a new You'll create a\nnew obviously have more spans in log\nfile, and you'll get another\num run in the log file evals view. You\ncan archive them when you've when you've\ngot confused by how many different ones\nyou've got. So, if you come over here to\nevals,\ncome into that most recent case, you'll\nsee I've now got a bunch uh I can go and\narchive\nso, yeah, archive the older ones one the\nother way around\njust to keep things uh clear.\nBut, if I take the those So, I've now\ngot two new new runs here,\nuh two new experiments, and I'm going to\nselect them and\ncompare.\nAnd now we have a a of different uh\nmetrics.\nuh in particular, and you will see that\nlike ultimately accuracy being kind of\nthe most important one here, slightly\nhigher, 92% versus 87%\nfor the like expert prompt versus the\ninitial prompt. And we have the like\npossibly slightly useless graph of\ndifferent metrics and how they've\nperformed. Um\nwith with fewer um\nmetrics or sessions, this can be more\nuseful.\nUm and again, what what's probably most\nIt's interesting though is to look into\nindividual cases where the performance\ndiffers.\nSo, you see here\num with this MP\nuh Joe White, that the initial prompt um\nfound\none match um\nrelation spouse, which obviously it\nshould not have found because we're not\nlooking for spouses, whereas the expert\nprompt correctly ignored that one.\nUm and then if you look in this case,\nLaura Kyle, um\nyou will see that the the the expected\noutput is no matches at all.\nBoth um\nof the these most recent runs, they\nfound a match\nbecause they had some four times\ngreat-grandfather who was the governor\nof Hudson's Bay, which is not a\npolitician, but is a like public figure.\nSo, you can kind of start to see where\nwhere the differences are coming from\nand the kinds of things you might want\nto do in the prompt to to improve the\nperformance. That's ultimately the kind\nof data that Japer is going to use\nto like um inform it\nuh generating a next the next like\nPareto frontier prompt for it to go and\ntry.\nI I didn't manage to see the graphs.\nYou You will see the graphs only if\nyou're comparing two cases. So, if you\nopen a single case, it doesn't show the\ngraphs.\nTwo cases.\nSo, I've run compare. Once I had run\neval, I then ran compare with this\ncommand here.\nAnd then um\nHere, I've taken two cases.\nAnd then you hit compare and then you\nsee\nuh see the graphs um comparing the\nperformance.\nSo, there were if you look in the um\ntask.py,\nthere were two prompts\nuh as a kind of starting points. So, one\nis a very simple one-liner.\nAnd then the second is a bit more\ndetailed description of the kinds of\nthings you should be looking for. Still\nnot kind of optimized, but like what you\nmight get if you as a human wrote out a\ndecent prompt to ask the model like\nwrite me a better prompt.\nSo, you can see we've like improved the\nperformance from 87 to like 92% with\nthis model through doing that\napproximately.\nAnd we should with Jeppa be able to get\nbetter. We I think I got 96% when I was\nrunning it earlier.\nBy no means perfect, but this is you\nknow, but you I you know\nThere were examples of using Jeppa to\nlike\nI suppose what what people generally do\nis they either hold one variable\nconstant like we need the following\nquality and now we want to reduce time\nor reduce cost or we need to like drive\nup the quality. So, there was an example\nfrom Shopify using Jeppa.\nThey were using they were basically\nlooking at um\nShopify sites and looking for things\nlike whether they were fraudulent or\nwhich which tax category they fell into.\nAnd they switched from basically just\ngiving the entire website to GPT-5 and\nsaying what is this to using an agent\nand using a Quen model and Jeppa to\noptimize the prompt. And they got the\nprice down from $5 million a year to 60\n60 $73,000 a year.\nUm and improve performance over time.\nSo, that's obviously also that's not\njust optimizing the prompt, that's like\nsome mixture of optimizing the prompt\nand moving to a gigantic and yada yada.\nBut in this case, we're just trying to\nkind of improve performance while it's\nusing the same relatively fast model for\nthe sake of for the sake of uh\nthe demo.\nUm so, now we've done the comparison. I\nguess it's time to look into Well,\nanyone want me to wait a bit longer or\nshould I keep going?\nI'll take the no one asking me to wait\nas a signal to keep going.\nSo, we now get to the kind of Jeppa\nJeppa phase of this. So, I'm going to\nre-enable that while I remember.\nAnd then ultimately, if you look here\nwhere we are going to run the\nuh optimized um case, you'll see we have\nthis run optimization function.\nRun optimization here.\nIt's going to load in the the the the\ntraining and the validation data sets.\nUm error if it's not there.\nWe're then going to go and create this\nJeppa adapter.\nSo, the Jeppa adapter is is effectively\nlike Jeppa is not it's an amazing it's I\ncan't I guess the state of the art now\nin agent optimization. Lakshya who\ncreated it is a first-year PhD student\nat Berkeley. He is not perhaps the most\nexperienced kind of engineering Python\ndeveloper and so Jeppa doesn't do\nanything that nicely. It's not as type\nsafe as I would like it to be. I'm like\nitching to go and either\nfix it for him or fork it bluntly, but I\nhave so far uh\nnot done so, but um\nYes, so so Jeppa has this concept of\nadapters, which are basically how you\ndefine the agent that is going to\npropose the next case. And so, we have a\nwe have this function here to create the\nadapter,\num which in turn generates one of the\nthis adapter here, which which it we've\ndefined, which sub classes\nthe adapter type.\nIt's a data data class that takes a\nbunch of arguments, but ultimately the\nbit that matters is build proposer\nagent. Um, which is obviously their\ntheir method name.\nAnd what we're going to what we're going\nto do here is return a Pydantic AI agent\nuh in turn. So, we're using a we're\nusing a Pydantic AI agent to propose new\ncases to optimize a Pydantic AI agent.\nUm, and we're going to\nuh use again GPT-4.1 for the sake of\nspeed in this case. There is a slightly\nannoying characteristic where Jeppa is\nsync, not async, and so if you try and\nrun each time it runs the proposer\nagent, it runs it in a new\nasync context. And so, we have to go and\nmake sure we create a new HTTP\nconnection HTTPX connection, otherwise\nwe get a bunch of errors, hence this\nlike slightly weird formulation here.\nWe have again a prompt. Obviously, you\ncan get a bit uh\ngoing around in circles on optimizing\nthe prompt of optimizing the prompt, but\nwe're basically saying\nyou're an expert prompt engineer,\nimprove the\nsystem prompt for this agent, yada yada\nyada. Here are the things to consider.\nUm, and then we're going to um call the\nultimate evaluate function, which is\ngoing to\ngenerate this bunch of cases, generate a\nPydantic AI eval.\nRun that eval, and that is what we're\ngoing to use to basically test the\nperformance of our new proposed prompt.\nThis will probably make some more sense\nwhen I actually go and run it.\nUm, yeah, and then we\napply skills for the for the failures,\nand then we um\nreturn this evaluation batch, which kind\nof is a summary of how it's performed,\nwhich is what Jeppa will then use as to\nwhether whether this is a new Pareto\nfrontier or whether to to propose a new\na new prompt.\nso, I think the simplest thing to do is\njust go and run this. It will take a\nlittle bit longer um and it will cost a\nlittle bit more, but that's fine.\nI'm going to run it. If you run it with\n50, it basically dies before it gets\nanywhere.\nBut if I um\nrun this with 400 calls,\nyou will see um\nJeopardy starts to has a has a similar\nkind of progress bar and I as I said,\nI've switched off um log file printing\nso that you don't see what's going on in\nthe background here because it basically\njust becomes impossible to view.\nBut if you look inside log file, you\nwill see already this optimization is\ngoing on.\nSo, you can see that we um\nevaluate um\nthe the agent and then we call the\nproposer agent here.\nSo, the proposer agent, if you look at\nthis step here, this is what we just\nhad, the system prompt I said for the\nproposer agent.\nUm and then\nthe input, which is basically Jeopardy's\ndescription of the context for the\nproposer agent to enable it to come up\nwith a new prompt. And then from there,\nthe proposer agent is going to propose a\nnew system prompt.\nand we're going to then evaluate that,\nsee how it performs, and iterate towards\ntowards finding a better solution. So,\nthat's what's going on here.\nYou see why I did the instrument print\num is so that\num we can get the the print output from\nJeopardy\num nicely viewable inside log file.\nThere may be a neater way of doing this,\nbut this worked for me this morning.\nUm and it's going to work through.\nYou can see it's a little bit more\nexpensive. We've already spent $2.\nUh so, I guess if everyone runs it, we\nwill spend a few hundred dollars.\nUh, open AI will no doubt appreciate it.\nUm,\nuh, and that's going to work through,\nbut you see we're already like, um, 50%\nof the way through the optimization and\nit is proposing these new prompts and\nthen, um,\nuh,\nevaluating them and and using the the\nfeedback from the evaluation to decide\nwhere to go next. And I would encourage\nyou, if you have some time,\nto go and have a read through how the\nthese traces because they're quite\ninteresting, they're quite illuminating\nin terms of how the how the optimization\nis working. I think one of the things to\nnote is\npeople love to say that anything to do\nwith AI is incredibly sophisticated and\nand complicated and advanced.\nThis optimization technique, whilst the\nstate of the art, is not actually that\ngroundbreaking. Relative to the\ncomplexity of the model itself, it's a\nlike relatively crude sense of like\nask an agent to generate a new prompt,\nif it does better, take bits of that,\nput it into a new prompt, keep doing\nthat until you either run out of time or\nget to some prescribed score.\nYep. I have a question. How big the\nbatches\nare and do you have a agent skill for\ndoing that?\nUh,\nhow big the batches are? So, we have Is\nthat the agent process,\nthe prompt that is in\nuser prompt of the agent, how\nhow many\nbatches it's running, how many\nSo, I think you can see it here where\nit's running the evals. So, it's\nrunning, I think it is running all of\nthe cases in the test data set.\nUm, but I I think I've seen it run\nfewer. So, I think Jepher is clever\nenough to like alter the number of cases\nbased on how they performed, but I'm\nhonestly not not not that sure.\nYep. It So, in terms of skill, what was\nthe what was the question? I was\nthinking how we reduce that to optimize\nsome\nprompts and\nthe agent will go through, so I was\nthinking whether you have a\n>> I mean I I think we we will make this\nmuch easier with open source. We will\nalso make it something where you just\nplug in log file and it just happens in\nthe background.\nBut we also want to make it super easy\nto do it locally or open source as well\nas like we don't just want to say, \"Oh,\nyou must plug it into log file to get\noptimization.\"\nYep. Um now we just set the max goals,\nright? Which is I think max goals help\nme out. So Yep. Uh\nis there a smarter way to do this? Like\nif you don't improve for 10 iterations,\njust stop it. I'm sure there is. I I\nhaven't looked into it. Like I say, I\ndid this in a bit of a hurry. I totally\nand\nlike presumably even the most by you're\nsaying reach this threshold or as you\nsay like run out of optimization or\nwhatever it might be.\nI I don't quite understand how you see\nthe the prompt optimization.\nSo if you look here in the proposal\nagent run,\nuh you will see\neffectively what\nwhat input This is the This is the input\nto the agent that is that is um\nuh proposing a new prompt and it is\nbeing told based on this information\npropose a new prompt.\nAnd then if you if you look the the the\nprinciple of the like Pareto frontier is\nthis can contains components of previous\nprompts that have done well.\nUh and effectively you know, it's a bit\nlike the It's not like a diff. It's a\nwhole new\nYes, it is prepared proposing a whole\nnew new diff.\nSo So I think if you have multiple So So\nI think Jeppa operates on the idea of a\nkind of object or dict of of known keys.\nAnd so here we only have basically one a\ndict with one key value pair, e.g. like\nsystem prompt\nvalue. If you have multiple different\nkeys, then you can optimize by basically\ncombining the best values from multiple\ndifferent keys. So you could have like\nYou could imagine you could have a\nimagine model and system prompt or model\nand some set of tools.\nOr even like different lines from a\nsystem prompt so that you're basically\nallowing it to the the proposal would\njust be choosing different values from\nyour set of different lines. That's the\nkind of standard way of doing this in in\nDSPy.\nIs like basically take all of my\ndifferent examples and choose which ones\nto include in the prompt.\nSo DSPy is another agent framework. Uh\nsomewhat similar to PyDanse AI.\nUm it comes from a very um\nmachine learning background. I find it\nhideous to use cuz it's not type safe,\nbut the caliber of people using it is\ngenerally very high.\nUm and it it has it has had this concept\nof optimization for a long time. For a\nlong time it was basically the only\nagent framework that had this idea. Now\nJepa has come along and is like\navailable within DSPy but is not only\navailable within DSPy.\nYeah, uh what's your personal take on\nJepa and those type of algorithm? Like\nfrom your personal experience, have have\nthey worked well in practice? Have you\nall like used more home builds\nuh optimizers? Yeah, curious on on this\ninformal take. So I think that in the\ncase where you're trying to basically\nget a dumber model or a faster model or\na cheaper model to be able to do some\ntask, they make a lot of sense.\nIf you go and take the state-of-the-art\nmodels that are like Opus 4.6 and you\nask it most questions, it will just if\nit has all the information it needs, it\nwill just go and get it right for the\nmost part. And so the optimization is\nslightly less relevant. I think one of\nthe subtleties here is that\nthe statistic is that 98% of data is\nprivate. I don't know if that number is\nis correct or not, but like let's say\neven if it's off by miles and it's 50/50\ndata. When you have a private set of\ndata where the models have not been\ntrained on it, you have some\nmassive internal spec for how you're\nsupposed to operate as a bank, let's\nsay,\nadding the right bits of context into\nthe system prompt or into the\ninstructions is incredibly valuable and\nthe optimization really matters. The\nproblem we have when we're trying to\ngive demos like this is by definition\nthere isn't private data that we can use\ncuz if someone lets us use their private\ndata, they're not like, \"Oh, yeah, can\nwe go and talk about it at AI\nengineers?\" So, I've got this like\nslightly weird example of MPs, but\nactually you'll see in cases\nsuch stuff I'm going to show you in the\nmiddle in a in a minute, the model\nactually just goes and like figures out\nwho the MP for some some borough is even\nif it hasn't looked at the data cuz\nactually this is all public data that it\nknows. So, I think that one of the\nsubtleties is that optimization matters\nway more where you have a large amounts\nof private data. And honestly, we're\nstill trying to figure this out as a\ncompany. One option for us is to use\nstuff that is public, but new enough\nthat it's not in the training data. So,\none option would be like news, but then\nthat could get slightly politically\ndicey if we were using\ncurrent news as our like source of stuff\nto optimize on. So, another option is to\nuse like\nwhat's going on in sports because\nwhether you find it interesting or not,\nat least it's not controversial and we\nwould, you know, ask it which footballer\nhas done well in the Premier League\nseason over the last five matches and\nthat might be public data, but\nequivalent to private in the sense that\nit does not exist\nwithin the model, but it's not a really\ngood example. It's something we're\ntrying to figure out.\nUh yes, I have a question regarding uh\nJapa. Does it\nI think it's not working your mic, but\nif you just speak up, I think we can\nkeep going. Yeah, I'm just trying to\nunderstand if there is a um\nway where it prioritizes kind of\noptimizing and adjusting the system\nprompt rather than kind of appending to\nit because I feel like that's a\nrecurrence issue. You find new edge\ncases and you're like appending and\nadding more information. Yep. So, does\nit strike that balance of okay, this we\nappend and this we adjust? So, I was\nusing GPT-5 mini this morning and the\none of the problem A, it was slower in\ngeneral, but also it was just producing\nthis enormous system prompt, which then\nmeant that the agent was slower. I don't\nknow if it did better or not. I think it\nit did roughly similarly well.\nUm so, that definitely is a problem. I\nthink the solution to that is the thing\nI was talking about earlier where\nultimately Jeppa wants a key value\nstore, key value a dict of keys and and\nvalues and then instead of basically\nsaying\ninstead of the proposer agent being\nlike, go just generate me a new system\nprompt, you're basically saying choose a\nnew subset of our list of different\ninputs available for like you would go\nand basically split your system prompt\nup into like 200 sentences and say which\nis the best 20 sentences to use. And now\nby definition, if it can only choose 20\nsentences, it's not going to get\nverbose.\nIn this case, we're using a finance AI\nagent to basically summon up a whole new\nsystem prompt, which is probably\nbetter at finding the edge cases, but\nbut does result in a verbose prompt.\nUm so, in fact, on that very point, it\nhas now finished. It has given us this\noptimal prompt. It has achieved a\nperformance score of 96 uh {point} 7%\nso, significantly above the 92 we got\nfrom our like\nbest case before.\nUm and at the expense of a relatively\nverbose prompt. Um\nUh so, you can see where it's gone\nthrough in relative detail and\nand in particular, it's banged on about\nlike what relation to use, when to when\nto include a relation, what sort of\nthings count as a relation. Um\nUh yeah.\nOkay. So, so that that that is is Jeppa\nworking. Uh the other bit I was going to\ntalk about is the managed variables. So,\nI will now switch on to the managed\nvariables, but before we go on to that,\nany other questions on this bit of of\nthe the talk or on Jeppa?\nYep.\nThis is just probably me hard of\nhearing, but like you've got the\nvalidation scores compared to like a\ngolden set, right? Do you want to take\nthat?\nThe validation scores comparing to like\na golden set, right?\n>> Yep.\nthe golden set\nin this repository, it it is here,\nright?\n>> Yep. Oh, okay. Okay, so Yeah, so if you\nlook in um if you look in the\nuh cases directory, you will see golden\nrelations, and there's a there's a JSON\nfile with the\nthe supposedly golden set. Now,\nI'm sure it's not 100% perfect. As I\nsay, we generated it with Opus 4.6 using\na similar similar script, but like\nI just had a silly thought like what if\nyou didn't have that\ngolden set, then things get quite\ndifficult, doesn't it? Yeah. Yeah, so\nevals are much easier if you have some\nlike golden reference against what it's\nsupposed to be doing. Uh\nin general, what people end up doing is\nthey have\nsome subset of data that's been like\nhuman annotated that works, but you can\nalso have cases where, for example, if\nyou have an agent that's writing code,\nyou go run the code and check whether or\nnot the code fails, for example. Um or\nif you can have a like feedback if you\ncan have a\na full loop of like\nuh basically returning that data to the\noriginal source and seeing how accurate\nit is, something like that. Working out\nwhat your what your judge is is always\nis the hard bit of evals.\nBut like\njust for the your example where the\nwhere if you're running the code, that\nwould be like a like like it either runs\nor doesn't, right? It's not like a How\ndo you do a percentage then? I don't\nknow. I'm a little bit confused there.\nUh well, you could check, for example,\nwhether or not it was going to generate\ninvalid code or use libraries that\nweren't available. That would be a like\nfirst step of like how performance is\ngoing. But yes, I mean, this is that\nwhat this is the hard bit of evals is\nlike what is what is right. And and as\nmodels get more intelligent, figuring\nout what right looks like is harder and\nharder. If you I mean, the ultimate\ncase, right? It's like you have an agent\nwhose job it is to persuade people to\nstop smoking.\nThe ultimate eval is wait 40 years and\nsee when they died.\nBut obviously, you can't have an eval\nwhere you wait 40 years to see if they\ndied. So, your eval is probably like\ndoes it include the like the correct\nwords? Does it not include some bad\nwords that you definitely don't want it\nto suggest?\nUm like, you know, take up a cigar\ninstead, right? So, text does not\ninclude cigar would be one of your\nevals, perhaps. And not like that sounds\ndumb, but that is what an awful lot of\nevals end up being.\nCan I Yeah, sorry. Um\ntwo questions. One is a really short\none. Um with practical AI, you kind of\nbreak up the structure a lot of time in\nthe prompts. Does it just jam everything\ntogether and you just get one prompt at\nthe back at the end?\nSo, you always have one one set of\ninstructions. Yeah.\n>> Um so, it is building one set of\ninstructions. Right. Okay, that's fine.\nso, the the real question was uh you\nknow, variance is huge with this. I\nmean, you showed your results. I ran it,\nI got results. Is there a way of like\nhaving this having the variance be part\nof the actual optimization? Uh I\nwouldn't say that So, so there's a when\nyou run evals, I'm just looking for\nwhere we call run, you can basically set\nthe number of times you run each case.\nAnd the best way of reducing variance is\nto run them lots and lots of times.\nI know there's a bunch of hedge funds\nwho are spending about $20,000 a night\nrunning their whole set of evals\nuh to see if they can improve over time.\nAnd if you have your own GPUs, you're\nlike, \"Well, it's sort of free to go and\nrun them, so we should run them more and\nmore times. We should run everything a\n100 times and look in the morning.\" It's\ndefinitely one of the challenges.\n>> do you like\ncreate a cost function or do you have\nlike you can point it at like I want you\nto optimize\nlike both accuracy and minimize\nvariance. Like do you write a your own\ncost function then with\n>> Yeah, so you so if you look in the in\nthe adapter code here, you will see\nI mean have a look through it but like\nwhere am I looking? Um,\nevaluate is returning this like um,\nevaluation batch type which where you\ncan basically include whatever score\nscores is\nuh, a list of floats, right? So\nultimately you can return whatever\nfloats you, you know, you want in there.\nOkay.\nAnd just just in case people are\nwondering trajectories is effectively\nsimilar to traces. It is the like\nsequence of different steps that agents\nwent through to get to a particular\npoint.\nUm, so how how do you handle systematic\nerrors? Like I ran the optimization and\nit got a high value of accuracy 96% but\nit got wrong ons and uncles. So the\nfinal prompt excludes explicitly ons and\nuncles even though they are in the\ngolden relation. So do you suggest\nrunning and like Claude code spotted\nthis immediately. Yeah. So maybe one\ncould have a harness where there is\nanother check at the end. I I think what\nit's doing is it's using a small set of\ntest cases and then a bigger set of\nevaluation cases and so the the subset\nof cases that\nthe optimizer agent has ex- gets exposed\nto maybe doesn't include uncle and aunt\nand so it just made it simpler to\nexclude it. So one of the other things\nyou end up needing is like a kind of uh,\nat least two x the amount of data that\ncovers all of the different space so\nthat you can have one full set of data\nthat you train on and one set of full\ndata that you evaluate on. This is like\nclassic problems of machine learning of\nlike how do we go about like we need an\nawful lot of data to build something\nthat's really\nreliably, you know,\nyeah, really reliable because\nultimately, you know, you're already\ngetting to the point with the agent\nwhere you're kind of encouraging it to\noverfit. And I suspect the uncle and\naunt thing is it overfitting.\nOkay, thanks.\nThere's a question behind you.\n>> This is probably very silly question,\nbut\nbut surely the the prompts uh\ncan I assume that the prompt\nonly works with the particular model\nthat you you would\nThat is that is people's take is that\nyou would need to run this all over\nagain if you changed your model.\nThat's going to happen all the time,\nisn't it? Yep, and that's one of the\nreasons that evals are hard. And that's\none of the reasons that most people\ndon't run evals or and don't run\noptimization. They write out a decent\nprompt. They ask their coding agent of\nchoice, \"Does this prompt look good?\" If\nit says yes, they kind of eyeball it and\nthen they put it into prod and they\nworry about other things because\nprobably the model that comes out in a\nmonth's time is going to go and\nsupersede whatever optimization you did\nin some cases. Now, if you are a private\nequity firm who have\nuh 200 million invoices from across your\nportfolio that you want to go and\nanalyze, it's worth going and optimizing\nfor a particular version of Quend 3.5\nlight mini to go and do that job instead\nof just throwing GPT-5 at it because the\ndifference is like $10 million and it\ncosts you you have your one analyst who\nearns half a million dollars and you put\nthem on it for 3 weeks and you solved\nit. So, it like depends on the question\nthat you're that you're trying to solve.\nBut the ultimate example of this is the\ncoding agents where they're like\nthe trajectory's extremely sparse as in\nthere's an extremely wide range of\nthings that they're doing and for the\nmost part we are told that those\ncompanies don't have very many evals or\ndon't have any evals at all.\nIf you go and ask Boris Chen how does he\nwork on\nuh Claude code, he says mostly vibes.\nMostly we just like see what works and\ntweak it a bit.\nSo, this is not a like I'm not claiming\nthis is a panacea in all cases, but\nthere are definitely situations where\nbeing able to optimize your prompt or\nyour agent choice is valuable. The other\nthing that we we don't have a demo of\nhere, but there's an awful lot more than\njust a prompt you can go and optimize.\nSo, there's the model, there's things\nlike the compaction strategy, there is\nhow you register tools, there is things\nlike including code mode in this.\nAnd the next step of what we want to\nallow is basically for you to go and\noptimize across the full range of things\nyou can do within your agent to find the\noptimal choice where perhaps the\nparticular model choice doesn't doesn't\nmatter so much.\nAnd it just makes me think that\nwe have you evaluate the prompt tip, but\ncould we just switcheroo a bit and start\nevaluating different models or that\nwould be silly? Yes, so that would that\nwould be something you could totally go\nand do is try different models. I mean,\ngiven that there are maybe you have 10\nmodels you want to try, you probably\njust run all those 10 models and see\nwhich one performs best and and pick\nthat one or which one optimizes for your\nparticular subset of like performance,\nprice, time, etc. I think there was\nthere was another question behind you.\nYeah,\nthanks. I already got the mic.\nSo, what you've shown is a task which is\nrelatively narrow in what should be\nachieved and I'm wondering how you would\napproach it if the task is more\nopen-ended. I think that my suspicion is\nthat\nthat is a case where this optimization\ntechnique is harder to do. Because like\nI said, the coding agent case\nyou could imagine you end up with\n5,000 distinct tests for a coding agent\nand you go and optimize as much as\npossible in those 5,000 cases and it\nturns out that they are like dropping\nthe ocean of different things people do\nand now your agent is over optimized for\nyour thousand cases or 5,000 cases. I\nthink the bigger the the breadth of the\ntask your agent is performing, the\nharder it is to do this and the more you\nend up just having a like\nclever agent.\nThanks.\nUh the other thing to say is that my\npoint earlier about where you have large\namounts of private data and so you have\nto put masses of context into the system\nprompt for like\nunderstanding our specific domain then\nchoosing the right examples from that to\nput in which basically cover the full\ndata set is more and more relevant.\nDid you have another question?\nSo if I understand correctly, um\nif you're a company and you would\nuse this J Patek optimization technique\nand if you had more money and maybe more\nexpertise, you could decide to fine-tune\na model. So they are kind of competing\nstrategies.\n>> Correct.\nYeah, and in answer to your pre the\nprevious question about oh, but isn't it\nisn't it made obsolete by the next\nmodel? The main reason that the big\nmodel labs say don't bother fine-tuning\nis that there you really are spending\ntens of thousands of dollars to go and\nfine-tune a model and actually for the\nmost part improve the harness, wait for\nthe next model,\nlike show a nicer loading icon to your\nusers is probably better than\nfine-tuning. But that misses the cases\nin particular in places like finance\nwhere they have enormous numbers of runs\nwhere they really do care about that\noptimization and fine-tuning applies.\nThanks.\nSo I'm going to go on to talk about um\nmanaged variables. Uh as I say said\nearlier, this is a this is of somewhat\nit's not going to be a particularly\nsophisticated answer I've got here, but\nI'm going to kind of show the example\njust just to explain how it works. So we\nhave here a very simple fast API web\nserver.\nyou will see that it has ultimately\ntwo endpoints. One returns some HTML um\nand the other one is a form submission\num endpoint. And if I go and run this\nwhere have I had it running before?\nHere we are, it was in fact running. So,\nif I If you want to run it, you'll\nprobably want to use this command here\nto run it.\nI'll put that into Slack as well in case\nanyone\nwants to run it.\nAnd if you run this web server, you will\nuh not You'll see log file, which is not\nso interesting yet, but you will also\nsee\nthe server running locally and this is\njust a very simple basically form where\nyou can ask questions about the same\nbunch of MP data.\nand\num I can go and ask a question like\nwe'll see how well this performs.\nHammersmith, where I live.\nIt will run for quite a long time\nbecause what it what it's got in the\nbackground is basically one tool which\nlets it grep through through the the the\nthe HTML pages. And it has\nreplied relatively quickly on this\noccasion and\nuh if I\nload this here, you will see the HTTP\nrequest coming in in log file\nand then you will see the agent run\nand it um\nit ran a rather the the you know, a good\ngood sequel sorry, good regex\ngot back the the data and was able to\ncorrectly identify Andy Slaughter as the\nMP for Hammersmith, where I live.\nUm all very well, but if you look in how\nthis code is defined,\nwe have here\nthis log file variable. And so, this\nallows us to basically go and change the\nbehavior of this agent without\nredeploying. Um now, obviously\nredeploying in this particular case\nwhere I'm running locally is very very\nsimple, but where I've got some big\nproduction CI stack to go and run and\ndeployment takes hours, Being able to go\nand change variables in production or in\nstaging very quickly is extremely\nvaluable. So, the way that that Log Fire\nvariables work is that we have have a\ntype here a Pydantic model um which\ntakes uh has in turn three strings, the\ninstructions, the model\nand um the max tokens which is an\ninteger. And then we've given it a\ndefault value um here\num some very simple prompt and then\nwe've given it we've we've chosen the\nmodel and we've chosen the temperature.\nAnd what I have run here is\nI've run UV run web and then there's a\nthere's a basically there's a like CLI\ncommand for this which just pushes the\nvariable. Ultimately, we're just calling\nLog Fire push variables in this case.\nWhen I run that\nI'll get asked do I want to overwrite\nthis variable which I don't, but if you\nif you're running it for the first time\nyou you won't be asked and you'll you'll\ncreate a new variable. Now, it's worth\nsaying to do this\nwe need to make the the the experience\nof using these variables slightly easier\nin Log Fire. At the moment they're not\nconfigured with the Log Fire um\nprojects use command that you did\nbefore, so you need to go and set uh\na separate\num API key to use variables. That will\nbe solved soon, but if you want to do it\ntoday\nthe way to do that is to go into\nsettings uh API keys within Log Fire.\nYou see I've created uh I can create I\ncould show you the form. I can create a\nnew API key and I just need to give it\nthe the three variables permissions.\nWell, all all whichever ones you want.\nAnd now you can go and like you and\nwe're ultimately using that API key to\npush the variables uh from local\ndevelopment uh from from the code\ndefinition through into Log Fire and\nthen pulling them to to update the\nvalues.\nAnd so, because I have pushed that, if I\ngo into uh manage variables here you\nwill see I have two variables set up.\nUm this MP search config is the one we\nwere looking at. You see we have those\nthree fields that we've set.\nUm and we have um\nsome history of some updates.\nBut we can In particular, what we can do\nin targeting is we can basically define\nwhat percentage of calls are using which\nof our different values. So this is very\nmuch like uh AB testing. In fact, under\nthe hood, our managed variables use the\nopen feature open standard for for doing\nthis. So in theory, you can connect to\nto log fire with anything that speaks\nopen feature.\nBut yeah, so at the moment we're using\nthe code default. So you saw when I ran\nthis now, uh I got back this answer\nanswer of Andy Slaughter. But now let's\ngo and update the value here.\nUm I want to go and edit.\nAnd I'm going to leave those values the\nsame, and I'm going to say uh reply in\nFrench to make it very clear what's\nhappened.\nSave that.\nAnd I'm going to go into targeting, and\nI'm going to dial up what you the use of\nlatest to 100%.\nSo it should now use\nuh that latest value. And now if I um\ncome in here\nand I ask, for example, the same\nquestion again,\nand I stop the server, which was silly.\nBut you could imagine the server is\nstill running, and it's going to pull\nthe new variable each time that that\nthat function is called.\nAnd if the demo gods are with me and\neverything is hooked up correctly,\nuh it has indeed gone and replied in\nFrench. So we've managed to We've\nupdated the server without redeploying.\nObviously, I did in fact restart the\nserver, but I could I could change it to\nnot. So just to prove that that works.\nLet me come back over here, edit this\nagain, and say\nreply in German.\nAnd Oh, that's very annoying.\nUh Uh\nAnd now, if I ask the same question\nagain,\nthat variable that defines the system\nprompt should be updated.\nIt's taking its sweet time, but it is\nindeed replying in German. But the nice\nthing here is coming back to your point\nabout like is it just a system prompt?\nWe can set up our variables to not just\nbe simple text values, but be for\nexample a Pydantic model, which allows\nus to edit multiple different fields.\nSo, I can switch here from Gateway\nAnthropic uh Sonic 4.5 to\nOpenAI\nuh GPT\n4.1.\nI'll get rid of that cuz that's going to\nconfuse me.\nsave that.\n4.1.\nAnd the point is that we we can update\nmultiple different values. So, if I\ninstead ask you ask it uh\nhopefully it won't bother going off and\nrunning. It said it's now ChatGPT rather\nthan Anthropic. So, we can use this to\nto change variables and ultimately go\nand like experiment with what new\nprompts or what new models or\ntemperature or whatever it might be,\nuh how they behave in production. Now,\nof course, the ultimate aim here is to\nbe able to take this whole system,\nwire it up, and instead of us having to\nto basically\ntweak uh man- uh the managed variables\nmanually, that we basically get like\nself-driving for managed variables. So,\ngiven some set of evals, it can\nbasically go and perform uh optimize\ntowards like uh hill climb towards some\npeak without us having to do anything.\nThat's the feature that we're that we're\nworking on, but I can kind of prototype\nwhat that might look like here.\nSo, let me just reload this.\nYou will see in managed variables I\nactually have variables here. And the\nother one is uh\nMP relations instructions, which is\ninstructions for the the the task agent\nwe were running before.\nUm and you will\nsee we don't have any values in here\nyet, but what we have in our code\nuh in the web server here is\nwe have registered so we registered with\nthis main agent two different tools. One\nwas the MP search, which it was using\nbefore to find out who the MP for\nHammersmith was.\nBut it's also got this extract political\nrelations, which is basically running\nthe same extraction logic and then\nshould be I'm just looking through yeah.\nUltimately, it's calling that same\nextract relations function that we were\noptimizing earlier. So we can now use\nthis agent. This agent can be asked who\nare the political relations of\na politician and with a bit of luck it\nwill go and use this tool to go and do\nthe calculation. At the moment, it's\ngoing to use the simple dumb prompt, but\nthe point is we can go and alter that\nprompt based on the optimized value that\nwe got um and thereby basically apply\nour new state-of-the-art prompt without\nhaving to redeploy.\nSo if I come over here,\nthe first thing I'm going to do actually\ndial that that previous variable back\ndown to zero cuz we don't want we want\nit to be told correctly what to do.\nUm so I'm going to put that to zero.\nAnd just to prove that something here is\nworking, I'm going to say um\nwho are the political relations of What\nwas he called? Stephen\nKinnock who cuz I know he does have\nsome.\nI'm going to go run this case.\nAnd we can go and look in log file in a\nminute and see what it's done, but\nhopefully it has used that tool\nuh as the correct way of identifying who\nthe who the relations are. So yes, so\nit's found them correctly, but more\nimportantly, if we look in\nuh sorry, if we look in log file here,\nwe see that most recent call here.\nUm and you can see that the that the\nsearch uh agent run\nuh called the extract political\nrelations tool with the input Stephen\nKinnock, which is correct. Um and so\nit's then\nuh gone and correctly output the value,\nbut if you look inside the tool call, we\nthen ran the other agent uh nested. Um\nso, it ran and it correctly extracted\nthe right data, and so we're we're now\nusing our agent, and we can now\nbasically\nuh click the value and improve the\nprompt now. And so, I can come over here\nand\nto be fair, I'm not going to have a\nparticularly good way of showing you\nthat it's working better cuz it would\nseem to be working pretty well, unless I\ncan find an example where it where it\nwasn't. So,\nlet me actually try got a bit of time.\nLet me try and see if I can find a an\neval case where\nthe dumb prompt was doing badly. Oh,\nwe've got loads of runs now.\nSorry, let me\ngo up this case here, and I want\nto compare these two.\nAnd so, if you look\nSo, for example, this person here\nuh Paul Maskey, it was like getting it\nwrong that the dumb prompt was\num no, wrong way around.\nI want to find a case where it's done\nbadly where I can get it to do better.\nOkay, let's use Andrew Gwynne where the\ncorrect answer is no um political\nrelations, but but the other but the two\nuh prompts both returned suggested that\nthey did have relations and I'm sure\nthat's because\nif we look it'll be because yeah,\nthey're a sports commentator their their\nfather which the the dumb prompt wrongly\nsuggested was a political relation.\nAnd so if I go and run\nthis now with a bit of luck this is\nusing the dumb or the the poor prompt\nand so\nit should\nfind those relations and then conversely\nif I update it to the correct prompt it\nshould find yeah, so it's it's\nidentified the sports commentator as a\npolitical relation.\nAnd now without redeploying I can come\nover to manage variables\nupdate the prompt that we're using. I\nthink I may have a mistake here. Let me\nYou didn't see me just go and tweak the\ncode.\nI was going to tweak the tweak the code\nto use this version of the task where we\nare\nusing the instructions manage variable.\nLet me restart server.\nUm and now without redeploying I promise\nyou\nI'm going to go and create a new case\nhere and instead of the the simple\nprompt I'm going to put in\nthe best one we got back from\nrunning Jeppa.\nSave that.\nUm and without further ado without\nredeploying I promise\nwe go and run that again and it'll\nalmost certainly go wrong cuz that's\nwhat things do but\nwe can hope.\nAnd it's gone wrong. It's again\nidentified it unfortunately. Um\nbut hopefully you get the get the\nprinciple here. Yes, there's a question.\nThis web interface where you where you\nsearch and get a response from the year\nthe model of the\nWhat what What do you call this? This\nThis thing is Yeah.\nUh well, the form and then the agent who\nwho I'm submitting it. Yeah.\ndo you have any thoughts about about\nlike collecting feedback from from users\nthemselves like like NPS and and like\nwhat is good or bad\nand Yeah.\nI mean, my number one piece of feedback\nis no one clicks them. And so, there's a\nthere's Well, maybe there's might but\nUm um so,\nor you could be like nefarious like\nmyself and just click\nthe bad even though\n>> So, so I'm\nMy my experience is that if you're going\nto do it, you do only thumbs up thumbs\ndown. Um we have an annotation system\nthat I'm I'm not demoing today where you\ncan basically record annotations against\nprompts. That is another\nplace to build your golden data set from\nor at least a starting point for your\ngolden data set. Um\nthe the best thing you can possibly do\nis something which is implicit in the\nuser's\nthe user's interaction. So, if you have\nsomething that's more advanced than the\nsimple um\ntext prompt but you have a\nyou have a chat, the single best way of\ngetting of evaluating the performance of\na given question response pair is to\nlook at what the user did next cuz if\nthe user says, \"You idiot, try again.\"\nyou can get pretty strong evidence that\nthey've the the the the agent behaved\nbadly. And if the user is like, \"Thanks,\nthat's great.\" or goes away, you assume\nit's right. And if they they probably\ndon't It's probably not as extreme as\n\"You idiot, try again.\" but it's\nprobably like, \"No, I mean X.\" And so, I\nmean, that's that's how Google works,\nright? Like the way they identify how\ngood a website is back in the old days\nwhen we used Google was to see how long\nyou spent on a site. If you came\nstraight back and searched clicked on\nanother link, they assumed the page was\nbad.\nAnd this form here is it a chat or is it\nIf you This is just I honestly just\nasked Claude, \"Go build me a Go build me\na single pane chat.\" Like We have um\nwe have a an integration with the cell\nAI AI protocol so that you can basically\nbuild a full chat interface on a panel\nscale AI agent in in like a few lines of\ncode supposedly that\nI would try and demo if I had a bit more\ntime but you this is just me trying to\nhave like the simplest example to run.\nIn fact go on I'll have one try at doing\nit now since that one didn't work.\n>> and a chat would mean\nthat it kept its context somewhat right?\n>> Yeah.\nYes if I do if I um\nget rid of this single run and instead I\nWhat what's the agent called?\nUh relations agent\ndot\nto web\nUm and then I go and run uh let me kill\nthat web server to avoid confusion.\nWhy is that not running?\nmaybe I do need to call dot run.\nUh maybe I'm forgetting exactly how to\ncall it but like the the principle is\nthat with basically one line of code\nhere if I remember what it is you can\nbasically turn that into a proper chat\ninterface. Um\nLet me just see if the docs will tell me\nwhat it is quickly.\nSo I I define the app which gives you a\nstyle app and then I run\nUV run UV corn task\nuh app\nand there's a typo.\nAnd that should give me a like nice\ninterface now to go and ask questions\nwhere I can where I can where I can say\nlike\nUh maybe I\nI don't know if that's going to work,\nbut we will try it.\nBut the point is now I would\nuh you would get get back a final result\nof it would it would go on like you\ncould use it like an agent and then you\ncould ask follow-up questions. I mean\nthis agent is designed to always reply\nwith structured data, so it's not very\nchatty, but you get the idea.\nUm I'm going to stop there.\nUm thank you very much.\nHappy to answer ANY QUESTIONS\nAFTERWARDS.\nSORRY, DID YOU HAVE A QUESTION?\nGO ON.\nTHANK YOU. Can you hear me?\n>> Yeah. Um do you have\num cool use cases internally where you\nuse your stack but like agents that\nyou've built cuz I hear like a lot of uh\nlook how many tokens are we burning and\nlook my evals, but have you seen some\nlike you mentioned the private equity\nfirms earlier. Like those are classic\nold problems classifiers.\nDo you have use cases that internally\nyou're really impressed by agents or\nwhat the team is using internally to\nship faster or create more value for\neither you or your clients?\nSo we have the there's a there's an\nagent inside Log Fire to basically do\nyou do free text search and it converts\nto SQL and we optimize that agent a fair\nbit.\nUm we don't care particularly about\ntoken count in that case cuz it's not\nhigh enough volume. We do care about\ngenerating good SQL. The reason we can't\nuse it is that it very often ends up\nwith like\nprivate data within the SQL as in\nsomeone will say find me results for\ninvoice 1 2 3 4 5 and we don't want to\ngo and show people that. That's one of\nthe reasons we can't use that example in\nin demos.\nUm I think there was another question.\nDoes that answer the question?\nRight. So, in Logfire, is it possible to\nkind of obfuscate or encrypt the input\nand the output and just evaluate against\na golden set? Let's say if you set up an\napplication to work in a\nfield with sensitive information like\nmedical or\nSo, you can choose not to send the\nsystem prompt or anything to the agent\nand just basically record the the output\ncould be for example the the performance\nlike good or bad and then you have the\nmetrics. You can choose not to send the\nthe raw data. It's obviously less\nvaluable.\nMy somewhat biased answer would be you\ncan obviously enterprise self-host\nLogfire and then you can have it inside\nyour VPC.\nUm that's probably what people do, but\nyes, you can do it without without\nrecording the like actual input and\noutput. Great. What what people do in\nthose cases? So, for example, the big\nlike Logora and Harvey, they're like\nlegal tech companies where they are very\nstrictly not allowed to exfiltrate\nthe the data because it is their\nclients' clients' very private data is\nthey record categorical performance. So,\nlike good, bad, whatever. Like you could\nhave like 50 grades of how it performed,\nbut like and you can exfiltrate\nexfiltrate that data without actually\nexfiltrating like any um\ngenerated content where you might\ninclude private data.\nGreat.\nAny other questions?\nYeah, there's one here.\nThank you. This is uh\ntiny bit of an internal question. I\nnoticed that uh you're using data\nclasses throughout. Yep. Uh is that for\nspeed reasons or any other reasons? I\nthink that is the canonical thing in in\nPython and so they're like if you're not\ntrying to perform validation, I think\nthat they're generally the kind of Yeah,\nthe canonical choice over Pydantic\nmodels. I I mean, it doesn't make any\ndifference. The performance of any of\nthe any of these cases, the Pydantic\nvalidation or the data class\nconstruction time will be\nshrinking, you know, 0.0001% of the\nperformance. Thank you.\nThanks for the presentation. I had a\nquick question. So, with the um prompt\noptimization, obviously that's like\na type of context engineering, right?\nSo, I was wondering, have you done evals\nwhere you've combined that with\num essentially summar- cuz obviously\nwhen you you there's con- context\ndegradation, even though the context\nwindow is so big, obviously after like\nfive or so, it'll still be less than so\nor after 20, you know, calls, it'll be\nless than very quickly. So, combining\nprompt optimization with just spinning\nup new um\nuh LLM calls and uh new context uh\nrestarts as opposed to say\nuh compaction which still reduces as\nwell. The compaction strategy is\ndefinitely one of the things you want to\ngo and optimize in a more complex case.\nYeah. I think here we optimize for\nsomething that everyone can grok in a in\na in a session rather than the most\ncomplex use cases, but yes, definitely\nthat's that's relevant. So, for example,\nthe the Shopify example of like\nuh how they were analyzing these sites,\nwith GPT-5, you could just give it the\nentire content of the website and be\nlike, \"Hey, go figure out whether this\nis fraudulent.\" Using a query model, you\ncouldn't do that. You needed to do\nsomething more gigantic where it like\nperformed a bunch of like queries to\nlook for certain terms. And so, that is\na like variation on context engineering\nto basically allow a smaller model to\nperform the same task and be more\ndeterministic. Right. Thank you.\nI stop. Apparently, I have to stop.\nThank you, everyone.\n>> Ooh.",
+  "segments": [
+    {
+      "text": "I'm Samuel. I'm uh probably best known as the creator of Pydantic, the the open source library. Now I run Pydantic the company. We do a bunch of stuff. Um Pydantic we still maintain Pydantic validation, of course. We have Pydantic AI, the agent",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "framework. And then we have Pydantic Logfire uh observability platform. How many people coming into this know have heard the word Pydantic? Just just to Okay, that's reassuring. Um and how many people have at some point played with Pydantic AI? Yeah, Pydantic",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "AI? And Logfire? Okay, so most people. Um Logfire's fundamentally under the hood of general observability platform, OpenTelemetry, logs, metrics, traces. I don't really believe in AI observability. I think it's a feature,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "not a category, and it will get eaten by either observability or AI at some point. But today we sell as AI observability because that is understandably the thing that people want. one of So we go beyond like the standard observability of logs, metrics, traces.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "We do stuff like evals, which I'll talk about a bit today. And managed variables is one of the one of the newer features. Um and then the step beyond managed managed variables, which we're working on the moment, is then optimizing your agent uh autonomously",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "effectively from the platform. That's not what I'm going to demonstrate today. I'm going to talk about Jeppa and how you can use it with managed variables kind of in a somewhat Heath Robinson way until we have the full end-to-end all",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "singing, all dancing, you give us uh your money and we magically optimize your agent. Probably also more interesting than the like magically we make your agent better argument anyway. So yeah, there are two there are two um",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "core subjects I'm going to talk about and then I'm going to try and put them together at the end. So Jeppa um is a library. How many people here have heard of have heard of Jeppo? And and kind of feel like they understand what it does.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "Okay, well that that that probably includes me to an extent. So, it the name comes from genetic parado. So, it's a genetic algorithm in the sense that it looks for the best value of some kind. And then once it's found a good value,",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "it kind of mixes it with some other values that appear to be good and produces a new candidate. And and it tries to optimize that. So, it's ultimately an optimization library. It optimizes a string. Now, that string can be a simple",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "text prompt or it can be some JSON data which ultimately contains whatever you want. And the parado bit comes from it basically takes candidate from the kind of parado frontier of the best examples it has. So, it is effectively",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "if you imagine you're breeding race horses, you take the best race horses and you breed them each time. You don't for the most part go and take some really slow horse and like add it into the mix to see what happens. You take",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "all of the like best race horses and breed them and hope to get to to better better race horses and it does a similar thing. And then the second is managed variables. So, lots of platforms including ours have prompt management. So, basically the",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "idea that you can have your text prompt in the platform and you can edit it from there. We take managed variables one step further. Sorry, we take prompt management one step further and we have managed variables. So, they",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "don't have to be just text. They can be effectively any object that you can define with a pedantic model can be managed inside inside log file. And so, we're going to we're going to kind of try and combine those two things today.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "I will say at the beginning of this due to some family situations, I wrote most of this talk overnight. So, there may be in keeping with the rest of this conference, it may be slightly chaotic. If I if what I'm saying doesn't",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "make sense or I go to sleep at any point in this talk, please throw something at me and I will endeavor to make more sense. So, I'm going to talk quickly about the subject that we're going to go and optimize. It has to do with politics.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "Don't worry, it's not particularly controversial politics relative to what's going on at the moment. But, um how many people Actually, I won't I won't do the how many people. There's a There's a um podcast called um The Rest",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Is Politics, which I'm a big big fan of and a big listener to. They were having a conversation back in April last year, almost exactly a year ago, in fact, about how many politicians basically come from like political um dynasties, families of of politicians.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And there was a lot of like bluster about what the answer might be, and I used Pydantic AI to go and analyze the Wikipedia article for each MP to basically look for references to um their relations who were also politicians, and therefore was able to",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "come up with some percentage. I think it might have been 24% of MPs have uh some kind of uh ancestor who is a who is a politician. But, at the time, I basically just ran it with whatever model I could get, got an answer, submitted my question to The Rest Is",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Politics. They read it out. That was very nice. But, like, I didn't actually go and check how well it had done. And so, here we're going to take um that challenge and try to optimize it to improve the prompt that we use. Uh the the subtlety Let me Let me go",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "into some code here and and talk through the task. So, hopefully this is a scale you can read. There's a bunch of uh fluff here. In particular, there's a there's a um archive file here that will be automatically downloaded if you run the",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "script, so you don't have to go and do all the scraping from Wikipedia, which just contains the the basically the raw HTML of the Wikipedia pages. We then have some schema for for the for the MPs' data, and then we have schema",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "for their relations. So, in particular, so this is obviously the name, the role they might have had, in particular, their relation. So, whether they are like sibling or spouse or grandparent. And in particular, with regard to the",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "question that we're trying to answer about uh kind of um political dynasties, it isn't really relevant if someone has a child or a spouse or a sibling who is also a politician. It's to do with their like parents' generation or parents'",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "parents, basically ancestors. And this is something that I found really hard to get models to um to respect. Once you said relations, it just couldn't help but add spouse or children or uh sister-in-law into the into the mix. And",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "so, the way I actually went and solved this last year was I basically said, \"Include the relation, whatever it is.\" And then afterwards, I went through and scanned and removed the ones which were obviously um the same generation or beneath, as it",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "were. So, here, one of the things we're trying to optimize is finding a prompt which will get the agent to efficiently discount yeah, non-non-ancestors. Um so, this is a schema we have. Um we've got a task input, which is which is relevant. We have some some",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "very basic um initial instructions uh for the agent. We have some slightly more advanced instructions, so we can kind of see how the two perform. And then ultimately, we're going to try to optimize to find an even better prompt. So,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "uh the the core of this is this this Pydantic AI agent. Uh it's actually just using a hardcoded model. It's a variable because in theory, you can substitute it with the command line, but I don't think we need to today. Um the most interesting bit is that the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "the way that we're doing this is effectively a structured output question. So, this could be This is equivalent to any other structured output. Find the address in this email. Um find the invoice lines in this PDF, whatever it might be. But we're using",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the same idea of structured outputs to go and find this this political relation. So, we're just we're just substituting in Uh yes, so we're just we're just setting the output type to be list of uh political relations. we set the instructions from above.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Um and then ultimately when we go and run the agent, all we're doing is taking the HTML, doing a little bit of processing with beautiful soup to strip to get out the text so we don't have to take all of the like other crap going on in the HTML page.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "And then we're passing it to the agent. And this works surprisingly surprisingly well. If you go and if you go and read through the the cases, you will see that it is pretty damn accurate at finding all political relations. Even the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "relatively dumb models do a pretty good job. The main place where they get confused is are their relations political versus like otherwise uh like public figures and this idea of a relation being an ancestor seemed to really confuse the models.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Um you will see if you look in the rest of uh the files here. I'm sorry if the if the file explorer is small, but um once you run it once, you'll have this MPs directory which contains uh a JSON file with um the MPs and the URLs and the the the raw data",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "um and most importantly of all the pages, which is the the HTML pages. As I say, that will just be downloaded and put into that directory the first time you run it. yeah. And then there's also this golden relations. So, this is",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "supposedly the exactly correct answer for each politician. So, Stephen Kinnock has uh I mean, for anyone who's British will know a like reasonably famous political name. He has a bunch of political relations. uh you see here that again, it's",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "included his wife who was the prime minister of Denmark, even though um I'm seeing some question questions out. I believe that's true. Um, even though we we said don't include relations, that's why I used this technique of basically including those",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "relations and then stripping them out based on what the relation is. Um, etc. etc. And this um, I believe this is pretty accurate. Truth is we ran it we just ran a similar script with the with the like with Opus 4.6 to get that data, but I've I've",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "checked it quite a lot and it appears to be pretty much correct. And so in terms of the the first step here is to run some evals against this and um, uh, demonstrate that it's the like performance relative to the golden data",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "set. But before we do that, I'm just going to run it um, run a single tech case in the terminal and show what's going on just so that you have some feeling for what we're doing here. So I think if I look in task here, uh, yeah. If I go um, UV run task",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "uh, two is the ID of the the first politician. For some reason, Stephen Kinnock, we'll go and run the model and successfully find the two relations. And in this case we've prompted it and said uh, don't include only include",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "ancestors. So it's done that correctly and it's excluded his wife. Um, do I mean, I guess people want to kind of would prefer to to like run along with this and and try this themselves. Is that Is that true? Okay. So you will to do that you will need and um,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "you ideally you'd have a log file account that would allow you to do the managed variable stuff. You can use a free log file account. The the free tier is extremely generous, so everything you're doing there is free. The other",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "thing you need is obviously an API key to connect to the models. You have two choices there. Either in the code we'll basically be using uh, Padan AI gateway as a simple way of being able to access all of the models. So, you just see gateway prefix in front",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "of the model name. Uh, if you have your own OpenAI or Anthropic key and you want to use that, just remove the gateway prefix and it will work. Um, if you want to use Pydantic Gateway so that everything just works, I'm just",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "going to generate an API key in Logfire and share it with you all. Hence that channel and put a put a limit on it and hope you don't No one goes and uses it all up before we finish the lesson. Finish the finish the workshop. So,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "um, I'm in in Logfire here. I'm going to go into gateway. Um, if I had set this up more formally, we could basically invite you all and you could all go and generate your own keys and you'd all have your own limits. I have not prepped that and so I'm just",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "going to generate one key uh, with a thousand dollar limit and hope we that does the does the job today. Uh, and then delete it after after the workshop. Uh, So, I'm just going to copy that into this channel here. Um, so you should just be able to export",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "that environment variable. Um, and then when you run your code, for example, this this task here, you rerun task two, um, you should get get an output there. Um, should I wait a couple of minutes for everyone to The other thing you'll need",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "to do is set up Logfire for when you run, um, the evals and then the the simplest way of doing that is once you run UV sync in this So, you'll be in this directory, you'll run UV sync. So, note we're in the we're in the subdirectory for this",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "this talk. We'll run UV sync. Um, and then to connect it to your your project, you'll see here my project is called uh, demo. So, I'm going to run UV uh, run Logfire projects. Um, demo demo being the name of the project that",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "I want to connect it to and that will go and connect logfire in this directory to the demo. So, when I go and run stuff, it will output record traces to logfire and use the managed variables from there. I'll wait a couple of minutes cuz I sure",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "people want to get a bit set up and get that kind of like very simple hello world thing thing working and then we can move on. Anyone got any any questions while we're just getting that set up? Yeah, what what is gateway you mean in the model?",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, AI gateways we have one but we're by no means the only ones. The idea is you can basically make requests to most models through through our gateway with one API key and in particular we we have observability. So, if you're if",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "you're using the the production version, you can see requests that your team are making or that your agents are making. Um we have things like caching and fall back. So, if one model fails, we can fall back to another one etc. etc.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "But in this context, it just means you can have one API key and connect to Anthropic or OpenAI or Grok with a Q or Gemini models. So, gateway's your own product then. Yes. But as I say, you don't have to use it here but it might just make things",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "easier to to get all of the models working. I'll wait a couple of minutes but any any questions or should I go on? What was the directory in the repository then? Sorry? Directory in there. Uh so, it's it's the the repo itself is um",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "uh GitHub pydantic/talks and then the directory is 2026_04_ai_engineer. Okay. AI engineer. Have you logged in with Log Fire before? No. Okay, so you'll need to do that so that you have the um machine key. So, I think if you run Log Fire off,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "sorry, I've done that. So, I'm going to keep going just to to keep things moving, but like unless anyone has any any questions. So, we now have the very basic case working. What we want to do is run an eval to see how um uh our model with this with our prompt",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "is per- per- performing relative to our golden data set. So, you will see if we go into evals here, we have um uh where's the data set defined? Sorry. You'll see at the top um we have the load data set, which is going to basically create our",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "um our data set, which is the the object that we can then call eval on. Um this is going to load um the the the cases, which um and and basically create one case for each of the each of the MPs that we're that we're going to run. Uh and then",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "it's going to create you go through and generate these cases and ultimately return this data set data set object. And we're going to register one custom evaluator here, which um in turn actually generates a whole bunch of metrics or assertions for",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "like how accurate this um uh this run is I don't think I mean you can go and read through the logic. I'm not going to go through each individual bit. I'm not claiming here that these are the perfect set of evals in terms of the actual",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "evaluators, but they're they're a useful start. Um the point is if you go I can you can look through the docs, but we have a bunch of pre-built evaluators like LLM as a judge, um and then we allow you to define your own. And generally defining",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "your own is far better than LLM as a judge cuz the LLM as a judge is effectively the kind of you know I don't know if it's politically acceptable, but the kind of lunatics running the asylum and it can lead to lead to slight issues. So, if you can",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "have a like deterministic eval like this where we're comparing what the result is versus a golden data set, that's much better. Uh and so, if you look in main where we're going to go and run this, ultimately main is really just a CLI. So,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "we set up a bunch of CLI cases and then in the case of eval we run the run evaluation function. If you look in here, ultimately what we're doing, we print out better stuff, and then we're just going to call this evaluate function.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "We're using Pydantic AI's override functionality to override uh the prompt that is set by default with um with the custom prompt that we're using for that particular that we're evaluating, and a model that we're evaluating. We're not actually going to",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "change model in this case. and so we yeah, we're going to and we'll then go and call So, ultimately, we're calling dataset evaluate, which takes a function, which is the actual function we're going to go and um perform the evaluation on, and that will",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "in parallel with a uh max concurrency of five go and run uh all of our cases, um which we will you will see in a minute. Um and then we're going to give it some name so that we can look at it in Logfire. Now, we you will also see here we've set",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "up Logfire at the at the top here. If token present just means it would run without causing an error if you don't have the the token set. Uh and we set an environment service name. We're not going to print to the console because",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "uh in these complex cases, it's actually very quite tricky to see what's going on in the terminal. It doesn't really help to have Logfire kind of printing to the terminal. And then we've switched off scrubbing because occasionally something",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "like the word password or auth or something will appear in an output, and we we're happy to for that to go to Logfire. And then we're going to instrument Pydantic AI. We don't actually need it in now. Uh so, I won't instrument prints, but when we get to",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "using Jeppa, instrument prints just as a nice way of getting the output from Jeppa into Logfire, as well. Um and so, if I look the and the as you may have realized, the help file has help.md has some useful examples of what we're going to run.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So, we're going to go and run um this script here. So, we're going to UV run uh main.py. We're going to call with the arguments eval. We'll split, so we're we're splitting it based on just the test cat set that we're running, and",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "then the prompt is the the initial one, so the very simple prompt. Kind of one-liner description of what the agent should do rather than the more complex prompt. And if we go and run this eval, you won't see that much in the terminal because we we",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "switched off terminal, but you will see it running through the cases. If we go and look in log fire, you can see those cases running and their their costs etc. We can dive into what an individual case looks like. So if you look here, we're running um",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "the agent and I guess that's probably quite small, but I will try and zoom in that you see what's happening here. We have the system input. Again, we're at the very the simple instructions that we talked about. And then we have the input, which",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "is the the contents of the Wikipedia page as text. Then we have the final output and in this particular case it found no no relations. That has now finished and so as well as this view of the individual cases here, we can go into evals in log fire and you",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "will see this case here. And you will sorry, this data set and then within the data set you will see that most recent case from 1 minute ago. If we go in and look at that, we should get a view of what's going on. So again, this is pretty small on the",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "big screen, I guess, but it'll look much clearer on your screen. We can see where the cases of the most most relevant metric is um accuracy where you'll see there are ones where it's correct and zeros where it's incorrect and you'll see a a few values",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "where it's lower where the output from the golden data set is slightly different to the output from the from the model that we're running here. So you see here, this guy has a father who is a something to do with UKIP. And it's it's got it correctly, his",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "name, but it there's a slight difference in the description, hence it's like got a 0.9 score. And you can see the overall performance of 85%. So, 85% of the time it got it got all of the stuff right. That's not particularly good. It's also",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "not particularly interesting in its um until we go and compare it to running with a with a better prompt. So, um how many people are up to kind of being able to run that run that eval? A few people. Okay, I'll wait a couple",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "of minutes cuz I think it's probably a slightly more entertaining for us to We we Yeah, we're 20 minutes in. We've got quite a lot of time. I'm going to wait a couple of minutes. Can you show the command again, please? Yeah.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "So, it's it's this command. It's If you look in um help.md, we're basically running the the eval command. I'm just It's taking some time. Yeah. It says it's taking a while, about 7 minutes. Running eval? Yeah. It took I'm getting it's roughly",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "9% uh 7 minutes to go. It ran really quickly for me. Um Me, too. Yeah, it took 30 seconds. I think it should take about 30 seconds, so I don't know whether you're on a different internet or changed the changed the model. Um",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "Ah, yeah, that will be much lower than I think we're using Well, A Anthropic was down this morning when I was trying to use it a lot, so it's being really really slow, and GPT-4.1 is flying cuz not many people are using it, and it's doing a",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "reasonable job. That's why I'm using one of those models is partly to like show the eval performance, but also bluntly to get the answers more quickly. While people are getting that, I'm just going to run this the the next one,",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "which is compare. If you go and look at what this is doing, it's basically just running the eval twice with the with the like >> bad prompt and the good prompt, and then we'll be able to uh compare those outputs in in log file",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "and kind of see where the differences are coming from. Um and then we can go on to the full JEPA optimization step. I'll just run the compare, which should be take a little bit more time, but still still hopefully relatively quick here with these models.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "You see, we're just running the 65 uh test cases here rather than the full 650 MPs as we'll use when we get to the full optimization. If you If you accidentally run the same parameter twice, it'll just create a new You'll create a",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "new obviously have more spans in log file, and you'll get another um run in the log file evals view. You can archive them when you've when you've got confused by how many different ones you've got. So, if you come over here to evals,",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "come into that most recent case, you'll see I've now got a bunch uh I can go and archive so, yeah, archive the older ones one the other way around just to keep things uh clear. But, if I take the those So, I've now got two new new runs here,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "uh two new experiments, and I'm going to select them and compare. And now we have a a of different uh metrics. uh in particular, and you will see that like ultimately accuracy being kind of the most important one here, slightly higher, 92% versus 87%",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "for the like expert prompt versus the initial prompt. And we have the like possibly slightly useless graph of different metrics and how they've performed. Um with with fewer um metrics or sessions, this can be more useful.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "Um and again, what what's probably most It's interesting though is to look into individual cases where the performance differs. So, you see here um with this MP uh Joe White, that the initial prompt um found one match um relation spouse, which obviously it",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "should not have found because we're not looking for spouses, whereas the expert prompt correctly ignored that one. Um and then if you look in this case, Laura Kyle, um you will see that the the the expected output is no matches at all. Both um",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "of the these most recent runs, they found a match because they had some four times great-grandfather who was the governor of Hudson's Bay, which is not a politician, but is a like public figure. So, you can kind of start to see where",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "where the differences are coming from and the kinds of things you might want to do in the prompt to to improve the performance. That's ultimately the kind of data that Japer is going to use to like um inform it uh generating a next the next like",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "Pareto frontier prompt for it to go and try. I I didn't manage to see the graphs. You You will see the graphs only if you're comparing two cases. So, if you open a single case, it doesn't show the graphs. Two cases. So, I've run compare. Once I had run",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "eval, I then ran compare with this command here. And then um Here, I've taken two cases. And then you hit compare and then you see uh see the graphs um comparing the performance. So, there were if you look in the um task.py, there were two prompts",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "uh as a kind of starting points. So, one is a very simple one-liner. And then the second is a bit more detailed description of the kinds of things you should be looking for. Still not kind of optimized, but like what you might get if you as a human wrote out a",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "decent prompt to ask the model like write me a better prompt. So, you can see we've like improved the performance from 87 to like 92% with this model through doing that approximately. And we should with Jeppa be able to get",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "better. We I think I got 96% when I was running it earlier. By no means perfect, but this is you know, but you I you know There were examples of using Jeppa to like I suppose what what people generally do is they either hold one variable",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "constant like we need the following quality and now we want to reduce time or reduce cost or we need to like drive up the quality. So, there was an example from Shopify using Jeppa. They were using they were basically looking at um",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "Shopify sites and looking for things like whether they were fraudulent or which which tax category they fell into. And they switched from basically just giving the entire website to GPT-5 and saying what is this to using an agent",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "and using a Quen model and Jeppa to optimize the prompt. And they got the price down from $5 million a year to 60 60 $73,000 a year. Um and improve performance over time. So, that's obviously also that's not just optimizing the prompt, that's like",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "some mixture of optimizing the prompt and moving to a gigantic and yada yada. But in this case, we're just trying to kind of improve performance while it's using the same relatively fast model for the sake of for the sake of uh the demo.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "Um so, now we've done the comparison. I guess it's time to look into Well, anyone want me to wait a bit longer or should I keep going? I'll take the no one asking me to wait as a signal to keep going. So, we now get to the kind of Jeppa",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "Jeppa phase of this. So, I'm going to re-enable that while I remember. And then ultimately, if you look here where we are going to run the uh optimized um case, you'll see we have this run optimization function. Run optimization here.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "It's going to load in the the the the training and the validation data sets. Um error if it's not there. We're then going to go and create this Jeppa adapter. So, the Jeppa adapter is is effectively like Jeppa is not it's an amazing it's I",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "can't I guess the state of the art now in agent optimization. Lakshya who created it is a first-year PhD student at Berkeley. He is not perhaps the most experienced kind of engineering Python developer and so Jeppa doesn't do",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "anything that nicely. It's not as type safe as I would like it to be. I'm like itching to go and either fix it for him or fork it bluntly, but I have so far uh not done so, but um Yes, so so Jeppa has this concept of adapters, which are basically how you",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "define the agent that is going to propose the next case. And so, we have a we have this function here to create the adapter, um which in turn generates one of the this adapter here, which which it we've defined, which sub classes the adapter type.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "It's a data data class that takes a bunch of arguments, but ultimately the bit that matters is build proposer agent. Um, which is obviously their their method name. And what we're going to what we're going to do here is return a Pydantic AI agent",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "uh in turn. So, we're using a we're using a Pydantic AI agent to propose new cases to optimize a Pydantic AI agent. Um, and we're going to uh use again GPT-4.1 for the sake of speed in this case. There is a slightly annoying characteristic where Jeppa is",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "sync, not async, and so if you try and run each time it runs the proposer agent, it runs it in a new async context. And so, we have to go and make sure we create a new HTTP connection HTTPX connection, otherwise we get a bunch of errors, hence this",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "like slightly weird formulation here. We have again a prompt. Obviously, you can get a bit uh going around in circles on optimizing the prompt of optimizing the prompt, but we're basically saying you're an expert prompt engineer, improve the",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "system prompt for this agent, yada yada yada. Here are the things to consider. Um, and then we're going to um call the ultimate evaluate function, which is going to generate this bunch of cases, generate a Pydantic AI eval.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "Run that eval, and that is what we're going to use to basically test the performance of our new proposed prompt. This will probably make some more sense when I actually go and run it. Um, yeah, and then we apply skills for the for the failures, and then we um",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "return this evaluation batch, which kind of is a summary of how it's performed, which is what Jeppa will then use as to whether whether this is a new Pareto frontier or whether to to propose a new a new prompt. so, I think the simplest thing to do is",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "just go and run this. It will take a little bit longer um and it will cost a little bit more, but that's fine. I'm going to run it. If you run it with 50, it basically dies before it gets anywhere. But if I um run this with 400 calls, you will see um",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "Jeopardy starts to has a has a similar kind of progress bar and I as I said, I've switched off um log file printing so that you don't see what's going on in the background here because it basically just becomes impossible to view.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "But if you look inside log file, you will see already this optimization is going on. So, you can see that we um evaluate um the the agent and then we call the proposer agent here. So, the proposer agent, if you look at this step here, this is what we just",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "had, the system prompt I said for the proposer agent. Um and then the input, which is basically Jeopardy's description of the context for the proposer agent to enable it to come up with a new prompt. And then from there,",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "the proposer agent is going to propose a new system prompt. and we're going to then evaluate that, see how it performs, and iterate towards towards finding a better solution. So, that's what's going on here. You see why I did the instrument print um is so that",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "um we can get the the print output from Jeopardy um nicely viewable inside log file. There may be a neater way of doing this, but this worked for me this morning. Um and it's going to work through. You can see it's a little bit more",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "expensive. We've already spent $2. Uh so, I guess if everyone runs it, we will spend a few hundred dollars. Uh, open AI will no doubt appreciate it. Um, uh, and that's going to work through, but you see we're already like, um, 50%",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "of the way through the optimization and it is proposing these new prompts and then, um, uh, evaluating them and and using the the feedback from the evaluation to decide where to go next. And I would encourage you, if you have some time,",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "to go and have a read through how the these traces because they're quite interesting, they're quite illuminating in terms of how the how the optimization is working. I think one of the things to note is people love to say that anything to do",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "with AI is incredibly sophisticated and and complicated and advanced. This optimization technique, whilst the state of the art, is not actually that groundbreaking. Relative to the complexity of the model itself, it's a like relatively crude sense of like",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "ask an agent to generate a new prompt, if it does better, take bits of that, put it into a new prompt, keep doing that until you either run out of time or get to some prescribed score. Yep. I have a question. How big the batches",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "are and do you have a agent skill for doing that? Uh, how big the batches are? So, we have Is that the agent process, the prompt that is in user prompt of the agent, how how many batches it's running, how many So, I think you can see it here where",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "it's running the evals. So, it's running, I think it is running all of the cases in the test data set. Um, but I I think I've seen it run fewer. So, I think Jepher is clever enough to like alter the number of cases based on how they performed, but I'm",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "honestly not not not that sure. Yep. It So, in terms of skill, what was the what was the question? I was thinking how we reduce that to optimize some prompts and the agent will go through, so I was thinking whether you have a",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": ">> I mean I I think we we will make this much easier with open source. We will also make it something where you just plug in log file and it just happens in the background. But we also want to make it super easy to do it locally or open source as well",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "as like we don't just want to say, \"Oh, you must plug it into log file to get optimization.\" Yep. Um now we just set the max goals, right? Which is I think max goals help me out. So Yep. Uh is there a smarter way to do this? Like",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "if you don't improve for 10 iterations, just stop it. I'm sure there is. I I haven't looked into it. Like I say, I did this in a bit of a hurry. I totally and like presumably even the most by you're saying reach this threshold or as you",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "say like run out of optimization or whatever it might be. I I don't quite understand how you see the the prompt optimization. So if you look here in the proposal agent run, uh you will see effectively what what input This is the This is the input",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "to the agent that is that is um uh proposing a new prompt and it is being told based on this information propose a new prompt. And then if you if you look the the the principle of the like Pareto frontier is this can contains components of previous",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "prompts that have done well. Uh and effectively you know, it's a bit like the It's not like a diff. It's a whole new Yes, it is prepared proposing a whole new new diff. So So I think if you have multiple So So I think Jeppa operates on the idea of a",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "kind of object or dict of of known keys. And so here we only have basically one a dict with one key value pair, e.g. like system prompt value. If you have multiple different keys, then you can optimize by basically combining the best values from multiple",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "different keys. So you could have like You could imagine you could have a imagine model and system prompt or model and some set of tools. Or even like different lines from a system prompt so that you're basically allowing it to the the proposal would",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "just be choosing different values from your set of different lines. That's the kind of standard way of doing this in in DSPy. Is like basically take all of my different examples and choose which ones to include in the prompt.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So DSPy is another agent framework. Uh somewhat similar to PyDanse AI. Um it comes from a very um machine learning background. I find it hideous to use cuz it's not type safe, but the caliber of people using it is generally very high.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "Um and it it has it has had this concept of optimization for a long time. For a long time it was basically the only agent framework that had this idea. Now Jepa has come along and is like available within DSPy but is not only available within DSPy.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, uh what's your personal take on Jepa and those type of algorithm? Like from your personal experience, have have they worked well in practice? Have you all like used more home builds uh optimizers? Yeah, curious on on this",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "informal take. So I think that in the case where you're trying to basically get a dumber model or a faster model or a cheaper model to be able to do some task, they make a lot of sense. If you go and take the state-of-the-art",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "models that are like Opus 4.6 and you ask it most questions, it will just if it has all the information it needs, it will just go and get it right for the most part. And so the optimization is slightly less relevant. I think one of the subtleties here is that",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "the statistic is that 98% of data is private. I don't know if that number is is correct or not, but like let's say even if it's off by miles and it's 50/50 data. When you have a private set of data where the models have not been trained on it, you have some",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "massive internal spec for how you're supposed to operate as a bank, let's say, adding the right bits of context into the system prompt or into the instructions is incredibly valuable and the optimization really matters. The problem we have when we're trying to",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "give demos like this is by definition there isn't private data that we can use cuz if someone lets us use their private data, they're not like, \"Oh, yeah, can we go and talk about it at AI engineers?\" So, I've got this like slightly weird example of MPs, but",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "actually you'll see in cases such stuff I'm going to show you in the middle in a in a minute, the model actually just goes and like figures out who the MP for some some borough is even if it hasn't looked at the data cuz",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "actually this is all public data that it knows. So, I think that one of the subtleties is that optimization matters way more where you have a large amounts of private data. And honestly, we're still trying to figure this out as a",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "company. One option for us is to use stuff that is public, but new enough that it's not in the training data. So, one option would be like news, but then that could get slightly politically dicey if we were using current news as our like source of stuff",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "to optimize on. So, another option is to use like what's going on in sports because whether you find it interesting or not, at least it's not controversial and we would, you know, ask it which footballer has done well in the Premier League",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "season over the last five matches and that might be public data, but equivalent to private in the sense that it does not exist within the model, but it's not a really good example. It's something we're trying to figure out.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "Uh yes, I have a question regarding uh Japa. Does it I think it's not working your mic, but if you just speak up, I think we can keep going. Yeah, I'm just trying to understand if there is a um way where it prioritizes kind of",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "optimizing and adjusting the system prompt rather than kind of appending to it because I feel like that's a recurrence issue. You find new edge cases and you're like appending and adding more information. Yep. So, does it strike that balance of okay, this we",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "append and this we adjust? So, I was using GPT-5 mini this morning and the one of the problem A, it was slower in general, but also it was just producing this enormous system prompt, which then meant that the agent was slower. I don't",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "know if it did better or not. I think it it did roughly similarly well. Um so, that definitely is a problem. I think the solution to that is the thing I was talking about earlier where ultimately Jeppa wants a key value store, key value a dict of keys and and",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "values and then instead of basically saying instead of the proposer agent being like, go just generate me a new system prompt, you're basically saying choose a new subset of our list of different inputs available for like you would go",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "and basically split your system prompt up into like 200 sentences and say which is the best 20 sentences to use. And now by definition, if it can only choose 20 sentences, it's not going to get verbose. In this case, we're using a finance AI",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "agent to basically summon up a whole new system prompt, which is probably better at finding the edge cases, but but does result in a verbose prompt. Um so, in fact, on that very point, it has now finished. It has given us this optimal prompt. It has achieved a",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "performance score of 96 uh {point} 7% so, significantly above the 92 we got from our like best case before. Um and at the expense of a relatively verbose prompt. Um Uh so, you can see where it's gone through in relative detail and",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "and in particular, it's banged on about like what relation to use, when to when to include a relation, what sort of things count as a relation. Um Uh yeah. Okay. So, so that that that is is Jeppa working. Uh the other bit I was going to",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "talk about is the managed variables. So, I will now switch on to the managed variables, but before we go on to that, any other questions on this bit of of the the talk or on Jeppa? Yep. This is just probably me hard of hearing, but like you've got the",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "validation scores compared to like a golden set, right? Do you want to take that? The validation scores comparing to like a golden set, right? >> Yep. the golden set in this repository, it it is here, right? >> Yep. Oh, okay. Okay, so Yeah, so if you",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "look in um if you look in the uh cases directory, you will see golden relations, and there's a there's a JSON file with the the supposedly golden set. Now, I'm sure it's not 100% perfect. As I say, we generated it with Opus 4.6 using",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "a similar similar script, but like I just had a silly thought like what if you didn't have that golden set, then things get quite difficult, doesn't it? Yeah. Yeah, so evals are much easier if you have some like golden reference against what it's",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "supposed to be doing. Uh in general, what people end up doing is they have some subset of data that's been like human annotated that works, but you can also have cases where, for example, if you have an agent that's writing code,",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "you go run the code and check whether or not the code fails, for example. Um or if you can have a like feedback if you can have a a full loop of like uh basically returning that data to the original source and seeing how accurate",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "it is, something like that. Working out what your what your judge is is always is the hard bit of evals. But like just for the your example where the where if you're running the code, that would be like a like like it either runs",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "or doesn't, right? It's not like a How do you do a percentage then? I don't know. I'm a little bit confused there. Uh well, you could check, for example, whether or not it was going to generate invalid code or use libraries that",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "weren't available. That would be a like first step of like how performance is going. But yes, I mean, this is that what this is the hard bit of evals is like what is what is right. And and as models get more intelligent, figuring",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "out what right looks like is harder and harder. If you I mean, the ultimate case, right? It's like you have an agent whose job it is to persuade people to stop smoking. The ultimate eval is wait 40 years and see when they died.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "But obviously, you can't have an eval where you wait 40 years to see if they died. So, your eval is probably like does it include the like the correct words? Does it not include some bad words that you definitely don't want it to suggest?",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "Um like, you know, take up a cigar instead, right? So, text does not include cigar would be one of your evals, perhaps. And not like that sounds dumb, but that is what an awful lot of evals end up being. Can I Yeah, sorry. Um",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "two questions. One is a really short one. Um with practical AI, you kind of break up the structure a lot of time in the prompts. Does it just jam everything together and you just get one prompt at the back at the end? So, you always have one one set of",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "instructions. Yeah. >> Um so, it is building one set of instructions. Right. Okay, that's fine. so, the the real question was uh you know, variance is huge with this. I mean, you showed your results. I ran it, I got results. Is there a way of like",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "having this having the variance be part of the actual optimization? Uh I wouldn't say that So, so there's a when you run evals, I'm just looking for where we call run, you can basically set the number of times you run each case.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "And the best way of reducing variance is to run them lots and lots of times. I know there's a bunch of hedge funds who are spending about $20,000 a night running their whole set of evals uh to see if they can improve over time.",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "And if you have your own GPUs, you're like, \"Well, it's sort of free to go and run them, so we should run them more and more times. We should run everything a 100 times and look in the morning.\" It's definitely one of the challenges. >> do you like",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "create a cost function or do you have like you can point it at like I want you to optimize like both accuracy and minimize variance. Like do you write a your own cost function then with >> Yeah, so you so if you look in the in",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "the adapter code here, you will see I mean have a look through it but like where am I looking? Um, evaluate is returning this like um, evaluation batch type which where you can basically include whatever score scores is uh, a list of floats, right? So",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "ultimately you can return whatever floats you, you know, you want in there. Okay. And just just in case people are wondering trajectories is effectively similar to traces. It is the like sequence of different steps that agents",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "went through to get to a particular point. Um, so how how do you handle systematic errors? Like I ran the optimization and it got a high value of accuracy 96% but it got wrong ons and uncles. So the final prompt excludes explicitly ons and",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "uncles even though they are in the golden relation. So do you suggest running and like Claude code spotted this immediately. Yeah. So maybe one could have a harness where there is another check at the end. I I think what it's doing is it's using a small set of",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "test cases and then a bigger set of evaluation cases and so the the subset of cases that the optimizer agent has ex- gets exposed to maybe doesn't include uncle and aunt and so it just made it simpler to exclude it. So one of the other things",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "you end up needing is like a kind of uh, at least two x the amount of data that covers all of the different space so that you can have one full set of data that you train on and one set of full data that you evaluate on. This is like",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "classic problems of machine learning of like how do we go about like we need an awful lot of data to build something that's really reliably, you know, yeah, really reliable because ultimately, you know, you're already getting to the point with the agent",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "where you're kind of encouraging it to overfit. And I suspect the uncle and aunt thing is it overfitting. Okay, thanks. There's a question behind you. >> This is probably very silly question, but but surely the the prompts uh can I assume that the prompt",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "only works with the particular model that you you would That is that is people's take is that you would need to run this all over again if you changed your model. That's going to happen all the time, isn't it? Yep, and that's one of the",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "reasons that evals are hard. And that's one of the reasons that most people don't run evals or and don't run optimization. They write out a decent prompt. They ask their coding agent of choice, \"Does this prompt look good?\" If",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "it says yes, they kind of eyeball it and then they put it into prod and they worry about other things because probably the model that comes out in a month's time is going to go and supersede whatever optimization you did",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "in some cases. Now, if you are a private equity firm who have uh 200 million invoices from across your portfolio that you want to go and analyze, it's worth going and optimizing for a particular version of Quend 3.5 light mini to go and do that job instead",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "of just throwing GPT-5 at it because the difference is like $10 million and it costs you you have your one analyst who earns half a million dollars and you put them on it for 3 weeks and you solved it. So, it like depends on the question",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "that you're that you're trying to solve. But the ultimate example of this is the coding agents where they're like the trajectory's extremely sparse as in there's an extremely wide range of things that they're doing and for the most part we are told that those",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "companies don't have very many evals or don't have any evals at all. If you go and ask Boris Chen how does he work on uh Claude code, he says mostly vibes. Mostly we just like see what works and tweak it a bit. So, this is not a like I'm not claiming",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "this is a panacea in all cases, but there are definitely situations where being able to optimize your prompt or your agent choice is valuable. The other thing that we we don't have a demo of here, but there's an awful lot more than",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "just a prompt you can go and optimize. So, there's the model, there's things like the compaction strategy, there is how you register tools, there is things like including code mode in this. And the next step of what we want to",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "allow is basically for you to go and optimize across the full range of things you can do within your agent to find the optimal choice where perhaps the particular model choice doesn't doesn't matter so much. And it just makes me think that",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "we have you evaluate the prompt tip, but could we just switcheroo a bit and start evaluating different models or that would be silly? Yes, so that would that would be something you could totally go and do is try different models. I mean,",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "given that there are maybe you have 10 models you want to try, you probably just run all those 10 models and see which one performs best and and pick that one or which one optimizes for your particular subset of like performance,",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "price, time, etc. I think there was there was another question behind you. Yeah, thanks. I already got the mic. So, what you've shown is a task which is relatively narrow in what should be achieved and I'm wondering how you would",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "approach it if the task is more open-ended. I think that my suspicion is that that is a case where this optimization technique is harder to do. Because like I said, the coding agent case you could imagine you end up with 5,000 distinct tests for a coding agent",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "and you go and optimize as much as possible in those 5,000 cases and it turns out that they are like dropping the ocean of different things people do and now your agent is over optimized for your thousand cases or 5,000 cases. I",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "think the bigger the the breadth of the task your agent is performing, the harder it is to do this and the more you end up just having a like clever agent. Thanks. Uh the other thing to say is that my point earlier about where you have large",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "amounts of private data and so you have to put masses of context into the system prompt for like understanding our specific domain then choosing the right examples from that to put in which basically cover the full data set is more and more relevant.",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "Did you have another question? So if I understand correctly, um if you're a company and you would use this J Patek optimization technique and if you had more money and maybe more expertise, you could decide to fine-tune a model. So they are kind of competing",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "strategies. >> Correct. Yeah, and in answer to your pre the previous question about oh, but isn't it isn't it made obsolete by the next model? The main reason that the big model labs say don't bother fine-tuning is that there you really are spending",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "tens of thousands of dollars to go and fine-tune a model and actually for the most part improve the harness, wait for the next model, like show a nicer loading icon to your users is probably better than fine-tuning. But that misses the cases",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "in particular in places like finance where they have enormous numbers of runs where they really do care about that optimization and fine-tuning applies. Thanks. So I'm going to go on to talk about um managed variables. Uh as I say said",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "earlier, this is a this is of somewhat it's not going to be a particularly sophisticated answer I've got here, but I'm going to kind of show the example just just to explain how it works. So we have here a very simple fast API web server.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "you will see that it has ultimately two endpoints. One returns some HTML um and the other one is a form submission um endpoint. And if I go and run this where have I had it running before? Here we are, it was in fact running. So,",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "if I If you want to run it, you'll probably want to use this command here to run it. I'll put that into Slack as well in case anyone wants to run it. And if you run this web server, you will uh not You'll see log file, which is not",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "so interesting yet, but you will also see the server running locally and this is just a very simple basically form where you can ask questions about the same bunch of MP data. and um I can go and ask a question like we'll see how well this performs.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "Hammersmith, where I live. It will run for quite a long time because what it what it's got in the background is basically one tool which lets it grep through through the the the the HTML pages. And it has replied relatively quickly on this occasion and uh if I",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "load this here, you will see the HTTP request coming in in log file and then you will see the agent run and it um it ran a rather the the you know, a good good sequel sorry, good regex got back the the data and was able to",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "correctly identify Andy Slaughter as the MP for Hammersmith, where I live. Um all very well, but if you look in how this code is defined, we have here this log file variable. And so, this allows us to basically go and change the behavior of this agent without",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "redeploying. Um now, obviously redeploying in this particular case where I'm running locally is very very simple, but where I've got some big production CI stack to go and run and deployment takes hours, Being able to go",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "and change variables in production or in staging very quickly is extremely valuable. So, the way that that Log Fire variables work is that we have have a type here a Pydantic model um which takes uh has in turn three strings, the instructions, the model",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "and um the max tokens which is an integer. And then we've given it a default value um here um some very simple prompt and then we've given it we've we've chosen the model and we've chosen the temperature. And what I have run here is",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "I've run UV run web and then there's a there's a basically there's a like CLI command for this which just pushes the variable. Ultimately, we're just calling Log Fire push variables in this case. When I run that I'll get asked do I want to overwrite",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "this variable which I don't, but if you if you're running it for the first time you you won't be asked and you'll you'll create a new variable. Now, it's worth saying to do this we need to make the the the experience of using these variables slightly easier",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "in Log Fire. At the moment they're not configured with the Log Fire um projects use command that you did before, so you need to go and set uh a separate um API key to use variables. That will be solved soon, but if you want to do it today",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "the way to do that is to go into settings uh API keys within Log Fire. You see I've created uh I can create I could show you the form. I can create a new API key and I just need to give it the the three variables permissions.",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "Well, all all whichever ones you want. And now you can go and like you and we're ultimately using that API key to push the variables uh from local development uh from from the code definition through into Log Fire and then pulling them to to update the values.",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "And so, because I have pushed that, if I go into uh manage variables here you will see I have two variables set up. Um this MP search config is the one we were looking at. You see we have those three fields that we've set. Um and we have um",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "some history of some updates. But we can In particular, what we can do in targeting is we can basically define what percentage of calls are using which of our different values. So this is very much like uh AB testing. In fact, under",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "the hood, our managed variables use the open feature open standard for for doing this. So in theory, you can connect to to log fire with anything that speaks open feature. But yeah, so at the moment we're using the code default. So you saw when I ran",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "this now, uh I got back this answer answer of Andy Slaughter. But now let's go and update the value here. Um I want to go and edit. And I'm going to leave those values the same, and I'm going to say uh reply in French to make it very clear what's happened.",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "Save that. And I'm going to go into targeting, and I'm going to dial up what you the use of latest to 100%. So it should now use uh that latest value. And now if I um come in here and I ask, for example, the same question again,",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "and I stop the server, which was silly. But you could imagine the server is still running, and it's going to pull the new variable each time that that that function is called. And if the demo gods are with me and everything is hooked up correctly,",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "uh it has indeed gone and replied in French. So we've managed to We've updated the server without redeploying. Obviously, I did in fact restart the server, but I could I could change it to not. So just to prove that that works.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "Let me come back over here, edit this again, and say reply in German. And Oh, that's very annoying. Uh Uh And now, if I ask the same question again, that variable that defines the system prompt should be updated. It's taking its sweet time, but it is",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "indeed replying in German. But the nice thing here is coming back to your point about like is it just a system prompt? We can set up our variables to not just be simple text values, but be for example a Pydantic model, which allows",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "us to edit multiple different fields. So, I can switch here from Gateway Anthropic uh Sonic 4.5 to OpenAI uh GPT 4.1. I'll get rid of that cuz that's going to confuse me. save that. 4.1. And the point is that we we can update",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "multiple different values. So, if I instead ask you ask it uh hopefully it won't bother going off and running. It said it's now ChatGPT rather than Anthropic. So, we can use this to to change variables and ultimately go and like experiment with what new",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "prompts or what new models or temperature or whatever it might be, uh how they behave in production. Now, of course, the ultimate aim here is to be able to take this whole system, wire it up, and instead of us having to to basically",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "tweak uh man- uh the managed variables manually, that we basically get like self-driving for managed variables. So, given some set of evals, it can basically go and perform uh optimize towards like uh hill climb towards some",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "peak without us having to do anything. That's the feature that we're that we're working on, but I can kind of prototype what that might look like here. So, let me just reload this. You will see in managed variables I actually have variables here. And the",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "other one is uh MP relations instructions, which is instructions for the the the task agent we were running before. Um and you will see we don't have any values in here yet, but what we have in our code uh in the web server here is",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "we have registered so we registered with this main agent two different tools. One was the MP search, which it was using before to find out who the MP for Hammersmith was. But it's also got this extract political relations, which is basically running",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "the same extraction logic and then should be I'm just looking through yeah. Ultimately, it's calling that same extract relations function that we were optimizing earlier. So we can now use this agent. This agent can be asked who are the political relations of",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "a politician and with a bit of luck it will go and use this tool to go and do the calculation. At the moment, it's going to use the simple dumb prompt, but the point is we can go and alter that prompt based on the optimized value that",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "we got um and thereby basically apply our new state-of-the-art prompt without having to redeploy. So if I come over here, the first thing I'm going to do actually dial that that previous variable back down to zero cuz we don't want we want",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "it to be told correctly what to do. Um so I'm going to put that to zero. And just to prove that something here is working, I'm going to say um who are the political relations of What was he called? Stephen Kinnock who cuz I know he does have some.",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to go run this case. And we can go and look in log file in a minute and see what it's done, but hopefully it has used that tool uh as the correct way of identifying who the who the relations are. So yes, so it's found them correctly, but more",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "importantly, if we look in uh sorry, if we look in log file here, we see that most recent call here. Um and you can see that the that the search uh agent run uh called the extract political relations tool with the input Stephen",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "Kinnock, which is correct. Um and so it's then uh gone and correctly output the value, but if you look inside the tool call, we then ran the other agent uh nested. Um so, it ran and it correctly extracted the right data, and so we're we're now",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "using our agent, and we can now basically uh click the value and improve the prompt now. And so, I can come over here and to be fair, I'm not going to have a particularly good way of showing you that it's working better cuz it would",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "seem to be working pretty well, unless I can find an example where it where it wasn't. So, let me actually try got a bit of time. Let me try and see if I can find a an eval case where the dumb prompt was doing badly. Oh, we've got loads of runs now.",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "Sorry, let me go up this case here, and I want to compare these two. And so, if you look So, for example, this person here uh Paul Maskey, it was like getting it wrong that the dumb prompt was um no, wrong way around. I want to find a case where it's done",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "badly where I can get it to do better. Okay, let's use Andrew Gwynne where the correct answer is no um political relations, but but the other but the two uh prompts both returned suggested that they did have relations and I'm sure that's because",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "if we look it'll be because yeah, they're a sports commentator their their father which the the dumb prompt wrongly suggested was a political relation. And so if I go and run this now with a bit of luck this is using the dumb or the the poor prompt and so",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "it should find those relations and then conversely if I update it to the correct prompt it should find yeah, so it's it's identified the sports commentator as a political relation. And now without redeploying I can come over to manage variables",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "update the prompt that we're using. I think I may have a mistake here. Let me You didn't see me just go and tweak the code. I was going to tweak the tweak the code to use this version of the task where we are using the instructions manage variable.",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "Let me restart server. Um and now without redeploying I promise you I'm going to go and create a new case here and instead of the the simple prompt I'm going to put in the best one we got back from running Jeppa. Save that. Um and without further ado without",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "redeploying I promise we go and run that again and it'll almost certainly go wrong cuz that's what things do but we can hope. And it's gone wrong. It's again identified it unfortunately. Um but hopefully you get the get the",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "principle here. Yes, there's a question. This web interface where you where you search and get a response from the year the model of the What what What do you call this? This This thing is Yeah. Uh well, the form and then the agent who",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "who I'm submitting it. Yeah. do you have any thoughts about about like collecting feedback from from users themselves like like NPS and and like what is good or bad and Yeah. I mean, my number one piece of feedback is no one clicks them. And so, there's a",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "there's Well, maybe there's might but Um um so, or you could be like nefarious like myself and just click the bad even though >> So, so I'm My my experience is that if you're going to do it, you do only thumbs up thumbs down. Um we have an annotation system",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "that I'm I'm not demoing today where you can basically record annotations against prompts. That is another place to build your golden data set from or at least a starting point for your golden data set. Um the the best thing you can possibly do",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "is something which is implicit in the user's the user's interaction. So, if you have something that's more advanced than the simple um text prompt but you have a you have a chat, the single best way of getting of evaluating the performance of",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "a given question response pair is to look at what the user did next cuz if the user says, \"You idiot, try again.\" you can get pretty strong evidence that they've the the the the agent behaved badly. And if the user is like, \"Thanks,",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "that's great.\" or goes away, you assume it's right. And if they they probably don't It's probably not as extreme as \"You idiot, try again.\" but it's probably like, \"No, I mean X.\" And so, I mean, that's that's how Google works,",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "right? Like the way they identify how good a website is back in the old days when we used Google was to see how long you spent on a site. If you came straight back and searched clicked on another link, they assumed the page was bad.",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "And this form here is it a chat or is it If you This is just I honestly just asked Claude, \"Go build me a Go build me a single pane chat.\" Like We have um we have a an integration with the cell AI AI protocol so that you can basically",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "build a full chat interface on a panel scale AI agent in in like a few lines of code supposedly that I would try and demo if I had a bit more time but you this is just me trying to have like the simplest example to run. In fact go on I'll have one try at doing",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "it now since that one didn't work. >> and a chat would mean that it kept its context somewhat right? >> Yeah. Yes if I do if I um get rid of this single run and instead I What what's the agent called? Uh relations agent dot to web",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "Um and then I go and run uh let me kill that web server to avoid confusion. Why is that not running? maybe I do need to call dot run. Uh maybe I'm forgetting exactly how to call it but like the the principle is that with basically one line of code",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "here if I remember what it is you can basically turn that into a proper chat interface. Um Let me just see if the docs will tell me what it is quickly. So I I define the app which gives you a style app and then I run UV run UV corn task uh app",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "and there's a typo. And that should give me a like nice interface now to go and ask questions where I can where I can where I can say like Uh maybe I I don't know if that's going to work, but we will try it. But the point is now I would",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "uh you would get get back a final result of it would it would go on like you could use it like an agent and then you could ask follow-up questions. I mean this agent is designed to always reply with structured data, so it's not very",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "chatty, but you get the idea. Um I'm going to stop there. Um thank you very much. Happy to answer ANY QUESTIONS AFTERWARDS. SORRY, DID YOU HAVE A QUESTION? GO ON. THANK YOU. Can you hear me? >> Yeah. Um do you have um cool use cases internally where you",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "use your stack but like agents that you've built cuz I hear like a lot of uh look how many tokens are we burning and look my evals, but have you seen some like you mentioned the private equity firms earlier. Like those are classic old problems classifiers.",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "Do you have use cases that internally you're really impressed by agents or what the team is using internally to ship faster or create more value for either you or your clients? So we have the there's a there's an agent inside Log Fire to basically do",
+      "start": 1686,
+      "duration": 6
+    },
+    {
+      "text": "you do free text search and it converts to SQL and we optimize that agent a fair bit. Um we don't care particularly about token count in that case cuz it's not high enough volume. We do care about generating good SQL. The reason we can't",
+      "start": 1692,
+      "duration": 6
+    },
+    {
+      "text": "use it is that it very often ends up with like private data within the SQL as in someone will say find me results for invoice 1 2 3 4 5 and we don't want to go and show people that. That's one of the reasons we can't use that example in in demos.",
+      "start": 1698,
+      "duration": 6
+    },
+    {
+      "text": "Um I think there was another question. Does that answer the question? Right. So, in Logfire, is it possible to kind of obfuscate or encrypt the input and the output and just evaluate against a golden set? Let's say if you set up an application to work in a",
+      "start": 1704,
+      "duration": 6
+    },
+    {
+      "text": "field with sensitive information like medical or So, you can choose not to send the system prompt or anything to the agent and just basically record the the output could be for example the the performance like good or bad and then you have the",
+      "start": 1710,
+      "duration": 6
+    },
+    {
+      "text": "metrics. You can choose not to send the the raw data. It's obviously less valuable. My somewhat biased answer would be you can obviously enterprise self-host Logfire and then you can have it inside your VPC. Um that's probably what people do, but",
+      "start": 1716,
+      "duration": 6
+    },
+    {
+      "text": "yes, you can do it without without recording the like actual input and output. Great. What what people do in those cases? So, for example, the big like Logora and Harvey, they're like legal tech companies where they are very strictly not allowed to exfiltrate",
+      "start": 1722,
+      "duration": 6
+    },
+    {
+      "text": "the the data because it is their clients' clients' very private data is they record categorical performance. So, like good, bad, whatever. Like you could have like 50 grades of how it performed, but like and you can exfiltrate",
+      "start": 1728,
+      "duration": 6
+    },
+    {
+      "text": "exfiltrate that data without actually exfiltrating like any um generated content where you might include private data. Great. Any other questions? Yeah, there's one here. Thank you. This is uh tiny bit of an internal question. I",
+      "start": 1734,
+      "duration": 6
+    },
+    {
+      "text": "noticed that uh you're using data classes throughout. Yep. Uh is that for speed reasons or any other reasons? I think that is the canonical thing in in Python and so they're like if you're not trying to perform validation, I think",
+      "start": 1740,
+      "duration": 6
+    },
+    {
+      "text": "that they're generally the kind of Yeah, the canonical choice over Pydantic models. I I mean, it doesn't make any difference. The performance of any of the any of these cases, the Pydantic validation or the data class construction time will be",
+      "start": 1746,
+      "duration": 6
+    },
+    {
+      "text": "shrinking, you know, 0.0001% of the performance. Thank you. Thanks for the presentation. I had a quick question. So, with the um prompt optimization, obviously that's like a type of context engineering, right? So, I was wondering, have you done evals",
+      "start": 1752,
+      "duration": 6
+    },
+    {
+      "text": "where you've combined that with um essentially summar- cuz obviously when you you there's con- context degradation, even though the context window is so big, obviously after like five or so, it'll still be less than so or after 20, you know, calls, it'll be",
+      "start": 1758,
+      "duration": 6
+    },
+    {
+      "text": "less than very quickly. So, combining prompt optimization with just spinning up new um uh LLM calls and uh new context uh restarts as opposed to say uh compaction which still reduces as well. The compaction strategy is definitely one of the things you want to",
+      "start": 1764,
+      "duration": 6
+    },
+    {
+      "text": "go and optimize in a more complex case. Yeah. I think here we optimize for something that everyone can grok in a in a in a session rather than the most complex use cases, but yes, definitely that's that's relevant. So, for example,",
+      "start": 1770,
+      "duration": 6
+    },
+    {
+      "text": "the the Shopify example of like uh how they were analyzing these sites, with GPT-5, you could just give it the entire content of the website and be like, \"Hey, go figure out whether this is fraudulent.\" Using a query model, you",
+      "start": 1776,
+      "duration": 6
+    },
+    {
+      "text": "couldn't do that. You needed to do something more gigantic where it like performed a bunch of like queries to look for certain terms. And so, that is a like variation on context engineering to basically allow a smaller model to",
+      "start": 1782,
+      "duration": 6
+    },
+    {
+      "text": "perform the same task and be more deterministic. Right. Thank you. I stop. Apparently, I have to stop. Thank you, everyone. >> Ooh.",
+      "start": 1788,
+      "duration": 6
+    }
+  ]
+}

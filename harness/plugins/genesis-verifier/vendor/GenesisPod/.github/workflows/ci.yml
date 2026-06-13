@@ -1,0 +1,387 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
+      - ".claude/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
+      - ".claude/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  NODE_OPTIONS: "--max-old-space-size=8192"
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/genesis_test
+
+jobs:
+  # ── Lint & Type Check ─────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=prisma/schema
+        working-directory: ./backend
+
+      - name: Backend ESLint
+        run: npm run lint:backend
+
+      - name: Backend type check
+        run: npm run type-check:backend
+
+      - name: Frontend ESLint
+        run: npx next lint --quiet 2>/dev/null || npx next lint
+        working-directory: ./frontend
+
+      - name: Frontend type check
+        run: npm run type-check:frontend
+
+  # ── Backend Tests ──────────────────────────────────────────
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: genesis_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=prisma/schema
+        working-directory: ./backend
+
+      - name: Run migrations
+        run: npx prisma migrate deploy --schema=prisma/schema
+        working-directory: ./backend
+
+      - name: Fix sharp optional dep (npm bug #4828)
+        run: npm install sharp --no-save || true
+
+      - name: Run tests
+        run: npm run test:quick
+        working-directory: ./backend
+        env:
+          JWT_SECRET: test_secret
+          NODE_ENV: test
+
+      - name: Upload coverage
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/coverage/lcov.info
+          flags: backend
+          fail_ci_if_error: false
+
+  # ── Frontend Tests ─────────────────────────────────────────
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Fix rollup optional dep (npm bug #4828)
+        run: npm install @rollup/rollup-linux-x64-gnu --no-save || true
+
+      - name: Run tests
+        run: npm run test:ci -- --coverage
+        working-directory: ./frontend
+
+      - name: Upload coverage
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
+
+  # ── Frontend Build ─────────────────────────────────────────
+  build:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Build Next.js
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NODE_ENV: production
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/.next/
+          retention-days: 7
+
+  # ── Quality & Security ────────────────────────────────────
+  quality:
+    name: Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Check formatting (changed files only)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base SHA — skipping format check"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.md' | grep -v 'node_modules/' | grep -v 'docs/_archive/' || true)
+
+          if [ -z "$CHANGED" ]; then
+            echo "No formattable files changed"
+            exit 0
+          fi
+
+          echo "Checking $(echo "$CHANGED" | wc -l) files..."
+          echo "$CHANGED" | xargs npx prettier --check
+
+      - name: Security audit (production deps)
+        run: |
+          cd backend && npm audit --audit-level=critical --omit=dev --json > /tmp/be.json 2>/dev/null || true
+          cd ../frontend && npm audit --audit-level=critical --omit=dev --json > /tmp/fe.json 2>/dev/null || true
+
+          BE=$(node -e "try{console.log(require('/tmp/be.json').metadata?.vulnerabilities?.critical||0)}catch{console.log(0)}")
+          FE=$(node -e "try{console.log(require('/tmp/fe.json').metadata?.vulnerabilities?.critical||0)}catch{console.log(0)}")
+
+          echo "Backend critical (prod): $BE | Frontend critical (prod): $FE"
+
+          if [ "$BE" -gt 0 ] || [ "$FE" -gt 0 ]; then
+            echo "CRITICAL production vulnerabilities found"
+            exit 1
+          fi
+
+      - name: Check for secrets in diff
+        run: |
+          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -E '\.(env|key|pem|p12|pfx)$'; then
+            echo "Secret files detected in commit!"
+            exit 1
+          fi
+
+      - name: Facade boundary check
+        run: bash scripts/devops/check-facade-boundary.sh
+
+  # ── Architecture Boundary ─────────────────────────────────
+  arch-boundary:
+    name: Architecture Boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=prisma/schema
+        working-directory: ./backend
+
+      - name: Architecture boundary spec
+        run: npm run verify:arch
+        working-directory: ./backend
+
+  # ── UI Discipline ─────────────────────────────────────────
+  # 前端公共组件 + 布局范式看护（标准 22）。此前只在本地 .husky/pre-push 拦截，
+  # CI 无关卡——`--no-verify` 或无 husky 环境推送可绕过（2026-06-06 补 CI 合并门）。
+  # 跑 hard-zero 的 audit:ui-discipline（任一规则违规 exit 1）；tokens 审计是 warn-only 不入门控。
+  ui-discipline:
+    name: UI Discipline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: UI discipline audit (frontend)
+        run: npm run audit:ui-discipline
+
+      - name: Tool categories guard (frontend↔backend unified)
+        run: npm run audit:tool-categories
+
+      - name: AI-app overview docs coverage guard
+        run: npm run audit:ai-app-docs
+
+  # ── Boot Smoke Test ───────────────────────────────────────
+  # CI 从不真正启动应用（单测大量 mock），循环导入引发的 DI 解析崩溃
+  # 会一路漏到生产（2026-06-03 ContentFetchService 生产崩溃，hotfix #220）。
+  # 本 job 用 NestFactory.create(AppModule) 实例化完整 provider 依赖图——
+  # DI 循环崩溃正是在此阶段触发——但不调用 app.init()，故无需 Redis/外部网络。
+  boot-smoke:
+    name: Boot Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      # 构建到 dist（含 prisma generate + tsc + tsc-alias）——boot 测试针对编译产物运行，
+      # 与生产 `node dist/main.js` 启动路径一致，且避开 tsx 对 `@/` paths 的解析 bug。
+      - name: Build backend
+        run: npm run build
+        working-directory: ./backend
+
+      - name: Boot smoke test (DI graph resolution)
+        run: npm run test:boot
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/genesis_test
+          JWT_SECRET: test_secret
+          STORAGE_ADMIN_KEY: test_storage_admin_key
+          NODE_ENV: test
+
+  # ── Capability Index ──────────────────────────────────────
+  # 能力索引漂移看护：capabilities.json 必须与 facade/ui 公共导出一致。
+  # 新增/删除公共能力但忘刷新索引 → Agent 复用清单失真 → 重复造轮子。
+  # 纯 AST 解析源文件，无需 DB / prisma / build。
+  capability-index:
+    name: Capability Index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Capability index drift check
+        run: npm run capabilities:check
+
+  # ── CI Gate ────────────────────────────────────────────────
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      [
+        lint,
+        test-backend,
+        test-frontend,
+        build,
+        quality,
+        arch-boundary,
+        ui-discipline,
+        boot-smoke,
+        capability-index,
+      ]
+    steps:
+      - name: Check results
+        run: |
+          echo "Lint:           ${{ needs.lint.result }}"
+          echo "Test Backend:   ${{ needs.test-backend.result }}"
+          echo "Test Frontend:  ${{ needs.test-frontend.result }}"
+          echo "Build:          ${{ needs.build.result }}"
+          echo "Quality:        ${{ needs.quality.result }}"
+          echo "Arch Boundary:  ${{ needs.arch-boundary.result }}"
+          echo "UI Discipline:  ${{ needs.ui-discipline.result }}"
+          echo "Boot Smoke:     ${{ needs.boot-smoke.result }}"
+          echo "Capability Idx: ${{ needs.capability-index.result }}"
+
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.test-backend.result }}" != "success" ] || \
+             [ "${{ needs.test-frontend.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.quality.result }}" != "success" ] || \
+             [ "${{ needs.arch-boundary.result }}" != "success" ] || \
+             [ "${{ needs.ui-discipline.result }}" != "success" ] || \
+             [ "${{ needs.boot-smoke.result }}" != "success" ] || \
+             [ "${{ needs.capability-index.result }}" != "success" ]; then
+            echo "CI failed"
+            exit 1
+          fi
+          echo "All checks passed"

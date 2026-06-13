@@ -1,0 +1,409 @@
+{
+  "videoId": "JomVvNDjGb8",
+  "title": "Your Coding Agent Should Do AI System Engineering — Ben Burtenshaw, Hugging Face",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 19484,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> Hi everyone. As you heard, I'm Ben from\nHugging Face and the talk that I'm going\nto present to you today is called your\ncoding agent should do AI systems\nengineering.\nSo, there are two main takeaways that I\nwant you to get from this talk.\nOne, and probably the fun part, is that\nwe can use coding agents to tackle the\nhardest engineering problems in AI, so\nsystems engineering and machine learning\nengineering. And maybe the boring part\nis that in order to do this, we're going\nto need standard repos and we're going\nto need those on the hub. And in many\ncases, we already have them.\nSo, I think in this case, I'm preaching\nto the choir here, but in case you\nhaven't noticed, coding agents have been\naccepted. Many of of the of us have been\nusing them for a few years, but in the\nlast few months, it seems to have\ncrossed a sort of acceptance gradient\nwhere a\nbroader group of people are using them.\nSo, with this in mind, how do we keep\nour careers, our engineering kind of\ncontemporary and how do we keep\nchallenging ourselves in new areas? And\nmy proposal is that we need to go kind\nof closer to the silicon and tackle\nharder problems.\nAnd and that's where AI systems\nengineering comes in.\nI've broken this talk down into three\nprogressively\nmore complex steps and more autonomous\nsteps as well. And I've defined those\nlike three bosses from games.\nThe first one is a hybrid approach where\nyou interactively use an agent to solve\nto write a CUDA kernel.\nThe second is a zero-shot task where an\nagent takes a prompt and trains an LLM\non Hugging Face. The third is a\nmulti-agent auto research setup, like a\nkind of automated AI lab.\nSo, let's get started on on the first\nboss, right? This is writing CUDA\nkernels.\nSo, for a while, writing custom kernels\nwas seen as this unattainable goal for\nthe humble agent.\nThey required complex DSLs, they\nrequired integration with relevant\nhardware to be benchmarked and to be\ntested, and it was seen as something\nthat couldn't be achieved by agents.\nHowever, that in most cases was wrong.\nIf you look at\nkernel hackathons\nlike those on GPU mode, the recent AMD\nhackathon, if you look at papers like\nkernel bench, you'll see that agents are\nable to write valid and optimized CUDA\nkernels.\nAnd and that's really cool and something\nthat totally inspires me. I'm a part of\nGPU mode, I contribute to that, and and\nsomething that I think everyone should\nbe doing.\nHowever, what do we do with them? How do\nwe distribute them and how do we get\nthem into our inference engine so that\nwe actually are using these optimized\nkernels that we're generating?\nAnd that's part of the question of this\npart of the talk.\nLet's take a step back now and just\nsay what a kernel is, right? So, when\nyou run an AI model on a GPU, the actual\nwork is executed through a kernel. This\nwill be defined in a relevant language\nfor that hardware and it will use\nrelevant features to that hardware that\nmay not be available on other hardware.\nWe can write custom kernels that will\ntake advantage of that hardware for a\nspecific math operation, kind of squeeze\neverything we can out of it so that the\nmodel will infer faster.\nIn general, this requires a lot of\nexpertise about writing CUDA kernels,\nabout the hardware,\nand it's also a bit of an installation\nhell as you deal with a pretty large\ninstall matrix from hardware to software\nto generations and versions of say CUDA\nand these kind of issues. So,\nin short, it's hard.\nEfficiency in deep learning, so\nefficiency in kernels, is split into\nthree main sections. One, compute, two,\nmemory, and three, overhead.\nCompute is the flops. This is These are\nthe matrix multiplications and the the\nreal math of the process. Memory is the\ntime spent moving data or tensors around\nmemory, typically from slow to fast\nmemory. And overhead is basically\neverything else, the Python environment,\nPyTorch dispatch of those kernels, these\nkinds of things.\nIn general, most people might assume\nthat the compute is the bottleneck here\nbecause it's doing most of the math,\nright?\nThat's not correct. So, in most cases,\nmemory is usually the bottleneck. And\nthat's because a modern GPU, let's take\na H100 for example, can do a petaflop a\nsecond of computation, but its memory\nbandwidth is 3 terabytes. So, in short,\nthe GPU is often waiting idle for this\ntensors to come back for it for them to\nbe computed.\nThere are custom kernels, custom\noptimized kernels that exist. Flash\nattention being the poster child of\nthese. And in general, what they do is\nincrease arithmetic intensity. They\nbasically make the GPU do more sums at\nonce per read and write. So, we move the\ntensors across, we do as much math as\npossible in the GPU in one go, and then\nwe write it back. In short, people like\nto say we keep the GPUs warm.\nAnd that's the objective of writing a\ncustom CUDA kernel.\nHugging Face has a library called\nkernels, which is maintained by kernel\nwriters, and we're beginning to scale up\nto a kind of agentic workloads. So, at\nits core, this is a way of distributing\nkernels. It has a toml file like any\nkind of project, which says which\nhardware it works on, which versions of\nCUDA and other kind of softwares it\nrequires to work. And it's a it's now\nalso a repo on the hub, just like\nmodels. So, if you are a kernel writer\nor you're an aspiring kernel writer with\nan agent that you want to set up, you\ncan now be a kernel publisher, just like\na model publisher.\nAnd my point is that this is like a kind\nof super fervent ground for\nAI engineers looking to kind of scale\ntheir career.\nIf you check out these repos on the hub,\nyou'll see that there's compatibility\nfor different hardware. You can\nconfigure that so you know, like, okay,\nthis works on my GPU or on my laptop.\nAnd this is what it looks like here.\nRight, let's take a look at what this\nlooks like for an agent and how we're\nhelping an agent to do this. So,\nfirst, we're going to go to how we do\nthis, so skills.\nSo, I'm sure everyone here is familiar\nwith skills and and I'm sure there've\nbeen a number of talks that really go\ndeep into skills.\nI don't like to I like to keep them\npretty simple and and really they're\njust kind of file-based context. With\nall the wonders of files, we can open\nthem and close them, we can version\nthem, we can source control them, and\nthese kinds of things. And agents can\nalso do the same. They can open them\nwhen they need them, they can use them\nwhen they don't. And so, in the context\nof kernels, that means that we can give\nexamples of how to write and how to use\nkernels in skills and they can open\nthose and use them when they need. I\nlike to say that it takes a task from\nbeing zero-shot to being few-shot, which\nin ML is quite a familiar concept,\nright? We're just giving the agent\nexamples of how to do things.\nAnd we can be quite verbose and\ndescriptive about that.\nAt Hugging Face, we're focusing on\nintegrating skills into their projects.\nSo, what you'll find is that inside each\nproject, there's\nmanaged skills by that project, which we\nthink is the best way to do this because\nit means that those projects\nthat the maintainers of those projects\nare maintaining their skills, right?\nThat means that they're not necessarily\nthe most like YOLO skills because\nthey're kind of like well-maintained and\nrobust. And we have another repo for\nthose kind of more experimental skills,\nwhich is called Hugging Face skills. Go\nand check that out if you want to try\nsome of these examples you'll see today.\nIn kernels, this is what the skill looks\nlike. It focuses on benchmarking, so it\nhas scripts that allow you to\nbenchmark and test the skill, sorry, to\ntest the kernel and see how performant\nit is, and references with examples of\nhow to do this.\nWe benchmark this skill and we\nused we generated a a kernel for Qwen 3\n8B for H100, and we found that we had a\n94% speedup. This isn't a state of the\nart speedup on this model by any means.\nIt's really just about compatibility and\na compatibility matrix. So, in many\ncases, these models and their kernels\nwon't be optimized for the respective\nhardware or generation of hardware that\nyou want to use them on. So, you have\nsome low-hanging fruit here where you\ncan just come and pick up some some\noptimizations for that specific\nhardware. Maybe because your hardware's\ncheap on your cloud provider,\nbut it's not necessarily the most ideal\nfor the for that model that you're\nusing. So, my recommendation would be to\ncome here and like pick up some easy\nspeedups.\nHow do we know that these skills are any\ngood and and and that we should be\nsharing them and telling people to use\nthem? We use an open source library\ncalled upskill that we're also\nmaintaining.\nThis is a is a gateway to using cheaper\nand open models with skills.\nIt basically just generates skills,\ngenerates an eval for the skill, and\nthen allows you to compare different\nmodels on the same skill. So, you can\nsee things like this. So, okay, GPT-OSS\nis slightly less accurate using the same\ntokens. Kimmy is more accurate and using\nless tokens. Haiku is a bit more\naccurate using less tokens, and these\nkinds of things. So, if you've got a\nskill and you're using it regularly and\nyou're thinking to yourself, okay, how\ncan I save a few pennies here and and\nget a different model on the go, then\ntry out upskill and it allow you to\niterate on your skill and and improve\nit.\nRight, let's move on to boss two. I'm\ngoing to go through this one pretty\nquickly. This is about fine-tuning\nmodels. If you're really into this,\nthere was a talk yesterday by my\ncolleague Merve that went into this\ndeeply. There's also a blog post here\nwhere we got Claude to do this. This was\nfrom back in November-December time now.\nGo and check this out. Basically, you\ncan just say fine-tune Qwen 3 6B on this\ndataset. This is a chain of thoughts\ndataset. And you'll improve the model's\nchain of thoughts. This is fully\nintegrated to the hub now, so you can\neven run the GPUs on on the hub and it\nuses HF CLI skills, so it's all very\navailable. I would try this one out. You\ncan also try this one out. This is uses\nOnslaught, so it's even cheaper. This\nruns with like optimized models, and\nit's maintained by Onslaught and by us,\nand it's another blog post, and there's\nalso often free credits that you can get\naround these blog posts. So, I go and\ncheck these out.\nOkay, let's move on to the the big one.\nUh this is\nAutoLab multi-agent research, which is a\nproject that kind of\nbasically keeps me up at night.\nAndre Karpathy a few weeks ago, maybe a\nmonth ago now, released a project called\nAuto Research, which was based on his\nother projects,\nnanoGPT and nanochat, and it took the\nnanoGPT architecture and got Claude code\nto create improve to write improvements\nto that training script so that it would\nimprove the training process. So, we can\nsee here the experiments going over, and\nthen for each experiment there's a\nchange in the training script, which\nincreases the efficiency measured in\nbits per bytes of that run. And we can\nsee that the efficiency ends at its best\nat the end of the process. I, like\neveryone, thought this was super cool,\nand I had to start implementing it\nstraight away. But one of the things\nthat stood out to me was I like found it\nkind of weird that we had one agent\nworking in a single way, iterating,\ngoing, finding improvements, and then\nimplementing them. And it would make\nsense to kind of distribute this.\nSo, that's what I did. I distributed the\ntask amongst the research team with four\ntypes. We have a researcher that\nbasically looks up papers. For this we\nuse HF papers, but we can also use\narchive papers. HF papers is cool\nbecause it has a CLI, so you can just\npull and search papers from the hub, and\nit acts as a lit literature scout. So,\nit just looks up for papers with ideas,\nand it formulates those as hypotheses.\nWe then have a planner, which takes\nthose hypotheses and maintains like a\nqueue of jobs.\nWe then have a set of workers, and they\npick up those hypotheses, and their job\nis to implement them\nas training scripts. So, in many cases\njust like change the architecture or\nchange a parameter or something. And\nthen we have a a reporter agent that\ngoes and monitors all these jobs and\nmaintains a dashboard that we can use.\nSo, this is what it looks like. If you\nsee here that we have\nworking in a in a GitHub project, right?\nSo, in a Git project, sorry. And we have\na main branch that we maintain with our\ntrain scripts that we're updating in\neach branch, and then like a train\noriginal that we that we keep. And then\nwe have a data structure in the main\nbranch that we use to just keep the\nscores.\nThen we implemented this in open code\nfor this example, but in the repo, which\nyou can also go and check out,\nthey it's also implemented in Codex and\nClaude if you want to try those. I also\nimplemented it in Gastown, but that's\nkind of wild west stuff, so I did it as\na separate project. Um but basically it\nworks\nreally anywhere because it's more just a\nconceptual implementation, right?\nAnd first you have your planner creating\nhypotheses, you have your researchers\nlooking up paper, and then your reporter\npicking all of this up, handing to\nworkers as I said. Those workers\nintegrate with HF jobs, so they start\nthese jobs off on the hub that run with\nthe hardware that they need, and then\nthey submit these patches that go back.\nThe reporter operates in Trackio, which\nis a an open source dashboard that we\nuse for all metrics. Trackio is useful\nwith agents because it uses a completely\nopen data layer, basically parquet. So,\nif you don't want the dashboard or your\nagent doesn't want the dashboard for any\nreason, it can just get into the parquet\nand just do whatever you want. So, if\nyou need a Gantt chart or some other\nvisualization, it can just go and and do\nthat. So, I would say it's like the best\nagent dashboard tool because it is\nbasically just a data store. You know,\nit's basically just a data structure.\nOkay, so let's first walk through this\nnow.\nSo, this is it implemented in open code.\nIf you don't know open code, you have\nlike agent configuration. So, in this\none I just set AutoLab, which is the\nname of the agent configuration I have.\nIt has skills. This is the prompt, so it\nsays like run one autonomous local\nresearch or auto research pass in the\nrepo using defined roles.\nI tell it to use planner\nto propose up to first single change\nexperiments, use reviewer to reject\nduplicates or stale ideas. I also tell\nit to use like a HF bucket because I\nwant all of the storage to be in the\nsame bucket so that I don't have to\nupload or download the training scripts\nevery time.\nAnd then we go and we select one of the\nsub agents. There's a nice UI interface\nin open code, but it's similar in other\ntools.\nSo, I select the planner, and then\nyou'll see that the planner receives\nthis prompt, and it uses a specific\ntemplate, which I defined in my\nconfiguration of like it's going to have\ncurrent state, it's going to have a\na list of the jobs so far, things that\nhave worked, which were defined by the\nreviewer, current hyper parameters that\nit can change. And it's basically just\ndefining these jobs, which will go on to\nthe the job list as I mentioned.\nWe then switch over to a reviewer agent,\nwhich will receive all of these jobs. It\nhas a similar kind of structure based on\na template,\na reference to where it should be\nworking from, and the latest score that\nit should be using. It gets an overview\nof all the failed and successful\nexperiments, which it will then like use\nto base its decisions of what goes into\nthe next queue on. And it creates this\nlittle table, which we don't really need\nto look at. It's really just for the\nagents to interact with each other and\nto get this information back. To be\nhonest, that's a little bit of a verbose\nexample, and we maybe don't need this\nmany tables, and you could probably trim\nthat bit down.\nBut in general, I'd recommend if you\nthink this is cool, go and try that out\nin the repo.\nAfter that, so this agent runs in\nparallel, sometimes for hours, and this\nis the Trackio dashboard that we use,\nand these are all the runs that are\npushed to Trackio. As I said, the main\nadvantage here is that this is fully\nopen source, and it's just a data layer.\nBut we get all of these kinds of\nvisualizations.\nTrackio can also have like events and\nwarnings, so we can have all of these\nevents being reported by different\nagents, and we can filter those down.\nWe can also even tie those up to like\nnotifications, so you can get emails\nfrom Trackio if you want, if like your\nagents are kind of going rogue or\nsomething\nand you need help. But best of all,\nTrackio just has this\nlike just free-form structure, so you\ncan just throw tables in that don't\nnecessarily fit with any other\nstructure.\nAnd then on the hub side, all of these\njobs are just run inside Hugging Face,\nso you can explore those jobs. And in\nmost cases, you can tell the agents to\nuse like labels, and you can sort those\nlabels and review through what they're\ndoing.\nOr you can just look at it like this. As\nI mentioned, you can access that\nunderlying data layer and just create a\nGantt chart because this was a kind of\nconvenient way to look at what the\nagents were doing over time. So, you can\nsee like this amber agent went off, and\nthis was the score that it got. But you\ncould visualize this however you want\nbecause you have access to this data\nlayer.\nThe kind of TLDR of the whole thing is\nthat, yeah, you can go and just have\nyour kind of own AI lab, and you can try\nit out. And if you have a verifiable\nexperiment like training a model or\ndoing\nor writing CUDA kernels, then it is\npretty easy to to implement and set up\nand and to learn some stuff.\nSo, let's now look at the the takeaways\nI'd say.\nSo, the in in simple terms, I'd say that\nagents work really well with primitives\nand and open primitives, and we want\ntools that are fully open, things like\nTrackio, things like kernels that we can\nexpose to agents and they can kind of\ncontrol in their own way. Even though\nabstracted APIs are really useful, if we\nhave a layer that we can't necessarily\nget behind, that that is a ceiling.\nSo, we don't always need to extract.\nIt's more about exposing well.\nAnd the other takeaway is that the hub\nis is ready. The Hugging Face hub is\nready for these kind of workloads. We\nhave the the fundamentals in place like\nstorage, tracking, and compute, which I\nthink will allow us to scale our\nengineering to, yeah, new levels.\nIf you found any of this interesting,\nI've shared it all on X, I've shared it\nall on Hugging Face, and you there's a\nblog post about basically each one of\nthe examples that I just shared with\nyou, and they all have repos attached to\nthem, so you can go and try that out for\nyourself. If you find anything that's\nbroken, like please tell me off. If you\nthink that this was completely wrong,\ncome and find me afterwards and and sort\nof bully me, and that's fine. Uh but\nmost of all, thank you.\n>> [applause]",
+  "segments": [
+    {
+      "text": "[music] >> Hi everyone. As you heard, I'm Ben from Hugging Face and the talk that I'm going to present to you today is called your coding agent should do AI systems engineering. So, there are two main takeaways that I want you to get from this talk.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "One, and probably the fun part, is that we can use coding agents to tackle the hardest engineering problems in AI, so systems engineering and machine learning engineering. And maybe the boring part is that in order to do this, we're going",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "to need standard repos and we're going to need those on the hub. And in many cases, we already have them. So, I think in this case, I'm preaching to the choir here, but in case you haven't noticed, coding agents have been",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "accepted. Many of of the of us have been using them for a few years, but in the last few months, it seems to have crossed a sort of acceptance gradient where a broader group of people are using them. So, with this in mind, how do we keep",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "our careers, our engineering kind of contemporary and how do we keep challenging ourselves in new areas? And my proposal is that we need to go kind of closer to the silicon and tackle harder problems. And and that's where AI systems engineering comes in.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "I've broken this talk down into three progressively more complex steps and more autonomous steps as well. And I've defined those like three bosses from games. The first one is a hybrid approach where you interactively use an agent to solve",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "to write a CUDA kernel. The second is a zero-shot task where an agent takes a prompt and trains an LLM on Hugging Face. The third is a multi-agent auto research setup, like a kind of automated AI lab. So, let's get started on on the first",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "boss, right? This is writing CUDA kernels. So, for a while, writing custom kernels was seen as this unattainable goal for the humble agent. They required complex DSLs, they required integration with relevant hardware to be benchmarked and to be",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "tested, and it was seen as something that couldn't be achieved by agents. However, that in most cases was wrong. If you look at kernel hackathons like those on GPU mode, the recent AMD hackathon, if you look at papers like",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "kernel bench, you'll see that agents are able to write valid and optimized CUDA kernels. And and that's really cool and something that totally inspires me. I'm a part of GPU mode, I contribute to that, and and something that I think everyone should be doing.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "However, what do we do with them? How do we distribute them and how do we get them into our inference engine so that we actually are using these optimized kernels that we're generating? And that's part of the question of this part of the talk.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Let's take a step back now and just say what a kernel is, right? So, when you run an AI model on a GPU, the actual work is executed through a kernel. This will be defined in a relevant language for that hardware and it will use",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "relevant features to that hardware that may not be available on other hardware. We can write custom kernels that will take advantage of that hardware for a specific math operation, kind of squeeze everything we can out of it so that the",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "model will infer faster. In general, this requires a lot of expertise about writing CUDA kernels, about the hardware, and it's also a bit of an installation hell as you deal with a pretty large install matrix from hardware to software",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "to generations and versions of say CUDA and these kind of issues. So, in short, it's hard. Efficiency in deep learning, so efficiency in kernels, is split into three main sections. One, compute, two, memory, and three, overhead.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Compute is the flops. This is These are the matrix multiplications and the the real math of the process. Memory is the time spent moving data or tensors around memory, typically from slow to fast memory. And overhead is basically",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "everything else, the Python environment, PyTorch dispatch of those kernels, these kinds of things. In general, most people might assume that the compute is the bottleneck here because it's doing most of the math, right? That's not correct. So, in most cases,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "memory is usually the bottleneck. And that's because a modern GPU, let's take a H100 for example, can do a petaflop a second of computation, but its memory bandwidth is 3 terabytes. So, in short, the GPU is often waiting idle for this",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "tensors to come back for it for them to be computed. There are custom kernels, custom optimized kernels that exist. Flash attention being the poster child of these. And in general, what they do is increase arithmetic intensity. They",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "basically make the GPU do more sums at once per read and write. So, we move the tensors across, we do as much math as possible in the GPU in one go, and then we write it back. In short, people like to say we keep the GPUs warm.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "And that's the objective of writing a custom CUDA kernel. Hugging Face has a library called kernels, which is maintained by kernel writers, and we're beginning to scale up to a kind of agentic workloads. So, at its core, this is a way of distributing",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "kernels. It has a toml file like any kind of project, which says which hardware it works on, which versions of CUDA and other kind of softwares it requires to work. And it's a it's now also a repo on the hub, just like models. So, if you are a kernel writer",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "or you're an aspiring kernel writer with an agent that you want to set up, you can now be a kernel publisher, just like a model publisher. And my point is that this is like a kind of super fervent ground for AI engineers looking to kind of scale their career.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "If you check out these repos on the hub, you'll see that there's compatibility for different hardware. You can configure that so you know, like, okay, this works on my GPU or on my laptop. And this is what it looks like here.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Right, let's take a look at what this looks like for an agent and how we're helping an agent to do this. So, first, we're going to go to how we do this, so skills. So, I'm sure everyone here is familiar with skills and and I'm sure there've",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "been a number of talks that really go deep into skills. I don't like to I like to keep them pretty simple and and really they're just kind of file-based context. With all the wonders of files, we can open them and close them, we can version",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "them, we can source control them, and these kinds of things. And agents can also do the same. They can open them when they need them, they can use them when they don't. And so, in the context of kernels, that means that we can give",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "examples of how to write and how to use kernels in skills and they can open those and use them when they need. I like to say that it takes a task from being zero-shot to being few-shot, which in ML is quite a familiar concept,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "right? We're just giving the agent examples of how to do things. And we can be quite verbose and descriptive about that. At Hugging Face, we're focusing on integrating skills into their projects. So, what you'll find is that inside each project, there's",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "managed skills by that project, which we think is the best way to do this because it means that those projects that the maintainers of those projects are maintaining their skills, right? That means that they're not necessarily the most like YOLO skills because",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "they're kind of like well-maintained and robust. And we have another repo for those kind of more experimental skills, which is called Hugging Face skills. Go and check that out if you want to try some of these examples you'll see today.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "In kernels, this is what the skill looks like. It focuses on benchmarking, so it has scripts that allow you to benchmark and test the skill, sorry, to test the kernel and see how performant it is, and references with examples of how to do this.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "We benchmark this skill and we used we generated a a kernel for Qwen 3 8B for H100, and we found that we had a 94% speedup. This isn't a state of the art speedup on this model by any means. It's really just about compatibility and",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "a compatibility matrix. So, in many cases, these models and their kernels won't be optimized for the respective hardware or generation of hardware that you want to use them on. So, you have some low-hanging fruit here where you",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "can just come and pick up some some optimizations for that specific hardware. Maybe because your hardware's cheap on your cloud provider, but it's not necessarily the most ideal for the for that model that you're using. So, my recommendation would be to",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "come here and like pick up some easy speedups. How do we know that these skills are any good and and and that we should be sharing them and telling people to use them? We use an open source library called upskill that we're also maintaining.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "This is a is a gateway to using cheaper and open models with skills. It basically just generates skills, generates an eval for the skill, and then allows you to compare different models on the same skill. So, you can see things like this. So, okay, GPT-OSS",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is slightly less accurate using the same tokens. Kimmy is more accurate and using less tokens. Haiku is a bit more accurate using less tokens, and these kinds of things. So, if you've got a skill and you're using it regularly and",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "you're thinking to yourself, okay, how can I save a few pennies here and and get a different model on the go, then try out upskill and it allow you to iterate on your skill and and improve it. Right, let's move on to boss two. I'm",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "going to go through this one pretty quickly. This is about fine-tuning models. If you're really into this, there was a talk yesterday by my colleague Merve that went into this deeply. There's also a blog post here where we got Claude to do this. This was",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "from back in November-December time now. Go and check this out. Basically, you can just say fine-tune Qwen 3 6B on this dataset. This is a chain of thoughts dataset. And you'll improve the model's chain of thoughts. This is fully",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "integrated to the hub now, so you can even run the GPUs on on the hub and it uses HF CLI skills, so it's all very available. I would try this one out. You can also try this one out. This is uses Onslaught, so it's even cheaper. This",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "runs with like optimized models, and it's maintained by Onslaught and by us, and it's another blog post, and there's also often free credits that you can get around these blog posts. So, I go and check these out. Okay, let's move on to the the big one.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Uh this is AutoLab multi-agent research, which is a project that kind of basically keeps me up at night. Andre Karpathy a few weeks ago, maybe a month ago now, released a project called Auto Research, which was based on his other projects,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "nanoGPT and nanochat, and it took the nanoGPT architecture and got Claude code to create improve to write improvements to that training script so that it would improve the training process. So, we can see here the experiments going over, and",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "then for each experiment there's a change in the training script, which increases the efficiency measured in bits per bytes of that run. And we can see that the efficiency ends at its best at the end of the process. I, like",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "everyone, thought this was super cool, and I had to start implementing it straight away. But one of the things that stood out to me was I like found it kind of weird that we had one agent working in a single way, iterating,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "going, finding improvements, and then implementing them. And it would make sense to kind of distribute this. So, that's what I did. I distributed the task amongst the research team with four types. We have a researcher that",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "basically looks up papers. For this we use HF papers, but we can also use archive papers. HF papers is cool because it has a CLI, so you can just pull and search papers from the hub, and it acts as a lit literature scout. So,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "it just looks up for papers with ideas, and it formulates those as hypotheses. We then have a planner, which takes those hypotheses and maintains like a queue of jobs. We then have a set of workers, and they pick up those hypotheses, and their job",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "is to implement them as training scripts. So, in many cases just like change the architecture or change a parameter or something. And then we have a a reporter agent that goes and monitors all these jobs and maintains a dashboard that we can use.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "So, this is what it looks like. If you see here that we have working in a in a GitHub project, right? So, in a Git project, sorry. And we have a main branch that we maintain with our train scripts that we're updating in each branch, and then like a train",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "original that we that we keep. And then we have a data structure in the main branch that we use to just keep the scores. Then we implemented this in open code for this example, but in the repo, which you can also go and check out,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "they it's also implemented in Codex and Claude if you want to try those. I also implemented it in Gastown, but that's kind of wild west stuff, so I did it as a separate project. Um but basically it works really anywhere because it's more just a",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "conceptual implementation, right? And first you have your planner creating hypotheses, you have your researchers looking up paper, and then your reporter picking all of this up, handing to workers as I said. Those workers integrate with HF jobs, so they start",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "these jobs off on the hub that run with the hardware that they need, and then they submit these patches that go back. The reporter operates in Trackio, which is a an open source dashboard that we use for all metrics. Trackio is useful",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "with agents because it uses a completely open data layer, basically parquet. So, if you don't want the dashboard or your agent doesn't want the dashboard for any reason, it can just get into the parquet and just do whatever you want. So, if",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "you need a Gantt chart or some other visualization, it can just go and and do that. So, I would say it's like the best agent dashboard tool because it is basically just a data store. You know, it's basically just a data structure.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Okay, so let's first walk through this now. So, this is it implemented in open code. If you don't know open code, you have like agent configuration. So, in this one I just set AutoLab, which is the name of the agent configuration I have.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "It has skills. This is the prompt, so it says like run one autonomous local research or auto research pass in the repo using defined roles. I tell it to use planner to propose up to first single change experiments, use reviewer to reject",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "duplicates or stale ideas. I also tell it to use like a HF bucket because I want all of the storage to be in the same bucket so that I don't have to upload or download the training scripts every time. And then we go and we select one of the",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "sub agents. There's a nice UI interface in open code, but it's similar in other tools. So, I select the planner, and then you'll see that the planner receives this prompt, and it uses a specific template, which I defined in my",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "configuration of like it's going to have current state, it's going to have a a list of the jobs so far, things that have worked, which were defined by the reviewer, current hyper parameters that it can change. And it's basically just",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "defining these jobs, which will go on to the the job list as I mentioned. We then switch over to a reviewer agent, which will receive all of these jobs. It has a similar kind of structure based on a template, a reference to where it should be",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "working from, and the latest score that it should be using. It gets an overview of all the failed and successful experiments, which it will then like use to base its decisions of what goes into the next queue on. And it creates this",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "little table, which we don't really need to look at. It's really just for the agents to interact with each other and to get this information back. To be honest, that's a little bit of a verbose example, and we maybe don't need this",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "many tables, and you could probably trim that bit down. But in general, I'd recommend if you think this is cool, go and try that out in the repo. After that, so this agent runs in parallel, sometimes for hours, and this is the Trackio dashboard that we use,",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "and these are all the runs that are pushed to Trackio. As I said, the main advantage here is that this is fully open source, and it's just a data layer. But we get all of these kinds of visualizations. Trackio can also have like events and",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "warnings, so we can have all of these events being reported by different agents, and we can filter those down. We can also even tie those up to like notifications, so you can get emails from Trackio if you want, if like your agents are kind of going rogue or",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "something and you need help. But best of all, Trackio just has this like just free-form structure, so you can just throw tables in that don't necessarily fit with any other structure. And then on the hub side, all of these",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "jobs are just run inside Hugging Face, so you can explore those jobs. And in most cases, you can tell the agents to use like labels, and you can sort those labels and review through what they're doing. Or you can just look at it like this. As",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "I mentioned, you can access that underlying data layer and just create a Gantt chart because this was a kind of convenient way to look at what the agents were doing over time. So, you can see like this amber agent went off, and",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "this was the score that it got. But you could visualize this however you want because you have access to this data layer. The kind of TLDR of the whole thing is that, yeah, you can go and just have your kind of own AI lab, and you can try",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "it out. And if you have a verifiable experiment like training a model or doing or writing CUDA kernels, then it is pretty easy to to implement and set up and and to learn some stuff. So, let's now look at the the takeaways I'd say.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So, the in in simple terms, I'd say that agents work really well with primitives and and open primitives, and we want tools that are fully open, things like Trackio, things like kernels that we can expose to agents and they can kind of",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "control in their own way. Even though abstracted APIs are really useful, if we have a layer that we can't necessarily get behind, that that is a ceiling. So, we don't always need to extract. It's more about exposing well. And the other takeaway is that the hub",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "is is ready. The Hugging Face hub is ready for these kind of workloads. We have the the fundamentals in place like storage, tracking, and compute, which I think will allow us to scale our engineering to, yeah, new levels. If you found any of this interesting,",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "I've shared it all on X, I've shared it all on Hugging Face, and you there's a blog post about basically each one of the examples that I just shared with you, and they all have repos attached to them, so you can go and try that out for",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "yourself. If you find anything that's broken, like please tell me off. If you think that this was completely wrong, come and find me afterwards and and sort of bully me, and that's fine. Uh but most of all, thank you. >> [applause]",
+      "start": 468,
+      "duration": 6
+    }
+  ]
+}

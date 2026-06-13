@@ -1,0 +1,264 @@
+{
+  "videoId": "iPihfx4H_2g",
+  "title": "FAST '26 - \"Range as a Key\" is the Key! Fast and Compact Cloud Block Store Index with RASK",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 12320,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Haoruo Zhao from\nShanghai Jiao Tong University. Today I\nwill introduce our paper Range as Key is\na Key, Fast and Compact Global Secondary\nIndex with Mask. In short, based on the\nwidespread range write characteristic in\ncloud storage, we proposed that the\nindex in cloud block store should\ndirectly index ranges rather than\nindividual blocks. We then design an\nindex structure that natively support\nrange indexing achieving improvements in\nmemory efficiency and performance.\nLet me first introduce the background\nand motivation.\nCloud block store, more commonly known\nas EBS, is a core component of cloud\nservice providing virtual block devices\nfor compute instance.\nTypically, it will require an order\nindex, which we call EBS index, to map\nlogical block addresses in virtual\ndevices to corresponding locations in\nthe background storage system.\nHowever, as the scale of EBS grows,\nsystem means represent the system is\npurely as paying memory streams.\nThis pressure limits capacity of the EBS\nindex,\nmeaning it can only track a fraction of\nonline storage.\nConsequently, a significant amount of\nphysical storage cannot be indexed\nand becomes unusable under this memory\nconstraints.\nIn the most severe cases, roughly 10% of\nclusters at risk of wasting up to 35% of\ntheir physical storage resources.\nWe find that EBS index is a memory\nconsumer. Alibaba Cloud statistics show\nthat the EBS index consumes 57.1%\nof total memory.\nBased on this, a new memory friendly\nindex is needed for Cloud Block Storage.\nHence, we move on to exploring the\npossibility of using a more compact\nindexing.\nWe begin by analyzing the field traces.\nBy doing so, we hope to exploit the\nworkload characteristic to reduce the\nindex memory footprint.\nWe extensively analyze the large-scale\nEBS traces provided by Alibaba Cloud.\nSpanning four clusters and eight\nrepresentative applications over one\nweek.\nOne notable pattern is that individual\nwrite requests that are temporally\nclose, meaning they happen around the\nsame time, can also be spatially\nconsecutive.\nIn other words, they have sequential\nlogical block addresses.\nFor example,\nconsider the four write requests A, B,\nC, and D. These target LBA ranges 1 to\n2, 11 to 12, 3 to 5, and 6 to 7,\nrespectively.\nWhile A, C, D are independent requests,\ntheir logical block addresses are\nactually consecutive.\nThat is, the ranges 1 to 2, 3 to 5, and\n6 to 7 can merge into a single block\nrange from 1 to 7.\nWe refer to a sequence like this, from 1\nto 7, as a consecutive write.\nAdditionally, such consecutive write\nsequences are widespread across eight\nrepresentative workloads in the EBS\ntraces.\n65 to 81.5% of writes apart are\nconsecutive writes.\nFurthermore, this pattern of range\nwrites is driven by the fundamental\ncharacteristic of storage system.\nBy conducting white box analysis using\nBLK trees,\nwe discovered that the root cause of the\nphenomena is that both up level\napplications, such as databases, and the\nstorage systems, like file systems, tend\nto issue sequential writes, since\nsequential writes on HDDs and SSDs are\nsignificantly faster than random writes.\nGiven how common these range writes are,\nwe argue that we should directly index\nranges, specifically using range SK,\ninstead of indexing individual blocks.\nIn the traditional EBS index, the system\nindex data at block level, like B+ tree.\nFor example, consider a block range from\n1 to 6.\nIn the traditional EBS index, we would\nneed six separate entries,\none for every block.\nHowever, by adopting range SK approach,\nwe can index in tell span with just one\nentry.\nAdopting range SK can reduce the memory\nfootprint by decreasing the entry count\ntheoretically by 58.04%\nto 91.1% for EBS.\nIt also improve performance by\neliminating the need for multiple index\nupdates for single range, and speeding\nup queries due to the smaller index\nscale.\nTherefore, we propose RASK, a high\nperformance and memory efficient index\nthat natively supports range SK. RASK\nconsists of trie\nformat internal nodes and B-tree cell\nleaves.\nSpecifically, we choose adaptive radix\ntree for the internal nodes due to its\nhigh efficiency and memory friendly\nnature. Moreover, RASK leaf nodes\nrepre- rep- leaf leaf entries represent\nthe range rather than individual blocks.\nInternal nodes index its leaves by the\nanchor key, which represents the minimum\nleft bound of the leaf ranges.\nRASC overcome two key challenges to\nrealize range as key efficiently.\nThe first challenge is range overlap,\nwhich incurs when new range intersect\nwith existing ones.\nFor example, if already have range from\ntwo to four, and we then insert a new\nrange from three to five.\nThe overlapping portion from the\nuh from three to four in the original\nrange becomes invalid.\nThis decreases read performance as the\nsystem must identify the most recent\ndata among overlapping ranges.\nAdditionally, overlaps lead to memory\nwaste by making all the ranges absolute\nwhen they're fully covered by new ones.\nLike you see here with the range one,\nwhich is now completely invalid and\nshould be removed.\nHowever, removing these covered ranges\nimmediately is difficult. It requires\ncomplex operations to evaluate the\nvarious overlapping scenarios, which\nincrease write latency.\nFor example, as shown here, range one is\ncovered by the union of three different\nranges.\nTo handle range overlap efficiently, we\npropose three techniques. First, we\nemploy log-structured leaf,\nwhere update within single leaf happen\nonly.\nThis design batches removal of covered\nranges by garbage collection only when\nthe leaf is full, reducing the impact of\noverlapping handling on write\nperformance.\nFor example, imagine a leaf node\nthat has enough space for three ranges.\nFor leaf one, we can directly write the\nfirst three ranges without any extra\noverhead. It's only when we try to to a\nfour, then the leaf is already full,\nwhich then trigger a GC process to clean\nup the covered range entries before\ninsertion.\nSecondly, to speed up lookups with\noverlapping ranges, we propose\nambulation-based search.\nThis process works by traversing the\nlog-structured leaf in the reverse\norder, moving from the newest entry to\noldest.\nFor every range we encountered, Rest\nidentify is\nuh intersection with unfooled parts of\ntarget range and then add this to the\nresult.\nSpecifically, we trace the target ranges\nunfooled parts in order list called\nunfooled list.\nLet's use the following example to\nillustrate how this search works in\npractice.\nTo start, the unfooled list is\ninitialized with our target range, 3 to\n15.\nWhen we process the first range, 4 to 6,\nwe identify the intersection with the\nunfooled list.\nThis overlapping part, 4 to 6, is added\nto our search result.\nIt immediately after, this sub range is\nremoved from the unfooled list.\nWith unfooled list is now updated, we\nmove on to the next range, 9 to 10,\nrepeating this process until the entire\nsearch completes.\nThird, the efficiency of GC is crucial\nto write performance since ongoing\nwrites must wait for the GC to complete\nwhen the leaf is full.\nTherefore, we propose a two-stage GC to\nreduce the write blocking time caused by\ngarbage collection. The first stage,\ncalled lightweight GC, quickly remove\nsome common covered ranges to resume\nwrites as soon as possible. The second\nstage, called normal GC, solid remove\nall fully covered ranges.\nOur trace analysis reveals that many\ncovered ranges share identical left\nbounds with newer ones. Large ranges is\nlightweight GC only checks for ranges\nwith the same left bounds, which\nsimplifies the such GC significantly.\nWhen lightweight GC cannot free up any\nspace, normal GC is triggered. For\nexample, look at\nthe leaf node on the slice. Lightweight\nGC only removes range two, which shares\nthe same left bound with range four. In\ncontrast,\nnormal GC can remove all ranges covered\nby range four, meaning both range two\nand range three are removed.\nThe second challenge we face is range\nfragmentation.\nSince a leaf cannot hold an infinite\nnumber of entries to represent an\ninfinite space,\nfragmentation is inevitable.\nWhen a user written range spans boundary\nof multiple leaf nodes, it must be\ndivided and stored across them.\nFor example, imagine range leaf one\nrepresents a range space 30 to 3 and\nleaf two represents 4 to 8. If a user\nwrites a range from 1 to 5, the single\nrequest is forced to be split into two\nnew sub-ranges, 1 to 3 and 4 to 5, to\nfit into the respective leaves.\nThis fragmentation increase run, read,\nwrite, and memory overhead. For\ninstance, because the range is split,\nthe memory overhead doubles\nand the number of ranges that need to be\nread or written also doubles.\nRASC can reduce range fragmentation\nthrough proper split and merge\noperations.\nWhen inserting into a full leaf and GC\ncannot free up any space,\nthe leaf is split at a split point to\ncreate a new right leaf.\nIn a traditional point-based index,\nlike B+ tree, the split point is\ntypically a midpoint,\nlike the median value six shown here,\nbecause it's range agnostic. It might\nintersect with a range in the leaf such\nas 5 to 7, causing intermediate\nfragmentation.\nTo avoid this,\nRACE will split point from the left\nbound of all existing ranges in the\nleaf.\nWe also leverage this information\ngathered during the GC to evaluate this\nboundaries.\nFinally, we choose a split point that\ndoes not intersect with any existing\nranges while maintaining a balanced\nentry count between two new leaves.\nFor example, for this original leaf,\nRACE would choose five as split point,\nwhich does not intersect with any\nranges, and can evenly distributed these\nranges into two new leaves.\nBeyond no splitting, range fragmentation\ncan also occur when you inserted range\ndo not align with existing leaves range\nspace.\nEven if a split itself does not cause\nintermediate fragmentation, a new write,\nlike a range 5\nto 25 might still span across two new\nleaves.\nTo resolve this, we introduce workload\naware merge and resplit.\nThis technique dynamically adjust the\nrange space represented by each leaf to\nadapt to the actual workload patterns,\nthereby reducing fragmentation overhead.\nSpecifically, we monitor the severity of\nrange fragmentation over time. Once it\nhits a threshold, we trigger merge and\nresplit procedure. We aggregate entries\nfrom adjacent leaves, and if it fits,\nmerge them into one. We also aggregate\nentries from adjacent leaves.\nUh we Otherwise, we split them to create\na more regional partition based on the\nrecent access patterns.\nDue to time constraints, I can only\nprovide a high-level overview of RACE\ndesign today. If you are interested in\nit, please refer to our paper for a\ndeeper dive.\nNow, let's move on to the evaluation to\nsee how RAS perform in practice.\nWe evaluate RAS against 10 state of the\nart indices\nwith production traces from Alibaba\nCloud, Google, Meta, and Tencent.\nFrom the perspective of throughput,\ncompared to the original EBS index, RAS\nachieves up to 1.8 times improvement\nwhen compared against other nine order\nindices. The improvement is up to 37.8\ntimes.\nBeyond throughput, RAS is also\nsignificantly more memory efficient\ncompared to the original EBS index. RAS\nsaves up to 80.1% of memory when\ncompared to the other nine order index\nbaselines. The savings are even more\nsubstantial, reaching up to 98.9%.\nThis ranging\ndirectly, we can resolve the memory\npressure faced by EBS.\nWe also evaluate RAS's scalability in\nthreaded environments.\nAs the number of threads increase from 1\nto 24, RAS maintains significantly lead\nover other baselines.\nWhen running at 24 threads,\nRAS's throughput reaches up to 21.5\ntimes than other baselines.\nThis demonstrates the superior\nscalability of our design in the highly\nconcurrent environments.\nIn summary, RAS is a high performance,\nmemory efficient index that natively\nsupports ranging as a key concept,\nthereby addressing the unique challenge\nin cloud block storage. Our code and\ntraces are open source and available\nonline. Thank you for attention, and I\nam happy to take any questions.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Haoruo Zhao from Shanghai Jiao Tong University. Today I will introduce our paper Range as Key is a Key, Fast and Compact Global Secondary Index with Mask. In short, based on the widespread range write characteristic in",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "cloud storage, we proposed that the index in cloud block store should directly index ranges rather than individual blocks. We then design an index structure that natively support range indexing achieving improvements in memory efficiency and performance.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "Let me first introduce the background and motivation. Cloud block store, more commonly known as EBS, is a core component of cloud service providing virtual block devices for compute instance. Typically, it will require an order",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "index, which we call EBS index, to map logical block addresses in virtual devices to corresponding locations in the background storage system. However, as the scale of EBS grows, system means represent the system is purely as paying memory streams.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "This pressure limits capacity of the EBS index, meaning it can only track a fraction of online storage. Consequently, a significant amount of physical storage cannot be indexed and becomes unusable under this memory constraints.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "In the most severe cases, roughly 10% of clusters at risk of wasting up to 35% of their physical storage resources. We find that EBS index is a memory consumer. Alibaba Cloud statistics show that the EBS index consumes 57.1% of total memory.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Based on this, a new memory friendly index is needed for Cloud Block Storage. Hence, we move on to exploring the possibility of using a more compact indexing. We begin by analyzing the field traces. By doing so, we hope to exploit the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "workload characteristic to reduce the index memory footprint. We extensively analyze the large-scale EBS traces provided by Alibaba Cloud. Spanning four clusters and eight representative applications over one week. One notable pattern is that individual",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "write requests that are temporally close, meaning they happen around the same time, can also be spatially consecutive. In other words, they have sequential logical block addresses. For example, consider the four write requests A, B,",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "C, and D. These target LBA ranges 1 to 2, 11 to 12, 3 to 5, and 6 to 7, respectively. While A, C, D are independent requests, their logical block addresses are actually consecutive. That is, the ranges 1 to 2, 3 to 5, and 6 to 7 can merge into a single block",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "range from 1 to 7. We refer to a sequence like this, from 1 to 7, as a consecutive write. Additionally, such consecutive write sequences are widespread across eight representative workloads in the EBS traces. 65 to 81.5% of writes apart are consecutive writes.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Furthermore, this pattern of range writes is driven by the fundamental characteristic of storage system. By conducting white box analysis using BLK trees, we discovered that the root cause of the phenomena is that both up level",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "applications, such as databases, and the storage systems, like file systems, tend to issue sequential writes, since sequential writes on HDDs and SSDs are significantly faster than random writes. Given how common these range writes are,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "we argue that we should directly index ranges, specifically using range SK, instead of indexing individual blocks. In the traditional EBS index, the system index data at block level, like B+ tree. For example, consider a block range from 1 to 6.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "In the traditional EBS index, we would need six separate entries, one for every block. However, by adopting range SK approach, we can index in tell span with just one entry. Adopting range SK can reduce the memory footprint by decreasing the entry count",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "theoretically by 58.04% to 91.1% for EBS. It also improve performance by eliminating the need for multiple index updates for single range, and speeding up queries due to the smaller index scale. Therefore, we propose RASK, a high",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "performance and memory efficient index that natively supports range SK. RASK consists of trie format internal nodes and B-tree cell leaves. Specifically, we choose adaptive radix tree for the internal nodes due to its high efficiency and memory friendly",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "nature. Moreover, RASK leaf nodes repre- rep- leaf leaf entries represent the range rather than individual blocks. Internal nodes index its leaves by the anchor key, which represents the minimum left bound of the leaf ranges.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "RASC overcome two key challenges to realize range as key efficiently. The first challenge is range overlap, which incurs when new range intersect with existing ones. For example, if already have range from two to four, and we then insert a new",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "range from three to five. The overlapping portion from the uh from three to four in the original range becomes invalid. This decreases read performance as the system must identify the most recent data among overlapping ranges.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Additionally, overlaps lead to memory waste by making all the ranges absolute when they're fully covered by new ones. Like you see here with the range one, which is now completely invalid and should be removed. However, removing these covered ranges",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "immediately is difficult. It requires complex operations to evaluate the various overlapping scenarios, which increase write latency. For example, as shown here, range one is covered by the union of three different ranges.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "To handle range overlap efficiently, we propose three techniques. First, we employ log-structured leaf, where update within single leaf happen only. This design batches removal of covered ranges by garbage collection only when",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "the leaf is full, reducing the impact of overlapping handling on write performance. For example, imagine a leaf node that has enough space for three ranges. For leaf one, we can directly write the first three ranges without any extra",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "overhead. It's only when we try to to a four, then the leaf is already full, which then trigger a GC process to clean up the covered range entries before insertion. Secondly, to speed up lookups with overlapping ranges, we propose ambulation-based search.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "This process works by traversing the log-structured leaf in the reverse order, moving from the newest entry to oldest. For every range we encountered, Rest identify is uh intersection with unfooled parts of target range and then add this to the result.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "Specifically, we trace the target ranges unfooled parts in order list called unfooled list. Let's use the following example to illustrate how this search works in practice. To start, the unfooled list is initialized with our target range, 3 to 15.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "When we process the first range, 4 to 6, we identify the intersection with the unfooled list. This overlapping part, 4 to 6, is added to our search result. It immediately after, this sub range is removed from the unfooled list.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "With unfooled list is now updated, we move on to the next range, 9 to 10, repeating this process until the entire search completes. Third, the efficiency of GC is crucial to write performance since ongoing writes must wait for the GC to complete",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "when the leaf is full. Therefore, we propose a two-stage GC to reduce the write blocking time caused by garbage collection. The first stage, called lightweight GC, quickly remove some common covered ranges to resume writes as soon as possible. The second",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "stage, called normal GC, solid remove all fully covered ranges. Our trace analysis reveals that many covered ranges share identical left bounds with newer ones. Large ranges is lightweight GC only checks for ranges with the same left bounds, which",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "simplifies the such GC significantly. When lightweight GC cannot free up any space, normal GC is triggered. For example, look at the leaf node on the slice. Lightweight GC only removes range two, which shares the same left bound with range four. In contrast,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "normal GC can remove all ranges covered by range four, meaning both range two and range three are removed. The second challenge we face is range fragmentation. Since a leaf cannot hold an infinite number of entries to represent an infinite space,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "fragmentation is inevitable. When a user written range spans boundary of multiple leaf nodes, it must be divided and stored across them. For example, imagine range leaf one represents a range space 30 to 3 and leaf two represents 4 to 8. If a user",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "writes a range from 1 to 5, the single request is forced to be split into two new sub-ranges, 1 to 3 and 4 to 5, to fit into the respective leaves. This fragmentation increase run, read, write, and memory overhead. For instance, because the range is split,",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "the memory overhead doubles and the number of ranges that need to be read or written also doubles. RASC can reduce range fragmentation through proper split and merge operations. When inserting into a full leaf and GC cannot free up any space,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "the leaf is split at a split point to create a new right leaf. In a traditional point-based index, like B+ tree, the split point is typically a midpoint, like the median value six shown here, because it's range agnostic. It might",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "intersect with a range in the leaf such as 5 to 7, causing intermediate fragmentation. To avoid this, RACE will split point from the left bound of all existing ranges in the leaf. We also leverage this information gathered during the GC to evaluate this",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "boundaries. Finally, we choose a split point that does not intersect with any existing ranges while maintaining a balanced entry count between two new leaves. For example, for this original leaf, RACE would choose five as split point,",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "which does not intersect with any ranges, and can evenly distributed these ranges into two new leaves. Beyond no splitting, range fragmentation can also occur when you inserted range do not align with existing leaves range space.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Even if a split itself does not cause intermediate fragmentation, a new write, like a range 5 to 25 might still span across two new leaves. To resolve this, we introduce workload aware merge and resplit. This technique dynamically adjust the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "range space represented by each leaf to adapt to the actual workload patterns, thereby reducing fragmentation overhead. Specifically, we monitor the severity of range fragmentation over time. Once it hits a threshold, we trigger merge and",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "resplit procedure. We aggregate entries from adjacent leaves, and if it fits, merge them into one. We also aggregate entries from adjacent leaves. Uh we Otherwise, we split them to create a more regional partition based on the recent access patterns.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Due to time constraints, I can only provide a high-level overview of RACE design today. If you are interested in it, please refer to our paper for a deeper dive. Now, let's move on to the evaluation to see how RAS perform in practice.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "We evaluate RAS against 10 state of the art indices with production traces from Alibaba Cloud, Google, Meta, and Tencent. From the perspective of throughput, compared to the original EBS index, RAS achieves up to 1.8 times improvement",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "when compared against other nine order indices. The improvement is up to 37.8 times. Beyond throughput, RAS is also significantly more memory efficient compared to the original EBS index. RAS saves up to 80.1% of memory when",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "compared to the other nine order index baselines. The savings are even more substantial, reaching up to 98.9%. This ranging directly, we can resolve the memory pressure faced by EBS. We also evaluate RAS's scalability in threaded environments.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "As the number of threads increase from 1 to 24, RAS maintains significantly lead over other baselines. When running at 24 threads, RAS's throughput reaches up to 21.5 times than other baselines. This demonstrates the superior",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "scalability of our design in the highly concurrent environments. In summary, RAS is a high performance, memory efficient index that natively supports ranging as a key concept, thereby addressing the unique challenge in cloud block storage. Our code and",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "traces are open source and available online. Thank you for attention, and I am happy to take any questions.",
+      "start": 294,
+      "duration": 6
+    }
+  ]
+}

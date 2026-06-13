@@ -1,0 +1,1354 @@
+{
+  "videoId": "_WaR2fjZpEQ",
+  "title": "Stanford CME296 Diffusion & Large Vision Models | Spring 2026 | Lecture 2 - Score matching",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 69379,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello, everyone, and welcome\nto lecture 2 of CME 296.\nSo today is a very\nexciting day because we'll\nbe talking about a new\ngeneration paradigm, which\nis going to be score matching.\nSo if you remember last week, we\nsaw a first generation paradigm\nwhich was diffusion with DDPM.\nSo today we're going to\nsee a new way of doing this\nand see how this relates\nto the way we were doing\nthis with diffusion with DDPM.\nSo before we start,\nI'm just going\nto recap what we saw last week.\nSo if you remember, the\nfirst three lectures\nare all about understanding\nhow we can generate new samples\nby trying to generate\nfrom a distribution pdata\nthat we do not know that\nis potentially complicated.\nSo here we have\nnothing as input.\nSo it's unconditioned\ngeneration.\nAnd our goal is to learn a\nway to generate new images.\nSo what did we see last time?\nSo our strategy\nwas to take images\nfrom the training set that\nwe called clean because they\ndid not have any kind of noise.\nAnd what we did is we\ndefined a process q that\nadded some noise progressively,\nsuch that at the end of the day,\nwe ended up with just pure\nnoise or almost pure noise.\nAnd the goal of DDPM was to\nlearn a reverse process that\nwas able to predict the noise\nto remove from the noisy image.\nSo that was the strategy.\nYou take an image.\nYou gradually add some noise.\nAnd what you do is you try to\nlearn how given a noisy image\nand given the noise\nlevel, how you can remove\nthe noise from that image.\nSo the way we went\nabout doing this\nwas through\nlikelihood estimation.\nSo we had our model p theta\nthat we're trying to learn.\nAnd what we were doing\nis trying to maximize\nthe probability of our model\nseeing the data from a training\nset.\nBut we saw that it\nwas intractable.\nSo what we did is we derived\na tractable lower bound\nthat we could also\nmaximize that could be\na good proxy for our objective.\nAnd we ended up with\nthis ELBO formulation.\nAnd what we did is we expanded\nthe terms from the lower bound.\nAnd what we saw was that\nthere was some nice terms that\ncame out of it.\nSo there was, for\ninstance, a KL divergence\nbetween exactly what\nwe wanted to learn\nand the forward process that\nwe defined that was something\nthat we could express.\nAnd then the third\nstep was to indeed show\nthat this was tractable.\nAnd we leveraged the fact\nthat we were actually\ndefining our forward\nprocess with Gaussian noise\nand with Gaussian distributions.\nAnd the good thing with\nGaussian distributions\nis there's a lot of nice\nproperties, which is things\nthat we leverage here.\nAnd at the end of the day,\nwe deduced a loss function\nthat was actually very simple.\nIt was a simple L2\nregression loss on the noise\nthat we wanted to remove.\nAll good so far?\nSo this was last time.\nAnd so this was the\nloss that we had.\nSo we had the the noised image\nas an input along with the noise\nlevel.\nAnd we had our model that we\nwanted to train which is here,\nthe noise predictor--\nepsilon theta.\nAnd what we wanted\nto do is to have\nthat match as close as possible\nthe actual noise that we use.\nAnd as I mentioned, this way of\ndoing things was just one way.\nAnd what we're\ngoing to see today\nis another way of doing this,\nwhich is called score matching.\nSo I'm going to start\nwith just taking\nanother perspective of the\nproblem that we have at stake.\nSo remember that we\nhave some training\nsets that contains some images.\nSo these are for instance, the\nTeddy bear images that we have.\nAnd our goal is to sample a new\nimage from that distribution.\nSo this set of images, they\ncome from a complex data\ndistribution, let's say,\npdata that we do not.\nAnd our goal is\nto sample from it.\nNow, a very common strategy\nthat we will again reuse here\nis to sample from\nan easy distribution\nand then to recover\nthe image that we\nwant to sample towards the end.\nSo here this cross this\nrepresents maybe an observation\nthat we can sample that\nis not part of pdata\nbut part of a distribution\nthat is easy to sample from.\nSo let's say Gaussian noise.\nSo given that what\nwe're wondering is,\nis there a way to\ngo from something\nthat is easy to sample\ntowards something that\nis hard to sample?\nDoes that make sense?\nIt's going to be\na bit more clear.\nSo let's imagine you have p\nof x, which is the probability\ndensity function that takes in\nx, the representation of images\nas input, and that tells\nyou the probability density\nof it happening at x.\nSo this is what the\nfigure is showing.\nSo here darker colors mean\nhigher values of p of x.\nSo if you were over\nhere, what would\nbe a way for you to\ncome closer to regions\nhigher values of p of x?\nSo the answer is, let's\ntake the gradient.\nSo just as a reminder,\nthe gradient of a scalar\nfunction here that\ntakes in as inputs\nx, which is multidimensional,\nand returns a scalar,\nso the gradient of the function\nis the vector of components,\npartial derivative of\nthat function with respect\nto each dimension of the\nmultidimensional space.\nAnd what the gradient\nhere represents\nis the direction where this\np of x is higher value.\nSo here the idea is\nif we can have access\nto gradient of p of x,\nthen from this starting\npoint, we can maybe go towards\nregions higher density.\nBut there is a problem.\nThe problem is that estimating\nthe gradient of the probability\ndensity function is actually\na very hard thing to do.\nAnd there are a few\nreasons for that.\nSo the first one is that\nprobability density functions,\nby definition, they\nare normalized,\nmeaning that if you\ntake the integral\ntowards the whole space,\nthe integral of p of x\nneeds to be equal to 1.\nSo you have this\nconstant, that maybe we\ncan note here z,\nthat is something\nthat is very hard, intractable\nfor you to compute,\nbecause you would need to sum\nacross all possible values\nof your space.\nAnd space is\nmulti-dimensional, and it's\na lot of computation,\nnot something\nthat you can actually do.\nSo this quantity is intractable.\nSo if p of x is intractable,\nthen if you take the gradient,\nit's also intractable.\nSo that's the first reason.\nThe second reason is different\ncompared to the first one, which\nis due to the fact that the\nprobability density function can\ntake very low values in\ncertain regions of space\nwhere there are very few data.\nSo let's suppose here--\nlet's say you have a point\nhere, then the probability\nwould be very small.\nAnd so this can cause some\nnumerical stability issues.\nSo because of these\nreasons, maybe we\ncan take a look at another\ncandidate of a way for you\nto go from a certain\npoint towards regions\nof high density of the space.\nAnd that potential candidate\ncan be the gradient\nof the log of the probability,\nas opposed to just the gradient\nof the probability.\nSo why could that be-- why\nwould that be a good candidate?\nWell, do you remember\nthe first point\nI mentioned regarding\nthe normalizing constant?\nWell, thanks to the properties\nof the logarithm function,\nif you take the logarithm of the\nnumerator over the denominator,\nit's just the logarithm of the\nnumerator minus the logarithm\nof the denominator.\nAnd given that the\nnormalizing constant\nis constant with respect\nto x, the point in space,\nthe gradient of log\nof z is actually 0.\nSo what that means is in order\nto compute the gradient of log\nof p, you don't\nhave to figure out\nhow you want to compute\nthat intractable quantity.\nSo that's reason number 1.\nReason number 2, I'm not sure\nif this was obvious to you,\nbut just to emphasize\non this a bit more,\nthe gradient of\nthe log is actually\npointing in the same direction\nas the gradient of p.\nAnd the reason for that\nis just a calculus reason.\nSo the gradient of log of\np is equal to the gradient\nof p over p.\nAnd so what that means is\nup to some normalization,\nthe gradient of the\nlog of p is pointing\ntowards the same direction\nof gradient of p.\nBecause p is a scalar.\nJust remember p is a scalar.\nSo it's as if you were dividing\nyour vector by the same quantity\nacross all dimensions.\nFirst reason, it is tractable.\nSecond reason, it is pointing\nin the same direction\nas gradient of p.\nAnd then the third reason is\nthat it is just more numerically\nstable.\nAnd the reason for that\nis when gradient of p\nis very, very small,\nthen there are chances\nthat p is also very small.\nAnd so if you take the\nratio, it is not as small.\nSo that's the third reason.\nSo for all of these reasons,\na possible strategy for you\nto go from one point\nin space towards region\nhigher densities with respect to\nthe probability density function\ncan be to follow the direction\ngiven by gradient of log\nof p, which we call the score.\nSo this is the reason\nwhy this lecture\nis called score matching.\nIt is because we're interested\nin this quantity, which\nis the score, which is the\ngradient of the log of p.\nOne note that I will add is\njust see that I said gradient\nof log of p with respect to x.\nSo you may think\nit is redundant,\nbut it is actually because\nwe want to distinguish it\nfrom another score,\nwhich is with respect\nto the parameters of a model\nthat sometimes people use.\nAnd so I just want\nto clarify here\nthat we take the\ngradient with respect\nto x, which is the\nposition in the space.\nSounds good?\nOK.\nCool.\nSo this is how our score\nwould look like in space.\nSo here if you're further\naway, typically the score,\nthe magnitude would\nbe bigger because you\nhave the gradient of p over p.\nAnd p is small, and it's\nsmaller when you get closer\nto the distribution.\nSo now a question that\nI have for you is,\nlet's suppose we sample\nfrom this space, sample\nfrom a distribution that is easy\nto sample, which is somewhere\nin space.\nAnd if I were to tell\nyou, if I were to ask you,\nhow would you go from this\npoint to higher density regions\nof the space using the score?\nHow would you do it?\n[AUDIO OUT]\nFollow the score.\nYeah.\nSo you could follow the score.\nSo the reason why I'm\nasking you this question\nis because there is a catch.\nBecause if you\nfollow the score, it\nmeans that you're going\ntowards higher density\nregions of the space.\nBut the problem is\nyou may always go\nwhere the density is highest.\nAnd so here when you look\nat this illustration,\nthere are places where\ndensity is not the highest,\nbut it is still a valid\nsample from the distribution.\nSo actually what\nwe want is not only\ngo towards higher density\nplaces of the region,\nbut also to have some\ndiversity, to not always go\nat the same place.\nSo that's the reason why.\nLet's assume we know the score.\nWe would use a sampling method\nthat is very commonly used,\nand I'm going to call out now,\nwhich is called the Langevin\nsampling.\nAnd what that does\nis it not only allows\nyou to go towards higher\ndensity regions of the space,\nbut also have a\nstochastic term that\nallows you to go to explore\na little bit the region.\nSo I displayed the formula\nhere on the slide a little bit\nout of nowhere.\nSo we won't have\ntime to derive it.\nBut I just want to\nshow you that there\nis a way for you to start\nfrom a starting point,\nand then use the score\nto end up with a sample\nfrom the probability\ndistribution.\nAnd that method is\ncalled Langevin sampling.\nSo if you know\nabout MCMC methods,\nso Markov Chain Monte\nCarlo, so Langevin sampling\nis just one such methods.\nThat sounds good?\nYeah.\n[AUDIO OUT]\nYep.\n[AUDIO OUT]\nYeah, so the question is,\nare these coefficients\ncoming out of nowhere?\nAre they're here for a reason?\nThe answer is yes.\nThey're here for a reason.\nAnd they can be derived\nusing some equations.\nSo if you've heard\nFokker-Planck equation\nis something that you\ncan use to derive this.\nWe won't have time to derive\nit, but there is a reason.\nThere is a reason for this.\nYeah.\n[AUDIO OUT]\nYes.\nSo the question is, is\nthere a convergence concern\nbecause the score\nis getting lower\nand you always go\nfrom one to the other?\nIs that the question?\nSo we will see that\nlater on and see how\nthat is actually not a concern.\nBut yeah, great question.\nYeah.\n[AUDIO OUT]\nSo the question is, how\ndo you choose alpha?\nAnd we're going to\nalso see that later.\nBut it is something\nthat you choose.\nCool.\nGreat questions.\nAnd with that, I for\nnow assume that we\nknew how to get the score.\nBut the reality is we don't.\nSo we're going to spend\nthis first part just trying\nto see how we can\nestimate the score.\nAnd it is actually\nnot an easy problem,\nand we're going to see why.\nSo first of all, the task\nof estimating the score\nis widely known\nas score matching,\nbecause you're trying\nto match the score.\nSo here the way you want to do\nit is similar with the noise L2\nregression.\nYou also want to have\nsome L2 regression,\nbut this time on the score.\nBut the main problem is you\ndon't know what pdata is,\nand you also do not know the\nscore of the data distribution.\nSo looking at this\nloss function,\nthere's actually no way for\nyou to estimate s theta of x.\nSo that's the reason\nwhy there's been\na few papers across the\nyears, along the years, that\nhave tried to estimate this\nscore function without having\nthe need to know the\ntrue score function.\nSo I'm just going to enumerate a\nfew methods that were out there.\nFor instance, this\none is back in 2005,\nthere was a method called\nImplicit Score Matching that\nderived a loss that\nactually did not\nrequire you to have the\nknowledge of the true score\nfunction.\nAnd there is another method\ncalled Sliced Score Matching,\nwhich used the\nfact of projecting\nthe score on different random\nvectors, random projections.\nSo I put the papers at\nthe bottom of the slide.\nWe're not going to\ngo into details just\nbecause these methods\nare not really\ncommonly used like nowadays.\nBut instead what\nwe're going to do\nis to focus on the common\nmethod that is being used,\nwhich is called\ndenoising score matching.\nAnd it relies on the\nfollowing observation.\nSo I told you that\nwe do not have\nthe knowledge of the score\nof the true distribution,\nbecause the true distribution\nis a complex distribution.\nBut I also told you that\nGaussian distributions\nhave very nice properties.\nSo one idea that we\ncan have is let's\ntry to see if we can compute\nthe score of a Gaussian\ndistribution.\nSo let's assume that we\nhave a random variable\nx that is drawn from a normal\ndistribution of mean mu\nand variance sigma squared.\nSo here I'm taking an example\nin 1D just so that we're--\nso that it's easier.\nSo the probability distribution\nfunction or probability density\nfunction is given\nby this formula,\nwhich is analytically explicit.\nIt is something\nthat is given here.\nWell, it turns out\nthat if you take\nthe gradient of\nthe log of p, then\nyou end up with this very\nnice formulation of minus x\nminus mu over sigma squared.\nShould we derive it, or is\nit, quote unquote, \"obvious\"?\nYou want to derive it?\nNo?\nOK.\nMaybe one thing I will\ndo is to just tell you\nwhy this formula makes sense.\nSo if you consider a\nGaussian distribution,\nthe probability density function\nwould be something like this.\nYou'll have high densities\ntowards the mean.\nAnd then you will have lower\nvalues of the densities\nas you go away.\nSo here what you're\nsaying is if you\ntake some x in space,\nwhat it is saying\nis the score at that point\nx is given by minus x\nminus mu over sigma squared.\nSo what that means is, so\nminus x minus mu is mu minus x.\nOops.\nSo it's supposed to\nbe a straight line.\nSo let's suppose\nit's a straight line.\nIt's going to be\nsomewhere like this.\nSigma squared is positive.\nSo it's going to be\npointing towards the mean.\nAnd just remember\nthat the score is\na quantity that gives us the\ndirection of higher densities\nin the space.\nSo just to tell you that\nthis formula makes sense.\nSo back to our original goal.\nSo what we want is to\nfind a way to compute\nthe score of a distribution.\nAnd we saw that computing the\nscore of a Gaussian distribution\nis easy.\nSo how about we take one\npoint from our training\nset and we noise it.\nSo let's suppose we're given\nx from our training set.\nAnd let's suppose we\nadd some Gaussian noise,\nand we scale it with sigma.\nThen we have x tilde, which is\nequal to x plus sigma epsilon.\nSo x tilde follows a\nnormal distribution\nof mean x and variance\nsigma squared I.\nAnd using exactly these results,\nyou get that the score of--\nso we're calling that q\nsigma of x tilde given x.\nSo this quantity is actually\nsomething that is tractable.\nSo now the question is,\nhow can we use that result\nin order to go back to our\ninitial objective, which\nis to determine the score of the\ndata distribution of interest?\nSo just remember at the\nfirst starting point\nwe want to estimate the score\nof pdata, which is like this.\nWell, the key idea here is to\ntake that data distribution\nand to noise it.\nSo for that, we're\ngoing to introduce\nq sigma of x tilde,\nwhich is this quantity.\nAnd I'm going to explain\nwhat that quantity is.\nSo what I'm going to do is to\njust rewrite the expression\non the blackboard.\nAnd maybe it's here.\n[AUDIO OUT]\nOK.\nThank you.\nSo you have q sigma of x tilde.\nWhoops.\nSo it is a function\nof this perturbation.\nSo it's called the\nperturbation kernel.\nSo you take one data point\nfrom your data distribution.\nAnd then you noise it.\nSo this is the one.\nAnd what you're\nactually doing is\nyou're repeating that\nprocedure for all elements\nof your training set.\nWhich is why you're ending\nup with this distribution.\nSo this is an\nexpression that takes\nin each point of\nyour training set.\nAnd that noises it.\nAnd you just repeat that process\nfor all points of your training\nset.\nAnd this you can interpret it as\na joint probability distribution\nthat you can also note q\nsigma of x tilde and x,\nwhich is a valid one.\nBecause if you integrate over\nx tilde and x, you get one.\nSo I just want you to\nlook at this formula\nand just not be scared\nabout what that means.\nI think it's quite easy.\nAnother way of seeing\nthis is in practice,\nwhat you have is only a few data\npoints from your distribution.\nSo it's as if you were saying\nyou take the finite set of data\npoints that you have from your\ndistribution, and what you do\nis you noise each of it.\nSo it's as if you were obtaining\na mixture of Gaussians.\nIt's as if you were obtaining--\nyou have your different points.\nAnd what you do is you\nnoise, you noise each point.\nAnd so we're going\nto call q sigma of x\ntilde the noisy distribution.\nYeah?\nCool.\nSo as you can tell, q sigma\nis a function of sigma.\nAnd sigma tells you\nhow much noise you're\nadding to the distribution.\nSo if you have, let's say, a\nsmall sigma, your distribution\nis just a little bit noisy.\nSo it just spreads a little bit.\nBut then as you add\nmore and more noise,\nit just spreads out and\ntakes much more space.\nSo how can you use these\ndefinitions in order\nfor us to compute\nthe true score?\nSo we're going to see it now.\nSo let's consider the\nscore matching objective\nnot on the original\ndata distribution\nbut on the noisy distribution.\nSo if we take q\nsigma of x tilde,\nwe have the squared\ndistance between the score\nof x tilde and the--\nsorry, the predicted score\nand the true score of x tilde.\nWell, there is a paper that\nshowed that this is actually\nequivalent to optimizing for\nanother loss function, which\nis this one, which is s theta\nof x tilde minus the score,\nbut conditioned on each data\npoints of your training set.\nAnd so why is this good news?\nIt is because that\nconditional score is something\nthat we already saw.\nIt is tractable, but\nwe have a problem.\nAnd the problem we're\ngoing to see later.\nBefore we do that,\nI'm just trying\nto see if we have\ntime to derive it.\nSo the derivation is in between\nbeing trivial and not trivial.\nIt's in the middle.\nI would say the\nproof is quite nice.\nIt is not required for\nyou to know for the exam.\nSo I think in the\ninterest of time,\nI'm not going to\ndo the full proof,\nbut I'm going to show you\nhow you can derive it just\nthrough the main step.\nSo what we're saying is we have\nthe original score matching\nfunction, which is the\none at the top, which\nis the squared distance\nbetween the score of the noise\nobservation minus the\ntrue score of q sigma.\nWhat we're saying is optimizing\nfor these loss function\nis the same as\noptimizing for this one.\nSo the expectation is over\nx over your training set\nand then x tilde,\nwhich is given x.\nAnd so it's\nexpectation of, again,\nthe score of the\nnoisy observation,\nbut this one minus\nthe true score\nof the conditional\nobservation condition on x.\nSo what you want to\nshow this is the same\nas optimizing for this,\nwhich is tractable.\nSo the trick here is\nto recognize the fact\nthat you have a distance of\ntwo quantities, let's say, a\nand b, which is something that\nyou can expand as follows.\nSo the distance\nbetween a and b squared\nis a squared minus 2\ndot product of a and b\nplus this square norm of b.\nAnd what you see is--\nso these two loss\nfunctions, you want\nto optimize them with\nrespect to the parameters\nof the model, which is theta.\nAnd so you first realize\nthat the b term in both loss\nfunctions, they are not\na function of theta.\nSo actually you don't care.\nSo this one you ignore.\nAnd then you look at just\nthe first term, the a term.\nAnd you just realize that\nthese terms are the same.\nSo this one you also don't care.\nThe only thing that\nyou care is showing\nthat the expectation\nacross x tilde of the dot\nproduct between the two is\nthe same as the expectation\nof over x and x tilde of the dot\nproduct between these prediction\nmodel and this\nconditional score.\nYou want to show that\nthese two are equal.\nAnd this is what the\nproof is showing.\nSo if you're interested\nin the details,\nI would highly encourage\nyou to take a look\nat the original paper, which\nis the denoising score matching\npaper in the appendix.\nSo it's maybe a five\nor six-line derivation.\nAnd what it does is\nit just leverages\nthe definition of q\nsigma and then just does\nsome nice term expansion\nand term identification.\nSo all I want to say is\nthat this equivalence is not\npure magic.\nIt's just math, math.\nAnd what is great\nabout it is that we're\nable to optimize the loss\nof the score matching\nfor the noisy distribution\nusing a tractable loss.\n[AUDIO OUT]\nSo the question is, the\nscore of the noisy data\nis equal to the score\nof the conditional.\nWell, not exactly, but what your\nmodel s theta of x tilde learns\nends up being the same.\nAnd the reason for that is\nbecause here what you care about\nis the direction where\nyou're optimizing your model.\nSo you do gradient\ndescent typically.\nAnd what you care\nabout is the gradient\nof that loss with\nrespect to theta.\nAnd so that's why we have\nthis whole derivation\nto just show that the\nloss at the bottom\nis equal to the one at the top,\nplus some constant that is not\na function of theta.\nAnd for that reason,\nif you optimize\nthe loss that is\ntractable from the bottom,\nit's the same as optimizing\nthe loss from the top.\n[AUDIO OUT]\nThey're not equal.\nYes, exactly.\nYeah, yeah.\nGreat question.\nAny other questions on this?\nYeah.\n[AUDIO OUT]\nYeah, yeah, yeah.\nGreat question.\nSo the question is,\nwhat is the intuition\nbehind this being the same?\nSo I think the\nintuition goes back\nto the way you define\nq sigma and the way\ntaking the expectation works.\nSo here what you're saying is\nif you take a look at scores\nconditioned on points\nfrom the training sets,\nso if you take a look at\nthis, and then if you somehow\nsee all the different scores\nfrom all the different points\nconditioned on these\npoints, then on average\nis going to be\nthe same as if you\nwere to actually take the\nscore from the overall noisy\ndistribution.\nThat's the rough intuition.\nDoes that make sense?\nOK.\nOK, cool.\nI'm looking at the time.\nSo let's see.\nYeah, so again, the\nproof is not something\nthat we will expect in the exam.\nSo feel free to just take a look\nat it if you're just curious.\nBut it's not required.\nSo this is also called L of DSM,\nso Denoising Score Matching.\nAnd again this loss is\ntractable because you\nknow the score of q sigma\nof x tilde conditional\non x, because this is\na score of a Gaussian.\nSo just recapping where we\nare, what we wanted to do\nis to estimate the score\nof the true distribution.\nSo what we said was,\nOK, it's actually\nnot something we can do.\nLet's fall back on\nan easier setup.\nAnd what we said was that\nthe easier setup was that\nin the Gaussian case, you are\nable to analytically compute\nthe true score.\nSo what we did is we took\nthe true data distribution,\nand we noised it.\nAnd what we showed\nwas that optimizing\nfor the loss that\nis not tractable\nis the same as optimizing\nfor loss that is tractable.\nSo in other words, you are\nable to estimate the score\nof a noisy data distribution.\nBut it is still not equal to\npdata, because what you want\nis pdata.\nYou don't want the\nnoisy data distribution.\nSo it's only something\nthat is going\nin the direction\nof what we want,\nbut it's not exactly\nwhat we want.\nSo let's see what this\nq sigma looks like.\nSo what we want, again, is\nto go from a starting point\ntowards the data distribution.\nBut here we do not have\nthe score of the true data\ndistribution.\nSo how about if we take\na noisy distribution\nthat we can compute where\nsigma is very, very small.\nSo when sigma is\nvery, very small,\nq sigma is very close\nto pdata distribution,\nbecause we noise it\njust a little bit.\nWell, the problem is that if\nwe take q sigma with sigma\nthat is very small,\nthen we'll just\nhave poor estimations of the\nscore in low-density regions.\nDo you see why?\nSo I'm probably going\nto just explain this.\nSo the good thing is\nit's already there.\nSo I'm just going to fall back\non the definition of the loss\nhere.\nSo this is the loss\nthat we're optimizing.\nSo what that means\nis that we want\nto optimize on the loss\nthat is around the distance\nbetween the predicted\nscore and the score\nof the noisy distribution\nq, which is equal to this.\nSo you're weighting your\nloss function with respect\nto how likely your points\nx tilde are to appear.\nSo in other words, if x tilde\nis not likely to appear,\nthen the fact that it is\noff from the true value\nis not something that is\ngoing to be materially\nnoticeable in the loss.\nSo the model will not\nreally be incentivized\nto make predictions\naccurate for x tilde\nthat are not likely to appear.\nOK.\nSo does this part make sense?\nSo what I'm saying\nhere is we are\nable to estimate the score of\nthis noisy data distribution,\nbut we're not able to\nestimate it accurately\nin places of the\nspace that are not\nlikely to appear under q sigma.\nThat's what I'm saying.\nAnd the problem\nwith that is if you\nsample from a\ndistribution that is\neasy to sample from, for\ninstance, a Gaussian,\nwell, most of the time you're\nin regions that are low density.\nSo if you use the score\nof a noisy distribution\nwith a small noise,\nthen you will not\nhave estimations\nof that score that\nwill be accurate in those\nlow density regions.\nSo you will not be\nto accurately go\ntowards the\nhigh-density regions.\nSo in other words,\nI'm going just\nto explain this a bit more\non an illustration here.\nSo it's as if we were saying\nthat we have our complicated\ndata distribution here that we\nhave maybe noise a little bit.\nSo it's like this.\nSo this one is pdata,\nand this one is q sigma.\nSo what I'm saying\nhere is we are\nable to compute the\nscore of this q sigma,\nbut we're not able\nto estimate it\naccurately in spaces of low\ndensity, so for instance, here.\nSo what that means is if\nI sample an observation\nfrom an easy distribution that\nis in a low-density region,\nthen when I'm going\nto use the score\nto get closer to that\nregion, those estimates\nthey may be super off.\nSo I won't be able to\ncome towards where I want.\nAnd that is the problem with\na small amount of noise.\nSo what do you do, well, you can\ntell me just increase the noise,\nthen.\nBecause if you\nincrease the noise,\nthen if you add\nenough noise, like,\nlet's suppose q sigma with sigma\nbig, then that point in space\nwill be covered with\na high enough density\nsuch that you can have\nmore accurate estimations\nof the score of the\nnoisy distribution.\nBut the problem is\nthat now q sigma is\ntoo different from your p data.\nSo in other terms,\nwhat you're learning\nis not exactly what you want.\nIt's like something\nthat's different.\nSo you have this trade-off.\nIf you have too little\nnoise, then it's good.\nWhat you're trying to learn is\nvery close to what you actually\nwant to learn, which a the score\nof the true data distribution.\nBut the problem is you do\nnot have good estimates\nin low-density regions.\nBut at the same time, if you\nhave too high of a noise,\nwell, the distribution now is\ntoo different from the true data\ndistribution.\nBut you now can have\ngood estimations.\nSo it's a little bit\nlike the bias variance\ntrade-off in a sense.\nYou just don't have\nboth at the same time\nin this case, which is making\nthe situation complicated.\nYeah.\n[AUDIO OUT]\nSo the question is, if we\nconfigure the Langevin sampling\nin a way that can work,\nthen we can make this work?\nSo the answer is yes.\nSo it's the next part.\nAnd we're going to see\nhow we can do that.\nBut yeah, that's\na good intuition.\n[AUDIO OUT]\nSo the question is, why is\nit poor of an estimation\nin low-density scores?\nThis is true.\nIt's correct, this one.\nNot this one actually, the\ntractable one is the true one.\nBut the only problem is that\nthe tractability of your loss\nfunction is also a function\nof how you configured it\nin terms of the expectation.\nSo the expectation\nhere is over q sigma,\nmeaning that if you have an x\ntilde, which is in low-density\nregions, then it's just not\ngoing to have a high weight\nloss, which is just not\nincentivizing your model\nto actually properly learn it.\nSo in a sense, it's a\nloss-weighting problem.\n[AUDIO OUT]\nSo the predicted score\nwill be inaccurate.\nYes.\nYeah.\n[AUDIO OUT]\nYeah.\nSo the question is, how about\nthe regularity conditions\nof the function?\nSo here let's assume that\nthis is not a problem.\nHere let's assume\nit's not a problem.\nBut you're right that, for\ninstance, for sigma very small\nyou have indeed very spiky ones.\nThis is the correct intuition.\nSo yeah.\n[AUDIO OUT]\nYes, exactly.\nSo high noise smoothens it.\nLow noise produces\nsome spikiness\naround those\ntraining data points.\nOK, cool.\nI think this is probably\nthe most challenging part\nof the lecture.\nSo yeah, hope you\ngot the intuition\nas to why that is a problem.\nSo what are we going to do?\nAnd you had the right\nintuition in terms\nof making some tweaks to\nthe Langevin sampling.\nSo what we're going\nto do is now we're not\ngoing to learn the score\nof one distribution.\nWe're going to learn the\nscore of several distributions\nof several noise levels.\nSo instead of\npredicting s theta of x,\nwe're going to predict s theta\nof x where you're in space\nand sigma your noise level.\nAnd the idea here is to consider\nseveral distributions, one\nwith a small amount of noise,\nthen bigger, then bigger, then\nbigger.\nAnd the way you're going to use\nthose different score estimates\nis at the very beginning--\nso if I show you my\nbeautiful charts here.\nAt the very beginning,\nwhat you care\nabout is knowing\nroughly where to go,\nwhere to go in space, roughly.\nSo here it's fine if you have\nthe score of a distribution that\nis quite approximate from\nthe true one, as long\nas you know roughly\nwhere you need to go.\nSo the idea is\nhere, you will use\nthe score of a distribution\nthat has been very noisy.\nAnd let's say you're going\nto go somewhere here.\nAnd then at that\npoint, you're going\nto use the score\nof a distribution\nwith less noise, because maybe\nthat distribution with less\nnoise covers that region.\nAnd now you know maybe\na little bit better\nwhere the actual high-density\nregions of the true data\ndistribution is.\nAnd you're going to go again\nwith lower amount of noise\nagain and again and\nagain until coming here.\nSo that is the idea.\nYou're not going to only rely on\none kind of noisy distribution\nwith a small amount\nof noise or one\nwith a higher amount of noise.\nYou're going to actually\nrely on all of them\nin a way that will make\nthis problem easy for you.\nSo at the very beginning,\nwhat you care about\nis roughly where to go.\nAnd then the more\nyou get closer,\nyou care more and more\nabout the little details.\nAnd these methods is\nsomething that you\nwill recognize with the\nfollowing name, so NCSN, Noise\nConditional Score Network.\nSo is this framework of learning\nscores of different noise\nlevels.\nSo I just want to reiterate\nwhat I drew on the blackboard.\nSo let's suppose you sample an\nobservation from a distribution\nthat is easy to sample from that\nis far from your actual data\ndistribution.\nSo what you do is\nyou will actually\nrely on the predicted score from\na noised data distribution that\nis very noisy.\nAnd you're going\nto go step by step\nby relying on scores\nfrom distribution that\nare less and less noise until\ncoming to your last point, which\nis something that hopefully will\nbe very, very close to the pdata\ndistribution, which is\ngoing to be a noise data\ndistribution with\na very low sigma.\nOK.\nSo does that make sense?\nYeah?\nOK.\nCool\nSo back to your intuition\non the Langevin sampling.\nSo your intuition\nwas 100% correct.\nThis way of sampling things that\nI explained with varying noise\nlevels is actually called\nannealed Langevin dynamics.\nAnd it's this idea of starting\nwith a high amount of noise\nand decreasing the\nnoise progressively.\nSo you will also see that\nin the literature as ALD.\nYeah.\n[AUDIO OUT]\nYeah.\n[AUDIO OUT]\nSo the question is, what is\nexactly the trade-off here?\nSo the idea is with a\nhigh amount of noise,\nif you add a high\nenough amount of noise,\nthen previous low-density\nregions will be covered\nby the noisy distribution.\nAnd if you add\nenough noise, like,\nwith a very high amount of\nsigma, then you will cover it.\nThe only problem is--\nso you can learn the score of\nthat very noisy distribution.\nBut the problem is that the true\nscore of that noisy distribution\nis going to be far from the\nscore of the data distribution.\nSo that is the trade-off.\n[AUDIO OUT]\nRight.\nSo the direction that\nit will be pointing\nwill be roughly where you\nwant to go, but not exactly.\nBut the idea here is that\nthe very beginning you\ndon't really care.\nSo for instance, if\nfrom here from Stanford,\nI want to go to New York, I know\nroughly I want to go this way.\nAnd then I go this way.\nAnd then the more I\nget closer, the more\nI want to refine exactly\nwhere New York is.\nYeah.\nOK, cool.\nThere is something\nelse I wanted to say.\nOK.\nSo there's something\nelse I wanted to say,\nwhich I think we'll\ncover a little bit later.\nBut first, we're\ngoing to cover how\nwe're going to sample\nnew observations\nusing this annealed\nLangevin dynamics.\nSo here what you\nwould do is sample\nsome noise from\nvery noisy Gaussian\nwith a high amount of noise.\nAnd what you're going to do\nis for every noise level,\nyou're going to run\nyour Langevin sampling.\nAnd this is the formula that we\nsaw at the very beginning, which\nis you add the point that you're\nat with the predicted score,\nwhich is where you\nwant to go, and then\nsome amount of noise, which\nallows for a bit of diversity.\nAnd once you do that\nfor all noise levels\nuntil coming to a very\nsmall noise level,\nthen you end up with\nthe actual image.\nSo one thing that I want\nto say regarding the score,\nyou can think of the\nscore as being a compass.\nNow, when you are in\nthe forest and you\nwant to see where\nthe city is, just\nfollow the direction\nof the compass.\nIt's the same idea here.\nSo we're in the space,\nspace of images.\nA lot of these regions\nof space are images that\nare actually not real images.\nBut what you want is\nto go towards regions\nof high density with respect to\nyour target data distribution.\nSo it's as if you were\nfollowing a compass\nto come at your destination.\nOK, cool.\nSo last time-- you\nhad a question?\n[AUDIO OUT]\nOh, yeah.\nSo the question is\ndata distribution\ncan be any data distribution?\nYes, yes.\nOK.\nSo now what I want to tell you\nis how what I'm telling you\nnow here relates to\nwhat we saw last week.\nSo if you remember, DDPM was\nall about taking a clean image\nand then noising it.\nSo if you remember, we\nhad these coefficients.\nAnd for instance, in this\ncase, the noised image\nwas the square root of alpha\nt bar times your clean image\nplus square root of 1 minus\nalpha t bar times the noise.\nWhat I told you here\nalso involves noise.\nSo a natural question\nthat you may ask is,\nhow does the score relate\nto the noise prediction task\nthat we saw last week?\nWell, the forward\nprocess of xt given x0,\nyou just see that it is a\nnormal distribution centered\non the square root of\nalpha t bar times x0.\nAnd you actually realize that\nthe score of that distribution\nis equal to minus the noise that\nyou added over some coefficient.\nSo in other words,\nthese two quantities,\nso the score meaning\nwhere you should\ngo to end up where\nthe clean images are\nand the noise that you\nadded, are actually\ntwo quantities that are linked.\nAnd they are linked\nsuch that the score\nis equal to minus the\nnoise that you added.\nAnd that makes sense.\nSo why does that make sense?\nSo I'm just going\nto clean that part.\nWhoops.\nSo why does that make sense?\nSo here if you have\nyour clean image\nand then if you noised,\nso it's as if you added\nsome amount of something noise.\nBut then if you want to go\nback to high-density regions\nit's basically your score.\nSo it makes sense that the two\nare in opposite directions.\nSo by the way, does that make\nsense that it is the formula?\nSo maybe I can also derive it.\nSo remember that the score\nof a normal distribution\nis equal to minus x minus\nthe mean over the variance.\nSo in this case, we have--\nso x, what is x?\nIt's a noisy image.\nAnd the noisy image has\nthe following formula.\nSo noisy image is\nthe square root\nof alpha t bar times\nx0 plus square root\nof 1 minus alpha t\nbar times epsilon.\nYou subtract the mean of\nthe normal distribution,\nwhich is this square root\nof alpha t bar times x0.\nSo this gives you minus.\nAnd then this is square root\nof 1 minus alpha t bar epsilon\nover your variance, which\nis 1 minus alpha t bar.\nWhich is exactly what\nyou have on the slides.\nDoes that make sense?\nOK.\nCool.\nSo this is just to give you a\nparallel between NCSN and DDPM.\nSo these two methods are\njust two different ways\nof noising your sample at the\nend of the day, because one\nis taking some weighted average\nbetween the clean sample\nx0 and the noise, and the\nother one is just adding noise\nwith just sigma.\nSo that is the reason\nwhy this, so DDPM, you\nwill see it be characterized\nas being variance preserving.\nBecause if you take\nthe variance of xt\nis going to be\nroughly equal to 1.\nAnd this is assuming that\nyour x0 are normalized.\nThey have a mean of\n0 and variance of 1.\nSo if you take the\nvariance of xt,\nit's roughly alpha t bar plus--\nso square root of alpha t bar\nsquared plus square root of\n1 minus alpha t bar squared,\nwhich is equal to 1 roughly.\nAnd this formulation,\nthe NCSN one\nis going to be mentioned as\nbeing variants exploding.\nOh, I have to go way\nback in the slides.\nThis one is going to be variance\nexploding because you're going\nto add more and more noise.\nAnd the noise is going\nto just increase a lot.\nSo it's not bounded by 1.\nOK.\nCool.\nSo, so far what\nwe've seen is noising\nimages using a discrete\nset of noise increments.\nBut one could argue that these\ndiscretization is arbitrary.\nIt is something that you need\nto decide before starting\nyour training process.\nSo one idea is to actually\nconsider continuous evolution\ninstead of discrete one.\nSo the reason why you would\nbe interested in doing that\nis because we also\nhave a field of math,\nwhich is in differential\nequations that\nhave a bunch of very\nconvenient toolkits to solve\nthese kinds of equations.\nSo one idea is to\nactually start from what\nwe saw in DDPM and NCSN and\ntry to see how they would be\nlike in the continuous world.\nSo in order to do\nthat, we first need\nto have an equivalent\nof noise increments.\nBecause up until now, the way\nwe added noise to clean images\nwas via sampling from a\nGaussian distribution.\nSo it's like normal\ndistribution of mean 0\nand covariance\nmatrix, the identity,\nand then just adding\nnoise like this.\nBut what you want is to have a\ncontinuous equivalent of having\nthese noise increments.\nAnd this is where the\nWiener process comes in.\nSo who has heard of the\nWiener process before?\nYeah.\nNo one?\nMaybe one.\nOK.\nSo the Wiener process is a\ntype of stochastic process.\nSo stochastic process is a\nfamily of random variables\nthat are indexed by some\nindex t, let's say, the time.\nAnd a Wiener process\nis a stochastic process\nthat follows the\nfollowing properties.\nSo we have W0 by definition\nthat is equal to 0.\nAnd the difference between Wt\nand Ws, which is an increment,\nfollows a normal\ndistribution of mean 0\nand variance t minus s times\nI. And these increments,\nso these differences\nare actually\nindependent from one another.\nSo you can think of the\nequivalent of a random walk.\nSo you walk one\nhere and then one\nthere but in the\ncontinuous world.\nSo one thing that I want to\nsay is that what is independent\nis the increments and not the\nvalue of the ability itself.\nBecause you can imagine that\nWt will depend on Wt minus 1\nand so on.\nSo what we're saying is\nthat the increments are\nindependent from one another.\nSo with that in\nmind, what we can do\nis to derive a continuous\nformulation of DDPM and NCSN.\nSo in the interest of\ntime, what I'm going to do\nis to only derive the DDPM case.\nSo what we're saying\nis we're starting\nfrom the update\nformula that adds noise\nto a less noisy image.\nAnd what we want is to\nobtain a continuous way\nof expressing that.\nSo I'm just going to rewrite\nwhat is on the slide.\nSo xt is equal to square root\nof 1 minus beta of xt minus 1\nplus square root of\nbeta times epsilon.\nSo if you remember, beta\nis your noise schedule.\nIt's the amount of noise that\nyou add at each time step.\nAnd so what you want is to have\nan expression of a differential\nevolution in x as a\nfunction of everything else.\nSo what I'm going to do\nis subtract that quantity\nwith xt minus 1 And then\nhave t and t minus 1\nbe very, very\nsmall so that I can\nconsider this to be continuous.\nSo what I'm going to do\nhere is just some math.\nSo I'm taking xt and I'm\nsubtracting xt minus 1.\nSo it's going to be square\nroot of 1 minus beta minus 1,\nxt minus 1 plus square\nroot of beta t epsilon.\nSo beta t is the\nquantity of noise\nthat you add between\ntwo discrete steps.\nWhat I'm going to do\nis to define a quantity\nthat I'm going to\nwrite beta parenthesis\nt, which is the rate of\nnoise at time t times\ndt, an increment of time.\nSo what this is\nsaying is when we're\ngoing to have t10 to 0-- so\nthis is going to 10 to 0,\nbut we're going to have\nsome rates of noise that's\ngoing to be nonzero, that's\ngoing to be your schedule.\nSo if I pause that, so this\nbecomes xt minus xt minus 1\nis equal to, so 1 minus\nbeta t dt minus 1 xt minus 1\nplus square root--\nI'm going to also\nreplace it here--\nof beta t dt epsilon.\nSo far I've just plugged in\nthe new beta t expression.\nSo what we're\ngoing to obtain now\nis actually something that's\ngoing to be quite nice.\nSo if we tend t to 0, so if we\nconsider a continuous evolution,\nxt minus xt minus\n1 is also going\nto be a differential evolution.\nSo here, I'm going to rewrite xt\nminus xt minus 1 as just d of x.\nSo when dt tends to 0, you have\nTaylor expansion formulas that\ntells you that square root of 1\nminus something that tends to 0,\nwhich is equal to 1 minus\n1/2 of that something.\nSo this is just\nTaylor expansion.\nSo here, I'm going to say it's\nroughly equal to 1 minus 1/2\nof beta t dt.\nxt minus 1 is roughly\ngoing to be x.\nSo this is 1 minus this\nminus 1, because you\nhave the 1 here, times x plus--\nso you have square\nroot of beta t.\nBut then the Wiener\nprocess that we defined\nis such that a small increment\nin the Wiener process\nis actually something\nthat you can rewrite\nas being square root\nof dt times epsilon,\nbecause it follows a normal\ndistribution of variance dt\ntimes I.\nSo here, I'm going to recognize\nthe square root of dt times e.\nThat's right.\nSquare root of dt times epsilon\nas being dW, which is equal--\nso it's as if it was\nequal to d of x is equal,\nso this is going to cancel out,\n1/2 of beta x dt plus square\nroot of B dW.\nAnd now you may\nbe wondering, why\nam I writing all\nthese equations?\nWhy are we doing this?\nWell, you're going to see\nthat when we rewrite this,\nfor instance, for DDPM and\nthen for NCSN, what we realize\nis that we have an expression\nof dx equal to something times\ndt plus something times dW.\nSo these two terms have\nvery specific names.\nSo one is called the drift.\nSo this quantity is\ncalled the drift.\nSo it's deterministic.\nAnd this one is\ncalled the diffusion,\nwhich is what is stochastic.\nAnd you actually have a\nnice intuition about it\nwhen it comes to how\nx varies in space.\nSo if you suppose x\nto start from here\nand you only have\na drift term, what\nyou're going to have is just\ndeterministic evolution using\nf of x and t.\nSo you're going\nto go from x to x\nplus dx using f of xt times dt.\nAnd then you're going to repeat\nthis process again and again\nin a deterministic fashion.\nSo this first term\nis deterministic.\nNow let's look at what\nthe second term does.\nSo here you start\nfrom a point x,\nand you add some quantity\nthat is a function of noise,\nGaussian noise.\nSo here it's going to be\nsomething that is noisy, so\nthe stochastic part.\nWhich means that if you\ntake the whole expression,\nyou're going to end\nup with something--\nso one step from\nx to x plus dx is\ngoing to be including\na deterministic step\nand a stochastic step.\nAnd this is something that\nwill follow the slides here.\nSo all I want to say is that\nDDPM and NCSN can actually\nbe transcribed from their\ndiscrete formulations\nto a continuous one.\nSo when you see\nthese formulas, just\nknow that it is\njust us transcribing\nthem to be continuous.\nAnd the reason why\nwe want to do that\nis because this is going\nto be an SDE, so Stochastic\nDifferential Equation, for\nwhich the field already\nhas a lot of techniques\nto solve them.\nAnd I'm just going\nto tell you now\nabout why the DDPM\nformula makes sense just\nfrom an intuitive perspective.\nSo what we're saying is in a 2D\nspace, so this is the origin.\nThis is 0.\nAnd then we have a vector x.\nSo what we're saying is\nthat an increment in x\nis going to be negative\nwith respect to where x is.\nSo it's going to be\nsomewhere like this.\nAnd then we're going to have\na little bit of noise added\nto it, so maybe like this.\nSo in other words\nthe noising process,\nthe forward process is\nbringing x closer to 0\nand adding some\nnoise so that this\nconverges to a variance of 1,\nwhich is what DDPM is about.\nBecause the DDPM you\ntake a clean image,\nand then you noise it with\nconvenience coefficients\nsuch that after t steps, it\nbecomes a normal distribution\nof mean 0 and variance 1.\nAnd this is exactly\nwhat you're also\nseeing by interpreting the\nterms of this equation.\nDoes that make sense?\nSo I just want to tell\nyou this to just tell you\nthat these formulas\nare not just formulas.\nThey have a meaning if\nyou think about each term.\nAnd here this expression\nof the continuous evolution\nof the forward process for DDPM\nactually makes intuitive sense\nwhen you're just\nwriting things down.\n[AUDIO OUT]\nSo question is,\nwhy is it useful?\nWe're going to see\nit exactly now.\nSo I'm going to tell\nyou now what is useful.\nSo the reason why\nit's useful is 1,\nyou're not going to have\nto necessarily define\ndiscretization steps\nbetween each noised images.\nSo you're not\ngoing to say, OK, I\nneed let's say t steps to do\nthe whole noising process.\nSo that's the number 1.\nAnd number 2 is there's\na number of results\nin the field of stochastic\ndifferential equations, which\nis essentially what this is.\nThere's a number of\nresults that will allow you\nto solve the reverse process.\nBecause what you want is to\nbe able to denoise images.\nSo here what we're doing is\nwe're just noising images.\nBut what we care about\nis how to denoise images,\nwhich is the reverse process.\nAnd the reason why it\nis convenient for us\nto think in the\ncontinuous world is\nfor us to be able to\nleverage these results.\nAnd we're going to see these\nresults in a few minutes.\nOK, cool.\nSo here I just want to\nsay that this drift term\nf and the diffusion g is\nthe following for DDPM,\nbut it is this form for NCSN.\nAnd you see that there\nis no drift term,\nand it is mainly because\nwe're only adding noise.\nAnd the idea behind\nDDPM and score matching\nis actually something that\nwas developed in parallel.\nSo here what I want to say is\njust a historical evolution\nof how things happened\nand how we came up\nto that unified view of\ndescribing the forward process\nin order to solve\nthe reverse process.\nSo on the one side, the\ndiffusion literature\nhad this given branch\nwith a 2015 paper\njust describing how you can\nderive a tractable loss in order\nto solve for this,\nthe diffusion problem.\nAnd then you have\nthe DDPM paper which\ncame out in 2020\nthat successfully\napplied that for images.\nThat was on the one side.\nAnd on the other side in\nto score matching world,\nyou had this principle\nof using the score\nto go from a starting point to\nthe distribution and the fact\nthat it alleviated this\nintractable normalizing\nconstant.\nAnd then there was a\npaper that described\nhow to do that in the case\nof a noise distribution.\nAnd then the NCSN\nmethod is actually\nsomething that came\nout with a later paper.\nAnd there is one\npaper that unified\nboth of these paradigms, which\nis a paper called Score-Based\nGenerative Modeling Through\nStochastic Differential\nEquation, which is a paper\nI highly recommend reading.\nIt's actually written\nby folks from Stanford,\nso Yang Song and coauthors.\nAnd it is from that moment that\nthe community has seen these two\nparadigms as being unified.\nAnd this is the way we\nhave seen this play out.\nSo now why did we do\nthis in the first place?\nSo our goal is to\nrecover clean images.\nSo we know how to noise them\nthrough this forward process\nthat we now are able to\nexpress in continuous term.\nWhat we care about is to\ndenoise into clean images.\nAnd so here what we're doing\nagain predicting the score.\nSo this score\nformulation is just\na regression on the\nconditional score which\nwe saw was tractable,\nwhich is, as we saw,\nminus epsilon over\nsome coefficients.\nAnd the way you would\ntrain such a model\nis following this\nloss function, which\nis an expectation over\nclean images that you noise.\nAnd so what you do is you\nsample a clean image and then\nsome noise and time step.\nAnd then what you do is you\nobtain your noised image.\nAnd so here noised image\nis just a combination\nof the clean image and the noise\nwith some alpha and sigma t,\nwhich can be chosen either in\nthe DDPM way or another way.\nAnd what you do is\nyou predict the score\nthat you know is tractable using\nyour noised image and your time\nstep.\nBut now you may be\nasking, well, why do\nyou want to predict the score?\nBecause we saw that for\nNCSN, we had the score\nthat we used in order to sample\nnew observations from the data\ndistribution.\nBut we saw in the case\nof DDPM that we actually\npredicted the noise to remove.\nSo we had these two\ndifferent formulations.\nSo now the question\nthat you may ask is,\nwhy do you want to\nfocus on the score here?\nAnd the answer to that is\nthat the forward process that\nis described by the SDE can be\nreversed through a reverse SDE\nthat involves the score.\nSo I'm just going to\nrepeat exactly what I said.\nSo the forward process, which\nis described by the SDE,\nis something that you can\nreverse through a reverse SDE\nwhich involves the score.\nAnd the reason why the\nscore is popping up here\nis due to some derivations that\nwe're not going to go here,\nbut this is just a result that\ncomes from a paper from 1982.\nSo it's a result\nfrom the SDE world\nthat were just leveraging here.\nSo that is one of\nthe points why we're\ncaring about the\ncontinuous formulation\nis because we want to\nbe able to leverage\nresults around these SDEs,\nand this is one of them.\nAnd so now I want to\nwalk you through what\nthat reverse process\nequation is about.\nSo I told you that the forward\nprocess was composed of a drift\nterm and a diffusion term.\nSo it was dx equal\nto f of x and t times\ndt, which is the drift,\nand then plus gt times\ndW, which is the stochastic\nterm, the diffusion term.\nAnd what we're saying is that in\norder to do the reverse process,\nwe actually cannot just\nhave the same equation.\nWe need to add a correction\nin the drift that\ninvolves the score.\nAnd here is the intuition.\nThe intuition is that\nin the forward process,\nwe have added some stochasticity\nthat made us deviate from where\nthe actual data point was.\nSo as a result of\nthat, when we want\nto reverse that process,\nwhat we actually\nwant to counteract\nthis phenomenon\nis to go towards the regions\nof high density scaled\nby that diffusion factor.\nSo what I'm telling you is\nthat the reverse process\nSDE is obtained through\nsome derivation.\nBut the way you\nwould interpret it\nis that the correction to\nthe drift is due to the fact\nthat you diffused in\nthe forward process.\nAnd this made you be further\nfrom high-density regions.\nSo this is what the\nreverse process is like.\nSo it's dx times\nthe drift, which\nis the original drift\nminus the diffusion\ncoefficient times the score\ntimes dt plus your diffusion\nterm.\nAnd here we noted dW bar\nbecause the Wiener process\nfrom the reverse process\nis actually different\ncompared to the one from the\nforward process, which is\nwhy we noted this with the bar.\nAnd we're just going to conclude\nwith how you would do inference.\nSo to do inference, you\njust sample some noise.\nAnd then again what you do is\nyou leverage the nice results\nfrom the fact that\nyou are handling SDEs,\nStochastic\nDifferential Equations.\nSo you, for instance, will use\na solver called Euler-Maruyama\nthat is able to numerically\nsolve the reverse process.\nSo here you can think of it\nas a numerical method that\nwill let you go from your\noriginal ex back to the endpoint\nusing the reverse\nprocess equation.\nAnd you will obtain your final\nimage, which will hopefully\nbe an image that is satisfying.\nAnd that's going to\nbe your final image.\nYeah.\n[AUDIO OUT]\nYes, so this one-- yeah.\n[AUDIO OUT]\nYeah.\nSo here, you can\nthink of this equation\nas being a discretization of\nthe reverse SDE which is here.\nSo this is exactly this SDE, but\nyou're doing it step by step.\n[AUDIO OUT]\nSo the question is,\nwhat is fx of t?\nWhat is g?\nSo these are the\ncoefficients that are here.\nSo for instance, in this case, f\nof x and t is minus 1/2 of beta\ntimes x.\nAnd g is square root of b.\n[AUDIO OUT]\nIt is the same.\nSo the question is,\nthis is for the forward.\nBut this f and g are the same\nin the forward and backwards.\nYep.\nAnd with that, I'm going\nto give it to Shervine.\nThank you, Afshine.\nSo I'm going to come here\nand sing a very similar song\nas the one I sang last\nweek when we transitioned\nfrom DDPM to DDIM.\nSo we're going to look at\nthis reverse SDE equation\nand look at what is\nnot optimal in practice\nand see what we can do about it.\nSo as Afshine mentioned, you\nhave this Brownian motion.\nThat is one term of that\nreverse is the equation.\nAnd what problem do\nwe have with that?\nSo as you saw in the transition\nfrom x and x plus dx,\nyou have all these spikes that\nhappen due to the stochasticity.\nAnd this process is the reason\nwhy we cannot take large steps\nwhen resolving it, because\notherwise you would be\napproximating a movement that\nis something that you look\nat the microscopic level.\nSo you need a high\nnumber of steps\nin your solver to start with.\nAnd also the second\npoint is that when\nyou look at your\nerrors that you do\nwhen you solve these\nreverse SDE equation,\nyou have now two sources.\nYou have the first\nsource that comes\nfrom the regular\ndiscretization step.\nAnd then you have the\nstochastic error that comes in,\nand they accumulate.\nSo just like last\nweek, I'm going\nto paint the picture of what\nwe would like to have and see\nif we can get there.\nSo what would be the\nright counterpart\nof an SDE in a nicer world?\nIt would be an ODE.\nSo the ODE does have\nthis term on the left\nbut doesn't have\nany stochasticity.\nAnd going through each\npoint that I mentioned,\nyou would be able to\ngauge how fast you\ngo depending on the regularity\non the function of the left.\nSo you have some methods\nthat can take adaptive steps.\nAnd then the second\npoint is that in terms\nof errors that you're\ncommitting, once you solve\nthat equation, they are only\nfocused on the discretization\nof the left part.\nSo you have less\nsources of error.\nAnd I'm going to sketch you\na derivation for which only\nthe high-level gist\nis what I want you to.\nSo there are going to be\nsome intermediary results\nthat I'm just going to state.\nAnd some equations we don't\nneed to know necessarily\nhow they are derived.\nI'm just telling you\nthat they are there.\nSo let's start from\nthe forward SDE.\nAs Afshine had\nmentioned it, you have\nthis f of x and t term, the\ndrift term, and the diffusion\nterm.\nSo it turns out\nthat for equations\nthat verify this equality, you\ncan apply the Fokker-Planck\nequation, where you have\nthis pt of x that comes up.\nThat is the probability\nof the flow.\nAnd you have two terms\non the right that\ncould be interpreted\nin physical terms\nby the term on the left\nthat is a transport\nterm and the one on the right\nthat you see g squared on, which\nis the diffusion term.\nSo the derivation\nof such an equation\nis non-trivial and\nis out of scope here.\nI'm just going to state that we\nare going through that results.\nAnd then by\nrearranging the terms\nand using an identity\non pt, we can\ncome to another equation\nthat is called the continuity\nequation that I'm\njust going to tell you\nthat it's going to\nbe something that we\nsee in more details at the\nbeginning of next lecture.\nBut what's interesting about\nthat continuity equation is\nthat on the right\nside, there is a factor\nthat is to be interpreted\nas a velocity.\nAnd the velocity is dx over dt.\nSo once you identify\nthat factor,\nyou can come up with an\nequation that this term that\nhas been identified as the\nvelocity needs to verify.\nAnd you come up with an\nequation that is indeed an ODE,\nand we call it the PF-ODE.\nPF stands for Probability Flows.\nAnd let's look at that\nequation for a bit.\nSo just like we mentioned\na short time ago,\nf and g are modeling\nassumptions that\nare the ones that we\nhad as assumptions\nonce you derive this\ndiffusion concept.\nAnd what about the score?\nSo the score is also\nsomething that we can know.\nBecause once you have a model\nthat can approximate this score,\nyou just have to\nput x as inputs,\nand you can get the score.\nSo what I want to say is that\nthis whole term that popped up\nis all composed of\ncomponents that we can know.\nOK, great.\nAnd now I'm going\nto re-emphasize\neach side of that PF-ODE.\nSo it's an ODE we\nsaid because we\ndon't have a stochastic term,\nand it's probability flow\nbecause it's an ODE that comes\nfrom verifying the continuity\nequation, that is, an\nequation that is focused\non the probability flow.\nAnd one interesting\nthing about that equation\nis that once you have an\ninitial condition on PT,\nyou can fully\ncharacterize what P is.\nBut this is something that\nyou cannot say about x.\nBecause as you can see here, if\nyou have v that is solution--\nthat is part of this\nequation, then if you add--\nif you do v plus v null, where\nv null verifies divergence\nof v null and pt equals\n0, then v plus v null also\ncan be plugged in here.\nSo all of that to say\nthat the probability flow\nbetween the reverse SDE\nand here are preserved.\nBut the trajectories are not.\nOK.\nSo I went through a lot so far.\nAny questions?\nYeah.\n[AUDIO OUT]\nYeah, fair.\nSo the question is, what's\nthe interpretation here?\nSo we did all these equations to\nconserve the probability flow,\nand the trajectories are\ngoing to be different.\nAnd they are characterized\nwith this modified\nterm on the v side.\nSo instead of having these--\nso you have this one\nhalf that came in,\nand that compensates for\nthe stochasticity part\nthat disappears.\nSo you're going to\nstill have trajectories\nthat verify in aggregate the\nprobability flow conditions,\nbut they are going\nto be different.\nAnd the interpretation is not\naverage or anything specific.\nI would say it's just\nthat in aggregate, they\nverify the probability flow\nproperty at each time t and x.\n[AUDIO OUT]\nYeah.\n[AUDIO OUT]\nYeah, yeah, yeah.\nSo the question is, will they\nend up with the same properties\nthat you have the\ndistribution at the end?\nAnd the answer is yes,\nbecause PT is preserved.\nOK.\nAwesome.\nAnd so I'm going to\ndraw a comparison\nbetween solving that reverse\nSDE equation and using PF-ODE.\nSo exactly as we mentioned\nhere, the term on the left,\nlike the drift term, is\ncompensated for that lack\nof stochastic term.\nAnd then the great\npoint that you made\nis that we no longer have\nsomething that is stochastic.\nBut once you have an\ninitial condition,\nyou deterministically\nknow where you're going.\nSo that's one big\ndifference that you\nmight remember from last\ntime resembles something\nthat you know.\nAnd as a result, since the\nonly source of diversity\nis now your initial draw, you\nhave less sampling diversity.\nAnd interestingly, when\nyou look at experiments,\nyou have higher sample quality.\nAnd that could be explained\nintuitively by the fact\nthat you introduce\nnoise at each time step\nenables you to explore\nregions of the space\nthat you wouldn't have explored\nwith a deterministic path.\nAnd you may self-correct\nyour trajectory, as opposed\nto resolving an ODE\nthat is only conditioned\non your initial points\nand all the errors\nthat you accumulate by\nsolving the ODE numerically.\nSo you have a nice\ninterpretation there.\nAnd of course, now that\nwe have an ODE where\nwe can adapt step\nsizes, you can now\nresolve this faster,\nwhich is a nice property.\nAnd the fact that\nI told you that I'm\ndrawing a very similar\nparallel between PF-ODE\nand the reverse SDE as the one\nI drew last week between DDIM\nand DDPM, we can see a lot\nof shared commonalities\nthat I've put here\nfor reference.\nAnd now let's look at how we can\nsolve this equation in practice\nand if we can do even\nbetter than regular solvers.\nIn order to do that, I'm\ngoing to introduce a way\nto assess complexity\nthat is widely used\nin these papers called NFE.\nSo it's the number of\nfunction evaluations.\nAnd what we want to\ndo is for a sampler\nto get good quality results\nwith a minimum amount of NFEs.\nSo it's a measure that makes\nintuitive sense in the sense\nthat we want to minimize\nthe number of forward passes\nthat you perform on your model.\nAnd I'm going to introduce\nthis notion of solving\nan ODE by the very simple\nmethod that some of you\nmight know already,\nso Euler's method.\nIf you consider this ODE\ndx equals v of x and t dt,\nyou can, based on\nyour initial point\nand the derivative\nat that point,\napproximate the next point.\nBut the issue with that is that\nthere is quite a bit of errors.\nEven though it's just\none NFE per step,\nyou end up with the results\nthat might be imprecise.\nSo people to account for\nthat fact are using a fancier\ntechniques, so Runge-Kutta\n4 is one of them that--\nso I represent it here on this\ngraph the intuition of it.\nSo you look at midpoints,\nmeasure the derivative,\nhave some derivative measurement\non the endpoint as well.\nAnd if you do some weighting\nout of all of this,\nyou obtain an update step\nthat is of low error rate.\nI think here it's O of delta\nt to the power of 5, which\nis nice.\nSo you might tell me,\nOK, hey, Shervine, we\nhave solved everything.\nWe have a nice sampling method.\nWhat could we do better?\nSo actually let's look\nagain at v of x and t.\nSo I told you it's f of x and\nt minus this term on the right\nthat is divided by 2.\nBut if you look at\nall the equations\nthat we use in the\ndiffusion world,\nyou see that f and x and t can\nbe rewritten as f of t times x.\nSo what does that tell you?\nSo that tells you that\nthis ODE is linear in x.\nSo it has a linear term.\nAnd what can you say about\nthe term on the right?\nIs it linear or--\nso you would have x\nas an input to where?\nWhat is the term on the right?\nThe one in the rectangle.\nIt's the score.\nSo the score is what\nwe try to estimate\nas part of our reverse\ndiffusion process.\nAnd it's typically\nsomething that you\nwould approximate\nwith a neural network.\nAnd neural networks,\nare they linear?\nNo, they're highly nonlinear.\nAfter the first layer and\nfirst activation function,\nit's no longer linear.\nSo you have a\nnonlinear term there.\nAnd one thing we\ncould do is instead\nof trying to discretize\nthis whole equation\nwithout leveraging the fact\nthat part of it is linear,\nwe can use some\nmath properties that\nsays that with methods like\nthe variations of constants\nthat some of you\nmight have heard of,\nyou can derive an exact\nsolution to part of it\nand focus the discretization\nprocess on the other part.\nAnd that's what DPM\nsolver is all about.\nAnd I'm going to spare you\nthe details of the derivation.\nIt's quite long.\nI have attached the paper\nat the bottom in case\nyou're interested.\nIt's a bit involved.\nYou get an update formula that\nhas this exact term on the left\nand then some\nintegral on the right.\nAnd the integral on the right\nfocuses On the nonlinear term\nthat we saw.\nAnd one highlight\nthat I'll mention here\nis that we are not solving\nthis in the time space.\nThere has been a\nchange of variables,\nand this is what the lambda\nthat you see in this equation\nstands for.\nAnd there is a\none-to-one mapping\nbetween time steps and lambdas.\nBecause lambda is\nstrictly monotonic here.\nSo yeah, this is one\ninteresting thing to note.\nAnd the question now is, how\ndo we discretize this equation?\nBecause we have this\nintegral now left.\nAnd we cannot integrate\nsomething that is approximated\nby a neural network\nover a continuous range.\nSo what we do is that\nthis is the part that\nis going to be discretized.\nAnd you have variants\nof DPM solver\nthat discretize it at different\nlevels of granularity.\nSo the first one is DPM\nsolver 1 that the paper\nshows gives an equation that\nis equivalent to DDIM actually.\nAnd DPM solver 2 uses\nTaylor's expansion\nat higher levels\nup to any number k.\nAnd the number-- so the NFE\nfor each is of I plus 1--\nis of I, sorry.\nAnd so to recap what we\ndid is that we started\nfrom the forward SDE, rearranged\nterms using properties\nthat we knew of.\nCame up with a PF-ODE that\nverified the same probability\nflow.\nAnd that enabled us to\ngenerate new samples.\nAnd then we leveraged\nthe format of the PF-ODE\nto further optimize the\nway we would resolve it\nby focusing our NFEs on the\ndiscretization parts that really\nmatters here.\nAnd here you see that DPM\nsolver resolves the ODE\nwith a much better trade-off\nbetween budget and quality.\nAnd the difference\non the paper you\ncan see it at low\nnumber of steps\nthey're quite huge\nin terms of N metric.\nAnd then just like\nDDIM, you don't\nneed to retrain the\nnetwork when you\nwant to sample with this solver\nbecause the objective function\nis the same.\nAnd in practice, with\nonly tens of NFEs,\nyou can get good results.\nAnd that was it.\nI hope you have a great weekend.",
+  "segments": [
+    {
+      "text": "Hello, everyone, and welcome to lecture 2 of CME 296. So today is a very exciting day because we'll be talking about a new generation paradigm, which is going to be score matching. So if you remember last week, we saw a first generation paradigm",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "which was diffusion with DDPM. So today we're going to see a new way of doing this and see how this relates to the way we were doing this with diffusion with DDPM. So before we start, I'm just going to recap what we saw last week. So if you remember, the",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "first three lectures are all about understanding how we can generate new samples by trying to generate from a distribution pdata that we do not know that is potentially complicated. So here we have nothing as input. So it's unconditioned generation.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "And our goal is to learn a way to generate new images. So what did we see last time? So our strategy was to take images from the training set that we called clean because they did not have any kind of noise. And what we did is we defined a process q that",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "added some noise progressively, such that at the end of the day, we ended up with just pure noise or almost pure noise. And the goal of DDPM was to learn a reverse process that was able to predict the noise to remove from the noisy image.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So that was the strategy. You take an image. You gradually add some noise. And what you do is you try to learn how given a noisy image and given the noise level, how you can remove the noise from that image. So the way we went about doing this was through",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "likelihood estimation. So we had our model p theta that we're trying to learn. And what we were doing is trying to maximize the probability of our model seeing the data from a training set. But we saw that it was intractable. So what we did is we derived",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "a tractable lower bound that we could also maximize that could be a good proxy for our objective. And we ended up with this ELBO formulation. And what we did is we expanded the terms from the lower bound. And what we saw was that there was some nice terms that",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "came out of it. So there was, for instance, a KL divergence between exactly what we wanted to learn and the forward process that we defined that was something that we could express. And then the third step was to indeed show that this was tractable.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And we leveraged the fact that we were actually defining our forward process with Gaussian noise and with Gaussian distributions. And the good thing with Gaussian distributions is there's a lot of nice properties, which is things that we leverage here.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "And at the end of the day, we deduced a loss function that was actually very simple. It was a simple L2 regression loss on the noise that we wanted to remove. All good so far? So this was last time. And so this was the loss that we had.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "So we had the the noised image as an input along with the noise level. And we had our model that we wanted to train which is here, the noise predictor-- epsilon theta. And what we wanted to do is to have that match as close as possible",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "the actual noise that we use. And as I mentioned, this way of doing things was just one way. And what we're going to see today is another way of doing this, which is called score matching. So I'm going to start with just taking another perspective of the",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "problem that we have at stake. So remember that we have some training sets that contains some images. So these are for instance, the Teddy bear images that we have. And our goal is to sample a new image from that distribution. So this set of images, they",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "come from a complex data distribution, let's say, pdata that we do not. And our goal is to sample from it. Now, a very common strategy that we will again reuse here is to sample from an easy distribution and then to recover the image that we",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "want to sample towards the end. So here this cross this represents maybe an observation that we can sample that is not part of pdata but part of a distribution that is easy to sample from. So let's say Gaussian noise. So given that what we're wondering is,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "is there a way to go from something that is easy to sample towards something that is hard to sample? Does that make sense? It's going to be a bit more clear. So let's imagine you have p of x, which is the probability density function that takes in",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "x, the representation of images as input, and that tells you the probability density of it happening at x. So this is what the figure is showing. So here darker colors mean higher values of p of x. So if you were over here, what would be a way for you to",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "come closer to regions higher values of p of x? So the answer is, let's take the gradient. So just as a reminder, the gradient of a scalar function here that takes in as inputs x, which is multidimensional, and returns a scalar, so the gradient of the function",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "is the vector of components, partial derivative of that function with respect to each dimension of the multidimensional space. And what the gradient here represents is the direction where this p of x is higher value. So here the idea is if we can have access",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "to gradient of p of x, then from this starting point, we can maybe go towards regions higher density. But there is a problem. The problem is that estimating the gradient of the probability density function is actually a very hard thing to do.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And there are a few reasons for that. So the first one is that probability density functions, by definition, they are normalized, meaning that if you take the integral towards the whole space, the integral of p of x needs to be equal to 1. So you have this",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "constant, that maybe we can note here z, that is something that is very hard, intractable for you to compute, because you would need to sum across all possible values of your space. And space is multi-dimensional, and it's a lot of computation, not something",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that you can actually do. So this quantity is intractable. So if p of x is intractable, then if you take the gradient, it's also intractable. So that's the first reason. The second reason is different compared to the first one, which",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "is due to the fact that the probability density function can take very low values in certain regions of space where there are very few data. So let's suppose here-- let's say you have a point here, then the probability would be very small.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "And so this can cause some numerical stability issues. So because of these reasons, maybe we can take a look at another candidate of a way for you to go from a certain point towards regions of high density of the space. And that potential candidate",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "can be the gradient of the log of the probability, as opposed to just the gradient of the probability. So why could that be-- why would that be a good candidate? Well, do you remember the first point I mentioned regarding the normalizing constant?",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "Well, thanks to the properties of the logarithm function, if you take the logarithm of the numerator over the denominator, it's just the logarithm of the numerator minus the logarithm of the denominator. And given that the normalizing constant",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "is constant with respect to x, the point in space, the gradient of log of z is actually 0. So what that means is in order to compute the gradient of log of p, you don't have to figure out how you want to compute that intractable quantity.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "So that's reason number 1. Reason number 2, I'm not sure if this was obvious to you, but just to emphasize on this a bit more, the gradient of the log is actually pointing in the same direction as the gradient of p. And the reason for that",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "is just a calculus reason. So the gradient of log of p is equal to the gradient of p over p. And so what that means is up to some normalization, the gradient of the log of p is pointing towards the same direction of gradient of p. Because p is a scalar.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Just remember p is a scalar. So it's as if you were dividing your vector by the same quantity across all dimensions. First reason, it is tractable. Second reason, it is pointing in the same direction as gradient of p. And then the third reason is",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "that it is just more numerically stable. And the reason for that is when gradient of p is very, very small, then there are chances that p is also very small. And so if you take the ratio, it is not as small. So that's the third reason.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "So for all of these reasons, a possible strategy for you to go from one point in space towards region higher densities with respect to the probability density function can be to follow the direction given by gradient of log of p, which we call the score.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "So this is the reason why this lecture is called score matching. It is because we're interested in this quantity, which is the score, which is the gradient of the log of p. One note that I will add is just see that I said gradient",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "of log of p with respect to x. So you may think it is redundant, but it is actually because we want to distinguish it from another score, which is with respect to the parameters of a model that sometimes people use. And so I just want to clarify here",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "that we take the gradient with respect to x, which is the position in the space. Sounds good? OK. Cool. So this is how our score would look like in space. So here if you're further away, typically the score, the magnitude would be bigger because you",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "have the gradient of p over p. And p is small, and it's smaller when you get closer to the distribution. So now a question that I have for you is, let's suppose we sample from this space, sample from a distribution that is easy to sample, which is somewhere",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "in space. And if I were to tell you, if I were to ask you, how would you go from this point to higher density regions of the space using the score? How would you do it? [AUDIO OUT] Follow the score. Yeah. So you could follow the score. So the reason why I'm",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "asking you this question is because there is a catch. Because if you follow the score, it means that you're going towards higher density regions of the space. But the problem is you may always go where the density is highest. And so here when you look",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "at this illustration, there are places where density is not the highest, but it is still a valid sample from the distribution. So actually what we want is not only go towards higher density places of the region, but also to have some",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "diversity, to not always go at the same place. So that's the reason why. Let's assume we know the score. We would use a sampling method that is very commonly used, and I'm going to call out now, which is called the Langevin sampling. And what that does",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "is it not only allows you to go towards higher density regions of the space, but also have a stochastic term that allows you to go to explore a little bit the region. So I displayed the formula here on the slide a little bit out of nowhere. So we won't have",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "time to derive it. But I just want to show you that there is a way for you to start from a starting point, and then use the score to end up with a sample from the probability distribution. And that method is called Langevin sampling. So if you know",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "about MCMC methods, so Markov Chain Monte Carlo, so Langevin sampling is just one such methods. That sounds good? Yeah. [AUDIO OUT] Yep. [AUDIO OUT] Yeah, so the question is, are these coefficients coming out of nowhere? Are they're here for a reason?",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "The answer is yes. They're here for a reason. And they can be derived using some equations. So if you've heard Fokker-Planck equation is something that you can use to derive this. We won't have time to derive it, but there is a reason.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "There is a reason for this. Yeah. [AUDIO OUT] Yes. So the question is, is there a convergence concern because the score is getting lower and you always go from one to the other? Is that the question? So we will see that later on and see how",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "that is actually not a concern. But yeah, great question. Yeah. [AUDIO OUT] So the question is, how do you choose alpha? And we're going to also see that later. But it is something that you choose. Cool. Great questions. And with that, I for now assume that we",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "knew how to get the score. But the reality is we don't. So we're going to spend this first part just trying to see how we can estimate the score. And it is actually not an easy problem, and we're going to see why. So first of all, the task",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "of estimating the score is widely known as score matching, because you're trying to match the score. So here the way you want to do it is similar with the noise L2 regression. You also want to have some L2 regression, but this time on the score.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "But the main problem is you don't know what pdata is, and you also do not know the score of the data distribution. So looking at this loss function, there's actually no way for you to estimate s theta of x. So that's the reason why there's been",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "a few papers across the years, along the years, that have tried to estimate this score function without having the need to know the true score function. So I'm just going to enumerate a few methods that were out there. For instance, this one is back in 2005,",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "there was a method called Implicit Score Matching that derived a loss that actually did not require you to have the knowledge of the true score function. And there is another method called Sliced Score Matching, which used the fact of projecting",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "the score on different random vectors, random projections. So I put the papers at the bottom of the slide. We're not going to go into details just because these methods are not really commonly used like nowadays. But instead what we're going to do",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "is to focus on the common method that is being used, which is called denoising score matching. And it relies on the following observation. So I told you that we do not have the knowledge of the score of the true distribution, because the true distribution",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "is a complex distribution. But I also told you that Gaussian distributions have very nice properties. So one idea that we can have is let's try to see if we can compute the score of a Gaussian distribution. So let's assume that we have a random variable",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "x that is drawn from a normal distribution of mean mu and variance sigma squared. So here I'm taking an example in 1D just so that we're-- so that it's easier. So the probability distribution function or probability density function is given by this formula,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "which is analytically explicit. It is something that is given here. Well, it turns out that if you take the gradient of the log of p, then you end up with this very nice formulation of minus x minus mu over sigma squared. Should we derive it, or is",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "it, quote unquote, \"obvious\"? You want to derive it? No? OK. Maybe one thing I will do is to just tell you why this formula makes sense. So if you consider a Gaussian distribution, the probability density function would be something like this.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "You'll have high densities towards the mean. And then you will have lower values of the densities as you go away. So here what you're saying is if you take some x in space, what it is saying is the score at that point x is given by minus x",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "minus mu over sigma squared. So what that means is, so minus x minus mu is mu minus x. Oops. So it's supposed to be a straight line. So let's suppose it's a straight line. It's going to be somewhere like this. Sigma squared is positive. So it's going to be",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "pointing towards the mean. And just remember that the score is a quantity that gives us the direction of higher densities in the space. So just to tell you that this formula makes sense. So back to our original goal. So what we want is to find a way to compute",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "the score of a distribution. And we saw that computing the score of a Gaussian distribution is easy. So how about we take one point from our training set and we noise it. So let's suppose we're given x from our training set. And let's suppose we",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "add some Gaussian noise, and we scale it with sigma. Then we have x tilde, which is equal to x plus sigma epsilon. So x tilde follows a normal distribution of mean x and variance sigma squared I. And using exactly these results, you get that the score of--",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "so we're calling that q sigma of x tilde given x. So this quantity is actually something that is tractable. So now the question is, how can we use that result in order to go back to our initial objective, which is to determine the score of the",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "data distribution of interest? So just remember at the first starting point we want to estimate the score of pdata, which is like this. Well, the key idea here is to take that data distribution and to noise it. So for that, we're going to introduce",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "q sigma of x tilde, which is this quantity. And I'm going to explain what that quantity is. So what I'm going to do is to just rewrite the expression on the blackboard. And maybe it's here. [AUDIO OUT] OK. Thank you. So you have q sigma of x tilde. Whoops.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "So it is a function of this perturbation. So it's called the perturbation kernel. So you take one data point from your data distribution. And then you noise it. So this is the one. And what you're actually doing is you're repeating that",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "procedure for all elements of your training set. Which is why you're ending up with this distribution. So this is an expression that takes in each point of your training set. And that noises it. And you just repeat that process for all points of your training",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "set. And this you can interpret it as a joint probability distribution that you can also note q sigma of x tilde and x, which is a valid one. Because if you integrate over x tilde and x, you get one. So I just want you to look at this formula",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "and just not be scared about what that means. I think it's quite easy. Another way of seeing this is in practice, what you have is only a few data points from your distribution. So it's as if you were saying you take the finite set of data",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "points that you have from your distribution, and what you do is you noise each of it. So it's as if you were obtaining a mixture of Gaussians. It's as if you were obtaining-- you have your different points. And what you do is you noise, you noise each point.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "And so we're going to call q sigma of x tilde the noisy distribution. Yeah? Cool. So as you can tell, q sigma is a function of sigma. And sigma tells you how much noise you're adding to the distribution. So if you have, let's say, a",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "small sigma, your distribution is just a little bit noisy. So it just spreads a little bit. But then as you add more and more noise, it just spreads out and takes much more space. So how can you use these definitions in order for us to compute the true score?",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So we're going to see it now. So let's consider the score matching objective not on the original data distribution but on the noisy distribution. So if we take q sigma of x tilde, we have the squared distance between the score of x tilde and the--",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "sorry, the predicted score and the true score of x tilde. Well, there is a paper that showed that this is actually equivalent to optimizing for another loss function, which is this one, which is s theta of x tilde minus the score, but conditioned on each data",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "points of your training set. And so why is this good news? It is because that conditional score is something that we already saw. It is tractable, but we have a problem. And the problem we're going to see later. Before we do that, I'm just trying",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "to see if we have time to derive it. So the derivation is in between being trivial and not trivial. It's in the middle. I would say the proof is quite nice. It is not required for you to know for the exam. So I think in the interest of time, I'm not going to",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "do the full proof, but I'm going to show you how you can derive it just through the main step. So what we're saying is we have the original score matching function, which is the one at the top, which is the squared distance between the score of the noise",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "observation minus the true score of q sigma. What we're saying is optimizing for these loss function is the same as optimizing for this one. So the expectation is over x over your training set and then x tilde, which is given x. And so it's",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "expectation of, again, the score of the noisy observation, but this one minus the true score of the conditional observation condition on x. So what you want to show this is the same as optimizing for this, which is tractable. So the trick here is",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "to recognize the fact that you have a distance of two quantities, let's say, a and b, which is something that you can expand as follows. So the distance between a and b squared is a squared minus 2 dot product of a and b plus this square norm of b.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "And what you see is-- so these two loss functions, you want to optimize them with respect to the parameters of the model, which is theta. And so you first realize that the b term in both loss functions, they are not a function of theta.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "So actually you don't care. So this one you ignore. And then you look at just the first term, the a term. And you just realize that these terms are the same. So this one you also don't care. The only thing that you care is showing that the expectation",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "across x tilde of the dot product between the two is the same as the expectation of over x and x tilde of the dot product between these prediction model and this conditional score. You want to show that these two are equal. And this is what the",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "proof is showing. So if you're interested in the details, I would highly encourage you to take a look at the original paper, which is the denoising score matching paper in the appendix. So it's maybe a five or six-line derivation. And what it does is",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "it just leverages the definition of q sigma and then just does some nice term expansion and term identification. So all I want to say is that this equivalence is not pure magic. It's just math, math. And what is great about it is that we're",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "able to optimize the loss of the score matching for the noisy distribution using a tractable loss. [AUDIO OUT] So the question is, the score of the noisy data is equal to the score of the conditional. Well, not exactly, but what your",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "model s theta of x tilde learns ends up being the same. And the reason for that is because here what you care about is the direction where you're optimizing your model. So you do gradient descent typically. And what you care about is the gradient",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "of that loss with respect to theta. And so that's why we have this whole derivation to just show that the loss at the bottom is equal to the one at the top, plus some constant that is not a function of theta. And for that reason, if you optimize",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "the loss that is tractable from the bottom, it's the same as optimizing the loss from the top. [AUDIO OUT] They're not equal. Yes, exactly. Yeah, yeah. Great question. Any other questions on this? Yeah. [AUDIO OUT] Yeah, yeah, yeah. Great question.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, what is the intuition behind this being the same? So I think the intuition goes back to the way you define q sigma and the way taking the expectation works. So here what you're saying is if you take a look at scores conditioned on points",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "from the training sets, so if you take a look at this, and then if you somehow see all the different scores from all the different points conditioned on these points, then on average is going to be the same as if you were to actually take the",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "score from the overall noisy distribution. That's the rough intuition. Does that make sense? OK. OK, cool. I'm looking at the time. So let's see. Yeah, so again, the proof is not something that we will expect in the exam. So feel free to just take a look",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "at it if you're just curious. But it's not required. So this is also called L of DSM, so Denoising Score Matching. And again this loss is tractable because you know the score of q sigma of x tilde conditional on x, because this is a score of a Gaussian.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "So just recapping where we are, what we wanted to do is to estimate the score of the true distribution. So what we said was, OK, it's actually not something we can do. Let's fall back on an easier setup. And what we said was that the easier setup was that",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "in the Gaussian case, you are able to analytically compute the true score. So what we did is we took the true data distribution, and we noised it. And what we showed was that optimizing for the loss that is not tractable is the same as optimizing",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "for loss that is tractable. So in other words, you are able to estimate the score of a noisy data distribution. But it is still not equal to pdata, because what you want is pdata. You don't want the noisy data distribution. So it's only something that is going",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "in the direction of what we want, but it's not exactly what we want. So let's see what this q sigma looks like. So what we want, again, is to go from a starting point towards the data distribution. But here we do not have the score of the true data",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "distribution. So how about if we take a noisy distribution that we can compute where sigma is very, very small. So when sigma is very, very small, q sigma is very close to pdata distribution, because we noise it just a little bit. Well, the problem is that if",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "we take q sigma with sigma that is very small, then we'll just have poor estimations of the score in low-density regions. Do you see why? So I'm probably going to just explain this. So the good thing is it's already there. So I'm just going to fall back",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "on the definition of the loss here. So this is the loss that we're optimizing. So what that means is that we want to optimize on the loss that is around the distance between the predicted score and the score of the noisy distribution q, which is equal to this.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So you're weighting your loss function with respect to how likely your points x tilde are to appear. So in other words, if x tilde is not likely to appear, then the fact that it is off from the true value is not something that is going to be materially",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "noticeable in the loss. So the model will not really be incentivized to make predictions accurate for x tilde that are not likely to appear. OK. So does this part make sense? So what I'm saying here is we are able to estimate the score of",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "this noisy data distribution, but we're not able to estimate it accurately in places of the space that are not likely to appear under q sigma. That's what I'm saying. And the problem with that is if you sample from a distribution that is",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "easy to sample from, for instance, a Gaussian, well, most of the time you're in regions that are low density. So if you use the score of a noisy distribution with a small noise, then you will not have estimations of that score that will be accurate in those",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "low density regions. So you will not be to accurately go towards the high-density regions. So in other words, I'm going just to explain this a bit more on an illustration here. So it's as if we were saying that we have our complicated",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "data distribution here that we have maybe noise a little bit. So it's like this. So this one is pdata, and this one is q sigma. So what I'm saying here is we are able to compute the score of this q sigma, but we're not able to estimate it",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "accurately in spaces of low density, so for instance, here. So what that means is if I sample an observation from an easy distribution that is in a low-density region, then when I'm going to use the score to get closer to that region, those estimates",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "they may be super off. So I won't be able to come towards where I want. And that is the problem with a small amount of noise. So what do you do, well, you can tell me just increase the noise, then. Because if you increase the noise, then if you add",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "enough noise, like, let's suppose q sigma with sigma big, then that point in space will be covered with a high enough density such that you can have more accurate estimations of the score of the noisy distribution. But the problem is that now q sigma is",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "too different from your p data. So in other terms, what you're learning is not exactly what you want. It's like something that's different. So you have this trade-off. If you have too little noise, then it's good. What you're trying to learn is",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "very close to what you actually want to learn, which a the score of the true data distribution. But the problem is you do not have good estimates in low-density regions. But at the same time, if you have too high of a noise, well, the distribution now is",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "too different from the true data distribution. But you now can have good estimations. So it's a little bit like the bias variance trade-off in a sense. You just don't have both at the same time in this case, which is making the situation complicated. Yeah.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "[AUDIO OUT] So the question is, if we configure the Langevin sampling in a way that can work, then we can make this work? So the answer is yes. So it's the next part. And we're going to see how we can do that. But yeah, that's a good intuition. [AUDIO OUT]",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, why is it poor of an estimation in low-density scores? This is true. It's correct, this one. Not this one actually, the tractable one is the true one. But the only problem is that the tractability of your loss function is also a function",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "of how you configured it in terms of the expectation. So the expectation here is over q sigma, meaning that if you have an x tilde, which is in low-density regions, then it's just not going to have a high weight loss, which is just not incentivizing your model",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "to actually properly learn it. So in a sense, it's a loss-weighting problem. [AUDIO OUT] So the predicted score will be inaccurate. Yes. Yeah. [AUDIO OUT] Yeah. So the question is, how about the regularity conditions of the function? So here let's assume that",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "this is not a problem. Here let's assume it's not a problem. But you're right that, for instance, for sigma very small you have indeed very spiky ones. This is the correct intuition. So yeah. [AUDIO OUT] Yes, exactly. So high noise smoothens it.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "Low noise produces some spikiness around those training data points. OK, cool. I think this is probably the most challenging part of the lecture. So yeah, hope you got the intuition as to why that is a problem. So what are we going to do? And you had the right",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "intuition in terms of making some tweaks to the Langevin sampling. So what we're going to do is now we're not going to learn the score of one distribution. We're going to learn the score of several distributions of several noise levels. So instead of",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "predicting s theta of x, we're going to predict s theta of x where you're in space and sigma your noise level. And the idea here is to consider several distributions, one with a small amount of noise, then bigger, then bigger, then bigger.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "And the way you're going to use those different score estimates is at the very beginning-- so if I show you my beautiful charts here. At the very beginning, what you care about is knowing roughly where to go, where to go in space, roughly.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "So here it's fine if you have the score of a distribution that is quite approximate from the true one, as long as you know roughly where you need to go. So the idea is here, you will use the score of a distribution that has been very noisy.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "And let's say you're going to go somewhere here. And then at that point, you're going to use the score of a distribution with less noise, because maybe that distribution with less noise covers that region. And now you know maybe a little bit better",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "where the actual high-density regions of the true data distribution is. And you're going to go again with lower amount of noise again and again and again until coming here. So that is the idea. You're not going to only rely on one kind of noisy distribution",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "with a small amount of noise or one with a higher amount of noise. You're going to actually rely on all of them in a way that will make this problem easy for you. So at the very beginning, what you care about is roughly where to go. And then the more",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "you get closer, you care more and more about the little details. And these methods is something that you will recognize with the following name, so NCSN, Noise Conditional Score Network. So is this framework of learning scores of different noise levels.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "So I just want to reiterate what I drew on the blackboard. So let's suppose you sample an observation from a distribution that is easy to sample from that is far from your actual data distribution. So what you do is you will actually",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "rely on the predicted score from a noised data distribution that is very noisy. And you're going to go step by step by relying on scores from distribution that are less and less noise until coming to your last point, which is something that hopefully will",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "be very, very close to the pdata distribution, which is going to be a noise data distribution with a very low sigma. OK. So does that make sense? Yeah? OK. Cool So back to your intuition on the Langevin sampling. So your intuition was 100% correct.",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "This way of sampling things that I explained with varying noise levels is actually called annealed Langevin dynamics. And it's this idea of starting with a high amount of noise and decreasing the noise progressively. So you will also see that",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "in the literature as ALD. Yeah. [AUDIO OUT] Yeah. [AUDIO OUT] So the question is, what is exactly the trade-off here? So the idea is with a high amount of noise, if you add a high enough amount of noise, then previous low-density regions will be covered",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "by the noisy distribution. And if you add enough noise, like, with a very high amount of sigma, then you will cover it. The only problem is-- so you can learn the score of that very noisy distribution. But the problem is that the true",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "score of that noisy distribution is going to be far from the score of the data distribution. So that is the trade-off. [AUDIO OUT] Right. So the direction that it will be pointing will be roughly where you want to go, but not exactly. But the idea here is that",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "the very beginning you don't really care. So for instance, if from here from Stanford, I want to go to New York, I know roughly I want to go this way. And then I go this way. And then the more I get closer, the more I want to refine exactly where New York is.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. OK, cool. There is something else I wanted to say. OK. So there's something else I wanted to say, which I think we'll cover a little bit later. But first, we're going to cover how we're going to sample new observations using this annealed",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "Langevin dynamics. So here what you would do is sample some noise from very noisy Gaussian with a high amount of noise. And what you're going to do is for every noise level, you're going to run your Langevin sampling. And this is the formula that we",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "saw at the very beginning, which is you add the point that you're at with the predicted score, which is where you want to go, and then some amount of noise, which allows for a bit of diversity. And once you do that for all noise levels until coming to a very",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "small noise level, then you end up with the actual image. So one thing that I want to say regarding the score, you can think of the score as being a compass. Now, when you are in the forest and you want to see where the city is, just follow the direction",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "of the compass. It's the same idea here. So we're in the space, space of images. A lot of these regions of space are images that are actually not real images. But what you want is to go towards regions of high density with respect to",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "your target data distribution. So it's as if you were following a compass to come at your destination. OK, cool. So last time-- you had a question? [AUDIO OUT] Oh, yeah. So the question is data distribution can be any data distribution? Yes, yes. OK.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "So now what I want to tell you is how what I'm telling you now here relates to what we saw last week. So if you remember, DDPM was all about taking a clean image and then noising it. So if you remember, we had these coefficients. And for instance, in this",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "case, the noised image was the square root of alpha t bar times your clean image plus square root of 1 minus alpha t bar times the noise. What I told you here also involves noise. So a natural question that you may ask is, how does the score relate",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "to the noise prediction task that we saw last week? Well, the forward process of xt given x0, you just see that it is a normal distribution centered on the square root of alpha t bar times x0. And you actually realize that the score of that distribution",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "is equal to minus the noise that you added over some coefficient. So in other words, these two quantities, so the score meaning where you should go to end up where the clean images are and the noise that you added, are actually two quantities that are linked.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "And they are linked such that the score is equal to minus the noise that you added. And that makes sense. So why does that make sense? So I'm just going to clean that part. Whoops. So why does that make sense? So here if you have your clean image",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "and then if you noised, so it's as if you added some amount of something noise. But then if you want to go back to high-density regions it's basically your score. So it makes sense that the two are in opposite directions. So by the way, does that make",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "sense that it is the formula? So maybe I can also derive it. So remember that the score of a normal distribution is equal to minus x minus the mean over the variance. So in this case, we have-- so x, what is x? It's a noisy image. And the noisy image has",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "the following formula. So noisy image is the square root of alpha t bar times x0 plus square root of 1 minus alpha t bar times epsilon. You subtract the mean of the normal distribution, which is this square root of alpha t bar times x0.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "So this gives you minus. And then this is square root of 1 minus alpha t bar epsilon over your variance, which is 1 minus alpha t bar. Which is exactly what you have on the slides. Does that make sense? OK. Cool. So this is just to give you a",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "parallel between NCSN and DDPM. So these two methods are just two different ways of noising your sample at the end of the day, because one is taking some weighted average between the clean sample x0 and the noise, and the other one is just adding noise",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "with just sigma. So that is the reason why this, so DDPM, you will see it be characterized as being variance preserving. Because if you take the variance of xt is going to be roughly equal to 1. And this is assuming that your x0 are normalized.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "They have a mean of 0 and variance of 1. So if you take the variance of xt, it's roughly alpha t bar plus-- so square root of alpha t bar squared plus square root of 1 minus alpha t bar squared, which is equal to 1 roughly. And this formulation, the NCSN one",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "is going to be mentioned as being variants exploding. Oh, I have to go way back in the slides. This one is going to be variance exploding because you're going to add more and more noise. And the noise is going to just increase a lot. So it's not bounded by 1.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "OK. Cool. So, so far what we've seen is noising images using a discrete set of noise increments. But one could argue that these discretization is arbitrary. It is something that you need to decide before starting your training process.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "So one idea is to actually consider continuous evolution instead of discrete one. So the reason why you would be interested in doing that is because we also have a field of math, which is in differential equations that have a bunch of very",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "convenient toolkits to solve these kinds of equations. So one idea is to actually start from what we saw in DDPM and NCSN and try to see how they would be like in the continuous world. So in order to do that, we first need to have an equivalent",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "of noise increments. Because up until now, the way we added noise to clean images was via sampling from a Gaussian distribution. So it's like normal distribution of mean 0 and covariance matrix, the identity, and then just adding noise like this.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "But what you want is to have a continuous equivalent of having these noise increments. And this is where the Wiener process comes in. So who has heard of the Wiener process before? Yeah. No one? Maybe one. OK. So the Wiener process is a",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "type of stochastic process. So stochastic process is a family of random variables that are indexed by some index t, let's say, the time. And a Wiener process is a stochastic process that follows the following properties. So we have W0 by definition",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "that is equal to 0. And the difference between Wt and Ws, which is an increment, follows a normal distribution of mean 0 and variance t minus s times I. And these increments, so these differences are actually independent from one another.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "So you can think of the equivalent of a random walk. So you walk one here and then one there but in the continuous world. So one thing that I want to say is that what is independent is the increments and not the value of the ability itself.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "Because you can imagine that Wt will depend on Wt minus 1 and so on. So what we're saying is that the increments are independent from one another. So with that in mind, what we can do is to derive a continuous formulation of DDPM and NCSN.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "So in the interest of time, what I'm going to do is to only derive the DDPM case. So what we're saying is we're starting from the update formula that adds noise to a less noisy image. And what we want is to obtain a continuous way of expressing that.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "So I'm just going to rewrite what is on the slide. So xt is equal to square root of 1 minus beta of xt minus 1 plus square root of beta times epsilon. So if you remember, beta is your noise schedule. It's the amount of noise that you add at each time step.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "And so what you want is to have an expression of a differential evolution in x as a function of everything else. So what I'm going to do is subtract that quantity with xt minus 1 And then have t and t minus 1 be very, very small so that I can",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "consider this to be continuous. So what I'm going to do here is just some math. So I'm taking xt and I'm subtracting xt minus 1. So it's going to be square root of 1 minus beta minus 1, xt minus 1 plus square root of beta t epsilon. So beta t is the",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "quantity of noise that you add between two discrete steps. What I'm going to do is to define a quantity that I'm going to write beta parenthesis t, which is the rate of noise at time t times dt, an increment of time. So what this is saying is when we're",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "going to have t10 to 0-- so this is going to 10 to 0, but we're going to have some rates of noise that's going to be nonzero, that's going to be your schedule. So if I pause that, so this becomes xt minus xt minus 1 is equal to, so 1 minus",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "beta t dt minus 1 xt minus 1 plus square root-- I'm going to also replace it here-- of beta t dt epsilon. So far I've just plugged in the new beta t expression. So what we're going to obtain now is actually something that's going to be quite nice.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "So if we tend t to 0, so if we consider a continuous evolution, xt minus xt minus 1 is also going to be a differential evolution. So here, I'm going to rewrite xt minus xt minus 1 as just d of x. So when dt tends to 0, you have Taylor expansion formulas that",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "tells you that square root of 1 minus something that tends to 0, which is equal to 1 minus 1/2 of that something. So this is just Taylor expansion. So here, I'm going to say it's roughly equal to 1 minus 1/2 of beta t dt. xt minus 1 is roughly going to be x.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "So this is 1 minus this minus 1, because you have the 1 here, times x plus-- so you have square root of beta t. But then the Wiener process that we defined is such that a small increment in the Wiener process is actually something that you can rewrite",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "as being square root of dt times epsilon, because it follows a normal distribution of variance dt times I. So here, I'm going to recognize the square root of dt times e. That's right. Square root of dt times epsilon as being dW, which is equal--",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "so it's as if it was equal to d of x is equal, so this is going to cancel out, 1/2 of beta x dt plus square root of B dW. And now you may be wondering, why am I writing all these equations? Why are we doing this? Well, you're going to see",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "that when we rewrite this, for instance, for DDPM and then for NCSN, what we realize is that we have an expression of dx equal to something times dt plus something times dW. So these two terms have very specific names. So one is called the drift.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So this quantity is called the drift. So it's deterministic. And this one is called the diffusion, which is what is stochastic. And you actually have a nice intuition about it when it comes to how x varies in space. So if you suppose x to start from here",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "and you only have a drift term, what you're going to have is just deterministic evolution using f of x and t. So you're going to go from x to x plus dx using f of xt times dt. And then you're going to repeat this process again and again",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "in a deterministic fashion. So this first term is deterministic. Now let's look at what the second term does. So here you start from a point x, and you add some quantity that is a function of noise, Gaussian noise. So here it's going to be",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "something that is noisy, so the stochastic part. Which means that if you take the whole expression, you're going to end up with something-- so one step from x to x plus dx is going to be including a deterministic step and a stochastic step.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "And this is something that will follow the slides here. So all I want to say is that DDPM and NCSN can actually be transcribed from their discrete formulations to a continuous one. So when you see these formulas, just know that it is just us transcribing",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "them to be continuous. And the reason why we want to do that is because this is going to be an SDE, so Stochastic Differential Equation, for which the field already has a lot of techniques to solve them. And I'm just going to tell you now about why the DDPM",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "formula makes sense just from an intuitive perspective. So what we're saying is in a 2D space, so this is the origin. This is 0. And then we have a vector x. So what we're saying is that an increment in x is going to be negative with respect to where x is.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "So it's going to be somewhere like this. And then we're going to have a little bit of noise added to it, so maybe like this. So in other words the noising process, the forward process is bringing x closer to 0 and adding some noise so that this",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "converges to a variance of 1, which is what DDPM is about. Because the DDPM you take a clean image, and then you noise it with convenience coefficients such that after t steps, it becomes a normal distribution of mean 0 and variance 1. And this is exactly",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "what you're also seeing by interpreting the terms of this equation. Does that make sense? So I just want to tell you this to just tell you that these formulas are not just formulas. They have a meaning if you think about each term. And here this expression",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "of the continuous evolution of the forward process for DDPM actually makes intuitive sense when you're just writing things down. [AUDIO OUT] So question is, why is it useful? We're going to see it exactly now. So I'm going to tell you now what is useful.",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "So the reason why it's useful is 1, you're not going to have to necessarily define discretization steps between each noised images. So you're not going to say, OK, I need let's say t steps to do the whole noising process. So that's the number 1.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "And number 2 is there's a number of results in the field of stochastic differential equations, which is essentially what this is. There's a number of results that will allow you to solve the reverse process. Because what you want is to",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "be able to denoise images. So here what we're doing is we're just noising images. But what we care about is how to denoise images, which is the reverse process. And the reason why it is convenient for us to think in the continuous world is for us to be able to",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "leverage these results. And we're going to see these results in a few minutes. OK, cool. So here I just want to say that this drift term f and the diffusion g is the following for DDPM, but it is this form for NCSN. And you see that there is no drift term,",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "and it is mainly because we're only adding noise. And the idea behind DDPM and score matching is actually something that was developed in parallel. So here what I want to say is just a historical evolution of how things happened and how we came up",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "to that unified view of describing the forward process in order to solve the reverse process. So on the one side, the diffusion literature had this given branch with a 2015 paper just describing how you can derive a tractable loss in order to solve for this,",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "the diffusion problem. And then you have the DDPM paper which came out in 2020 that successfully applied that for images. That was on the one side. And on the other side in to score matching world, you had this principle of using the score",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "to go from a starting point to the distribution and the fact that it alleviated this intractable normalizing constant. And then there was a paper that described how to do that in the case of a noise distribution. And then the NCSN method is actually",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "something that came out with a later paper. And there is one paper that unified both of these paradigms, which is a paper called Score-Based Generative Modeling Through Stochastic Differential Equation, which is a paper I highly recommend reading.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "It's actually written by folks from Stanford, so Yang Song and coauthors. And it is from that moment that the community has seen these two paradigms as being unified. And this is the way we have seen this play out. So now why did we do this in the first place?",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "So our goal is to recover clean images. So we know how to noise them through this forward process that we now are able to express in continuous term. What we care about is to denoise into clean images. And so here what we're doing again predicting the score.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "So this score formulation is just a regression on the conditional score which we saw was tractable, which is, as we saw, minus epsilon over some coefficients. And the way you would train such a model is following this loss function, which",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "is an expectation over clean images that you noise. And so what you do is you sample a clean image and then some noise and time step. And then what you do is you obtain your noised image. And so here noised image is just a combination",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "of the clean image and the noise with some alpha and sigma t, which can be chosen either in the DDPM way or another way. And what you do is you predict the score that you know is tractable using your noised image and your time step. But now you may be",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "asking, well, why do you want to predict the score? Because we saw that for NCSN, we had the score that we used in order to sample new observations from the data distribution. But we saw in the case of DDPM that we actually predicted the noise to remove.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "So we had these two different formulations. So now the question that you may ask is, why do you want to focus on the score here? And the answer to that is that the forward process that is described by the SDE can be reversed through a reverse SDE",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "that involves the score. So I'm just going to repeat exactly what I said. So the forward process, which is described by the SDE, is something that you can reverse through a reverse SDE which involves the score. And the reason why the score is popping up here",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "is due to some derivations that we're not going to go here, but this is just a result that comes from a paper from 1982. So it's a result from the SDE world that were just leveraging here. So that is one of the points why we're caring about the",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "continuous formulation is because we want to be able to leverage results around these SDEs, and this is one of them. And so now I want to walk you through what that reverse process equation is about. So I told you that the forward",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "process was composed of a drift term and a diffusion term. So it was dx equal to f of x and t times dt, which is the drift, and then plus gt times dW, which is the stochastic term, the diffusion term. And what we're saying is that in",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "order to do the reverse process, we actually cannot just have the same equation. We need to add a correction in the drift that involves the score. And here is the intuition. The intuition is that in the forward process, we have added some stochasticity",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "that made us deviate from where the actual data point was. So as a result of that, when we want to reverse that process, what we actually want to counteract this phenomenon is to go towards the regions of high density scaled by that diffusion factor.",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "So what I'm telling you is that the reverse process SDE is obtained through some derivation. But the way you would interpret it is that the correction to the drift is due to the fact that you diffused in the forward process. And this made you be further",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "from high-density regions. So this is what the reverse process is like. So it's dx times the drift, which is the original drift minus the diffusion coefficient times the score times dt plus your diffusion term. And here we noted dW bar",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "because the Wiener process from the reverse process is actually different compared to the one from the forward process, which is why we noted this with the bar. And we're just going to conclude with how you would do inference. So to do inference, you",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "just sample some noise. And then again what you do is you leverage the nice results from the fact that you are handling SDEs, Stochastic Differential Equations. So you, for instance, will use a solver called Euler-Maruyama that is able to numerically",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "solve the reverse process. So here you can think of it as a numerical method that will let you go from your original ex back to the endpoint using the reverse process equation. And you will obtain your final image, which will hopefully",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "be an image that is satisfying. And that's going to be your final image. Yeah. [AUDIO OUT] Yes, so this one-- yeah. [AUDIO OUT] Yeah. So here, you can think of this equation as being a discretization of the reverse SDE which is here.",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "So this is exactly this SDE, but you're doing it step by step. [AUDIO OUT] So the question is, what is fx of t? What is g? So these are the coefficients that are here. So for instance, in this case, f of x and t is minus 1/2 of beta times x.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "And g is square root of b. [AUDIO OUT] It is the same. So the question is, this is for the forward. But this f and g are the same in the forward and backwards. Yep. And with that, I'm going to give it to Shervine. Thank you, Afshine. So I'm going to come here",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "and sing a very similar song as the one I sang last week when we transitioned from DDPM to DDIM. So we're going to look at this reverse SDE equation and look at what is not optimal in practice and see what we can do about it. So as Afshine mentioned, you",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "have this Brownian motion. That is one term of that reverse is the equation. And what problem do we have with that? So as you saw in the transition from x and x plus dx, you have all these spikes that happen due to the stochasticity.",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "And this process is the reason why we cannot take large steps when resolving it, because otherwise you would be approximating a movement that is something that you look at the microscopic level. So you need a high number of steps in your solver to start with.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "And also the second point is that when you look at your errors that you do when you solve these reverse SDE equation, you have now two sources. You have the first source that comes from the regular discretization step. And then you have the",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "stochastic error that comes in, and they accumulate. So just like last week, I'm going to paint the picture of what we would like to have and see if we can get there. So what would be the right counterpart of an SDE in a nicer world? It would be an ODE.",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "So the ODE does have this term on the left but doesn't have any stochasticity. And going through each point that I mentioned, you would be able to gauge how fast you go depending on the regularity on the function of the left. So you have some methods",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "that can take adaptive steps. And then the second point is that in terms of errors that you're committing, once you solve that equation, they are only focused on the discretization of the left part. So you have less sources of error.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to sketch you a derivation for which only the high-level gist is what I want you to. So there are going to be some intermediary results that I'm just going to state. And some equations we don't need to know necessarily how they are derived.",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "I'm just telling you that they are there. So let's start from the forward SDE. As Afshine had mentioned it, you have this f of x and t term, the drift term, and the diffusion term. So it turns out that for equations that verify this equality, you",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "can apply the Fokker-Planck equation, where you have this pt of x that comes up. That is the probability of the flow. And you have two terms on the right that could be interpreted in physical terms by the term on the left that is a transport",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "term and the one on the right that you see g squared on, which is the diffusion term. So the derivation of such an equation is non-trivial and is out of scope here. I'm just going to state that we are going through that results. And then by",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "rearranging the terms and using an identity on pt, we can come to another equation that is called the continuity equation that I'm just going to tell you that it's going to be something that we see in more details at the beginning of next lecture.",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "But what's interesting about that continuity equation is that on the right side, there is a factor that is to be interpreted as a velocity. And the velocity is dx over dt. So once you identify that factor, you can come up with an equation that this term that",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "has been identified as the velocity needs to verify. And you come up with an equation that is indeed an ODE, and we call it the PF-ODE. PF stands for Probability Flows. And let's look at that equation for a bit. So just like we mentioned a short time ago,",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "f and g are modeling assumptions that are the ones that we had as assumptions once you derive this diffusion concept. And what about the score? So the score is also something that we can know. Because once you have a model that can approximate this score,",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "you just have to put x as inputs, and you can get the score. So what I want to say is that this whole term that popped up is all composed of components that we can know. OK, great. And now I'm going to re-emphasize each side of that PF-ODE. So it's an ODE we",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "said because we don't have a stochastic term, and it's probability flow because it's an ODE that comes from verifying the continuity equation, that is, an equation that is focused on the probability flow. And one interesting thing about that equation",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "is that once you have an initial condition on PT, you can fully characterize what P is. But this is something that you cannot say about x. Because as you can see here, if you have v that is solution-- that is part of this equation, then if you add--",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "if you do v plus v null, where v null verifies divergence of v null and pt equals 0, then v plus v null also can be plugged in here. So all of that to say that the probability flow between the reverse SDE and here are preserved. But the trajectories are not.",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "OK. So I went through a lot so far. Any questions? Yeah. [AUDIO OUT] Yeah, fair. So the question is, what's the interpretation here? So we did all these equations to conserve the probability flow, and the trajectories are going to be different.",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "And they are characterized with this modified term on the v side. So instead of having these-- so you have this one half that came in, and that compensates for the stochasticity part that disappears. So you're going to still have trajectories",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "that verify in aggregate the probability flow conditions, but they are going to be different. And the interpretation is not average or anything specific. I would say it's just that in aggregate, they verify the probability flow property at each time t and x.",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "[AUDIO OUT] Yeah. [AUDIO OUT] Yeah, yeah, yeah. So the question is, will they end up with the same properties that you have the distribution at the end? And the answer is yes, because PT is preserved. OK. Awesome. And so I'm going to draw a comparison",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "between solving that reverse SDE equation and using PF-ODE. So exactly as we mentioned here, the term on the left, like the drift term, is compensated for that lack of stochastic term. And then the great point that you made is that we no longer have",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "something that is stochastic. But once you have an initial condition, you deterministically know where you're going. So that's one big difference that you might remember from last time resembles something that you know. And as a result, since the",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "only source of diversity is now your initial draw, you have less sampling diversity. And interestingly, when you look at experiments, you have higher sample quality. And that could be explained intuitively by the fact that you introduce noise at each time step",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "enables you to explore regions of the space that you wouldn't have explored with a deterministic path. And you may self-correct your trajectory, as opposed to resolving an ODE that is only conditioned on your initial points and all the errors",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "that you accumulate by solving the ODE numerically. So you have a nice interpretation there. And of course, now that we have an ODE where we can adapt step sizes, you can now resolve this faster, which is a nice property. And the fact that I told you that I'm",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "drawing a very similar parallel between PF-ODE and the reverse SDE as the one I drew last week between DDIM and DDPM, we can see a lot of shared commonalities that I've put here for reference. And now let's look at how we can solve this equation in practice",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "and if we can do even better than regular solvers. In order to do that, I'm going to introduce a way to assess complexity that is widely used in these papers called NFE. So it's the number of function evaluations. And what we want to do is for a sampler",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "to get good quality results with a minimum amount of NFEs. So it's a measure that makes intuitive sense in the sense that we want to minimize the number of forward passes that you perform on your model. And I'm going to introduce this notion of solving",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "an ODE by the very simple method that some of you might know already, so Euler's method. If you consider this ODE dx equals v of x and t dt, you can, based on your initial point and the derivative at that point, approximate the next point.",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "But the issue with that is that there is quite a bit of errors. Even though it's just one NFE per step, you end up with the results that might be imprecise. So people to account for that fact are using a fancier techniques, so Runge-Kutta",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "4 is one of them that-- so I represent it here on this graph the intuition of it. So you look at midpoints, measure the derivative, have some derivative measurement on the endpoint as well. And if you do some weighting out of all of this,",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "you obtain an update step that is of low error rate. I think here it's O of delta t to the power of 5, which is nice. So you might tell me, OK, hey, Shervine, we have solved everything. We have a nice sampling method. What could we do better?",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "So actually let's look again at v of x and t. So I told you it's f of x and t minus this term on the right that is divided by 2. But if you look at all the equations that we use in the diffusion world, you see that f and x and t can",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "be rewritten as f of t times x. So what does that tell you? So that tells you that this ODE is linear in x. So it has a linear term. And what can you say about the term on the right? Is it linear or-- so you would have x as an input to where?",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "What is the term on the right? The one in the rectangle. It's the score. So the score is what we try to estimate as part of our reverse diffusion process. And it's typically something that you would approximate with a neural network. And neural networks,",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "are they linear? No, they're highly nonlinear. After the first layer and first activation function, it's no longer linear. So you have a nonlinear term there. And one thing we could do is instead of trying to discretize this whole equation",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "without leveraging the fact that part of it is linear, we can use some math properties that says that with methods like the variations of constants that some of you might have heard of, you can derive an exact solution to part of it",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "and focus the discretization process on the other part. And that's what DPM solver is all about. And I'm going to spare you the details of the derivation. It's quite long. I have attached the paper at the bottom in case you're interested. It's a bit involved.",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "You get an update formula that has this exact term on the left and then some integral on the right. And the integral on the right focuses On the nonlinear term that we saw. And one highlight that I'll mention here is that we are not solving",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "this in the time space. There has been a change of variables, and this is what the lambda that you see in this equation stands for. And there is a one-to-one mapping between time steps and lambdas. Because lambda is strictly monotonic here.",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "So yeah, this is one interesting thing to note. And the question now is, how do we discretize this equation? Because we have this integral now left. And we cannot integrate something that is approximated by a neural network over a continuous range.",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "So what we do is that this is the part that is going to be discretized. And you have variants of DPM solver that discretize it at different levels of granularity. So the first one is DPM solver 1 that the paper shows gives an equation that",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "is equivalent to DDIM actually. And DPM solver 2 uses Taylor's expansion at higher levels up to any number k. And the number-- so the NFE for each is of I plus 1-- is of I, sorry. And so to recap what we did is that we started from the forward SDE, rearranged",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "terms using properties that we knew of. Came up with a PF-ODE that verified the same probability flow. And that enabled us to generate new samples. And then we leveraged the format of the PF-ODE to further optimize the way we would resolve it",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "by focusing our NFEs on the discretization parts that really matters here. And here you see that DPM solver resolves the ODE with a much better trade-off between budget and quality. And the difference on the paper you can see it at low number of steps",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "they're quite huge in terms of N metric. And then just like DDIM, you don't need to retrain the network when you want to sample with this solver because the objective function is the same. And in practice, with only tens of NFEs, you can get good results.",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "And that was it. I hope you have a great weekend.",
+      "start": 1602,
+      "duration": 6
+    }
+  ]
+}

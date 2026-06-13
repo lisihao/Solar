@@ -1,0 +1,704 @@
+{
+  "videoId": "2bVJbb5wYzo",
+  "title": "SREcon26 Americas - When the Cure Is Worse than the Disease: Metastability in Recovery",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 33816,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thanks everyone for coming today.\nToday's session is entitled when the\ncure is worse than the disease meta\nstability in recovery.\nQuick intro. I'm Todd working at Meta\nstudying emergent behavior in uh large\nscale systems to in order to operate\nthem more safely. This is Alexi, a\nprofessor at U. University of New\nHampshire studying the metastability\nproblem. And our collaborator in the\naudience is Dave Meyer, 40 years\nprofessor at Portland State University,\na rockolid individual and a calming\npresence in our talks.\nOkay, so the context of what we're\ntalking about today. So we're going to\ntalk about a uh massive scale globally\ndistributed real-time message bus at the\nuh heart of this problem which is called\nscribe uh internally at meta um it's\nsimilar to Kafka message bus there's\ndifferent topics we call them categories\nfor different data but uh on the\nproducer side there are a variety of\nsources uh to produce data there's\nvarious ML workflows there's logging\nfrom servers and other locations there's\nmobile devices uh a variety of different\nuh uh producers different rates\ndifferent data characteristics\nthen you have scribe the overall service\nuh very uh multiple services in it but\nthe key parts are there's a right\nservice a right flow um which uh has a\nstorage backend and then the read flow\nover on the readflow side um there can\nbe multiple consumers of data for even\nthe same topic They can have uh\ndifferent variety of um both workloads,\npulling rates, um different processing.\nSo you can have online training reading\nfrom a topic that is feeding uh online\nML models. There could be data ingestion\nreading from that same topic uh batching\nup the data, optimizing it, encoding it\nin certain ways to make it both\nefficient when writing to the data\nwarehouse, but also for different\nreaders of that same data. um whether\nthat be ML trainers, whether it be\ndownstream uh analytic systems etc. You\ncould also have stream processing,\nreal-time stream processing that can\npower feature engineering, real-time\ndashboarding, etc., etc. But the overall\npicture I want to paint here is that\nthere's many consumers, different um\nrecovery needs for these consumers. Some\nof them might not need all of the data,\nsome of them might need all of the data,\nthey might need it at different times.\nUh so that's the world we're living in.\nAnd so what is the focus of the talk\ntoday? Which workload? It's going to be\nthe data ingestion part of that\nworkload. So data ingestion has hourly\nstreaming jobs. So what I mean by that\nis as an example for all data from 1:00\np.m. to 2 p.m. for a specific um topic\nneeds to be read uh in real time as it's\ntrickling in batched uh compressed\noptimized encoded etc before landing to\nthe data warehouse. It's optimizing the\ndata for downstream consumers. A few\nmajor requirements um of this are\ncompleteness. So for data that was\nproduced and stored in the Scribe system\nfrom 1 p.m. to 2 p.m. we need all of\nthat data and we're producing hourly\npartitions. Um this is very important\nbecause especially when training ML\nsystems knowing that you have all of the\ndata for a specific hour allows you to\ndo correlations with that same hour\nprevious day, previous week etc. So high\ndata completeness um is a requirement.\nThe other part so we have complete\npartitions. The other part is the\ntimeliness of that. So that hourly\nstreaming job kicks off at 1 p.m. It's\nreading all the data until 2 p.m.\nThere's some time after to do that heavy\ncomputation that I described earlier. Uh\nand then we landed. We don't want to\nland it multiple hours late. We have\ncertain timeliness SLOs's, but\nessentially the quicker the better for\ndownstream consumers. Um, as more time\ngoes by, the ML trainers might have uh\nhave less use for that data. It might be\nless valuable because it's stale.\nOkay. So, what is the incident um at the\nheart of this?\nSo, one day we were at work minding our\nown business and then alerts started\nfiring, right? We had many hourly uh\njobs that were landing but they had data\nquality problems. So there was data\ncompleteness issues that were too big\nfor us to be comfortable with. They were\nbreaching our data quality SLOs's\nand as we just discussed we need these\njobs to land with good data quality and\nwe need them to land in a timely manner.\nAll right. So the alarms were were\nfiring. The on call engineer looks at\nthat. They see a bunch of data quality\nproblems for a variety of partitions.\nOur recovery process was initiated.\nAnd so what was our attempted recovery?\nWell, our first thing is to issue\nbackfills for the partitions that had\ndata quality problems. So what's a\nbackfill? So in our uh data ingestion\nsystem, what that means is for a\npartition, let's say 1 p.m. to 2 p.m.,\nit had data quality issues. So we need\nto reread all of that data from 1 p.m.\nto 2 p.m. to further optimize, batch,\ncompress, etc., and land that into the\nwarehouse. So we need to reread all of\nthat data. Um so for all of the\npartitions that had data quality\nproblems, we issued uh a massive amount\nof backfills in order to um get data\nquality to an acceptable um level. And\nif it didn't, then we need to escalate.\nNormally when we issue these backfills,\nthere is no problem. We send them out.\nwe get all of the data or the data all\nof the data that is required to reach\nour data quality level and we move on.\nHowever, in this uh incident that wasn't\nthe case. We were we issued all the\nbackfills but we kept seeing newer\npartitions with data quality problems\nand the um backfills that we issued were\nnot really progressing u much. So we\nwould need to issue more backfills. We\nhad then also the pending backfills.\nThings were getting worse and so this\nseemingly got out of hand and eventually\nuh it escalated to a real widespread\nincident. And so something really bad\nwas was happening.\nAnd so the key question is is why aren't\nwe recovering? The backfills were issued\njust like every other incident. Um they\nwere still having data quality problems.\nWe saw more data quality problems. What\non earth was going on here? Here here.\nHey Todd, I think you have a severe case\nof metastable failures.\nSo uh let me fill you in. You know what\nare metastable failures? Uh metastable\nfailures are this type of uh performance\nfailure that is characterized by a\nsustained positive feedback loop. So,\nWikipedia defines positive feedback as a\nprocess that occurs in a feedback loop\nfeedback loop where the outcome of a\nprocess reinforces the inciting process\nto build momentum. So, in case of a\nfailure, you have a failure and we have\nthis feedback loop that reinforces that\nfailure further and further and further.\nAnd um as it turns out, pretty much all\nlarge uh systems, they have this\nfeedback loops that exist in those\nsystems. They sit dormant. They sleep\nand they're just waiting to be activated\nby some trigger. So this trigger can be\nsome kind of failure or a workload\nspike. You know, many different reasons,\nmany different triggers. But once\nactivated, this feedback loop, they make\nthe problem worse. Um here on the uh\nscreen I have on the slides I have a\ncouple examples of the common feedback\nmechanisms. The most well-known uh\nfeedback uh driven metastable failure is\nreduc induced uh feedback loop feedback\nuh metastable failure. So in a retry\nsituation we have uh this initial\ntrigger let's say it spikes the workload\nright the we have more work entering the\nsystem than uh uh than before and this\nincreases the latency right so as the\nlatency uh is uh growing we have some\nrequest some work that is timing out\nwhich forces the clients the users that\nneed that work to potentially issue\nretries and this retries re-entry into\nthe system and create even more work,\nright? A latency increases again. Even\nmore requests, even more work gets to\nretry and we kind of uh complete this\nloop and with every cycle in this loop,\nthe problem gets worse and worse and\nworse.\nUm there are plenty of other feedback\nloops that will exist in systems. Um the\none I have on the screen here is uh\ngarbage collection induced feedback\nloop. But um you know there are all\nkinds of varieties um and the key\nproperty here is that um these feedback\nloops they are inherent like they exist\nin systems and um they just wait to be\nactivated right they are often baked\ninto the algorithms and protocols that\num underpin a lot of our systems um and\nlike in many cases we cannot like really\nremove them right so they sit they wait\nuh for the trigger to activate them. And\nthis kind of brings us to this um life\ncycle of metastable failures in the\nsystem because this feedback loops they\nexist and wait. Most systems uh they\noperate in this vulnerable state or\nmetastable vulnerable state and wait for\nthis trigger. the trigger causes some\nkind of overload on some resource, you\nknow, CPU, memory, locks, you know, any\ntype of resource. Um, and this overload\ntends to activate some or all of these\nfeedback loops that sit and wait. And\nthese feedback loops that sometimes are\ncalled sustaining effects or sustaining\neffect loops, they create this\nmetastable failure. So if we let them\nrun for sufficiently low amount of time,\nwe end up in this metastable failure uh\nstate where the system is you know\namplifying itself, amplifying all the\nbad things and doing almost no good\nstuff. And at this point um like the\ntraditional recovery mechanisms will not\nwork. You literally more or less forced\nto like turn it off and on again and\nhope that you actually know how to turn\non your large system correctly. Um so\nhere in the boxes I have some um hints\nat the mitigation strategies for the\nmetastable failures. If we know um what\ntriggers may exist, we may try to build\nsome additional resilience for these\ntriggers, right? Uh if we know what\nfeedback loops we have, we may try to um\nagain like work with these feedback\nloops, try to cap the amplification\nrate, you know, how quickly these loops\nwork, try to cap the maximum\namplification and so on so forth. Um and\nfinally, you know, we do need to have\nlike good strategies on how to bring the\nsystems up from uh from, you know, black\nstart.\nUm so we know this stuff, right? So we\nhave to design systems with resilience.\nWe build fault tolerance systems, right?\nUm we build the mechanisms, we build the\nrecovery mechanisms uh for all kinds of\nissues. Um but unfortunately those\nrecovery mechanisms uh can be metastable\nas well. So this example with the retry\ninduced metastability is one of these\nexamples of um you know the recovery\naction that itself causes me stability.\nSo retries are great when you have um\nintermittent failure, right? So some\nsmall failure happened, you retry and\nyou know you move on. But if the system\nis in this like overloaded state that's\nthat's not intermittent, those retries,\nyou know, the mechanism that's designed\nto remedy the issue, uh those retries\nactually amplify the situation. And\nthere are, you know, more complex ones.\nBut I think um, you know, the issue that\nyou're experiencing with your\nrecoveries, you know, starting to cause\nmore troubles is one of these examples.\nUm, and I think I'll call them cascading\nrecovery uh, failures.\nSo maybe we'll start with a small\nfailure or like one component fails and\nthen you know it recovers and the\nrecovery of that component causes\nanother component to recover and uh\nthose recoveries kind of amplify.\nSo um let me try to distill you example\num in like a slightly different um uh\nschematic and illustration. So uh we\nhave some producers who create the data.\nWe have the message bus that collects\nthe data and uh streams it over to the\napplications that you know consume this\ndata batch it and perform all these\nexpensive computations\nand uh here we have everything that's uh\nworking just fine right so the data\ncomes in uh and gets out to the\napplication\num and I think at some point you have a\nfailure in the producing site right like\nuh in my example here messages number 10\nand 15 get delayed for whatever and they\ndon't enter that message bus on time.\nThat's the data quality problem you were\ntalking about. Uh the application has no\nclue, right? So the application will\nfetch whatever the data it has, perform\nthe expensive computation um even though\nsome data is missing and you know kind\nof moves on. Um but at some point you\nknow you start getting this data u back\ninto the message bus. So the messages uh\nthe data 10 and 15 arrives in it ends up\nin application and application is um\napplication doesn't know what to do with\nit right because it already processed\nand batched and did all this expensive\nwork for for for those batches to which\nthose um like recently arrived messages\nbelong. So what do we do? the\napplication will need to uh go and ask\nfor the data, right? It has to go back\nto the message bus and it makes the\nmessage bus more expensive like more\noverloaded. So we have the application\nthat needs to redo expensive\ncalculations, computations and we have\nthe message bus the dependency of this\napplication that is now being asked to\ndo more work and this kind of brings us\nto this um feedback loop the metastable\nfeed look feedback loop we have the\napplication um because it doesn't have\nthe old batch data it refetes it from\nthe message bus this refing places extra\nload on the application it's doing recmp\ncomputation and the message bus but\noverloads the message bus means that um\nits timings are going to be um impacted,\nright? So the new data that's being\nproduced may not enter the message bus\nin time or the message bus may not\ndeliver the data to the application in\ntime which means that uh the\napplications uh will start to receive\nthe batches that are not complete and\nhave worsening data quality problems\nwhich will need to be recovered in\nexactly the same manner by uh refetching\nthe data and you know adding even more\nload to the message bus.\nSo that's the metastable feedback loop\nloop that I think is happening in uh in\nyour example.\nNow uh maybe in an academic I cannot\nstop here. I need to do a little bit\nmore of like formalism like what's\nwhat's happening here right? So at the\nat the very minimum here we have two\nsystems that are trying to recover right\nbut these systems they depend on each\nother. So um I call uh one system\ndependent and it relies on the data or\nwork that is supplied by the other\nsystem that I will call depend right and\nthis like dependencies can in large\nsystems form um you know pretty deep um\nlike dependency trees but at the core of\nit is still like this like a pair of\ndependent dependency relationships\nand what happens here is that when the\ndepend system fails or slows down, um,\nit starts to accumulate the deficit,\nright? So, it's no longer doing as much\nwork. It's no longer producing as much\nstuff um as it used to, right? So, it\naccumulates the deficit.\nAnd this um deficit is something that\nneeds to be recovered eventually, right?\nSo if that depend system is recovered\nnow it may start delivering that deficit\nstart delivering the backlog of all the\nrequests and operations. Um but now the\ndependent system needs to handle this\nbacklog and needs to recover right. So\nwe having this um cascade of recoveries\nwhen dependency recovered now it passes\nthe torch of recovery to the dependent\nsystem.\nUm and what types of recoveries can we\ndo? Well, the first one is very simple.\nUh we actually ignore the recovery,\nright? So we may accumulate this\ndeficit. Uh but when it's time to pass\nthe torch, we don't, right? So the\ndependent system will just ignore uh the\nwork that's that's that's missing and\nkind of move on with its life. And this\nis from the metastability perspective\nthe best case scenario because you are\nbreaking this chain reaction, right?\nyou're breaking this cascade of\nrecoveries. Um, and as a result, you are\ngoing to break the the feedback loops as\nwell.\nBut you probably want your data, you\nprobably want the backlog to be uh\nrecovered, right? So this brings us to\nthis other uh type of recovery that um I\nwill refer as additive recovery. Right?\nSo this recovery in this mode we\naccumulated the deficit and now we need\nto do exactly as much work but later in\ntime right. So the amount of resources\nwe use for recovery um is the same you\nknow resources that we would have used\nuh in normal operation but now delayed\nin time. What this creates um for us is\num it's actually a problem right because\nthe dependent system that system still\nneeds to do the baseline of work like\nthe the regular work doesn't stop but\nnow we adding this extra work that was\ndelayed and now we need to recover.\nUm this actually brings me to some hints\non like what can we do about those\nrecoveries, right? You know, we can try\nto do them quickly, but if we do them\nquickly, we have this deficit, right? We\nneed to um allow for a lot of resources\nto go through this backlog very quickly.\nSo, we need to scale the dependent\nsystems uh potentially, you know, quite\na lot to clear that backlog as quickly\nas possible. Um and the second solution\nis to actually go slow, right? So maybe\nyou don't have the ability to scale up\num as much, right? So then you need to\nrecover this deficit by going slowly and\nspreading it longer in time.\nUm so this is actually kind of all good\nhere, but\nwe have the thread recovery, the\namplified recovery, and this is where\nthe actual metastable failure comes in.\nSee, it turns out that sometimes\nwe need to do more work to recover than\nwe would have done initially, right? So,\nif this accumulated deficit\nif we had no failure used x amount of\nresources now in amplified recovery,\nmaybe we may need 2x or 3x of uh let's\nsay compute resources to do, you know,\nthe same work because of that delay and\nrecovery. Um and to make things worse,\num you know, this amplified recovery, um\nis more likely to have those back loops,\nuh feedback loops that go back to the\ndependent system, right? As we saw in\nour example, um when the application was\nrecovering, it had to fetch the data,\nright, for this amplified recovery from\nthe dependent system, from the\ndependency system, right? So, it placed\nmore work on the system that supplies\nthis data. Um, and that not only creates\nthis chain reaction but kind of\nreinforces the chain reaction and takes\nthe step back.\nAll right, thank you Alexi. So that got\nme thinking it it seems like what we\nhave is a case of uh amplified recovery.\nAnd so thinking a bit more, what are\nsome amplifiers that we've seen in the\nwild at Meta?\nThe first one we call thermal mismatch.\nNow imagine you know you're scribe you\nyou're a message bus you have you're\nserving data. Yes you have a backing\nstore that's a storage system but\noftentimes you'll serve things from\ncache for performance and cost reasons\nright so maybe in real time as you're\nreading the data you're you're mostly\ngoing to be hitting the cache. That's\nexcellent. But if it's uh it's really\ndelayed as in your recovery took a long\ntime to actually get to that data then\nthat data might be cold which has a\ndifferent cost different uh capacity\nconstraints different um recovery path\nright and so that hot cold data mismatch\ncan can amplify uh your recovery cost\nwhat's another amplification uh this is\nwhat we call granularity mismatch so as\nI mentioned before we issue backfills in\nthe system. We need all the data from 1\np.m. to 2 p.m. We missed some data. What\ncan we do? Well, right now we have to\nissue and say, \"Hey, I need all the data\nfrom 1 p.m. to 2 p.m. again.\" We are\nactually rereading all of the data.\nWouldn't it be nice if we could identify\nand just read uh the data that was\nmissing? That would be nice. That is not\nhow the system is currently. There are\nsome uh complexities with that, right?\nSo one it's being able to identify the\nmissing chunks being able to selectively\nread those chunks but then not just\nupstream but downstream what do we do\nwith these added uh missing chunks right\nI talked about we batch data compress it\nheavily encode it what what do you do\nwith these just the missing part of it\ndo you just add another file multiple\nfiles append to the files it should be\nin it's a complicated problem\nthe next type of uh amplifier is what we\ncall the expectation mismatch So I'm\nsure many of you running real-time\nstream processing systems you have your\nstream processor it's reading data from\nuh Kafka the in real time the data is\ntrickling in your buffers are probably\nnice there's no problems you're not\nrunning out of memory any nothing like\nthat right however in recovery since\nyou're recovering older data most likely\nuh the message bus is able to probably\nbatch the data or do other types of\noptimizations to get you that data uh as\nquickly as possible with very high\nthroughput Right? Well, when that\nhappens, now a huge uh stream, a huge\nrush of data is coming into your\nprocess, maybe your input buffer or\nother buffers were not actually sized\nappropriately and have the right uh\nmechanisms in place to handle that. So\nthen you might run out of memory. So\nthen, okay, all the data that was in\nyour input buffer, any in-flight data,\netc., that's all gone. You have to\nreread that. So then you go back to the\nmessage bus, you read huge chunks of\ndata only to blow up again. So uh until\nyour process either gets lucky or has\nits buffers resized or is somehow\nadaptive, you might continuously be\namplifying and doing more work uh than\nyou need to.\nAnd outside of the message bus example,\nI wanted to provide you another example\nuh that we've we've seen which is an\ninteresting one um in eraser coded\nstorage systems. Right? So normally you\nknow in eraser coded storage systems you\noften times chunk your data into\nmultiple blocks and there's some par\nchunks etc so that you can recover the\ndata the regular path you're just\nreading those blocks you're assembling\nthem you have your data right but if\nthere's a degraded block um that's a\nwhole different code path right so this\nis the recovery code path now you got to\nread multiple blocks do some type of\nrecovery process to reconstruct that\nblock and then and then serve that to\nthe user so this is a different code\npath uh It's obviously much more\nintense. It's probably less optimized.\nHow well tested is it? Especially at\nhigher scales or during massive\nrecoveries. Those are all uh interesting\nquestions for for the different code\npath case.\nCircling back to the incident and the\nattempted recovery and how does it\nrelate to the the amplifiers that we\njust discussed.\nSo, okay. So, we tried to recover all of\nthe data all at once.\nAnd as we mentioned, the data can only\nbe recovered all or nothing. You have to\nsay, give me all of the data from 1 p.m.\nto 2 p.m., not just the missing bits of\ndata. So, this is a a granularity\nmismatch.\nUm, the data in in the streaming\ningestion system, actually, the older\ndata is prioritized compared to the\nnewer data, right? Right? So if you had\n1 p.m. to 2 p.m. 2 p.m. to 3 p.m. 3 p.m.\nto 4 p.m. and you needed to recover it\nto recover that data. The oldest\npartition is actually prioritized\ninternally. Why? We as I mentioned we\nhave timeliness SLOs's. So that older\none we need to get done as soon as\npossible and then second oldest one etc.\nSo there is kind of like this\nprioritization of old data right but\nthat's a thermal mismatch or it can be a\nthermal mismatch if it's out of cache.\nuh you know so you're probably hitting\nthe the actual cold storage to get that\ndata instead of the cache and you know\nif that's a large amount of data now a\nlot of that data is not going through\nthe hot path it's going through this\ncolder uh path from storage so this can\ncause amplification\nuh not only that but um as I mentioned\nwe're we're doing a flood of partitions\nthose partitions um all that data is\nalready there right because they're\nolder the system might give you all of\nthat data all at once or with much\nhigher throughput than what you're u\nnormally expecting. And that that caused\nan expectation mismatch. It it did cause\ncertain machines, not all of them, but\nsome machines to actually crash because\nthey got too much data uh only to then\nreread it and then potentially crash\nagain.\nSo all of these and one of these things,\none of the things I want to mention is\nand it's really important is the\nmismatches amplified each other. Right?\nIf your system only has one mismatch or\nanother mismatch, they could never\nhappen at the same time. Maybe you're\nyou're not getting this amplification\nuh multiplication, right? But imagine\ngranularity mismatch. You're not just\nreading the missing chunks of data.\nYou're miss you're rereading all of the\ndata 1 p.m. to 2 p.m. Okay. But then it\nalso could be colder data. So now you\nhave a granular granularity mismatch and\na thermal mismatch, right? And then it\nmight lead to an expectation mismatch.\nAll these things multiplied together\nthey really can amplify the problem um\nand lead to uh metastable situations.\nSo as we were doing this we did the\ninitial mass batch of back fills we\nnoticed that uh things weren't working\nyou know we were getting more and more\nfailures. So eventually we stumbled upon\nsome some solutions some ad hoc\nsolutions. So so what actually helped?\nSo one is we added capacity to the\nproducer side right we were doing more\nrecovery traffic due to all the\namplifiers that we discussed and so we\nwanted to make sure that it wasn't\nfurther exacerbating the issue on the\nscribe side so we added capacity there\nwe manually paced and prioritized\nrecovery traffic right so instead of\ndoing all the partitions all at once we\nhad a fixed kind of budget in our mind\nof we'll do a certain set of partitions\nlet those recover then do another\ncertain set of partitions and do and uh\ncontinue like that. Um that way we could\nkind of intuitively eyeball or use other\nmetrics to know how much kind of spare\ncapacity we had and and we're able to\nstay within that bound as Alexi was\nmentioning. If you're able to stretch\nout the recovery uh and kind of bound it\nthat can help in in recovery and in\navoiding this whole uh amplified\nrecovery scenario and that's what we did\nbut it was very uh manual. Also, we\nprioritized uh traffic, right? If your\nsystem doesn't isn't priority aware,\nit's very useful because then you could\num recover the highest value data, the\ndata that requires that that's going to\nuh cause the uh you know the the best\noutcome for your system first and then\nyou'll figure out what to do with the\nrest of the data and that can lead to\nrecovery shedding which which is what we\ndid. So, as Alexi mentioned, the best uh\nrecovery from the metastability\nperspective is no recovery. So, did did\nwe actually just cut the the lowest um\ntier or the lowest priority of data? We\nactually just didn't recover that. We\nnotified customers, but we just uh shed\nall of that to to leave ample room in\nour system to process the other data.\nOkay. So that's those are the few things\nthat we in an ad hoc manner did to to\nhelp in our specific case. But let's\ngeneralize that to what what in general\nhelps in recovery amplification. Right?\nWe want to avoid recovery amplification\nor get out of it as soon as possible to\nget out of the metastable incident.\nRight? So first is make sure the\nresources match the replay requirements\nand think of that end to end. Right? If\nyou have multiple layers or stages in\nyour system, if you're adding a bunch of\ncapacity on one side without\nunderstanding how that affects the, you\nknow, the downstream layers or other\nlayers, that can be a problem, right?\nEspecially if these are separate teams.\nThe team might not know about your\nincident. They're adding capacity, which\nmeans they can feed you even more data,\nbut maybe you're not sized right. So\nthen you're having more failures and\nthen you have to reread the data again.\nSo end to end making sure your your\nresources match or or at least aligned\nsomewhat some coordination here can\nreally help the recovery process\nstream shaping. So as Alexi mentioned\neither flattening out or extending that\nrecovery uh and and bounding it right so\nspread out the rework uh under a\npredetermined threshold and then also\nspecial recovery rate right so not all\nsystems you know all systems\num can recover but do they think about a\nspecific recovery rate right you don't\nneed to be able to recover necessarily\nat 10x the original traffic speed right\nis that being enforced what is a\nreasonable recovery rate can you make\nthat into your contract with your\ncustomers and and charge accordingly.\nMaybe you do 2x the normal rate as a\nspecial recovery rate for a certain\nperiod of time, but not just a\nfree-for-all of recovering as much as\npossible, as quickly as possible, which\noften times um uh systems can actually\nwork that way.\nSo, some other things, uh really have\nthe ability to make the decision to to\ncut or delay rework, right? If you have\na very fine grain prioritization scheme,\nyou really understand the priority of\ndata, maybe you can cut low value data,\nright? Um, if you're in an environment\nwhere maybe from uh midnight to 5:00\na.m. you have almost nothing being done\nwith your servers, maybe you could delay\nsome of that actually to that period of\ntime where the resources might be\ncheaper or it might be much safer to do.\nSo,\nanother thing is, you know, making the\nactual uh being incrementally\nrecoverable end to end, right? So, in\nour example, um, we had to get all of\nthe data from 1 p.m. to 2 p.m. But if we\nknew just the blocks to get and just got\nthose blocks, just processed those, you\nknow, those blocks and and then landed\nthat in storage and had a a process to\nuh, accept these kind of um, the data\nthat was coming in that needed to be\nretrieded. That would make this all much\nbetter. But it's complex, but it's\nreally worth it to to do due to safety\nreasons.\nAnd so in general, just just avoid all\nof these various these various\nmismatches.\nAnd so longer term uh for your for your\norganizations, there was all these\noperational considerations we've been\ntalking about kind of like tactical\nthings we can do um to change the to\nchange the the systems that we're\nlooking at. But really to make the most\nbang for the buck, I think we we need to\nstart thinking about this in the design\nphase, right? pay special attention to\nthe recovery case uh special focus on\nhow it relates to the transitive chain\nof dependencies. I know oftentimes we we\nbuild systems that are nicely uh\nisolated layered uh and that's great but\nthen if your you know whole application\nrequires five to 10 chains or or uh\ndownstream dependencies etc. And that\nusually gets larger over time we need to\nstart thinking of things uh end to end\nand paying special attention to that. Uh\nand then just in general kind of like\nredo normal operation think of them how\ndifferent are they right um I know same\nthing with code path we we often\noptimize the the hot path and then the\nrecovery path is not really looked at so\nso often and sometimes that can bite us\nso keep these things in mind especially\nduring the design phase and you'll be\nable to avoid a lot of these problems\nbefore they before they ever show up\nand so key questions to ask yourself to\nwhat extent might you be amplifying your\ndeficit. We saw no recovery, additive\nrecovery and the worst is amplified\nrecovery. Are you amplifying your\ndeficit? Uh is your whole recovery\nprocess being thought of end to end\nbeing you know re-examined end to end as\nmore and more dependencies might come\ninto your overall flow? Do you have are\nyour resources bounded for redo? That's\na question that oftentimes people don't\nask until there's already been an\nincident. And then you saw we can see\nlike the wild behavior of recovery um\nand how it um you know affected the the\nrecovery in the system and oftentimes\nit's just why did no one think to bound\nrecovery right uh and then when you have\na lot of stuff to to to recover uh h\nhave you thought about what is the cost\nto pay off that deficit? how much how\nurgent is it and how worth it is it\nright like lower value data the\ntimeliness constraints can they be\nrelaxed during um overload situations\netc um not all data is created equal you\ndon't have to recover all data at once\nor you most likely don't have to\nokay so key takeaways when analyzing the\nrisk of metastability especially during\nthe recovery path um the recovery and\nreplay situation uh end to and deserves\nspecial consideration.\nThere are we went over multiple sources\nof amplification\num that we we've seen in the wild. There\nare probably more out there that we'd\nlove to hear about. And then, you know,\nthey can oftenimes multiply and uh\namplify each other. That's something\nthat uh is a really big problem that\nthat we're seeing. But as we discussed,\nthere are strategies uh to help. There\nare strategies about stream shaping,\nabout properly resourcing things, about\nuh dropping work that doesn't need to be\ndone, etc. You most likely, if you run\ninto uh metastability in recovery, will\nhave to have multiple strategies and an\noverall uh overarching strategy to deal\nwith that. Uh and there are methods to\nhelp. Thank you.",
+  "segments": [
+    {
+      "text": "Thanks everyone for coming today. Today's session is entitled when the cure is worse than the disease meta stability in recovery. Quick intro. I'm Todd working at Meta studying emergent behavior in uh large scale systems to in order to operate",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "them more safely. This is Alexi, a professor at U. University of New Hampshire studying the metastability problem. And our collaborator in the audience is Dave Meyer, 40 years professor at Portland State University, a rockolid individual and a calming",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "presence in our talks. Okay, so the context of what we're talking about today. So we're going to talk about a uh massive scale globally distributed real-time message bus at the uh heart of this problem which is called scribe uh internally at meta um it's",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "similar to Kafka message bus there's different topics we call them categories for different data but uh on the producer side there are a variety of sources uh to produce data there's various ML workflows there's logging from servers and other locations there's",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "mobile devices uh a variety of different uh uh producers different rates different data characteristics then you have scribe the overall service uh very uh multiple services in it but the key parts are there's a right service a right flow um which uh has a",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "storage backend and then the read flow over on the readflow side um there can be multiple consumers of data for even the same topic They can have uh different variety of um both workloads, pulling rates, um different processing.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So you can have online training reading from a topic that is feeding uh online ML models. There could be data ingestion reading from that same topic uh batching up the data, optimizing it, encoding it in certain ways to make it both",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "efficient when writing to the data warehouse, but also for different readers of that same data. um whether that be ML trainers, whether it be downstream uh analytic systems etc. You could also have stream processing, real-time stream processing that can",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "power feature engineering, real-time dashboarding, etc., etc. But the overall picture I want to paint here is that there's many consumers, different um recovery needs for these consumers. Some of them might not need all of the data,",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "some of them might need all of the data, they might need it at different times. Uh so that's the world we're living in. And so what is the focus of the talk today? Which workload? It's going to be the data ingestion part of that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "workload. So data ingestion has hourly streaming jobs. So what I mean by that is as an example for all data from 1:00 p.m. to 2 p.m. for a specific um topic needs to be read uh in real time as it's trickling in batched uh compressed",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "optimized encoded etc before landing to the data warehouse. It's optimizing the data for downstream consumers. A few major requirements um of this are completeness. So for data that was produced and stored in the Scribe system",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "from 1 p.m. to 2 p.m. we need all of that data and we're producing hourly partitions. Um this is very important because especially when training ML systems knowing that you have all of the data for a specific hour allows you to",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "do correlations with that same hour previous day, previous week etc. So high data completeness um is a requirement. The other part so we have complete partitions. The other part is the timeliness of that. So that hourly streaming job kicks off at 1 p.m. It's",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "reading all the data until 2 p.m. There's some time after to do that heavy computation that I described earlier. Uh and then we landed. We don't want to land it multiple hours late. We have certain timeliness SLOs's, but essentially the quicker the better for",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "downstream consumers. Um, as more time goes by, the ML trainers might have uh have less use for that data. It might be less valuable because it's stale. Okay. So, what is the incident um at the heart of this? So, one day we were at work minding our",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "own business and then alerts started firing, right? We had many hourly uh jobs that were landing but they had data quality problems. So there was data completeness issues that were too big for us to be comfortable with. They were",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "breaching our data quality SLOs's and as we just discussed we need these jobs to land with good data quality and we need them to land in a timely manner. All right. So the alarms were were firing. The on call engineer looks at",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "that. They see a bunch of data quality problems for a variety of partitions. Our recovery process was initiated. And so what was our attempted recovery? Well, our first thing is to issue backfills for the partitions that had data quality problems. So what's a",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "backfill? So in our uh data ingestion system, what that means is for a partition, let's say 1 p.m. to 2 p.m., it had data quality issues. So we need to reread all of that data from 1 p.m. to 2 p.m. to further optimize, batch,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "compress, etc., and land that into the warehouse. So we need to reread all of that data. Um so for all of the partitions that had data quality problems, we issued uh a massive amount of backfills in order to um get data quality to an acceptable um level. And",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "if it didn't, then we need to escalate. Normally when we issue these backfills, there is no problem. We send them out. we get all of the data or the data all of the data that is required to reach our data quality level and we move on.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "However, in this uh incident that wasn't the case. We were we issued all the backfills but we kept seeing newer partitions with data quality problems and the um backfills that we issued were not really progressing u much. So we",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "would need to issue more backfills. We had then also the pending backfills. Things were getting worse and so this seemingly got out of hand and eventually uh it escalated to a real widespread incident. And so something really bad was was happening.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "And so the key question is is why aren't we recovering? The backfills were issued just like every other incident. Um they were still having data quality problems. We saw more data quality problems. What on earth was going on here? Here here.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Hey Todd, I think you have a severe case of metastable failures. So uh let me fill you in. You know what are metastable failures? Uh metastable failures are this type of uh performance failure that is characterized by a sustained positive feedback loop. So,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "Wikipedia defines positive feedback as a process that occurs in a feedback loop feedback loop where the outcome of a process reinforces the inciting process to build momentum. So, in case of a failure, you have a failure and we have",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "this feedback loop that reinforces that failure further and further and further. And um as it turns out, pretty much all large uh systems, they have this feedback loops that exist in those systems. They sit dormant. They sleep",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "and they're just waiting to be activated by some trigger. So this trigger can be some kind of failure or a workload spike. You know, many different reasons, many different triggers. But once activated, this feedback loop, they make",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "the problem worse. Um here on the uh screen I have on the slides I have a couple examples of the common feedback mechanisms. The most well-known uh feedback uh driven metastable failure is reduc induced uh feedback loop feedback",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "uh metastable failure. So in a retry situation we have uh this initial trigger let's say it spikes the workload right the we have more work entering the system than uh uh than before and this increases the latency right so as the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "latency uh is uh growing we have some request some work that is timing out which forces the clients the users that need that work to potentially issue retries and this retries re-entry into the system and create even more work,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "right? A latency increases again. Even more requests, even more work gets to retry and we kind of uh complete this loop and with every cycle in this loop, the problem gets worse and worse and worse. Um there are plenty of other feedback",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "loops that will exist in systems. Um the one I have on the screen here is uh garbage collection induced feedback loop. But um you know there are all kinds of varieties um and the key property here is that um these feedback",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "loops they are inherent like they exist in systems and um they just wait to be activated right they are often baked into the algorithms and protocols that um underpin a lot of our systems um and like in many cases we cannot like really",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "remove them right so they sit they wait uh for the trigger to activate them. And this kind of brings us to this um life cycle of metastable failures in the system because this feedback loops they exist and wait. Most systems uh they",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "operate in this vulnerable state or metastable vulnerable state and wait for this trigger. the trigger causes some kind of overload on some resource, you know, CPU, memory, locks, you know, any type of resource. Um, and this overload",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "tends to activate some or all of these feedback loops that sit and wait. And these feedback loops that sometimes are called sustaining effects or sustaining effect loops, they create this metastable failure. So if we let them",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "run for sufficiently low amount of time, we end up in this metastable failure uh state where the system is you know amplifying itself, amplifying all the bad things and doing almost no good stuff. And at this point um like the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "traditional recovery mechanisms will not work. You literally more or less forced to like turn it off and on again and hope that you actually know how to turn on your large system correctly. Um so here in the boxes I have some um hints",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "at the mitigation strategies for the metastable failures. If we know um what triggers may exist, we may try to build some additional resilience for these triggers, right? Uh if we know what feedback loops we have, we may try to um",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "again like work with these feedback loops, try to cap the amplification rate, you know, how quickly these loops work, try to cap the maximum amplification and so on so forth. Um and finally, you know, we do need to have like good strategies on how to bring the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "systems up from uh from, you know, black start. Um so we know this stuff, right? So we have to design systems with resilience. We build fault tolerance systems, right? Um we build the mechanisms, we build the recovery mechanisms uh for all kinds of",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "issues. Um but unfortunately those recovery mechanisms uh can be metastable as well. So this example with the retry induced metastability is one of these examples of um you know the recovery action that itself causes me stability.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So retries are great when you have um intermittent failure, right? So some small failure happened, you retry and you know you move on. But if the system is in this like overloaded state that's that's not intermittent, those retries,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "you know, the mechanism that's designed to remedy the issue, uh those retries actually amplify the situation. And there are, you know, more complex ones. But I think um, you know, the issue that you're experiencing with your",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "recoveries, you know, starting to cause more troubles is one of these examples. Um, and I think I'll call them cascading recovery uh, failures. So maybe we'll start with a small failure or like one component fails and then you know it recovers and the",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "recovery of that component causes another component to recover and uh those recoveries kind of amplify. So um let me try to distill you example um in like a slightly different um uh schematic and illustration. So uh we have some producers who create the data.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "We have the message bus that collects the data and uh streams it over to the applications that you know consume this data batch it and perform all these expensive computations and uh here we have everything that's uh working just fine right so the data",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "comes in uh and gets out to the application um and I think at some point you have a failure in the producing site right like uh in my example here messages number 10 and 15 get delayed for whatever and they don't enter that message bus on time.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "That's the data quality problem you were talking about. Uh the application has no clue, right? So the application will fetch whatever the data it has, perform the expensive computation um even though some data is missing and you know kind",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "of moves on. Um but at some point you know you start getting this data u back into the message bus. So the messages uh the data 10 and 15 arrives in it ends up in application and application is um application doesn't know what to do with",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "it right because it already processed and batched and did all this expensive work for for for those batches to which those um like recently arrived messages belong. So what do we do? the application will need to uh go and ask",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "for the data, right? It has to go back to the message bus and it makes the message bus more expensive like more overloaded. So we have the application that needs to redo expensive calculations, computations and we have the message bus the dependency of this",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "application that is now being asked to do more work and this kind of brings us to this um feedback loop the metastable feed look feedback loop we have the application um because it doesn't have the old batch data it refetes it from",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "the message bus this refing places extra load on the application it's doing recmp computation and the message bus but overloads the message bus means that um its timings are going to be um impacted, right? So the new data that's being",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "produced may not enter the message bus in time or the message bus may not deliver the data to the application in time which means that uh the applications uh will start to receive the batches that are not complete and have worsening data quality problems",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "which will need to be recovered in exactly the same manner by uh refetching the data and you know adding even more load to the message bus. So that's the metastable feedback loop loop that I think is happening in uh in your example.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Now uh maybe in an academic I cannot stop here. I need to do a little bit more of like formalism like what's what's happening here right? So at the at the very minimum here we have two systems that are trying to recover right",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "but these systems they depend on each other. So um I call uh one system dependent and it relies on the data or work that is supplied by the other system that I will call depend right and this like dependencies can in large",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "systems form um you know pretty deep um like dependency trees but at the core of it is still like this like a pair of dependent dependency relationships and what happens here is that when the depend system fails or slows down, um,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "it starts to accumulate the deficit, right? So, it's no longer doing as much work. It's no longer producing as much stuff um as it used to, right? So, it accumulates the deficit. And this um deficit is something that needs to be recovered eventually, right?",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "So if that depend system is recovered now it may start delivering that deficit start delivering the backlog of all the requests and operations. Um but now the dependent system needs to handle this backlog and needs to recover right. So",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "we having this um cascade of recoveries when dependency recovered now it passes the torch of recovery to the dependent system. Um and what types of recoveries can we do? Well, the first one is very simple. Uh we actually ignore the recovery,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "right? So we may accumulate this deficit. Uh but when it's time to pass the torch, we don't, right? So the dependent system will just ignore uh the work that's that's that's missing and kind of move on with its life. And this",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "is from the metastability perspective the best case scenario because you are breaking this chain reaction, right? you're breaking this cascade of recoveries. Um, and as a result, you are going to break the the feedback loops as well.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "But you probably want your data, you probably want the backlog to be uh recovered, right? So this brings us to this other uh type of recovery that um I will refer as additive recovery. Right? So this recovery in this mode we",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "accumulated the deficit and now we need to do exactly as much work but later in time right. So the amount of resources we use for recovery um is the same you know resources that we would have used uh in normal operation but now delayed",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "in time. What this creates um for us is um it's actually a problem right because the dependent system that system still needs to do the baseline of work like the the regular work doesn't stop but now we adding this extra work that was",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "delayed and now we need to recover. Um this actually brings me to some hints on like what can we do about those recoveries, right? You know, we can try to do them quickly, but if we do them quickly, we have this deficit, right? We",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "need to um allow for a lot of resources to go through this backlog very quickly. So, we need to scale the dependent systems uh potentially, you know, quite a lot to clear that backlog as quickly as possible. Um and the second solution",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "is to actually go slow, right? So maybe you don't have the ability to scale up um as much, right? So then you need to recover this deficit by going slowly and spreading it longer in time. Um so this is actually kind of all good here, but",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "we have the thread recovery, the amplified recovery, and this is where the actual metastable failure comes in. See, it turns out that sometimes we need to do more work to recover than we would have done initially, right? So, if this accumulated deficit",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "if we had no failure used x amount of resources now in amplified recovery, maybe we may need 2x or 3x of uh let's say compute resources to do, you know, the same work because of that delay and recovery. Um and to make things worse,",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "um you know, this amplified recovery, um is more likely to have those back loops, uh feedback loops that go back to the dependent system, right? As we saw in our example, um when the application was recovering, it had to fetch the data,",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "right, for this amplified recovery from the dependent system, from the dependency system, right? So, it placed more work on the system that supplies this data. Um, and that not only creates this chain reaction but kind of",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "reinforces the chain reaction and takes the step back. All right, thank you Alexi. So that got me thinking it it seems like what we have is a case of uh amplified recovery. And so thinking a bit more, what are some amplifiers that we've seen in the",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "wild at Meta? The first one we call thermal mismatch. Now imagine you know you're scribe you you're a message bus you have you're serving data. Yes you have a backing store that's a storage system but oftentimes you'll serve things from",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "cache for performance and cost reasons right so maybe in real time as you're reading the data you're you're mostly going to be hitting the cache. That's excellent. But if it's uh it's really delayed as in your recovery took a long",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "time to actually get to that data then that data might be cold which has a different cost different uh capacity constraints different um recovery path right and so that hot cold data mismatch can can amplify uh your recovery cost",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "what's another amplification uh this is what we call granularity mismatch so as I mentioned before we issue backfills in the system. We need all the data from 1 p.m. to 2 p.m. We missed some data. What can we do? Well, right now we have to",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "issue and say, \"Hey, I need all the data from 1 p.m. to 2 p.m. again.\" We are actually rereading all of the data. Wouldn't it be nice if we could identify and just read uh the data that was missing? That would be nice. That is not",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "how the system is currently. There are some uh complexities with that, right? So one it's being able to identify the missing chunks being able to selectively read those chunks but then not just upstream but downstream what do we do",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "with these added uh missing chunks right I talked about we batch data compress it heavily encode it what what do you do with these just the missing part of it do you just add another file multiple files append to the files it should be",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "in it's a complicated problem the next type of uh amplifier is what we call the expectation mismatch So I'm sure many of you running real-time stream processing systems you have your stream processor it's reading data from uh Kafka the in real time the data is",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "trickling in your buffers are probably nice there's no problems you're not running out of memory any nothing like that right however in recovery since you're recovering older data most likely uh the message bus is able to probably",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "batch the data or do other types of optimizations to get you that data uh as quickly as possible with very high throughput Right? Well, when that happens, now a huge uh stream, a huge rush of data is coming into your process, maybe your input buffer or",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "other buffers were not actually sized appropriately and have the right uh mechanisms in place to handle that. So then you might run out of memory. So then, okay, all the data that was in your input buffer, any in-flight data, etc., that's all gone. You have to",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "reread that. So then you go back to the message bus, you read huge chunks of data only to blow up again. So uh until your process either gets lucky or has its buffers resized or is somehow adaptive, you might continuously be",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "amplifying and doing more work uh than you need to. And outside of the message bus example, I wanted to provide you another example uh that we've we've seen which is an interesting one um in eraser coded storage systems. Right? So normally you",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "know in eraser coded storage systems you often times chunk your data into multiple blocks and there's some par chunks etc so that you can recover the data the regular path you're just reading those blocks you're assembling them you have your data right but if",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "there's a degraded block um that's a whole different code path right so this is the recovery code path now you got to read multiple blocks do some type of recovery process to reconstruct that block and then and then serve that to",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "the user so this is a different code path uh It's obviously much more intense. It's probably less optimized. How well tested is it? Especially at higher scales or during massive recoveries. Those are all uh interesting questions for for the different code",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "path case. Circling back to the incident and the attempted recovery and how does it relate to the the amplifiers that we just discussed. So, okay. So, we tried to recover all of the data all at once. And as we mentioned, the data can only",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "be recovered all or nothing. You have to say, give me all of the data from 1 p.m. to 2 p.m., not just the missing bits of data. So, this is a a granularity mismatch. Um, the data in in the streaming ingestion system, actually, the older",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "data is prioritized compared to the newer data, right? Right? So if you had 1 p.m. to 2 p.m. 2 p.m. to 3 p.m. 3 p.m. to 4 p.m. and you needed to recover it to recover that data. The oldest partition is actually prioritized internally. Why? We as I mentioned we",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "have timeliness SLOs's. So that older one we need to get done as soon as possible and then second oldest one etc. So there is kind of like this prioritization of old data right but that's a thermal mismatch or it can be a thermal mismatch if it's out of cache.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "uh you know so you're probably hitting the the actual cold storage to get that data instead of the cache and you know if that's a large amount of data now a lot of that data is not going through the hot path it's going through this",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "colder uh path from storage so this can cause amplification uh not only that but um as I mentioned we're we're doing a flood of partitions those partitions um all that data is already there right because they're older the system might give you all of",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "that data all at once or with much higher throughput than what you're u normally expecting. And that that caused an expectation mismatch. It it did cause certain machines, not all of them, but some machines to actually crash because",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "they got too much data uh only to then reread it and then potentially crash again. So all of these and one of these things, one of the things I want to mention is and it's really important is the mismatches amplified each other. Right?",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "If your system only has one mismatch or another mismatch, they could never happen at the same time. Maybe you're you're not getting this amplification uh multiplication, right? But imagine granularity mismatch. You're not just",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "reading the missing chunks of data. You're miss you're rereading all of the data 1 p.m. to 2 p.m. Okay. But then it also could be colder data. So now you have a granular granularity mismatch and a thermal mismatch, right? And then it",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "might lead to an expectation mismatch. All these things multiplied together they really can amplify the problem um and lead to uh metastable situations. So as we were doing this we did the initial mass batch of back fills we",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "noticed that uh things weren't working you know we were getting more and more failures. So eventually we stumbled upon some some solutions some ad hoc solutions. So so what actually helped? So one is we added capacity to the",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "producer side right we were doing more recovery traffic due to all the amplifiers that we discussed and so we wanted to make sure that it wasn't further exacerbating the issue on the scribe side so we added capacity there we manually paced and prioritized",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "recovery traffic right so instead of doing all the partitions all at once we had a fixed kind of budget in our mind of we'll do a certain set of partitions let those recover then do another certain set of partitions and do and uh",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "continue like that. Um that way we could kind of intuitively eyeball or use other metrics to know how much kind of spare capacity we had and and we're able to stay within that bound as Alexi was mentioning. If you're able to stretch",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "out the recovery uh and kind of bound it that can help in in recovery and in avoiding this whole uh amplified recovery scenario and that's what we did but it was very uh manual. Also, we prioritized uh traffic, right? If your",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "system doesn't isn't priority aware, it's very useful because then you could um recover the highest value data, the data that requires that that's going to uh cause the uh you know the the best outcome for your system first and then",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "you'll figure out what to do with the rest of the data and that can lead to recovery shedding which which is what we did. So, as Alexi mentioned, the best uh recovery from the metastability perspective is no recovery. So, did did",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "we actually just cut the the lowest um tier or the lowest priority of data? We actually just didn't recover that. We notified customers, but we just uh shed all of that to to leave ample room in our system to process the other data.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "Okay. So that's those are the few things that we in an ad hoc manner did to to help in our specific case. But let's generalize that to what what in general helps in recovery amplification. Right? We want to avoid recovery amplification",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "or get out of it as soon as possible to get out of the metastable incident. Right? So first is make sure the resources match the replay requirements and think of that end to end. Right? If you have multiple layers or stages in",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "your system, if you're adding a bunch of capacity on one side without understanding how that affects the, you know, the downstream layers or other layers, that can be a problem, right? Especially if these are separate teams. The team might not know about your",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "incident. They're adding capacity, which means they can feed you even more data, but maybe you're not sized right. So then you're having more failures and then you have to reread the data again. So end to end making sure your your",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "resources match or or at least aligned somewhat some coordination here can really help the recovery process stream shaping. So as Alexi mentioned either flattening out or extending that recovery uh and and bounding it right so spread out the rework uh under a",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "predetermined threshold and then also special recovery rate right so not all systems you know all systems um can recover but do they think about a specific recovery rate right you don't need to be able to recover necessarily",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "at 10x the original traffic speed right is that being enforced what is a reasonable recovery rate can you make that into your contract with your customers and and charge accordingly. Maybe you do 2x the normal rate as a special recovery rate for a certain",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "period of time, but not just a free-for-all of recovering as much as possible, as quickly as possible, which often times um uh systems can actually work that way. So, some other things, uh really have the ability to make the decision to to",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "cut or delay rework, right? If you have a very fine grain prioritization scheme, you really understand the priority of data, maybe you can cut low value data, right? Um, if you're in an environment where maybe from uh midnight to 5:00",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "a.m. you have almost nothing being done with your servers, maybe you could delay some of that actually to that period of time where the resources might be cheaper or it might be much safer to do. So, another thing is, you know, making the",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "actual uh being incrementally recoverable end to end, right? So, in our example, um, we had to get all of the data from 1 p.m. to 2 p.m. But if we knew just the blocks to get and just got those blocks, just processed those, you",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "know, those blocks and and then landed that in storage and had a a process to uh, accept these kind of um, the data that was coming in that needed to be retrieded. That would make this all much better. But it's complex, but it's",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "really worth it to to do due to safety reasons. And so in general, just just avoid all of these various these various mismatches. And so longer term uh for your for your organizations, there was all these operational considerations we've been",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "talking about kind of like tactical things we can do um to change the to change the the systems that we're looking at. But really to make the most bang for the buck, I think we we need to start thinking about this in the design",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "phase, right? pay special attention to the recovery case uh special focus on how it relates to the transitive chain of dependencies. I know oftentimes we we build systems that are nicely uh isolated layered uh and that's great but",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "then if your you know whole application requires five to 10 chains or or uh downstream dependencies etc. And that usually gets larger over time we need to start thinking of things uh end to end and paying special attention to that. Uh",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "and then just in general kind of like redo normal operation think of them how different are they right um I know same thing with code path we we often optimize the the hot path and then the recovery path is not really looked at so",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "so often and sometimes that can bite us so keep these things in mind especially during the design phase and you'll be able to avoid a lot of these problems before they before they ever show up and so key questions to ask yourself to",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "what extent might you be amplifying your deficit. We saw no recovery, additive recovery and the worst is amplified recovery. Are you amplifying your deficit? Uh is your whole recovery process being thought of end to end being you know re-examined end to end as",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "more and more dependencies might come into your overall flow? Do you have are your resources bounded for redo? That's a question that oftentimes people don't ask until there's already been an incident. And then you saw we can see",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "like the wild behavior of recovery um and how it um you know affected the the recovery in the system and oftentimes it's just why did no one think to bound recovery right uh and then when you have a lot of stuff to to to recover uh h",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "have you thought about what is the cost to pay off that deficit? how much how urgent is it and how worth it is it right like lower value data the timeliness constraints can they be relaxed during um overload situations etc um not all data is created equal you",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "don't have to recover all data at once or you most likely don't have to okay so key takeaways when analyzing the risk of metastability especially during the recovery path um the recovery and replay situation uh end to and deserves special consideration.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "There are we went over multiple sources of amplification um that we we've seen in the wild. There are probably more out there that we'd love to hear about. And then, you know, they can oftenimes multiply and uh amplify each other. That's something",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "that uh is a really big problem that that we're seeing. But as we discussed, there are strategies uh to help. There are strategies about stream shaping, about properly resourcing things, about uh dropping work that doesn't need to be",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "done, etc. You most likely, if you run into uh metastability in recovery, will have to have multiple strategies and an overall uh overarching strategy to deal with that. Uh and there are methods to help. Thank you.",
+      "start": 822,
+      "duration": 6
+    }
+  ]
+}

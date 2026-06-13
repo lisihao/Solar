@@ -1,0 +1,244 @@
+{
+  "videoId": "t00-Yl1mkF4",
+  "title": "FAST '26 - ParaSync: Exploiting Fine-Grained Parallelism for Efficient File Synchronization",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11547,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I will now present our second paper\ntitled Parasync. Uh, this work explores\nfine-grained parallelism for efficient\nfile synchronization.\nAnd uh, let me first share our research\njourney in file sync.\nUh, the research journey began with a\nprevious project called SkySync, uh,\nwhich focused on inter-cloud file sync.\nWe started that project in July 2000 uh,\nin July 2023 and targeted wide area\nnetwork environments. Our motivation for\nSkySync was to reuse existing storage\nmetadata to reduce checksum\ncalculations.\nUh, we first sub- sub- we first\nsubmitted SkySync to the FAST 25\nconference in September 2024,\nuh, where I received a major revision.\nAfter completing the that major\nrevision, we resubmitted uh, SkySync to\nthe FAST 26th\nspring cycle in March 2025.\nUh, during that revision process in\nDecember 2000 uh, 2024, we identified a\nnew critical problem problem suitable\nfor high throughput backup and disaster\nrecovery scenarios. Uh, the structural\ndependencies in the content-defined\nchunking parallelism uh, blocked the\neffectively effectively use of\nmulti-core CPU and IO\nparallelism. Uh, this uh, real-\nrealization led directly to the creation\nof our new method Parasync,\nwhich we submitted to the FAST 26th fall\ncycle in September 2025.\nOur main motivation for Pyrosync is to\nbreak those structural dependencies and\nfully unlock high speed high speed\nparallel processing.\nAnd to understand the problem,\nlet us let us examine how traditional\nsync works.\nRsync uses a pipeline based\nRsync uses a\npipeline based on fixed-size chunking.\nThe workflow involves a simple two-step\nexchange. First, the server divides the\nold file into fixed-size chunks,\ncalculates the checksums and sends all\nof the weak and strong checksums to the\nclient at once.\nSecond, the client uses a sliding window\nto perform matching operations and then\ntransfers the delta data delta data back\nto the server to reconstruct the new\nfile. This structure forms a clean uni-\nunidirectional pipeline. The matching\nprocess, the delta transfer, and the\nbatching process can easily overlap,\ncreating a flow of data.\nAnd on the other hand, content-defined\nchunking, which is highly effective for\nhandling data redundancy, operates\noperates differently. A modern methods\nlike Rsync rely on a three-step back and\nforth\nexchange.\nThe sync process is split into three\nphases. Phase one is file chunking,\nphase two is chunk matching, and phase\nthree is delta reconstruction. The\nclient chunks the file and sends an\ninitial checklist. The server performs\nweak matching and replies with strong\nchecksums. Finally, the client verifies\nthe strong checksum and sends the patch\ncommand.\nThe\nrequired wait times between these steps\ncreate multiple sync barriers. Each side\nmust wait for the other to finish a\nspecific task before\nbefore proceeding.\nUh phase one file chunking represents\nthe most\nsignificant computational work workload.\nOur detailed providing of gigabytes and\nterabyte scale data size reviews that\nchunker module consumes exactly 41.5%\nand 2 75%\nof the total sync time.\nUh both the client and the server\nindependently read their files byte to\nbyte\nuh using content-defined chunking to\nfind dynamic boundaries and calculate\nweak checksums for each identified\nchunk.\nThis extensive calculation phase creates\na severe bottleneck right at the\nbeginning of the hour\nbeginning of the file sync process.\nPrevious attempts to accelerate\naccelerate file chunking have focused on\nusing multi-processing threads.\nUh to maintain consistent chunk\nboundaries,\nexisting methods lay the chunking task\ninto two distinct\ntwo distinct stages.\nUh multiple threads are allowed to\nsearch for potential chunk boundaries in\nparallel.\nUh after the boundary search complete,\nthe system enforces single thread to\ndetermine the final chunks and calculate\ncalculate the checksums. Uh this\nhappened because a thread must know\nexactly where a chunk where a chunk\nstarts and ends before it can compute\nthe checksum. Uh this requirement\nintroduces a severe single-threaded\nbottleneck that limit that limits the\nspeedup provided by the multi-core\nprocessors.\nUh once chunking is complete, the system\nenters phase two, which is chunk\nmatching. At this stage, uh rigid\ndependency known as the all or nothing\nexchange takes place.\nThe server receives the client data,\nperforms the weak checksum comparisons,\nand computes strong checksum using a\nmodule called the weak matcher. The\nresults known as matching tokens must be\nfully processed before being returned.\nConsequently, the client experiences a\nparallel a pipeline's stall. The client\nmodule, the strong matcher, must sit uh\ncompletely idle and wait until the\nserver processes all checksums for the\nentire file.\nUh phase three involves uh delta\nreconstruction. A traditional uh patch\ngeneration creates a sequential\nuh data dependency.\nCommands are generated using a relative\noffside of the server new file. Uh for\ninstance, uh command one might instruct\nthe server to copy to copy a matching\nchunk from the server old file to the\nnew file. Command two might then\ninstruct the server to insert new data\nimmedia- immediately after that matching\nchunks in the new file. Because the\ninstruction are relative, the exact\nlocation for writing command uh two\nfor writing command two depends entirely\non the com- com- completion of command\none.\nThe server cannot write data\nconcurrently or out of order because\neach step requires the previous step to\nfinish.\nA fundamental interface dependency is\nentirely uh inhi-\ninhibits a fine-grained parallelism in\ncontent-defined chunking sync.\nOur primary goal is uh in this work is\nto establish a\nholistic ap- ap- approach. We\nspecifically design PARSYNC to co-design\nthe interactions between the server and\nthe client our system comprehensive\nOur system breaks the blocking\ndependency across all three phases\nmaking full use of a modern multi-core\ncomputing components.\nBut to resolve the bottleneck in phase\none, we address the critical challenge\nthe system must uh compute checksums in\nparallel for chunks whose final boundary\nare not yet fixed. The key idea we\nintroduced in ParSync is to reduce the\ncomplicated checksum computing problem\ninto a lightweight checksum combination\nproblem. And then in stage In stage one,\nuh multiple threads processes segments\nin parallel. The threads look locate\npotential boundaries and generate small\nsub-chunks. Uh every thread immediately\ncalculates a weak checksum for its own\nsub-chunks and records them in a local\nqueue.\nAnd in stage two, a single thread\nrapidly\nmerges the sub-chunks based on\npredefined size constraints. Because the\nweak checksum algorithm, specifically\nCRC32,\nuh process a linear algebraic property.\nThe thread does not recalculate the fine\nthe file data. It simply combines the\npre-calculated sub-chunk checksums. Uh\nthis guarantees uh boundary variability\nwhile completely bypass the heaviest\ncontrol computation bottleneck.\nAnd moving to phase two, the primary\nchallenge is the pipeline stall caused\nby the all or nothing exchange. Uh to\nresolve this, we introduce a streaming\nchunking matching process in ParSync.\nOur key idea is to transform the rigid\nuh back exchange into a con- continuous\nstream. Uh the weak matcher on the\nserver groups uh highly gr- groups\nhighly colliding weak checksums\ndynamically.\nAnd assigns them to multiple threads. As\nsoon as a batch of matching token is\ngenerated,\nuh the server immediately sends the data\nto the client.\nUp- up- upon receiving a streaming\nbatch, the client strong\nmatcher constructs a small temporary\nhash subtable.\nThe client verifies the strong checksum\nbased on the hash subtable.\nAnd uh in parallel with the server\ncontinues to process the next batch.\nUh this design overlaps uh network\ncommunication with endpoint compu-\ncomputation,\neliminating the long waiting stalls.\nUh and in phase three, we must eliminate\nthe sequential application dependencies\ncaused by uh relative offsets. The key\nidea behind the Parasync\nuh reconstructor is to enforce purely\nabsolute offsets across all generated\npatch command.\nAnd instead of using relative\ninstructions, we make every command\ncompletely self-contained.\nA copy command now specifies uh source\noffset, the length, and the absolute\ndestination offset in the new file. An\ninsert command provides uh literal\nuh provides uh literal data, the length,\nand its absolute destination offset. By\nembedding the absolute target location\ninto every command, the server drops the\nrequirement to process commands in a\nstrict sequence.\nFor example, in the figure, where the\nclient transfers a second block of\nliteral bytes over the network, the\nthe server\nsimultaneously applies the first copy\ncommand to the storage.\nBecause of this overlapping\nmechanism, our system can transfer\nlittle bytes via multiple independent\ndata streams and apply all copy commands\nin parallel.\nAnd we have a we evaluate the\nperformance of ParSync in Alibaba Cloud\ninstance powered by 16-core CPU and NVMe\nSSD. As the network condition include a\nwide area network with a bandwidth of\n500 megabits per second and a 50\nmillisecond round trip time, as well as\na local area network with a bandwidth of\n10 gigabits per second and\na 0.4\nmillisecond round trip time. We compare\nParSync against the standard\nDsync baseline and a parallelized\nversion called BDsync, which\nutilize existing parallel chunking as a\nCDC.\nOur experiments across seven real-world\ndata sizes spanning gigabyte to terabyte\nscales, including Linux kernel file\ndatabase backups and virtual machine\nsnapshots.\nOur parallel chunking performance\nevaluation shows substantial\nimprovements using eight processing\nthreads\nand eight core\nParSync achieves up to a 7.6 times\nspeedup over the traditional sequential\nchunking of Dsync. Compared to the\nPDsync method, ParSync reduces\nstage one chunking time by up to 41% and\ndramatically\nand drastically reduces the stage two\nmerging time by up to 8\n84%.\nUh in the well in the in the wide area\nnetwork environment, ParSync deeply\noverlaps endpoint computation with\nnetwork latencies.\nOur end-to-end sync performance test\nindicate that parsing is up to\nis up to 2.4 times faster than the\nsequential Dsync baseline.\nFurthermore, it operates up to 1.6 times\nfaster than the parallelized PDsync\nmethod.\nAnd our results are even more pronounced\nin the 10 gigabits per second local area\nnetworks context. In this environment,\nendpoint computation entirely defines\nthe critical path. Parsing outperforms\nall tested baselines, and our system\ncomplete the file sync up to 3.7 times\nfaster than Dsync.\nAnd up to 1.74 times faster than PDsync.\nIn summary, content-defined chunking\nsyncs suffer from fundamental structural\ndependencies.\nWe introduce parsing to provide a\nholistic co-design\nof endpoint\ninteraction to unlock complete\nfine-grained parallelism.\nOur\nOur solution features a parallel chunker\nthat utilize\nrapid checksum combination of streaming\nmatcher design to eliminate client and\nserver stalls, and a pipeline\nreconstructor that\napplies absolute offsets. As a final\nresult, this achieve up to 3.7 times\nendpoint sync speed up with\nnegligible network traffic overhead.\nThank you for attention. Please feel\nfree to ask any question you may have.",
+  "segments": [
+    {
+      "text": "I will now present our second paper titled Parasync. Uh, this work explores fine-grained parallelism for efficient file synchronization. And uh, let me first share our research journey in file sync. Uh, the research journey began with a",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "previous project called SkySync, uh, which focused on inter-cloud file sync. We started that project in July 2000 uh, in July 2023 and targeted wide area network environments. Our motivation for SkySync was to reuse existing storage metadata to reduce checksum",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "calculations. Uh, we first sub- sub- we first submitted SkySync to the FAST 25 conference in September 2024, uh, where I received a major revision. After completing the that major revision, we resubmitted uh, SkySync to the FAST 26th",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "spring cycle in March 2025. Uh, during that revision process in December 2000 uh, 2024, we identified a new critical problem problem suitable for high throughput backup and disaster recovery scenarios. Uh, the structural dependencies in the content-defined",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "chunking parallelism uh, blocked the effectively effectively use of multi-core CPU and IO parallelism. Uh, this uh, real- realization led directly to the creation of our new method Parasync, which we submitted to the FAST 26th fall cycle in September 2025.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Our main motivation for Pyrosync is to break those structural dependencies and fully unlock high speed high speed parallel processing. And to understand the problem, let us let us examine how traditional sync works. Rsync uses a pipeline based Rsync uses a",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "pipeline based on fixed-size chunking. The workflow involves a simple two-step exchange. First, the server divides the old file into fixed-size chunks, calculates the checksums and sends all of the weak and strong checksums to the client at once.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Second, the client uses a sliding window to perform matching operations and then transfers the delta data delta data back to the server to reconstruct the new file. This structure forms a clean uni- unidirectional pipeline. The matching",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "process, the delta transfer, and the batching process can easily overlap, creating a flow of data. And on the other hand, content-defined chunking, which is highly effective for handling data redundancy, operates operates differently. A modern methods",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "like Rsync rely on a three-step back and forth exchange. The sync process is split into three phases. Phase one is file chunking, phase two is chunk matching, and phase three is delta reconstruction. The client chunks the file and sends an",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "initial checklist. The server performs weak matching and replies with strong checksums. Finally, the client verifies the strong checksum and sends the patch command. The required wait times between these steps create multiple sync barriers. Each side",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "must wait for the other to finish a specific task before before proceeding. Uh phase one file chunking represents the most significant computational work workload. Our detailed providing of gigabytes and terabyte scale data size reviews that",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "chunker module consumes exactly 41.5% and 2 75% of the total sync time. Uh both the client and the server independently read their files byte to byte uh using content-defined chunking to find dynamic boundaries and calculate weak checksums for each identified",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "chunk. This extensive calculation phase creates a severe bottleneck right at the beginning of the hour beginning of the file sync process. Previous attempts to accelerate accelerate file chunking have focused on using multi-processing threads.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "Uh to maintain consistent chunk boundaries, existing methods lay the chunking task into two distinct two distinct stages. Uh multiple threads are allowed to search for potential chunk boundaries in parallel. Uh after the boundary search complete,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "the system enforces single thread to determine the final chunks and calculate calculate the checksums. Uh this happened because a thread must know exactly where a chunk where a chunk starts and ends before it can compute the checksum. Uh this requirement",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "introduces a severe single-threaded bottleneck that limit that limits the speedup provided by the multi-core processors. Uh once chunking is complete, the system enters phase two, which is chunk matching. At this stage, uh rigid",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "dependency known as the all or nothing exchange takes place. The server receives the client data, performs the weak checksum comparisons, and computes strong checksum using a module called the weak matcher. The results known as matching tokens must be",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "fully processed before being returned. Consequently, the client experiences a parallel a pipeline's stall. The client module, the strong matcher, must sit uh completely idle and wait until the server processes all checksums for the entire file.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Uh phase three involves uh delta reconstruction. A traditional uh patch generation creates a sequential uh data dependency. Commands are generated using a relative offside of the server new file. Uh for instance, uh command one might instruct",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the server to copy to copy a matching chunk from the server old file to the new file. Command two might then instruct the server to insert new data immedia- immediately after that matching chunks in the new file. Because the instruction are relative, the exact",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "location for writing command uh two for writing command two depends entirely on the com- com- completion of command one. The server cannot write data concurrently or out of order because each step requires the previous step to finish.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "A fundamental interface dependency is entirely uh inhi- inhibits a fine-grained parallelism in content-defined chunking sync. Our primary goal is uh in this work is to establish a holistic ap- ap- approach. We specifically design PARSYNC to co-design",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "the interactions between the server and the client our system comprehensive Our system breaks the blocking dependency across all three phases making full use of a modern multi-core computing components. But to resolve the bottleneck in phase",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "one, we address the critical challenge the system must uh compute checksums in parallel for chunks whose final boundary are not yet fixed. The key idea we introduced in ParSync is to reduce the complicated checksum computing problem",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "into a lightweight checksum combination problem. And then in stage In stage one, uh multiple threads processes segments in parallel. The threads look locate potential boundaries and generate small sub-chunks. Uh every thread immediately",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "calculates a weak checksum for its own sub-chunks and records them in a local queue. And in stage two, a single thread rapidly merges the sub-chunks based on predefined size constraints. Because the weak checksum algorithm, specifically CRC32,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "uh process a linear algebraic property. The thread does not recalculate the fine the file data. It simply combines the pre-calculated sub-chunk checksums. Uh this guarantees uh boundary variability while completely bypass the heaviest",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "control computation bottleneck. And moving to phase two, the primary challenge is the pipeline stall caused by the all or nothing exchange. Uh to resolve this, we introduce a streaming chunking matching process in ParSync.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Our key idea is to transform the rigid uh back exchange into a con- continuous stream. Uh the weak matcher on the server groups uh highly gr- groups highly colliding weak checksums dynamically. And assigns them to multiple threads. As",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "soon as a batch of matching token is generated, uh the server immediately sends the data to the client. Up- up- upon receiving a streaming batch, the client strong matcher constructs a small temporary hash subtable. The client verifies the strong checksum",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "based on the hash subtable. And uh in parallel with the server continues to process the next batch. Uh this design overlaps uh network communication with endpoint compu- computation, eliminating the long waiting stalls. Uh and in phase three, we must eliminate",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the sequential application dependencies caused by uh relative offsets. The key idea behind the Parasync uh reconstructor is to enforce purely absolute offsets across all generated patch command. And instead of using relative instructions, we make every command",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "completely self-contained. A copy command now specifies uh source offset, the length, and the absolute destination offset in the new file. An insert command provides uh literal uh provides uh literal data, the length, and its absolute destination offset. By",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "embedding the absolute target location into every command, the server drops the requirement to process commands in a strict sequence. For example, in the figure, where the client transfers a second block of literal bytes over the network, the the server",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "simultaneously applies the first copy command to the storage. Because of this overlapping mechanism, our system can transfer little bytes via multiple independent data streams and apply all copy commands in parallel. And we have a we evaluate the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "performance of ParSync in Alibaba Cloud instance powered by 16-core CPU and NVMe SSD. As the network condition include a wide area network with a bandwidth of 500 megabits per second and a 50 millisecond round trip time, as well as",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "a local area network with a bandwidth of 10 gigabits per second and a 0.4 millisecond round trip time. We compare ParSync against the standard Dsync baseline and a parallelized version called BDsync, which utilize existing parallel chunking as a CDC.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Our experiments across seven real-world data sizes spanning gigabyte to terabyte scales, including Linux kernel file database backups and virtual machine snapshots. Our parallel chunking performance evaluation shows substantial",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "improvements using eight processing threads and eight core ParSync achieves up to a 7.6 times speedup over the traditional sequential chunking of Dsync. Compared to the PDsync method, ParSync reduces stage one chunking time by up to 41% and dramatically",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and drastically reduces the stage two merging time by up to 8 84%. Uh in the well in the in the wide area network environment, ParSync deeply overlaps endpoint computation with network latencies. Our end-to-end sync performance test",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "indicate that parsing is up to is up to 2.4 times faster than the sequential Dsync baseline. Furthermore, it operates up to 1.6 times faster than the parallelized PDsync method. And our results are even more pronounced in the 10 gigabits per second local area",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "networks context. In this environment, endpoint computation entirely defines the critical path. Parsing outperforms all tested baselines, and our system complete the file sync up to 3.7 times faster than Dsync. And up to 1.74 times faster than PDsync.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "In summary, content-defined chunking syncs suffer from fundamental structural dependencies. We introduce parsing to provide a holistic co-design of endpoint interaction to unlock complete fine-grained parallelism. Our Our solution features a parallel chunker",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "that utilize rapid checksum combination of streaming matcher design to eliminate client and server stalls, and a pipeline reconstructor that applies absolute offsets. As a final result, this achieve up to 3.7 times endpoint sync speed up with",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "negligible network traffic overhead. Thank you for attention. Please feel free to ask any question you may have.",
+      "start": 270,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,289 @@
+{
+  "videoId": "VhfAVA3BG2I",
+  "title": "How Transformers Finally Ate Vision – Isaac Robinson, Roboflow",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 13887,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi, I'm Isaac Robinson. I'm the research\nlead at Roboflow and I'm here to talk to\nyou today about how transformers finally\nate vision.\nSo, I'm going to start off with a brief\nsummary of\nthe competition.\nThen we're going to go through an\noverview of\nthe evolution of the transformer,\nwhy that ended up winning out, some\nconsequences of that, and what's next.\nSo,\nwhere we started, convolutional neural\nnetworks. I'm sure everyone here is\naware of how these work, but just to\nsummarize,\nthey have excellent inductive bias\nmotivated by looking at how the eye\nworks. So, you have a\na filter that you convolve against your\nimage, and you have activations that\nlight up\nthe same way regardless of where in the\nimage the thing is happening. Great\ninductive bias. A person in an image is\na person regardless of whether they're\nin the upper left or the bottom right.\nAnd you we build these uh interesting\nhierarchical structures out of these,\nResNets, etc.\nThis is how we've done vision for a very\nlong time.\nThen comes the transformer. Again, I'm\nsure everyone is aware of how a\ntransformer works, but just to\nsummarize,\nwe uh have a just a set of tokens.\nWe run a set-to-set operation.\nSo, there's no inductive bias. This is\njust an n-squared transformation.\nWe inject the inductive biases into the\ntransformer. So, for example, a\nclassical\nuh autoregressive transformer, we add a\ncausal mask to the attention matrix\nmatrix,\nand that gives us a sequential modeling.\nUh for vision,\nwe have a vision transformer.\nAnd this is\nvery complicated.\nA lot of engineering went into this. We\ntake our image, we split it into\nuh patches.\n16 by 16 was the original.\nAnd\nwe add a learned positional encoding,\nand then we throw that into a\ntransformer,\nand that's it.\nSo, transformer is n-squared set-to-set.\nWe've got patches in our image.\nThis is uh\nwe've got\nuh n over 16 patches for the side\nlength, and and we end up actually with\nn to the fourth power\nwith the resolution uh compute scaling.\nWe have no inductive bias.\nThe thing that is in the upper left can\nhave a totally different activation\npattern if it's in the bottom right.\nAnd so, the question naturally arises,\nwhich is better?\nThe high inductive bias n-squared\nconvolutional network or the no\ninductive bias n to the fourth power\nVIT?\nSo, as everyone would expect,\nit's the VIT.\nSo,\nhow is this possible?\nAnd I'm I'm going to make the argument\nthat it is because of massive\nVIT-specific pretraining,\nand then we get to borrow a lot of\nspeedups and infrastructure from the\nfact that LLMs are blowing up.\nSo,\nto trace this evolution, we're going to\ntalk about\nwe we just talked about the introduction\nof the VIT,\nthen how it how people tried to say,\n\"Okay, well, this this cannot possibly\nbe the best thing that we can do. How do\nwe make this better?\"\nSo, we go to Swin,\nthen back to a a convolutional-based\nnetwork, ConvNeXt, then uh Hera,\num which I think is a\nkind of a ha- has some really really\nbeautiful takeaways. And then,\nas always happens with machine learning,\nwe come back better listen to the simple\nthing that scales well, the VIT.\nSo,\nfirst we're going to start with Swin.\nSo, we have this patchify operation,\nand\nwe take our uh our patches, and we split\nthem instead of doing global attention\nacross all the patches at once, we just\nsay, \"Okay, we're going to do attention\nthis window.\"\nIf we just keep doing attention in this\nwindow, though, the the uh tokens will\nnot be able to interact with each other.\nSo, these two will never see each other.\nAnd so, the next layer, in fact, we\nshift the window a little bit. So, we've\ngot these back-and-forth overlapping\nwindows, and this looks very very\nsimilar to what I described with the\nconvolution.\nYes, so we've got this uh\nsimilar-looking operation that is\nhappening on these sections of the\nimage,\nand uh\nthen we end up with like overlap between\nthe filters, the locations that they get\napplied on. And this is how we proceed.\nAnd this actually gets us down to\nn-squared if your window size is\nindependent of your resolution,\nand it adds a locality inductive bias\nfollowing the convolutional net. So,\nthat that seems logical. That makes\nsense.\nthen we go to the uh\nsomeone said,\n\"Okay, look, there's this transformer\noperation that has no inherent\nrelationship with\nvision. Let's go back to the\nconvolutional\nnetwork. Let's take all the learnings\nthat we've had from the vision\ntransformers and just spit them into a\nconvolutional network and see what do a\npatchify operation.\nWe do a\nI think it was a\nit was a 4 by 4 patch instead of a 16 by\n16 patch,\nand we're going to say,\n\"Our VIT was\nas all transformers,\nself-attention, feed-forward,\nself-attention, feed-forward, etc.\nAnd that self-attention is mixing your\nspatial information.\nOkay?\nSo, for the convolutional network, what\nif we just say, 'Okay, we're going to\nhave the convolution mix the spatial\ninformation. We're going to do the same\npattern.\nUh mixer,\nfeed-forward, mixer, feed-forward,\nonwards.' And we're going to borrow the\nsame hierarchical structure that\neveryone has been using for these\nconvolutional networks.\"\nAnd uh\nalso throw in layer norm and a couple\nother innovations, and that's it. We're\ngoing to try that. Turns out that beats\nVIT and Swin when you apply it on the uh\nstandard ImageNet\nreference.\nThat's great. Finally, we have something\nthat makes a little bit of sense.\nturns out that's not super fast.\nSo,\nsomeone uh Meta decided, \"Okay, what\nwhat what are what are the actual\nimportant things here? The ConvNeXt has\na bunch of these beautiful inductive\nbiases. It's following this formula that\nwe got from the transformer.\nLet's look at what those inductive\nbiases are actually useful for. So,\nwe're going to take a really really good\ninductively biased transformer model.\nWe're going to strip out the biases one\nat a time. We're going to get a speedup\nbecause we don't have all the\nspecialized equipment anymore for the\ninductive bias, and we're going to use\npretraining to learn the bias instead.\"\nSo, this is I think a really really\ngreat example of the balance between\npretraining and inherent inductive bias,\nwhich ends up being how transformers\nultimately win out. Here we're using uh\nMAE, masked autoencoder,\num for those of you who are not\nfamiliar,\nyou take your image, you take your\npatches, you drop a bunch of the\npatches, and you ask the\nthe model to reconstruct what would have\nbeen in the patches\njust based on the context.\nVery very similar to BERT\nfor those of you who come from the\nlanguage space.\nyou do this at scale, and it turns out\nthe model actually learns back the\ninductive biases.\nBut, you can't actually apply MAE to a\nconvolutional network. How do you drop\nout a patch when you're doing this\nconvolution that's invariant across\npatches?\nSo, it's a VIT-specific\nuh pretraining technique that adds\ninductive bias that would otherwise be\nmissing from the structure.\nSo, that's great. That's super\ninteresting. That That works nicely.\nTurns out it doesn't You can take that\nto an extreme,\nand you throw in DINOv2, DINOv3,\nthese really\nagain, VIT-specific pretraining\ntechniques,\nand you\nat the end of it don't just have these\ninductive biases towards how to process\nan image. You actually have\nreally really really fit uh\nrich feature maps out of the box.\nSo, for example, this is a PCA\ndecomposition of the feature maps\nproduced by a DINOv3 pretrained VIT,\nand we see that the paws of the cat have\ndifferent colors, and that it's tracing\nthe paws correctly for each of the\ndifferent cats.\nThe satellite imagery is decomposed in a\nway that is semantically meaningful.\nAnd uh in fact, the self-supervised\nlearning objective is is catching up\nwith the best that we have from\nsupervised learning,\nand this is via linear probe. So, you\nhave your frozen features, you're just\nprobing into them.\nYou're not training anything\nspecifically on your data except for\nthat linear projection at the end,\nand you're getting very very very close\nto the best that we know how to do with\nself- with uh fully supervised learning.\nOkay, but what about the speed issue?\nThis is still n to the fourth power.\nit turns out that people\nare care a lot about attention. So, in\nthe LLM world, we start introducing\nthese tools, uh flash attention,\nthe biggest one,\nand\nuh Hera\nexplicitly showed a speedup for the same\naccuracy versus VIT, but they have a\nnote in their paper where they where\nthey say, \"Okay,\nwe see the speed up\nand we're not going to measure with\nflash attention.\"\nSo, then you add back in flash\nattention, suddenly it doesn't really\nmatter.\nYou've got you're back to this very\nsilly ends end of the fourth power thing\nthat benefits from this VIT specific\npre-training method,\nand that's it. We're\nuh we've kind of we're we're we've kind\nof won.\nSo,\nthis is a a talk about this is a an\nevolution of the backbones. How it is\nhow it is that the end of the fourth\nthing ended up beating out everyone that\ntried to beat it.\nWhat does this mean in\npractice and application? So,\nSAM is a very famous series of models.\nAgain, if I I I don't know where people\ncome from, but SAM was a\nwhat from my perspective one of the most\nimportant uh foundation model series in\nvision, period.\nAnd we actually see the same pattern.\nSo, SAM to mobile SAM to SAM 2 to SAM 3,\nif you look at the backbones that are\nunderlying it, it's a VIT trained with\nMAE.\nThen someone says, \"Okay, well, surely\nthis cannot be the best that we can do.\"\nSo, they uh mobile SAM actually uses\na specialized convolutional transformer\nhybrid uh called tiny VIT and replaces\nthe the VIT backbone.\nAnd then SAM 2 actually uses Hera\nwith uh this MAE pre-training,\nand then SAM 3 just gives up on the\narchitecture ablation and just says,\n\"Okay, well, we've got this massively\npre-trained\nbackbone. Let's just stick it in. That's\nthe best that we can do.\"\nSo, that's all good and fine, but where\ndoes that actually leave us?\nthis is really expensive if we're\nrelying on these huge pre-training\nstrategies in order to recover the\nperformance that is lost due to the fact\nthat our architecture is not biased\ntowards the subject at all.\nUh that means we have to spend a huge\namount of money every time we want to do\na deployment.\nSo, no deployment flexibility means that\nwe have these one-size-fits-all models.\nSo, SAM 3\nis this\nvery very powerful thing, but is also\n800 million parameters. It takes 300\nmilliseconds to run on a T4 GPU.\nIt's not\nactually usable in a lot of cases,\nuh especially because vision\nhistorically has been focused on these\nvery low-power edge devices,\nthese uh resource constrained deployment\nscenarios.\nSo,\nuh at Roboflow, what we have done\nis we've attempted to say,\n\"How do we actually take these\nfixed foundation models\nand to transform them into something\nthat has flexibility?\"\nSo,\nwe introduce a data set, RF100VL, that\nmeasures how well\nfoundation models transfer to downstream\ndiverse tasks with respect to object\ndetection, which is\none of the canonical vision-centric\ntasks.\nAnd we see\nabout a 40x speed up for the same\naccuracy versus fine-tuning SAM 3,\nuh and for merely a 15x speed up, we get\na a meaningful improvement.\nSo, this combination of this huge\nadvancement in foundation model\npre-training and these strong deployment\nmethods\ncombined with uh\nan actual ability to deploy these in\nhardware constrained environments ends\nup being the\nuh final nail in the coffin for these\nclassical convolutional-based methods.\nUh these at the time of our publication\nof RFDetR,\nthese were the best convolutional\nuh these were the best real-time\ninstance segmentation models, and we uh\nwe we we we outperformed them in a in a\nmeaningful way.\nUm and so, this is all those models on\nthat line use actually the same\nfoundation model.\nWe just modify the foundation model\nusing neural architecture search\nsuch that we generate an entire family\nuh high-performance models in in one go.\nTo do this, we actually introduce a\nbunch of uh flexible knobs. All of these\nare drop-in compatible with the existing\nfoundation model infrastructure,\nand by mixing and matching them in a way\nthat is dependent on target data and\ntarget hardware,\nwe can uh\nresolve the issue that\nuh these foundation models do not have\ndeployment flexibility.\nSo, massive VIT specific pre-training\nplus speed ups from LLMs plus\nuh pre-training compatible neural\narchitecture search,\nand uh\nthat's it.\nDo we have architectures that support\nlike video or\nvideo plus image plus text pre-training\nalready?\nIs someone working on that?\nSo,\nthere are a lot of people working on\nlike a huge amount of different\ncombinations of things. I actually think\nSAM 3 is a good example of that. They do\nWell, in terms of\nin terms of vision-specific video\nprocessing,\nit does video processing in the in from\nthe perspective of tracking objects\nthrough video.\nSo, they do massive-scale pre-training.\nThey do the perception encoder\npre-training for the backbone, and then\nthey do a huge amount of downstream\npre-training.\nOr I guess you would just call it\ntraining at that point.\nWhat about JEPA like Yeah, the video\nYeah, JEPA and the VJEPA, those are uh\nI mean, yeah, those are another variety\nof foundation model. I think in terms of\nsingle\nlike image-centric pre-training,\nJEPA doesn't seem to outperform a lot of\nthe other ones.\nVideo JEPA,\nI haven't seen anyone use it\nmeaningfully in a video context for\ndownstream transfer yet, but\nyou know, we'll see. Yeah.\nYeah.\nAny other questions?\nCool.\nOkay.",
+  "segments": [
+    {
+      "text": "Hi, I'm Isaac Robinson. I'm the research lead at Roboflow and I'm here to talk to you today about how transformers finally ate vision. So, I'm going to start off with a brief summary of the competition. Then we're going to go through an overview of",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the evolution of the transformer, why that ended up winning out, some consequences of that, and what's next. So, where we started, convolutional neural networks. I'm sure everyone here is aware of how these work, but just to summarize,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "they have excellent inductive bias motivated by looking at how the eye works. So, you have a a filter that you convolve against your image, and you have activations that light up the same way regardless of where in the image the thing is happening. Great",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "inductive bias. A person in an image is a person regardless of whether they're in the upper left or the bottom right. And you we build these uh interesting hierarchical structures out of these, ResNets, etc. This is how we've done vision for a very long time.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Then comes the transformer. Again, I'm sure everyone is aware of how a transformer works, but just to summarize, we uh have a just a set of tokens. We run a set-to-set operation. So, there's no inductive bias. This is just an n-squared transformation.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "We inject the inductive biases into the transformer. So, for example, a classical uh autoregressive transformer, we add a causal mask to the attention matrix matrix, and that gives us a sequential modeling. Uh for vision, we have a vision transformer.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "And this is very complicated. A lot of engineering went into this. We take our image, we split it into uh patches. 16 by 16 was the original. And we add a learned positional encoding, and then we throw that into a transformer, and that's it.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "So, transformer is n-squared set-to-set. We've got patches in our image. This is uh we've got uh n over 16 patches for the side length, and and we end up actually with n to the fourth power with the resolution uh compute scaling. We have no inductive bias.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "The thing that is in the upper left can have a totally different activation pattern if it's in the bottom right. And so, the question naturally arises, which is better? The high inductive bias n-squared convolutional network or the no",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "inductive bias n to the fourth power VIT? So, as everyone would expect, it's the VIT. So, how is this possible? And I'm I'm going to make the argument that it is because of massive VIT-specific pretraining, and then we get to borrow a lot of",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "speedups and infrastructure from the fact that LLMs are blowing up. So, to trace this evolution, we're going to talk about we we just talked about the introduction of the VIT, then how it how people tried to say, \"Okay, well, this this cannot possibly",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "be the best thing that we can do. How do we make this better?\" So, we go to Swin, then back to a a convolutional-based network, ConvNeXt, then uh Hera, um which I think is a kind of a ha- has some really really beautiful takeaways. And then,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "as always happens with machine learning, we come back better listen to the simple thing that scales well, the VIT. So, first we're going to start with Swin. So, we have this patchify operation, and we take our uh our patches, and we split",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "them instead of doing global attention across all the patches at once, we just say, \"Okay, we're going to do attention this window.\" If we just keep doing attention in this window, though, the the uh tokens will not be able to interact with each other.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "So, these two will never see each other. And so, the next layer, in fact, we shift the window a little bit. So, we've got these back-and-forth overlapping windows, and this looks very very similar to what I described with the convolution.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Yes, so we've got this uh similar-looking operation that is happening on these sections of the image, and uh then we end up with like overlap between the filters, the locations that they get applied on. And this is how we proceed.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And this actually gets us down to n-squared if your window size is independent of your resolution, and it adds a locality inductive bias following the convolutional net. So, that that seems logical. That makes sense. then we go to the uh someone said,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "\"Okay, look, there's this transformer operation that has no inherent relationship with vision. Let's go back to the convolutional network. Let's take all the learnings that we've had from the vision transformers and just spit them into a",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "convolutional network and see what do a patchify operation. We do a I think it was a it was a 4 by 4 patch instead of a 16 by 16 patch, and we're going to say, \"Our VIT was as all transformers, self-attention, feed-forward, self-attention, feed-forward, etc.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And that self-attention is mixing your spatial information. Okay? So, for the convolutional network, what if we just say, 'Okay, we're going to have the convolution mix the spatial information. We're going to do the same pattern. Uh mixer,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "feed-forward, mixer, feed-forward, onwards.' And we're going to borrow the same hierarchical structure that everyone has been using for these convolutional networks.\" And uh also throw in layer norm and a couple other innovations, and that's it. We're",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "going to try that. Turns out that beats VIT and Swin when you apply it on the uh standard ImageNet reference. That's great. Finally, we have something that makes a little bit of sense. turns out that's not super fast. So, someone uh Meta decided, \"Okay, what",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "what what are what are the actual important things here? The ConvNeXt has a bunch of these beautiful inductive biases. It's following this formula that we got from the transformer. Let's look at what those inductive biases are actually useful for. So,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "we're going to take a really really good inductively biased transformer model. We're going to strip out the biases one at a time. We're going to get a speedup because we don't have all the specialized equipment anymore for the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "inductive bias, and we're going to use pretraining to learn the bias instead.\" So, this is I think a really really great example of the balance between pretraining and inherent inductive bias, which ends up being how transformers",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "ultimately win out. Here we're using uh MAE, masked autoencoder, um for those of you who are not familiar, you take your image, you take your patches, you drop a bunch of the patches, and you ask the the model to reconstruct what would have been in the patches",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "just based on the context. Very very similar to BERT for those of you who come from the language space. you do this at scale, and it turns out the model actually learns back the inductive biases. But, you can't actually apply MAE to a",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "convolutional network. How do you drop out a patch when you're doing this convolution that's invariant across patches? So, it's a VIT-specific uh pretraining technique that adds inductive bias that would otherwise be missing from the structure.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "So, that's great. That's super interesting. That That works nicely. Turns out it doesn't You can take that to an extreme, and you throw in DINOv2, DINOv3, these really again, VIT-specific pretraining techniques, and you at the end of it don't just have these",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "inductive biases towards how to process an image. You actually have really really really fit uh rich feature maps out of the box. So, for example, this is a PCA decomposition of the feature maps produced by a DINOv3 pretrained VIT,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "and we see that the paws of the cat have different colors, and that it's tracing the paws correctly for each of the different cats. The satellite imagery is decomposed in a way that is semantically meaningful. And uh in fact, the self-supervised",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "learning objective is is catching up with the best that we have from supervised learning, and this is via linear probe. So, you have your frozen features, you're just probing into them. You're not training anything specifically on your data except for",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "that linear projection at the end, and you're getting very very very close to the best that we know how to do with self- with uh fully supervised learning. Okay, but what about the speed issue? This is still n to the fourth power. it turns out that people",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "are care a lot about attention. So, in the LLM world, we start introducing these tools, uh flash attention, the biggest one, and uh Hera explicitly showed a speedup for the same accuracy versus VIT, but they have a note in their paper where they where",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "they say, \"Okay, we see the speed up and we're not going to measure with flash attention.\" So, then you add back in flash attention, suddenly it doesn't really matter. You've got you're back to this very silly ends end of the fourth power thing",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "that benefits from this VIT specific pre-training method, and that's it. We're uh we've kind of we're we're we've kind of won. So, this is a a talk about this is a an evolution of the backbones. How it is how it is that the end of the fourth",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "thing ended up beating out everyone that tried to beat it. What does this mean in practice and application? So, SAM is a very famous series of models. Again, if I I I don't know where people come from, but SAM was a what from my perspective one of the most",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "important uh foundation model series in vision, period. And we actually see the same pattern. So, SAM to mobile SAM to SAM 2 to SAM 3, if you look at the backbones that are underlying it, it's a VIT trained with MAE. Then someone says, \"Okay, well, surely",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "this cannot be the best that we can do.\" So, they uh mobile SAM actually uses a specialized convolutional transformer hybrid uh called tiny VIT and replaces the the VIT backbone. And then SAM 2 actually uses Hera with uh this MAE pre-training,",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "and then SAM 3 just gives up on the architecture ablation and just says, \"Okay, well, we've got this massively pre-trained backbone. Let's just stick it in. That's the best that we can do.\" So, that's all good and fine, but where does that actually leave us?",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "this is really expensive if we're relying on these huge pre-training strategies in order to recover the performance that is lost due to the fact that our architecture is not biased towards the subject at all. Uh that means we have to spend a huge",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "amount of money every time we want to do a deployment. So, no deployment flexibility means that we have these one-size-fits-all models. So, SAM 3 is this very very powerful thing, but is also 800 million parameters. It takes 300",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "milliseconds to run on a T4 GPU. It's not actually usable in a lot of cases, uh especially because vision historically has been focused on these very low-power edge devices, these uh resource constrained deployment scenarios. So,",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "uh at Roboflow, what we have done is we've attempted to say, \"How do we actually take these fixed foundation models and to transform them into something that has flexibility?\" So, we introduce a data set, RF100VL, that measures how well",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "foundation models transfer to downstream diverse tasks with respect to object detection, which is one of the canonical vision-centric tasks. And we see about a 40x speed up for the same accuracy versus fine-tuning SAM 3,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "uh and for merely a 15x speed up, we get a a meaningful improvement. So, this combination of this huge advancement in foundation model pre-training and these strong deployment methods combined with uh an actual ability to deploy these in",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "hardware constrained environments ends up being the uh final nail in the coffin for these classical convolutional-based methods. Uh these at the time of our publication of RFDetR, these were the best convolutional uh these were the best real-time",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "instance segmentation models, and we uh we we we we outperformed them in a in a meaningful way. Um and so, this is all those models on that line use actually the same foundation model. We just modify the foundation model using neural architecture search",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "such that we generate an entire family uh high-performance models in in one go. To do this, we actually introduce a bunch of uh flexible knobs. All of these are drop-in compatible with the existing foundation model infrastructure,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "and by mixing and matching them in a way that is dependent on target data and target hardware, we can uh resolve the issue that uh these foundation models do not have deployment flexibility. So, massive VIT specific pre-training plus speed ups from LLMs plus",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "uh pre-training compatible neural architecture search, and uh that's it. Do we have architectures that support like video or video plus image plus text pre-training already? Is someone working on that? So, there are a lot of people working on",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "like a huge amount of different combinations of things. I actually think SAM 3 is a good example of that. They do Well, in terms of in terms of vision-specific video processing, it does video processing in the in from the perspective of tracking objects",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "through video. So, they do massive-scale pre-training. They do the perception encoder pre-training for the backbone, and then they do a huge amount of downstream pre-training. Or I guess you would just call it training at that point.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "What about JEPA like Yeah, the video Yeah, JEPA and the VJEPA, those are uh I mean, yeah, those are another variety of foundation model. I think in terms of single like image-centric pre-training, JEPA doesn't seem to outperform a lot of the other ones.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "Video JEPA, I haven't seen anyone use it meaningfully in a video context for downstream transfer yet, but you know, we'll see. Yeah. Yeah. Any other questions? Cool. Okay.",
+      "start": 324,
+      "duration": 6
+    }
+  ]
+}

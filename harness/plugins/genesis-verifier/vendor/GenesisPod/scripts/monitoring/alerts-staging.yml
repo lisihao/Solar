@@ -1,0 +1,138 @@
+groups:
+  - name: genesis_staging
+    interval: 30s
+    rules:
+      # 后端 API 告警
+      - alert: BackendDown
+        expr: up{job="genesis-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Backend API is down"
+          description: "Backend service has been unreachable for more than 1 minute"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{job="genesis-backend",status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High error rate in backend"
+          description: "Error rate is above 5% in the last 5 minutes"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="genesis-backend"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High latency detected"
+          description: "95th percentile latency is above 1 second"
+
+      # 数据库告警
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL service is not responding"
+
+      - alert: PostgresHighConnections
+        expr: pg_stat_activity_count{job="postgres"} > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High database connections"
+          description: "Database has more than 80 active connections"
+
+      - alert: PostgresDiskUsage
+        expr: pg_database_size_bytes{job="postgres"} / 107374182400 > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database disk usage high"
+          description: "Database disk usage is above 80%"
+
+      # Redis 告警
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis service is not responding"
+
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes{job="redis"} / redis_memory_max_bytes{job="redis"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is above 85%"
+
+      - alert: RedisEvictions
+        expr: rate(redis_evicted_keys_total{job="redis"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+        annotations:
+          summary: "Redis key evictions detected"
+          description: "Redis is evicting keys due to memory pressure"
+
+      # 系统资源告警
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{job="docker"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80%"
+
+      - alert: HighMemoryUsage
+        expr: container_memory_usage_bytes{job="docker"} / container_spec_memory_limit_bytes{job="docker"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: infrastructure
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85%"
+
+      # 应用级别告警
+      - alert: ExtractionServiceDown
+        expr: up{job="genesis-backend",instance=~".*:4000"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: extraction
+        annotations:
+          summary: "Extraction service is unavailable"
+          description: "Content extraction service has stopped responding"
+
+      - alert: DeduplicationServiceDown
+        expr: up{job="genesis-backend",instance=~".*:4000"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: deduplication
+        annotations:
+          summary: "Deduplication service is unavailable"
+          description: "Deduplication service has stopped responding"

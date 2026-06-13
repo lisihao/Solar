@@ -1,0 +1,54 @@
+flowchart TD
+  MSG(["messagesForQuery[]"]) --> SNIP
+
+  subgraph L1["Layer 1: Snip Compact · Lightest"]
+    SNIP{"HISTORY_SNIP\nenabled?"}
+    SNIP -->|Yes| SNIP_DO["snipCompactIfNeeded()\nTrim oldest message segments\nPreserve tail + boundary"]
+    SNIP -->|No| MC_START
+    SNIP_DO --> MC_START
+  end
+
+  subgraph L2["Layer 2: MicroCompact · Light"]
+    MC_START["microcompact()"]
+    MC_START --> MC_CHECK{"Context > 90%\nof window?"}
+    MC_CHECK -->|No| COLLAPSE_START
+    MC_CHECK -->|Yes| MC_DO["Delete oldest\nuser-assistant pairs\nTransparent, non-blocking"]
+    MC_DO --> COLLAPSE_START
+  end
+
+  subgraph L3["Layer 3: Context Collapse · Medium"]
+    COLLAPSE_START{"CONTEXT_COLLAPSE\nenabled?"}
+    COLLAPSE_START -->|Yes| COLLAPSE_DO["applyCollapsesIfNeeded()\nCollapse old tool interactions\nKeep summary, drop details"]
+    COLLAPSE_START -->|No| AC_START
+    COLLAPSE_DO --> AC_START
+  end
+
+  subgraph L4["Layer 4: AutoCompact · Heavy"]
+    AC_START["calculateTokenWarningState()"]
+    AC_START --> AC_CHECK{"Tokens >\nthreshold?"}
+    AC_CHECK -->|No| DONE(["Proceed to API Call"])
+    AC_CHECK -->|Yes| AC_FAIL{"Consecutive\nfailures > 3?"}
+    AC_FAIL -->|Yes| AC_SKIP["Skip · Circuit Breaker"]
+    AC_FAIL -->|No| AC_DO["compactConversation()\nLLM generates full summary\nReplace entire history"]
+    AC_DO --> AC_POST["buildPostCompactMessages()\nrunPostCompactCleanup()"]
+    AC_POST --> DONE
+    AC_SKIP --> DONE
+  end
+
+  subgraph L5["Reactive Compact · Emergency Recovery"]
+    API_ERR["API returns 413\nprompt_too_long"] --> WITHHOLD["Withhold error\nDo not yield to UI yet"]
+    WITHHOLD --> TRY_COLLAPSE{"Has staged\ncollapses?"}
+    TRY_COLLAPSE -->|Yes| DRAIN["Drain collapses\nRetry API"]
+    TRY_COLLAPSE -->|No| TRY_RC{"ReactiveCompact\nenabled?"}
+    TRY_RC -->|Yes| RC_DO["Emergency full compact\nRetry API"]
+    TRY_RC -->|No| SURFACE["Surface error to UI"]
+    DRAIN -->|Still 413| TRY_RC
+    RC_DO -->|Still 413| SURFACE
+  end
+
+  subgraph L6["Max Output Recovery"]
+    MOT_ERR["API: max_output_tokens"] --> MOT_CHECK{"Recovery count\n< 3?"}
+    MOT_CHECK -->|Yes| MOT_DO["Compact + Retry\nUp to 3 times"]
+    MOT_CHECK -->|No| MOT_FAIL["return max_output_recovery_failed"]
+    MOT_DO --> MOT_RETRY["Continue query loop"]
+  end

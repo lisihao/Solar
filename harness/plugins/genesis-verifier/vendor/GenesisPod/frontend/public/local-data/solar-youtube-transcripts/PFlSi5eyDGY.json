@@ -1,0 +1,369 @@
+{
+  "videoId": "PFlSi5eyDGY",
+  "title": "FAST '26 - UnICom: A Universally High-Performant I/O Completion Mechanism for Modern Computer...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 17727,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good afternoon everyone. I'm Pan from\nCity University of Hong Kong and I'm so\ndelighted to present my work unicorn\nuniversally high performance IO\ncompetition mechanism for modern\ncomputer systems.\nModern computer system evolution\nprovides many\nprovides many advanced storage\ntechnology. For example, like the\nsome emergent necessity that provides\nover a million millions of IOPS and near\n5 microsecond IO latency.\nBut for the traditional IO stack,\nparticularly for the Linux IO stack,\nit can contribute over 50% of the\noverhead of the total IO latency. So,\nsuch such high overhead motivate us to\ndesign an efficient IO stack for\nexisting storage system. And in\naddition,\nmodern computer system also\nwe also observe many real world\nworkloads that includes different types\nof workloads. For example, like the\npure IO workloads and mixed mixed\nworkloads just like the figure shown\nbelow.\nAnd so,\nin this paper I'm focused on the\ntech focused on the IO competition\nmechanism optimization on on the\ndifferent types of workloads. So, let's\nget started from the dilemma of\ninterrupt and polling. I think this this\nthere are dilemma or trade-off of\ninterrupt and polling have been\nintroduced in many previous work. I\nremember that there's a work DAPS\nif I remember correct presented\nyesterday. It is another SNM work to\noptimize the IO commission mechanism.\nBut\nfor this paper we we we try to optimize\nthis dinner in another direction. We\nstart from some case study and we\nevaluate we try to evaluate these two\nIO commission mechanism with two\nrepresentative words. The first one is\nEXT4 for intro and capacity for polling.\nAnd we also evaluate these two cases\ninto on two different workloads. The\nfirst workload is pure IO workload and\nanother one is mixed workload. And the\nmixed workload means that the IO swaps\nand\nand the compute intensive swap, they\ncould be one in the same system or same\ncomputer. And so that they will of\ncourse they will intensively compete for\nCPU resources. So they could and\nresulting in some mutual interference.\nBut in our experiments, we use\ncounter swaps to represent C swaps.\nWhere the counter swap means that we\nwill create a swap\nand its task is just to cut it's just to\ncount some value. So\nthe count the count value of these swaps\nduring a period indicates its\ncomputational\nperformance. And if we have multiple\ncounter swaps, the sum of counter value\nof the\nof the counter swap also means that\nthey will compete the mission\nperformance. And so we for the last\nslice I will use C swap to represent\ncounter swap because it represent a\nspecial case.\nAnd so for the performance on pure IO\nworkloads,\nFor example, like the result shown in\nthe figure,\ninterrupts of course shows the low IO\nperformance due to the high software\noverhead and the and the uh, the high\ncost sleep wake up routing, they will\nuse in their commission mechanism. And\nanother one is polling. Polling it\npolling it um, of course shows a higher\nIOPS than uh, interrupts especially uh,\nwhen the device is not saturated. And\nbut for the but all we make another\nobservation for 128 KB IOs as so as the\nfigure show at the left side, we will\nsee that if the SSD is saturated, of\ncourse because the IO will be queued by\nthe devices, so their IO latency would\nincrease increase. So but for the\npolling approach,\nthe IO increasing IO latency in polling\nmeans that they have to do more busy\nwaiting here and wasting more CPU\ncycles.\nSo this this this uh, one of our\nobservation. And in this observation,\nwhen we switching the\nwhen we switch the CPU utilization to\nhigh CPU utilization, we we can see that\nwe we have totally different\nobservation. And for the for example\nlike this for interrupt, we can see that\nthe interrupt shows higher IOPS\nperformance and C-sharp performance\nin high CPU utilization as the green bar\nshow below at the right side figure. And\nbut for polling, polling we we we we can\nsee that polling shows\num,\nlike shows lower IOPS performance\nC-sharp performance than interrupt\nbecause be uh,\nbecause they they will firstly they they\nthey already saturate the devices and\nthe polling\nand they will\nhave some mutual interference effect.\nWith 4 KB IOs also, so we will see that\nthe 4 KB IOs also the IOPS performance\nof 4 KB IOs also also decreases.\nAnd for 128 KB IOs, at the C-sharp\nperformance\nuh, the C-sharp performance will\ncontinue to drop because because uh, the\nobservation we make in a previous nice\nthat is the uh, the the longer and\nlonger IO latency and wasting more and\nmore CPU cycles.\nAnd and So, we identified the root cause\nof this of\nthe root cause is the per-thread polling\nincrease the CPU contention because\nbecause in many in in the sync IO\nscenario or blocking IO scenario,\nuh which is a very common IO IO mode\nused by many real application. And each\nIO thread has to has to poll for IO. And\nif if there are many many many IO\nthreads poll for IOs and poll for big\nIO, they will wasting CPU cycles each by\neach. So, totally wasting more and more\nCPU cycles, making the CPU utilization\ninefficient.\nSo,\nand\nto address the issue of per-thread\nper-thread polling, my first observation\nis that we can maybe we can use the\nasync IO framework like IO Uring in SQ\nmode\nto address this issue because for the\nfor the IO Uring in SQ mode, it will\ncreate a submission thread. This\nsubmission sub-thread would receive IO\nrequests from different applications.\nAnd and they will they they will help\napplications to do to to check the IO\ncompletion in this centralized\nsubmission threads. So, we can so so\nthat we can transfer the per-thread\npolling into a centralized polling to\nreduce CPU utilization.\nBut, it also has some limitation here.\nThe first limitation is\nabout the incompatibility. Because IO\nUring as a async IO\nasync IO IO framework, it requires\nrequires application that only supports\nsync IO to change their source code\nbecause they have different IO IO\ndifferent IO paradigm. And another one\nis the performance bond. It is because\nfor IO ring, it still relies on the\nunderlying kernel completion mechanism.\nFor example, like the interrupt to to\nfinish the IO. So that uh, so that they\nit will also suffer from the similar\nsoftware overhead like the interrupt\ninterrupt base\nuh, approach.\nAnd the last one is the limited uh,\nmultiple process support. Because for\nthe IO ring, uh,\nif we create a each submission\nsubmission share for each\nuh, for each process,\nthey they will still the per share\npooling issue will be transferred to per\nprocess per process\nuh, per process pooling issue. And\nand it do not it do not fundamentally\naddress the address the uh,\nthe issue of\nof inefficient CPU usage.\nSo our design goal is to design an IO\ncompletion mechanism that delivers\nuniversally high performance\nacross different scenario\nincluding the near pooling IO\nperformance\nin pure IO workloads\nor we we first to a low CPU utilization\nand near interrupt IO performance and C\nsharp performance in mixed workloads or\nhigh CPU utilization. Of course, we need\nto support asynchronous IO because we\nwant to transparently support existing\napplication. They do not need to\nrewrite any source codes.\nTo achieve this goal, we we uh, we\nencounter we in in counter some uh,\nchallenges. The first challenge is is\nthe how to achieve a near interrupt\nperformance.\nUh,\nbecause for because if we want to make\nthe CPU usage efficient, we I think we\nwe we need to design an interrupt like\nsleep and wake up mechanism because we\nalways always want to the CPU can do\nother tasks when IO is not finished. So\nbut based on our observation, is it is\nthe same task deactivation or\nreactivation operation? Or or uh for\nexample, like we if we want to uh if the\nIO list to uh\nis is submitted, the task should goes to\nsleep. And and this task should be in\nqueue should be we should be dequeued\nfrom the CPU's one queue or in queues to\nthe uh CPU one queue. And this this\noperation, we we notice that it\ncontributes around 33% software overhead\nof the total IO latency. So, this\ncreates a heavy uh sleep and wake up\noverhead. And the second challenge is\nabout the layer polling performance.\nAnd and the synchronous IO, it because\nwe want to\nbecause we want to save CPU efficiency\nwhile ensure high IO performance. So, uh\nwe inspired by the IO Uring, we still\nwant to uh\nwe still consolidate the per-thread\npolling into the one polling threads.\nBut, we we have to we have to uh address\nthe limitation of\nof IO Uring. So, that's uh another\nchallenge.\nAnd and the second one is to tre- is to\nreach uh lower and lower so- software\noverhead. This is because we uh based on\nour observation, many uh the kernel\nbypassing IO have proven that uh\nthe kernel bypassing IO can uh\nsignificantly reduce software overhead.\nSo, we want to adopt this design. So,\nthe last challenge is to challenge one\nand two while safely and efficiently\nsupport kernel bypassing IOs.\nSo, let me introduce my insight. Uh my\ninsight is an is from an observation of\na IO latency breakdown. We notice that a\nsystem call for most switching between\nuser space and kernel space is no cost,\nabout 1.7%. This This This overhead um I\nthink this overhead is worse\nto to if we if we uh what if we trapping\ninto kernel to leverage kernel\ninfrastructure to overcome challenge one\nand two\nand it it is worse. And while if we can\nkernel bypass most of iOS that to\novercome overcome challenge three and\nand I think it would be possible\nsolution.\nSo, let me introduce our unicorn\nsolution.\nBased on our key insight, we introduce\nuniversal IO completion or unicorn.\nUnicorn include three design. The first\ntwo design is to overcome the challenge\none and two. It leverage various kernel\ninfrastructure to to\nto overcome this challenge. The first\ndesign including the task schedule\ndesign.\nIt is a life is sleeping and wake up\nmechanism and take a poll is a is a\nefficient and safe polling\npolling our completion approach. It can\nhandle IOs requests from different\nprocess and different shafts and it\nrunning in the kernel so it can it can\nprovide safe and efficient and cross\nprocess\nprocess service for all the requests.\nAnd the third challenge\nwe use the sh- shortcut kernel IO path\nor skip to address.\nThis skip module\nit is com- it combines a library file\nsystem and kernel module.\nThis This two uh this design is to\nprovide kernel running space for the for\nthe our previous designs, task schedule\nand take a poll and it and\nand to and let them to efficiently to\nassess some some uh kernel resources.\nFor example, like uh we can rebuild a\nextent tree. The extent tree just extent\ntree maps the file offset to the um to\nthe to a\nblock address in the file system. This\nallows\num we can translate uh file requests to\nblock requests. We also uh manage many\nhardware MEM queue in the skip and so\nthat the tag of all can directly to\naccess this MEM queue and can track and\ncomplete the IO\nin a high in high efficiency.\nWe we will detail the design of the tag\nschedule design and tag of all design.\nYou may find the detail of the skip\ndesign in our paper.\nThen, let me introduce the tag schedule\ndesign.\nUh its full name is tag guiding queue\nscheduling.\nThis design is very simple. When an IO\nsubmit when IO sub submit IO, we just\ngive a tag and this can store in a in in\neach sub's PCB or uh there's uh the task\nstruct in Linux. We just add a field to\nstore it.\nAnd when the IO sub submit this IO, we\nwe tag it as as wait IO wait. And then\nthe scheduler will skip and skip this uh\nskip the tag struct so that it will it\nwill it will it will not\nuh this this IO sub waiting for IO will\nnot get scheduled. But um design is to\nin uh\nin our design, instead of moving this\ntag struct away from the uh from the uh\none queue, we we choose to uh we choose\nto retain this tag IO sub in the CPU one\nqueue so that we can avoid the high\noverhead of of queue operation so that\num it can reduce uh software overhead in\nin doing doing the uh CPU wake up\nmechanism. The last one is preemption\nbecause we notice that from based on\nthis design from the scheduler view, it\nis a computation intensive struct. And\nso that if there there's a computer\ncompute C structs\nis blocking this this structs, they this\nuh the IO sub have to wait the wait for\nthe whole time slice of computer and you\nknow that's the time time slice of C\nsharp is very long. It is million\nseconds level. So this will\nresulting in very extreme long latency\nfor IO shafts. So we we have to we need\nto decide this preemption to preempt the\npreempt the C shafts once the IO is\ncompleted.\nAnd the second design is the tech poll.\nTech poll means the tech tech notify\npolling. It it will\nIn this design we first introduce a\ncentralized system level polling base\ncompetition shafts and and it will\nassign to a dedicated core. It will\nreceive\nall IO requests from user space\napplication.\nAnd this shaft is is running in the\nkernel so it can receive all requests\nand handle all multiple processes\nsafely.\nAnd the second design is the low cost\nwake up. It is\nIt is very simple because the because\nthis competition shaft will traps the MM\nEQ and and if there are IO requests\nlying in the MMQ they will check the\nstate of\nthis this\nthis IO and if the IO is completed they\nthe the shaft will will\nuntag the the corresponding IO shaft so\nthat\nthe CPU scheduler can can can detect\nthis can detect this IO shaft and wake\nit up. So in this way we can we can\nefficiently\nif it's implement a life A and low cost\nIO competition mechanism. And the third\ndesign is aims to optimize the existing\nperformance. That's adaptive competition\npolicy. It means that we will the tech\npoll will direct direct commit\nto to check the\ncheck the CPU load of each one queue and\nif the disk if the CPU is idle they will\nuse use the pure polling IO. And if the\nif the CPU there are many tasks on the\nsame CPU, they will use Unicorn IO. In\nthis way, we can maximize the IO\nperformance.\nSo, let me introduce the experimental\nenvironment. And we use three baselines,\nEXT4 by passing and IO ring in SQ mode.\nFor for the for the baselines, we use 16\ne-cores to to 18. And for our Unicorn,\nwe will reserve one core for the\ndedicated\ncompletion thread mentioned in the\nprevious slides. And the remaining 15\ncores used for application.\nFirst, let me see the pure IO workload\nperformance. For average average IO\nlatency, we can see that\nwe we\nwe improve the interrupt performance on\n4 KB IOs by 42% with one thread. And we\nalso reduce the reduce its latency of of\nEXT4 for 128 KB IO uh by\nby 17.4%.\nAnd with SPDK, we we achieve similar\nperformance. Because in this scenario,\nthe adaptive completion policy is is\nemployed. Because in in in this\nscenario, the the CPU load is is not is\nnot heavy. And if we see the P99 tail if\nwe see the P99 tail latency,\nuh for one thread, we we we we improve\nthe tail latency of EXT4\nby 31% for 4 KB IOs. And for polling, we\nwe we avoid the polling extreme tail\nlatency.\nBecause because you can see the polling\ntail latency P99 for\ntail latency on 128 KB, it is it is over\n10,000. We we just make it to a to find\n1,600,000\ndue to the our our task schedule design,\nlibrary sleep and wake up mechanism.\nAnd let's let's see the miss models for\nC-sharp. And for this performance, we\ncan see that uh\nthe IOPs performance on 4K IO Unicorn\noutperform other solutions due to our uh\ndue to our takeable and take a schedule\ndesign. And and uh if we look into the\n128KB\nread IOs, we can see that uh\nour the C-sharp performance of Unicorn\ndoes not drop as polling, but it\nmaintains a consistent gap as interrupt\nbecause we use we have reserved a CPU\ncore for dedicated share.\nAnd if we if we if comparing with the\npolling, we outperform polling both on\nIOPs performance and C-sharp performance\nbecause we address the uh interfe-\nmutual interference and uh and the\nlonger and longer busy waiting time of\npolling, so that uh we we outperform\non both 4K IO performance and and the\nC-sharp performance on 128K IO.\nAnd and Unicorn does not drop\ncontinuously drop. This drops uh like\nthe polling in C-sharp performance.\nSo, let's recap our goal. Our goal is to\nto under\nunder different CPU utilization, Unicorn\ncan uh show robust performance um\nover different scenario. And the pay the\nfigure shown in the left side prove that\nUnicorn achieved our goal.\nAnd in real world application, and we if\nwe comparing with the single share and\n32 shares, uh Unicorn have uh\noutperformed uh the EXT4 and polling on\nthe single share performance. And signi-\nand very significantly outperform the\ninterrupt and for 32 shares, we uh we we\nprimarily outperform the polling because\nwe uh address the mutual interference\nissue.\nSo, uh let me make a simple conclusion.\nAnd in our paper, we analyze the impact\nof a system level completion mechanism\nacross different workloads. And we\nintroduce task schedule, a library sleep\nand wake up mechanism, and the tech\npoll, a centralized system level polling\nbased completion mechanism for the for\nfast IO responsivity, efficient CPU\nusage, and multi-process support. And\nskip, a framework to efficiently bypass\nmost of the kernel IO stack. And the And\nour evaluation show that uh Unicorn\nshows robust for IO performance\nimprovement across different types of\nworkload. Uh thank you for listening.\nI'm happy to take questions.",
+  "segments": [
+    {
+      "text": "Good afternoon everyone. I'm Pan from City University of Hong Kong and I'm so delighted to present my work unicorn universally high performance IO competition mechanism for modern computer systems. Modern computer system evolution provides many",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "provides many advanced storage technology. For example, like the some emergent necessity that provides over a million millions of IOPS and near 5 microsecond IO latency. But for the traditional IO stack, particularly for the Linux IO stack,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "it can contribute over 50% of the overhead of the total IO latency. So, such such high overhead motivate us to design an efficient IO stack for existing storage system. And in addition, modern computer system also we also observe many real world",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "workloads that includes different types of workloads. For example, like the pure IO workloads and mixed mixed workloads just like the figure shown below. And so, in this paper I'm focused on the tech focused on the IO competition",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "mechanism optimization on on the different types of workloads. So, let's get started from the dilemma of interrupt and polling. I think this this there are dilemma or trade-off of interrupt and polling have been introduced in many previous work. I",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "remember that there's a work DAPS if I remember correct presented yesterday. It is another SNM work to optimize the IO commission mechanism. But for this paper we we we try to optimize this dinner in another direction. We start from some case study and we",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "evaluate we try to evaluate these two IO commission mechanism with two representative words. The first one is EXT4 for intro and capacity for polling. And we also evaluate these two cases into on two different workloads. The",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "first workload is pure IO workload and another one is mixed workload. And the mixed workload means that the IO swaps and and the compute intensive swap, they could be one in the same system or same computer. And so that they will of",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "course they will intensively compete for CPU resources. So they could and resulting in some mutual interference. But in our experiments, we use counter swaps to represent C swaps. Where the counter swap means that we will create a swap",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and its task is just to cut it's just to count some value. So the count the count value of these swaps during a period indicates its computational performance. And if we have multiple counter swaps, the sum of counter value of the",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "of the counter swap also means that they will compete the mission performance. And so we for the last slice I will use C swap to represent counter swap because it represent a special case. And so for the performance on pure IO workloads,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "For example, like the result shown in the figure, interrupts of course shows the low IO performance due to the high software overhead and the and the uh, the high cost sleep wake up routing, they will use in their commission mechanism. And",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "another one is polling. Polling it polling it um, of course shows a higher IOPS than uh, interrupts especially uh, when the device is not saturated. And but for the but all we make another observation for 128 KB IOs as so as the",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "figure show at the left side, we will see that if the SSD is saturated, of course because the IO will be queued by the devices, so their IO latency would increase increase. So but for the polling approach, the IO increasing IO latency in polling",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "means that they have to do more busy waiting here and wasting more CPU cycles. So this this this uh, one of our observation. And in this observation, when we switching the when we switch the CPU utilization to high CPU utilization, we we can see that",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "we we have totally different observation. And for the for example like this for interrupt, we can see that the interrupt shows higher IOPS performance and C-sharp performance in high CPU utilization as the green bar show below at the right side figure. And",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "but for polling, polling we we we we can see that polling shows um, like shows lower IOPS performance C-sharp performance than interrupt because be uh, because they they will firstly they they they already saturate the devices and the polling and they will",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "have some mutual interference effect. With 4 KB IOs also, so we will see that the 4 KB IOs also the IOPS performance of 4 KB IOs also also decreases. And for 128 KB IOs, at the C-sharp performance uh, the C-sharp performance will",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "continue to drop because because uh, the observation we make in a previous nice that is the uh, the the longer and longer IO latency and wasting more and more CPU cycles. And and So, we identified the root cause of this of",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "the root cause is the per-thread polling increase the CPU contention because because in many in in the sync IO scenario or blocking IO scenario, uh which is a very common IO IO mode used by many real application. And each",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "IO thread has to has to poll for IO. And if if there are many many many IO threads poll for IOs and poll for big IO, they will wasting CPU cycles each by each. So, totally wasting more and more CPU cycles, making the CPU utilization inefficient. So, and",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "to address the issue of per-thread per-thread polling, my first observation is that we can maybe we can use the async IO framework like IO Uring in SQ mode to address this issue because for the for the IO Uring in SQ mode, it will",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "create a submission thread. This submission sub-thread would receive IO requests from different applications. And and they will they they will help applications to do to to check the IO completion in this centralized submission threads. So, we can so so",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that we can transfer the per-thread polling into a centralized polling to reduce CPU utilization. But, it also has some limitation here. The first limitation is about the incompatibility. Because IO Uring as a async IO async IO IO framework, it requires",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "requires application that only supports sync IO to change their source code because they have different IO IO different IO paradigm. And another one is the performance bond. It is because for IO ring, it still relies on the",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "underlying kernel completion mechanism. For example, like the interrupt to to finish the IO. So that uh, so that they it will also suffer from the similar software overhead like the interrupt interrupt base uh, approach. And the last one is the limited uh,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "multiple process support. Because for the IO ring, uh, if we create a each submission submission share for each uh, for each process, they they will still the per share pooling issue will be transferred to per process per process",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "uh, per process pooling issue. And and it do not it do not fundamentally address the address the uh, the issue of of inefficient CPU usage. So our design goal is to design an IO completion mechanism that delivers universally high performance",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "across different scenario including the near pooling IO performance in pure IO workloads or we we first to a low CPU utilization and near interrupt IO performance and C sharp performance in mixed workloads or high CPU utilization. Of course, we need",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "to support asynchronous IO because we want to transparently support existing application. They do not need to rewrite any source codes. To achieve this goal, we we uh, we encounter we in in counter some uh, challenges. The first challenge is is",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "the how to achieve a near interrupt performance. Uh, because for because if we want to make the CPU usage efficient, we I think we we we need to design an interrupt like sleep and wake up mechanism because we always always want to the CPU can do",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "other tasks when IO is not finished. So but based on our observation, is it is the same task deactivation or reactivation operation? Or or uh for example, like we if we want to uh if the IO list to uh is is submitted, the task should goes to",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "sleep. And and this task should be in queue should be we should be dequeued from the CPU's one queue or in queues to the uh CPU one queue. And this this operation, we we notice that it contributes around 33% software overhead of the total IO latency. So, this",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "creates a heavy uh sleep and wake up overhead. And the second challenge is about the layer polling performance. And and the synchronous IO, it because we want to because we want to save CPU efficiency while ensure high IO performance. So, uh",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "we inspired by the IO Uring, we still want to uh we still consolidate the per-thread polling into the one polling threads. But, we we have to we have to uh address the limitation of of IO Uring. So, that's uh another challenge.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And and the second one is to tre- is to reach uh lower and lower so- software overhead. This is because we uh based on our observation, many uh the kernel bypassing IO have proven that uh the kernel bypassing IO can uh significantly reduce software overhead.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So, we want to adopt this design. So, the last challenge is to challenge one and two while safely and efficiently support kernel bypassing IOs. So, let me introduce my insight. Uh my insight is an is from an observation of",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "a IO latency breakdown. We notice that a system call for most switching between user space and kernel space is no cost, about 1.7%. This This This overhead um I think this overhead is worse to to if we if we uh what if we trapping",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "into kernel to leverage kernel infrastructure to overcome challenge one and two and it it is worse. And while if we can kernel bypass most of iOS that to overcome overcome challenge three and and I think it would be possible solution.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "So, let me introduce our unicorn solution. Based on our key insight, we introduce universal IO completion or unicorn. Unicorn include three design. The first two design is to overcome the challenge one and two. It leverage various kernel infrastructure to to",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "to overcome this challenge. The first design including the task schedule design. It is a life is sleeping and wake up mechanism and take a poll is a is a efficient and safe polling polling our completion approach. It can handle IOs requests from different",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "process and different shafts and it running in the kernel so it can it can provide safe and efficient and cross process process service for all the requests. And the third challenge we use the sh- shortcut kernel IO path or skip to address. This skip module",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "it is com- it combines a library file system and kernel module. This This two uh this design is to provide kernel running space for the for the our previous designs, task schedule and take a poll and it and and to and let them to efficiently to",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "assess some some uh kernel resources. For example, like uh we can rebuild a extent tree. The extent tree just extent tree maps the file offset to the um to the to a block address in the file system. This allows um we can translate uh file requests to",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "block requests. We also uh manage many hardware MEM queue in the skip and so that the tag of all can directly to access this MEM queue and can track and complete the IO in a high in high efficiency. We we will detail the design of the tag",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "schedule design and tag of all design. You may find the detail of the skip design in our paper. Then, let me introduce the tag schedule design. Uh its full name is tag guiding queue scheduling. This design is very simple. When an IO",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "submit when IO sub submit IO, we just give a tag and this can store in a in in each sub's PCB or uh there's uh the task struct in Linux. We just add a field to store it. And when the IO sub submit this IO, we we tag it as as wait IO wait. And then",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "the scheduler will skip and skip this uh skip the tag struct so that it will it will it will it will not uh this this IO sub waiting for IO will not get scheduled. But um design is to in uh in our design, instead of moving this",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "tag struct away from the uh from the uh one queue, we we choose to uh we choose to retain this tag IO sub in the CPU one queue so that we can avoid the high overhead of of queue operation so that um it can reduce uh software overhead in",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "in doing doing the uh CPU wake up mechanism. The last one is preemption because we notice that from based on this design from the scheduler view, it is a computation intensive struct. And so that if there there's a computer compute C structs",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "is blocking this this structs, they this uh the IO sub have to wait the wait for the whole time slice of computer and you know that's the time time slice of C sharp is very long. It is million seconds level. So this will resulting in very extreme long latency",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "for IO shafts. So we we have to we need to decide this preemption to preempt the preempt the C shafts once the IO is completed. And the second design is the tech poll. Tech poll means the tech tech notify polling. It it will In this design we first introduce a",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "centralized system level polling base competition shafts and and it will assign to a dedicated core. It will receive all IO requests from user space application. And this shaft is is running in the kernel so it can receive all requests",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "and handle all multiple processes safely. And the second design is the low cost wake up. It is It is very simple because the because this competition shaft will traps the MM EQ and and if there are IO requests lying in the MMQ they will check the state of",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "this this this IO and if the IO is completed they the the shaft will will untag the the corresponding IO shaft so that the CPU scheduler can can can detect this can detect this IO shaft and wake it up. So in this way we can we can efficiently",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "if it's implement a life A and low cost IO competition mechanism. And the third design is aims to optimize the existing performance. That's adaptive competition policy. It means that we will the tech poll will direct direct commit to to check the",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "check the CPU load of each one queue and if the disk if the CPU is idle they will use use the pure polling IO. And if the if the CPU there are many tasks on the same CPU, they will use Unicorn IO. In this way, we can maximize the IO performance.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "So, let me introduce the experimental environment. And we use three baselines, EXT4 by passing and IO ring in SQ mode. For for the for the baselines, we use 16 e-cores to to 18. And for our Unicorn, we will reserve one core for the dedicated",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "completion thread mentioned in the previous slides. And the remaining 15 cores used for application. First, let me see the pure IO workload performance. For average average IO latency, we can see that we we we improve the interrupt performance on",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "4 KB IOs by 42% with one thread. And we also reduce the reduce its latency of of EXT4 for 128 KB IO uh by by 17.4%. And with SPDK, we we achieve similar performance. Because in this scenario, the adaptive completion policy is is employed. Because in in in this",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "scenario, the the CPU load is is not is not heavy. And if we see the P99 tail if we see the P99 tail latency, uh for one thread, we we we we improve the tail latency of EXT4 by 31% for 4 KB IOs. And for polling, we we we avoid the polling extreme tail latency.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "Because because you can see the polling tail latency P99 for tail latency on 128 KB, it is it is over 10,000. We we just make it to a to find 1,600,000 due to the our our task schedule design, library sleep and wake up mechanism.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And let's let's see the miss models for C-sharp. And for this performance, we can see that uh the IOPs performance on 4K IO Unicorn outperform other solutions due to our uh due to our takeable and take a schedule design. And and uh if we look into the 128KB",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "read IOs, we can see that uh our the C-sharp performance of Unicorn does not drop as polling, but it maintains a consistent gap as interrupt because we use we have reserved a CPU core for dedicated share. And if we if we if comparing with the",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "polling, we outperform polling both on IOPs performance and C-sharp performance because we address the uh interfe- mutual interference and uh and the longer and longer busy waiting time of polling, so that uh we we outperform",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "on both 4K IO performance and and the C-sharp performance on 128K IO. And and Unicorn does not drop continuously drop. This drops uh like the polling in C-sharp performance. So, let's recap our goal. Our goal is to to under",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "under different CPU utilization, Unicorn can uh show robust performance um over different scenario. And the pay the figure shown in the left side prove that Unicorn achieved our goal. And in real world application, and we if",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "we comparing with the single share and 32 shares, uh Unicorn have uh outperformed uh the EXT4 and polling on the single share performance. And signi- and very significantly outperform the interrupt and for 32 shares, we uh we we",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "primarily outperform the polling because we uh address the mutual interference issue. So, uh let me make a simple conclusion. And in our paper, we analyze the impact of a system level completion mechanism across different workloads. And we",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "introduce task schedule, a library sleep and wake up mechanism, and the tech poll, a centralized system level polling based completion mechanism for the for fast IO responsivity, efficient CPU usage, and multi-process support. And",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "skip, a framework to efficiently bypass most of the kernel IO stack. And the And our evaluation show that uh Unicorn shows robust for IO performance improvement across different types of workload. Uh thank you for listening. I'm happy to take questions.",
+      "start": 420,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,214 @@
+{
+  "videoId": "k4-NwBhMf30",
+  "title": "FAST '26 - MlsDisk: Trusted Block Storage for TEEs Based on Layered Secure Logging",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 9805,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Uh I'm hol from AM group. Um I present\nMRS disk trusted block storage for TE uh\nbased on layered secure logging. Trusted\nexecution environments or T's provide\nhardware based isolation. They protect\nsensitive code and data ving from\npowerful adversaries outside including\npotentially compromised or malicious\nhost OS hypervisor and other privileged\nsoftware. Examples of T include uh\nIntjs, AMD CV and ARM trone.\nHowever, T's only protect CPU and\nmemory. They do not protect this IO. Any\ndata written to the host is fully\nexposed to the adversary. This is the\ngap we aim to fill. A promising solution\nis secure virtual disc. It sees between\nthe file system inside the T and the\nentrusted host storage outside the T. It\ntransparently protects all block IO. So\nthe file system do not need to be\nmodified at all. On the right side, you\ncan see the thread model. The adversary\ncan snoop, tamper, roll back and crash\ndisk arbitrarily.\nA secure virtual disease should\nguarantee four properties. CIFC\nconfidentiality prevents data leakage.\nIntegrity detects and author\nmodifications. Freshness prevents uh\nrollback attacks and consistency ensures\ncorrect data state after crashes.\nExisting solutions like DM crypt or uh\nDM integrity in Linux only provide the\nfirst two properties confidentiality\nintegrity. Achieving all four is much\nharder and that's the focus of this\nwork. The state-of-the-art CIFC solution\nis SGSPFS. It uses a Merkel hashtree MHT\nin short. Whereas leaf nodes colored in\nred stored in encrypted use data,\nnon-leaf nodes colored in yellow stores\nkeys and Macs of their children and a\nrecovery journal colored in green\nensures uh consistency. This design\nachieves all four properties but at a\nsignificant performance cost. Let's\nqualify this cost. We use I file random\nrise to compare three configurations. Uh\nthe first one is ro disk is the\nbaseline. No security just low hardware\nthroughput. Adding crypt disk having\nboth encryption and MAC for\nconfidentiality and integrity cost about\n45% throughput. Now adding SGSPFS, it\nuses MT and journal for freshness and\nconsistency. It causes about uh another\n60% drop from crypt disk totaling a 78%\nloss from rodest. The MH and journal are\nthe dominant uh bottleneck. So the\nquestion is can we do better for for\nthis purpose we need to examine the cost\nconsidering updating two data blocks D0\nand D2 using in place updates because\nthe MHT enforces integrity from leave to\nroot. All MHT nodes in this situation\nmust be updated. Uh such a c cascade of\nupdates is very expensive. Now compared\nwith an append only approach if you\nwrite new data to the end exclusively\nthe the then only a few ancestor image\nnodes needs to be written. So logging\ndramatically reduces freshness overhead.\nThe same applies to con uh consistency\nwith in place updates. A journal must\nduplicate every modified block before\noverwriting adding significant right\namplification.\nUh but uh with a penoli right old\nversions are naturally preserved on\ndisk. So no journaling is needed at all.\nThis is our uh uh uh brings up brings\nour crucial insight. Logging is not only\nfriendly to storage devices but also to\nsecurity protection.\nMotiv motivated by this we first explore\nuh naive log a straw man log based\ndesign. It persists use data in\nencrypted MAC protected batches and\nchain them via max for freshness and\nuses out ofplace rise for consistency.\nThis simple design achieves up to 16\ntimes speed up over SGS pifs for random\nrise.\nBut naive log is impractical because\nit's too naive. Without an index re\nrequires scanning the entire log without\ngarbage collection, stale data\naccumulates and disk fills up quickly.\nSo we need to add both index and GC.\nBut here's a challenge. How do we ensure\nthe security specifically CFC of the\nindex and GC they introduce complex\nmetadata and operations that must also\nbe protected. Our answer is the uh MLS\ndisk design. MLS disk stands for\nmulti-layered log structured secure\nvirtual disck. Its first main idea is a\nmulti-layered architecture. We decompose\nthe system into four layers. Each layer\nis individually CIFC compliant and\nhigher layers built upon the secure APIs\nof the lower layers. The top uh L3 layer\nprovides a trusted block IO interface to\na file system above MLS disk. The L2\nlayer provides the key value store uh\nwhich can be used and trusted by the top\nL3 layer. The L1 layer manages a set of\nappend only log files which can store\ndata for L2 and L3 layers. The bottom L0\nlayer uh offers APIs for secure\njournaling.\nThe second main idea is that every layer\nadopts a log structured or a log based\napproach that at at each layer is\npersisted in a log fashion. For example,\nuh the user data received at the top L3\nlayer is persisted to the untrusted host\ndisk in a log fashion. At L2, the the\nthe KB store is implemented with a log\nsortter tree. L1 is a log is a store of\nlogs whereas uh L0 is just a simple log\na journal. So you you see every layer is\nlog based so that we can get the\nperformance benefits of logging.\nThe third main idea is decoupling\nmetadata from data. Each layer's\nmetadata is secured by the layers\nbeneath it. For example, the the bit map\nfor free space management at L3 is\nsecured as log at L1. This separation\nallows us to apply the most efficient\nstorage scheme for data and metadata\nrespectively. And more importantly, each\nlayer can focus on protecting its own\ndata because its metadata is already\nsecured by the layers beneath it.\nNow let's uh walk uh one layer at a\ntime. Uh first is the L3 layer. The\nblock IO layer L3 exposes a standard\nblock IO interface on the right. Uh the\nfirst the the step one is allocate a\nhost block address from free uh from the\nfree space in a sequential logs\nstructured manner. Step two is encrypt\nthe block and persistent cyper text to\nthe allocated location on the host disk.\nStep three update the index a mapping\nfrom logical block address to physical\nblock address key and MAC. This index is\nstored securely in L2. U um and for RA\nstep one query the L2 index to look up\nthe host block address encryption key\nand MAC for the requested logical block.\nStep two retrieve the separate text from\nthe host disk decrypt it and verify it.\nThe key design point is that L3 handles\nonly data encryption and IO while uh\ndelegating index security entirely to\nL2.\nL2 is a KV store layer. It implements\nTXA a transactional key uh key value\nstore based on a lockmer tree. Like a\nclassic LSM tree, it manages right\nheadlock ws\nand asset tables. But unlike a classic\nLSM tree, it stores both WA and SS\ntables as CIFC compliant logs in L1. And\nthese logs are exclusively accessed and\nmanipulated in transactions enforced by\nL1.\nThe L1 is the log store layer providing\nTX log store, a transactional log file\nservice. It provides APIs to create,\nread, append, and delete logs within\ntransactions. Consider a situation where\nyou want to merge all the logs in an\ninput bucket. A bucket is just similar\nto a a folder. And you want to persist\nthe merge data as an uh to an another\noutput log in another bucket. And\nfinally, remove all the original input\nlog files. Doing this in a TX lock tx\nlock store transactions is both safe and\nvery convenient because you can be sure\nthat all the data all the data end up\neither in the input files or the input\nfile. Uh uh you can ensure that all the\ndata end up either in the input files or\nin the output files not both or\npartially. the the TX lock store\ntransactions are cru are crucial to\nensure the consistency of L3 and L2\nlayers despite uh of arbitrary crashes.\nUh and then here's how L1 uh achieves\nCIFC. Each log called TS log is\nprotected by its own small MHD. But\nsince the logs are append only and\nrelative small compared to the amount of\nuse data, the MHD overhead here is uh\nnegligible. The metadata of this TS log\nis stored in a data structure called TS\nlog table which is processes by by\nstoring all incremental updates to it in\nthe secure journal at L0.\nL0 is a journal layer. It it provides an\nabstraction called add journal for\npersisting the incremental addis to L1\nmeta securely. It uses two structures\ncryptochain for append only addis and\ncrypto block for periodic snapshots. uh\nthis prevents unbounded journal growth\nwhile maintaining uh CIFC.\nFor evaluation uh we compare against two\nbaselines uh pfs disk with full CIFC and\ncrypto disk with credential integrity\nonly. Due to the limited time I will\nfocus on SS uh results SCV results are\nin the paper uh show similar trends.\nI file benchmarks show MLS disk\noutperforms PFS disk by a factor uh\nrange from 7.3 times to 21 uh times on\nuh on rise and 1.4 times to uh 2.4 times\non race. Compared to crypt disk, MLCS\nachieves 1.1 times to uh 8.9 times speed\nup on random rise while maintaining\ncomparable or slightly slower\nperformance elsewhere. For realistic\nworkloads, trace driven and uh fail\nbench, MLS disk consistently outperforms\npfs disc by uh 1.4 times to 3.6 times.\nCompared to cryptisk, MSI excels on\nrandomized dominant workloads.\nSo to conclude our key observation is\nthat uh logging is friendly not just to\nstorage device but also to security and\nbased on this mioisk adopts a\nmulti-layered log structure architecture\nthat decouples metadata from data\nachieving high performance and strong\nsecurity guarantees. We build a\ncrossplatform RAS based implementation\nthat outperform state-of-the-art\nsignificantly. MS this is open source\nand part of a broader effort called\nasinus which aims to be a production\ngrade Linux API compatible OS kernel\nwritten rust. So, thank you and I'm\nhappy to take any questions.",
+  "segments": [
+    {
+      "text": "Uh I'm hol from AM group. Um I present MRS disk trusted block storage for TE uh based on layered secure logging. Trusted execution environments or T's provide hardware based isolation. They protect sensitive code and data ving from",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "powerful adversaries outside including potentially compromised or malicious host OS hypervisor and other privileged software. Examples of T include uh Intjs, AMD CV and ARM trone. However, T's only protect CPU and memory. They do not protect this IO. Any",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "data written to the host is fully exposed to the adversary. This is the gap we aim to fill. A promising solution is secure virtual disc. It sees between the file system inside the T and the entrusted host storage outside the T. It",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "transparently protects all block IO. So the file system do not need to be modified at all. On the right side, you can see the thread model. The adversary can snoop, tamper, roll back and crash disk arbitrarily. A secure virtual disease should",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "guarantee four properties. CIFC confidentiality prevents data leakage. Integrity detects and author modifications. Freshness prevents uh rollback attacks and consistency ensures correct data state after crashes. Existing solutions like DM crypt or uh",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "DM integrity in Linux only provide the first two properties confidentiality integrity. Achieving all four is much harder and that's the focus of this work. The state-of-the-art CIFC solution is SGSPFS. It uses a Merkel hashtree MHT",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "in short. Whereas leaf nodes colored in red stored in encrypted use data, non-leaf nodes colored in yellow stores keys and Macs of their children and a recovery journal colored in green ensures uh consistency. This design achieves all four properties but at a",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "significant performance cost. Let's qualify this cost. We use I file random rise to compare three configurations. Uh the first one is ro disk is the baseline. No security just low hardware throughput. Adding crypt disk having both encryption and MAC for",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "confidentiality and integrity cost about 45% throughput. Now adding SGSPFS, it uses MT and journal for freshness and consistency. It causes about uh another 60% drop from crypt disk totaling a 78% loss from rodest. The MH and journal are",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "the dominant uh bottleneck. So the question is can we do better for for this purpose we need to examine the cost considering updating two data blocks D0 and D2 using in place updates because the MHT enforces integrity from leave to",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "root. All MHT nodes in this situation must be updated. Uh such a c cascade of updates is very expensive. Now compared with an append only approach if you write new data to the end exclusively the the then only a few ancestor image",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "nodes needs to be written. So logging dramatically reduces freshness overhead. The same applies to con uh consistency with in place updates. A journal must duplicate every modified block before overwriting adding significant right amplification.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Uh but uh with a penoli right old versions are naturally preserved on disk. So no journaling is needed at all. This is our uh uh uh brings up brings our crucial insight. Logging is not only friendly to storage devices but also to security protection.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "Motiv motivated by this we first explore uh naive log a straw man log based design. It persists use data in encrypted MAC protected batches and chain them via max for freshness and uses out ofplace rise for consistency. This simple design achieves up to 16",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "times speed up over SGS pifs for random rise. But naive log is impractical because it's too naive. Without an index re requires scanning the entire log without garbage collection, stale data accumulates and disk fills up quickly.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "So we need to add both index and GC. But here's a challenge. How do we ensure the security specifically CFC of the index and GC they introduce complex metadata and operations that must also be protected. Our answer is the uh MLS",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "disk design. MLS disk stands for multi-layered log structured secure virtual disck. Its first main idea is a multi-layered architecture. We decompose the system into four layers. Each layer is individually CIFC compliant and",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "higher layers built upon the secure APIs of the lower layers. The top uh L3 layer provides a trusted block IO interface to a file system above MLS disk. The L2 layer provides the key value store uh which can be used and trusted by the top",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "L3 layer. The L1 layer manages a set of append only log files which can store data for L2 and L3 layers. The bottom L0 layer uh offers APIs for secure journaling. The second main idea is that every layer adopts a log structured or a log based",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "approach that at at each layer is persisted in a log fashion. For example, uh the user data received at the top L3 layer is persisted to the untrusted host disk in a log fashion. At L2, the the the KB store is implemented with a log",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "sortter tree. L1 is a log is a store of logs whereas uh L0 is just a simple log a journal. So you you see every layer is log based so that we can get the performance benefits of logging. The third main idea is decoupling metadata from data. Each layer's",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "metadata is secured by the layers beneath it. For example, the the bit map for free space management at L3 is secured as log at L1. This separation allows us to apply the most efficient storage scheme for data and metadata",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "respectively. And more importantly, each layer can focus on protecting its own data because its metadata is already secured by the layers beneath it. Now let's uh walk uh one layer at a time. Uh first is the L3 layer. The block IO layer L3 exposes a standard",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "block IO interface on the right. Uh the first the the step one is allocate a host block address from free uh from the free space in a sequential logs structured manner. Step two is encrypt the block and persistent cyper text to",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "the allocated location on the host disk. Step three update the index a mapping from logical block address to physical block address key and MAC. This index is stored securely in L2. U um and for RA step one query the L2 index to look up",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "the host block address encryption key and MAC for the requested logical block. Step two retrieve the separate text from the host disk decrypt it and verify it. The key design point is that L3 handles only data encryption and IO while uh",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "delegating index security entirely to L2. L2 is a KV store layer. It implements TXA a transactional key uh key value store based on a lockmer tree. Like a classic LSM tree, it manages right headlock ws and asset tables. But unlike a classic",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "LSM tree, it stores both WA and SS tables as CIFC compliant logs in L1. And these logs are exclusively accessed and manipulated in transactions enforced by L1. The L1 is the log store layer providing TX log store, a transactional log file",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "service. It provides APIs to create, read, append, and delete logs within transactions. Consider a situation where you want to merge all the logs in an input bucket. A bucket is just similar to a a folder. And you want to persist",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "the merge data as an uh to an another output log in another bucket. And finally, remove all the original input log files. Doing this in a TX lock tx lock store transactions is both safe and very convenient because you can be sure",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "that all the data all the data end up either in the input files or the input file. Uh uh you can ensure that all the data end up either in the input files or in the output files not both or partially. the the TX lock store transactions are cru are crucial to",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "ensure the consistency of L3 and L2 layers despite uh of arbitrary crashes. Uh and then here's how L1 uh achieves CIFC. Each log called TS log is protected by its own small MHD. But since the logs are append only and relative small compared to the amount of",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "use data, the MHD overhead here is uh negligible. The metadata of this TS log is stored in a data structure called TS log table which is processes by by storing all incremental updates to it in the secure journal at L0. L0 is a journal layer. It it provides an",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "abstraction called add journal for persisting the incremental addis to L1 meta securely. It uses two structures cryptochain for append only addis and crypto block for periodic snapshots. uh this prevents unbounded journal growth while maintaining uh CIFC.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "For evaluation uh we compare against two baselines uh pfs disk with full CIFC and crypto disk with credential integrity only. Due to the limited time I will focus on SS uh results SCV results are in the paper uh show similar trends.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "I file benchmarks show MLS disk outperforms PFS disk by a factor uh range from 7.3 times to 21 uh times on uh on rise and 1.4 times to uh 2.4 times on race. Compared to crypt disk, MLCS achieves 1.1 times to uh 8.9 times speed",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "up on random rise while maintaining comparable or slightly slower performance elsewhere. For realistic workloads, trace driven and uh fail bench, MLS disk consistently outperforms pfs disc by uh 1.4 times to 3.6 times. Compared to cryptisk, MSI excels on",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "randomized dominant workloads. So to conclude our key observation is that uh logging is friendly not just to storage device but also to security and based on this mioisk adopts a multi-layered log structure architecture that decouples metadata from data",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "achieving high performance and strong security guarantees. We build a crossplatform RAS based implementation that outperform state-of-the-art significantly. MS this is open source and part of a broader effort called asinus which aims to be a production",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "grade Linux API compatible OS kernel written rust. So, thank you and I'm happy to take any questions.",
+      "start": 234,
+      "duration": 6
+    }
+  ]
+}

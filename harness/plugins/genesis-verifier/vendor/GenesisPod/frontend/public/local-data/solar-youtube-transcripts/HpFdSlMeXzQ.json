@@ -1,0 +1,1469 @@
+{
+  "videoId": "HpFdSlMeXzQ",
+  "title": "Stanford CME296 Diffusion & Large Vision Models | Spring 2026 | Lecture 5 - Architectures",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 75524,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello, everyone, and welcome\nto lecture 5 of CME 296.\nSo we are officially entering\nthe second half of this class.\nSo we did a lot of hard\nwork during the first half.\nWe derived a tractable loss to\nlearn how to generate images.\nSo if you remember, the\nfirst three lectures\nwas us looking from\ndifferent perspectives\nto derive that loss.\nAnd then something else we did,\nwhich was, again, hard work,\nwas figuring out in which space\nthose images were living--\nso how to represent images.\nAnd so this second half is\ngoing to be more practical.\nAnd this lecture is\nspecifically going\nto be about the architectures\nbehind the image-generation\nmodels.\nSo before we start,\nas usual, we're\ngoing to recap what\nwe did the last times.\nSo as I mentioned, the\nfirst three lectures\nwere around deriving a\ntractable training loss\nto learn how to generate images.\nSo what we want is to be\nable to generate images\nlike the one that\nis on the slides.\nAnd we saw that a\ncommon denominator is us\nstarting from those.\nSo we saw three perspectives.\nThe first one was\ndiffusion with DDPM.\nSo we saw that we were\ncorrupting a clean image.\nAnd then we were learning\nhow to reconstruct it\nby predicting the noise\nthat we had to remove.\nAnd so we ended up with a loss\nthat was actually quite nice--\nL2 loss on the noise.\nThen in lecture 2, we saw\nanother perspective, which was,\nlet's figure out the regions\nof high density of the data\ndistribution of interest.\nAnd what we did was derive a\nloss that is based on the score.\nThe score here is the\ngradient of the logarithm\nof the probability distribution.\nAnd then the last one was\nlecture 3, where we actually\nsaid, OK, this\nproblem can actually\nbe framed as a\ntransport problem, where\nwe want to go from an initial\ndistribution, which is\nthe noise, to the target one.\nAnd here we derive the loss\nbased on the velocity, a.k.a,\nvector field, which\nis again, very nice.\nIt can be expressed as\nan L2 regression loss.\nAnd in between, we have\nthis denoising process\nthat is similar in these three\nparadigms but done differently.\nAnd then in lecture 4 we\nsaid, OK, up until that point,\nwe just assumed that we were\nable to represent images,\nthe XTs, and we\nsaid, OK, actually,\nlet's figure out a good\nway to represent them\nin a way that makes sense.\nAnd what we said\nwas that we wanted\nthem to be represented\nin a space that was not\ntoo high in dimensionality.\nSo there was a space called\nlatent space, in which we want\nour images to be represented.\nAnd we want the representations\nto be meaningful.\nSo what does meaningful mean?\nIt means having some\nstructure to the space,\nbecause what we\nwant is our model\nto have an easy time learning\nthis generation process.\nAnd we focused on the VAE,\nVariational Autoencoder,\nwhich was structuring the latent\nspace by having some constraints\non how the distribution was\nbehaving over the latent space.\nSo we saw this KL\ndivergence term in the loss.\nBut then we said, OK, actually\nthe images were becoming blurry.\nSo then we looked at\na number of strategies\nto combat the blurriness.\nSo we saw the adversarial loss.\nWe saw perceptual\nloss and so on.\nSo we're happy.\nNow we know how to\nrepresent those images.\nAnd we saw also that if we were\nto condition our generation\nprocess with the\ncondition, we also\nhad a method called\nclassifier free guidance that\nallowed us to generate images by\nemphasizing more on the prompts.\nAnd we did that by\npredicting twice the,\nlet's say, noise to remove\nor velocity or score.\nAnd with a guidance factor,\nemphasize the generation process\nmore towards the prompt.\nSo here this can be\nrepresented on the image.\nAnd this is where we stopped.\nAnd then, of course,\nwe had the midterm.\nAnd today, what\nwe're going to do\nis to focus on the architecture\nbehind the image-generation\nmodel, which until now we\nconsidered as being a black box.\nSo I want to give a disclaimer.\nThere are many\ndifferent architectures.\nOur goal is not going\nto just have a catalog\nof every single one of them.\nBut what I hope this\nlecture will provide\nis at least an intuition as\nto why certain components are\nalways being reused.\nSo if you walk away with just\nan understanding of why things\nare the way they\nare, then I think\nit's going to be a\ngood thing for us.\nSo let's first start\nby what we want.\nSo what we want,\nif you remember,\ndiffusion, score\nmatching, flow matching,\nthey had a few things as inputs.\nSo first, they had x t--\nthe noisy image or\nthe noisy latent\nthat you're trying to denoise.\nYou also had some indication\nof the noise level\nthat's given by time step, t.\nAnd you also have a condition.\nLet's call it C, which\nit can be a text prompt.\nFor instance, if\nyou want to generate\nan image of a teddy\nbear reading a book,\nthat can be your condition.\nSo these three elements\nare your inputs\nthat goes through\nyour generation model.\nAnd as an output, you want\nto predict, let's say,\nthe velocity that will allow\nyou to then iteratively move\ntowards your desired\npredicted image.\nAnd the goal of\nthis whole lecture\nis to focus on that\ngeneration model.\nSo that's the model that\nwe're talking about.\nBut before we go\ninto that, I just\nwant to give a few slides notes.\nSo the first one\nis the condition.\nSo I mentioned it can\nbe a piece of text.\nIn that case, such models are\ncalled text to image models, T\nto I. But you can also have a\ntext and an image as input--\nso an image editing\nproblem, in which case\nthe model will be called a\nTI to I model, Text Image\nto Image Model.\nSo here make this\nteddy bear dance along\nwith the image of\nthe teddy bear.\nAnd then another thing is,\nof course, the outputs.\nI mentioned there\nare several ways\nto parameterize your generation.\nYou can either predict the\nvelocity or, of course,\nthe noise or the score.\nAll of this is roughly\nthe same thing.\nBut just for the\nsake of consistency,\nwe're just going\nto say that we're\ngoing to predict the velocity\njust because nowadays\nmost models do that.\nSo with that in mind, what\ndo we want our model to be?\nSo first we want our model\nto be able to understand\nthe global structure of the\nimage that it wants to generate.\nSo that's one.\nBut we also wanted to understand\nthe nuances of the local details\nso that it can also\ngenerate crisp images.\nAnd of course, we\nwant a model that\nnot only is able to\nhave x t and t as input,\nbut can also condition that\nbased on external signals.\nAnd so here it can be\ninput text or input image.\nAnd we want, of\ncourse, that model\nto be scalable because of\ncourse, nowadays, we're\ngenerating images of\nvery high resolution,\nand we're also generating\nvideos, which we have not\nseen so far, but you can think\nof this as being also applicable\nthere.\nSo these are our wish lists.\nAnd let's start\nwith the first model\nby first thinking about how\nhumans look at an image.\nSo you see this\nteddy bear image.\nSo you have an eye on the\nright side of the slide.\nSo when you look at this\nimage, what you're doing\nis focusing on a specific\npart of the image\nand skimming through that\nimage, scanning that image.\nThat's what we do as humans.\nSo one natural way of thinking\nabout how to build such a model\nis to have this bias.\nI will call it bias,\nand I will justify it\nwhy I say it that way.\nWe want to have\nour model be biased\ntowards looking at the image in\nthe way we humans look at it.\nI'm going to call that\nbias, inductive bias.\nWho has heard of\ninductive bias by the way?\nYeah, a few people.\nSo we say that the model has an\ninductive bias when we build it\nin such a way that it\nbehaves in some way\nthat we think it should behave.\nSo in other words, here\nwe're going to say,\nOK, we want our model to\ntake some image as input,\nand scan it a little\nbit like humans do.\nAnd that's the\nreason why I'm going\nto introduce an operation\nthat maybe you're already\nfamiliar with, which is called\nthe convolution operation, which\ntakes some inputs, let's\nsay an input image,\nand then uses a filter\nto perform convolution\noperation across that\ninput in order to generate\nor in order to\nproduce an output.\nSo just on the terminology\nside, the output\nis usually called feature\nmap or activation map.\nAnd here this\nconvolution process\ntypically leads to your\noutput exhibiting things\nlike edges, corners,\ntexture, from your inputs.\nSo it's going to extract\nfeatures, visual features.\nSo another thing that I\nwill note is on this slide,\nyou may think the convolution\nis done in a 2D manner,\nbut let's remember that images\nare represented in height,\nwidth, but also depth, because\nyou have the three values that\nrepresent a pixel.\nAnd so the filter is as deep--\nif you want to think of it\nthat way-- as the input.\nAnd so the convolution is really\nacross the depth axis as well.\nSo in particular, those\nfilters, they're 3D.\nThey have a dimension\nof F times F times C,\nwhich is the same C as\nthe number of channels\nfrom the input.\nAnd we typically\nhave K such filters.\nAnd then the number\nof steps by which\nwe move the filter\nis called the stride.\nSo that's also a terminology\nyou should have in mind.\nSo based on that, let's\nremember the conditions we had.\nWe want our image to\nunderstand global structure.\nWe want to preserve\nlocal details.\nWe want external signals.\nAnd we want it to be scalable.\nWell, with that, at least we\nhave seemingly a tractable way\nof doing this computation.\nSo let's say that\nnumber 4 is good.\nLocal details, I\nthink that's also\nsomething that is\nvalid here, because you\nare able to capture patterns\nwithin a certain range of,\nlet's say, pixels.\nSo that one is also good.\nBut how about the\nglobal structure?\nYou want your output-- so\nhere you want your output\nto have seen the whole input\nto be able to be aware of it.\nSo there is this concept\nof a receptive field, which\nis defined by the area\nthat an activation\nelement is able to see.\nSo here, let's suppose\nwe have an input that\nhas a series of convolutions.\nSo what we're saying\nis if we take just one\nelement from the output, we\nwant to know how many elements\nfrom the input it has seen.\nSo this is the receptive field.\nSo there is some\nformulas there that I\ndon't want us to just\nremember, but I just\nwant to call out that the\narea that an element can see\nis a function of the filter\ndimension and the strides.\nAnd if you want the output\nto have seen all the input,\nyou can imagine that you\nneed a lot of convolutions,\nbecause here in this\nslide, if you do,\nlet's say, just one convolution,\nthen the area is just,\nlet's say, five.\nSo you do two\nconvolutions actually.\nBut images, they are typically\n500 by 500, 1,000 by 1,000.\nSo you need a lot of\nsuch convolutions,\nwhich may not be as tractable.\nSo one idea that we can have is\nto have down-sampling operations\nthat would allow us was to have\na bigger receptive field early\non so that we can have a global\nunderstanding of the structure,\nand then we can have some\nup-sampling operations to then\nend up with the same\ndimensions as the input.\nThat's just an idea\nI'm throwing out,\nbecause let's remember\nthat our model needs\nto have the inputs X--\nso the noisy image as input.\nAnd it needs to\nreturn something that\nis as the same dimension\nas the input as well.\nSo you cannot just reduce the\ndimension and just call it\na day.\nYou cannot do that.\nSo for that reason,\nwe're going to see\na series of operations\nthat are going to help us\nin building such a model.\nSo here let's see a very\ncommon down-sampling operation.\nSo who has heard\nof pooling here?\nPooling?\nGreat.\nSo pooling, as you know, is you\ntake, let's say a given square,\nand what you do is you\njust down-sample it\nby either taking the max value\nor just the average value.\nSo there is no learnable\nparameters there.\nAnd speaking of\nlearnable parameters,\nI may have been a bit too fast\nthere, but here the filters that\nare used for convolutional\noperation, they, of course,\nare learnable.\nAnd you have F times F times\nC parameters per filter\nplus some bias\nterm, if you assume\nthat there is bias, times K. Not\nthat I want to go to formulas,\nbut just giving you a\nsense of what is learned\nand what is not learned.\nSo pooling, you don't\nlearn anything--\njust the pooling operation.\nSo this is just\ndown-sampling operations.\nBut I mentioned we want to\nalso be able to up-sample.\nAnd there is an operation called\nthe transpose convolution that\nwe're not going to go\ninto too much detail,\nbut I just want to call out\nthat there is an up-sampling\noperation, that is the transpose\nconvolution that uses filters\nto broadcast elements from\nthe input towards the output--\nso just up-samples it.\nSo given that, I hope it's not\ncoming out of the blue, that's\na model that\ndown-samples the input\nand then up-samples it could\nbe a natural choice of such\na model, because here\nwhat you're doing\nis during the\ndown-sampling step,\nyou're able to have receptive\nfields of your output\nthat sees most of the inputs,\nwhich is the global structure\nunderstanding part.\nAnd then you have the\nup-sampling part--\nso the one on the right--\nthat just increases your output\nonce again back to the dimension\nthat it was just\nin order for you\nto have a shape that's\nabides by what you want.\nAnd here you can also\nhave direct connections\nfrom one to the other to just\ntransport some local details\nthat you may have computed.\nSo such a model\nis called U-Net--\nwell, because it's\na shape like a U\nwhen you do the illustration.\nAnd so I mentioned a little\nbit of the intuition.\nBut we're going to\ngo step by step.\nSo the first step is\nthe down-sampling step.\nSo it has a combination of\nconvolutions and pooling\nthat are able to down-sample the\ndimension of the feature map.\nAnd as we saw, it just\nallows your output\nto have seen more and\nmore of the input.\nAnd when I say\nthat, what I mean is\nif you take a single pixel,\na single activation value,\nit has seen more and\nmore of the input--\na bigger area of the input.\nSo in that sense,\nwhat I'm saying is,\nit is able to understand the\nglobal structure of the inputs.\nIs everyone clear\non that statement?\nCool.\nSo this is similar\nto an encoder.\nAnd then you have\nthe second step,\nwhich is the up-sampling part.\nSo you have here a feature\nmap at the very beginning\nof the up-sampling step,\nwhich is very small.\nAnd what you want is to\nup-sample that feature map back\nto the dimension of the input.\nSo here you're using a mix\nof transpose convolution also\ncalled up convolution\nand convolutions.\nAnd you can think of\nthis more as a decoder.\nSo it just leverages\nthe understanding,\nthe global structure\nunderstanding\nthat is compressed\nin the representation\nat the very bottom, which\nis called the bottleneck.\nAnd it just gets it back to the\nsame dimension as the input.\nBut at that step, you\nmay tell me, well, sure,\nyou can have a global\nunderstanding of the structure,\nbut you may lose the details.\nAnd that's where these\nconnections come into play.\nSo during the down-sampling\nstep, what you want\nis to leverage the patterns\nthat you're computing\nin the up-sampling step.\nSo what you're doing is\nyou're taking at each level\na part of the feature map, and\nyou're just simply copying--\nso cropping and copying.\nSo that just allows\nlocal details\nto flow from what\nyou have computed\nin the down-sampling step\nto the up-sampling step.\nIs that part clear?\nSo the question is,\nwhat are you copying?\nWhat are you cropping?\nSo great question.\nSo what you're doing here\nis the feature map that\nyou're computing in\nthe down-sampling step,\nyou're just literally\ntaking that--\nliterally doing that-- and\nthen the feature map that\nis part of the\nup-sampling step, you're\njust concatenating\nthose features\nto the features that are\nin the up-sampling step.\nSo in other words, in the\nup-sampling procedure,\nyou may have a feature\nmap that you're\ncomputing that is let's say\nof size O times O times C.\nSo what you're saying here is\nyou're concatenating something\nthat is also of size O\ntimes O times C, where\nmaybe the C can be\ndifferent, but you're just\nconcatenating the two.\nSo of course, you have some\nvariations of how this is done,\nbut this is what this\nillustration represents.\nSo the question is,\nwhy are you not looking\nat the down-sampled features?\nBecause we have already\nlost the details already.\nSo if you see on\nthe slide, we're\nactually copying and\ncropping the features\nthat are before we're at that\nvery down-sampled outputs.\nBecause as you go down, you\nlose more and more details,\nbut then you're gaining global\nunderstanding of the inputs.\nAnd so that's why you\nwant your connections\nto go from the very top to\nthe other way and so on.\nYeah.\nSo the question is, how\nwe're training this model.\nSo we're training it jointly.\nSo we're not going to\ngo into details there,\nbut let's just assume you can\ntrain the whole thing by just\nconsidering it as just a model.\nSo the question is,\ncan the model output\nexactly what the input image?\nSo that is not what\nyou want because-- so I\nthink you're maybe remembering\nthe autoencoder that we\nsaw last time.\nSo the goal of\nthe autoencoder is\nto learn a representation\nof the inputs and compress\nit into in a latent\nspace so that you\ncan sample from the latent\nspace and then reconstruct it.\nAnd the problem here is\nyou have the connections\nthat come from the thing that\nyou're not supposed to have.\nSo you can think of this\nmodel as taking a noisy latent\nas input.\nBut your goal is to not\nreconstruct that output,\nit's actually to\npredict the thing that\nwill allow you to denoise it.\nSo in that sense, there\nare some similarities\nwith an autoencoder,\nbut it's very different.\nYep.\nSo the question is, does\nthe output of the model\nhave to be equal to the\ndimensions of the input?\nYes.\nBecause so the question is, why?\nWell if you take your\ninput latent x t,\nso if you remember back\nin lecture 3, which\nwas like two or\nthree weeks ago, we\nhad the iterative\nstep, which was,\nsorry xt plus dt is equal to\nxt plus the velocity times dt.\nSo if you just look\nat that equation,\nyou just see that the\ndimensions need to match.\nAnother way to think about\nit is in the diffusion\nwith the DPM formulation.\nWhat you want is to find\nthe noise to remove,\nand that noise needs to\nmatch your input image.\nExactly, exactly.\nOK, perfect.\nI have a lot of content.\nSo we'll try to move\na little bit faster,\nbut I try to also\ndo some pauses here\nand there to make sure\nwe're still together now.\nSo you have that model.\nBut now you may wonder,\nwell, how can you\nadd external conditions?\nHow can you inform your model\nthat you're at time step t?\nHow can you inform your model\nthat you want to condition it\nwith respect to some condition?\nWell, that's a great question.\nAnd so to answer that\nquestion, you first\nneed to think about how you want\nto represent your time step t\nand your condition C.\nWell, let's start\nwith the time step.\nHere the goal is to represent\nthe time step in a D dimensional\nspace.\nAnd before I tell\nyou how we do it,\nI just want you to\nlook at your watch.\nWell, as humans,\nwe construct time\nas a function of\ndifferent dimensions--\nhours, minutes, seconds,\ndays, and so on and so forth.\nAnd you can think of\neach of these dimensions\nas being part of a vector\nif you think about it.\nAnd one thing that's\nquite interesting\nabout these dimensions\nis that they\nrun at different frequencies.\nSo for instance, an hour\nis kind of slow to pass.\nSo I hope, by the way,\nthis lecture is fun\nso you're not feeling like an\nhour is low, but hour is slow.\nMinute is faster.\nSeconds are even faster.\nSo you have a difference\nin frequencies,\na difference in frequencies,\nwhich hopefully motivates\nthe fact that what we want is\nto represent these time steps\nas vectors of quantities\nthat are also sinusoidal--\nso things that have\nsome frequency to it--\nwhere some dimensions are,\nlet's say, slower than others.\nSo is that motivating example\nintuitive enough for this\nto be making sense?\nSo in other words,\nlet me tell you what\nthat illustration represents.\nIf you take a single\nrow, then what you have\nis an illustration of the\nvalues of each dimension.\nSo what that means is, for\ninstance, at the very bottom,\nor let's start at the\nvery top, let's say.\nYou have values that alternate\nbetween let's say 1 and 0\nin this example.\nAnd then as you\nmove down, you see\nthat some dimensions they\nvary faster than others.\nAnd this is exactly matching\nthe intuition I mentioned.\nSo that is for the time step.\nNow the condition.\nSo I mentioned a condition\ncan be a piece of text.\nWell, you have a number of\nways to represent that text.\nWe've seen some methods in the\npast lecture in terms of how\nto represent text and image.\nBut here, I'll just mention just\na few categories of methods.\nSo there's one where you have\nvery basic predefined class.\nAnd what you're doing is\nyou're just learning the vector\nrepresentation of that class.\nOr you can go more granular\nand divide your input text\ninto tokens and then\nhave representation\nfor each of these tokens.\nSo for both these\ncategories of methods,\nyou have a bunch\nof such methods.\nBut one very common\nmethod these days\nis just to get a\npre-trained LLM,\nand just grab the\nembeddings, which\nwe will not go into details here\nbut what people do nowadays.\nAnd then for the\nfirst method, we\ncan simply take\na VIT-based model\nand just take the\nrepresentation of the CLS\ntoken, which I believe we\nbriefly saw in the last lecture.\nAll of that to say that we have\nways to represent the condition.\nCool.\nSo let's suppose we have a\nrepresentation of the time step.\nWe have a representation\nof the condition.\nNow, how do you inject\nit in your model?\nWell, here again, you\nhave a number of methods.\nThere is no consensus.\nOne is injecting that\nto the feature map.\nSo here what I mean is\nyou take your vector t,\nyou take your vector c,\nlet's say you add them,\nand then you make sure that\nthe dimension of your vector\nis, let's say, c the\nnumber of channels.\nAnd then what you do is you\nadd it to your feature map,\nwhich if you remember\nis of depth c.\nSo that can be one way.\nAnother way is to\nmodulate that feature.\nAnd that part we will see\nthat in about 20 minutes.\nSo just wait for that.\nAnd then the third one is you do\nsome cross attention operation\nthere, which we're going to see\nas well, maybe in 40 minutes.\nSo all of that to say that\nthere are a number of ways\nto inject TNC, and there\nis not like a standard way\nthat people do it.\nSo this is just a\nway for me to tell\nyou there are several methods.\nSo in terms of\ntimeline, we're in 2026.\nSo just giving you a sense\nof when these models were\npublished when these were used.\nSo in 2015, the\nU-Net paper came out\nin the context of image\nsegmentation for, I believe,\nmedical images.\nBut it is something that has not\nbeen widely in use in the image\ngeneration field up\nuntil the early 2020s.\nSo for instance, you\nhave the DDPM paper,\nwhich if you\nremember, we focused\non during lecture one\nthat actually used U-Net\nas an architecture.\nAnd then another thing\nthat's quite noteworthy\nis latent diffusion model, which\nwas a paper that introduced\nor that popularized the fact of\ngenerating images in the latent\nspace, also used some\nform of the U-Net.\nAnd then we also had\na U-Net that was quite\nscaled in a very big way\nin Stable Diffusion, Excel,\nwhich was published in 2023.\nSo if you look at that\ntimeline and if you\nlook at my explanations, you\nmay think, well, that's great.\nWe have everything.\nLet's stop here.\nWe have our model.\nWell, not so fast, because\nin 2017 and in 2020,\nthere are papers that were\nlandmark papers that really\nrevolutionize, for\ninstance, transformer\nrevolutionized the NLP field?\nAnd one question you may\nwonder is, well, they're\nperforming so well there.\nWhat about here?\nWhat about us?\nAnd that's what the\nvision transformer\ndid in the image\nunderstanding space, which\ntook a backbone\nof the transformer\nand applied it in the\nimage-understanding case\nand saw great results.\nAnd so now you may wonder,\nOK, but can we do the same\nfor image-generation?\nAnd that's what we're\ngoing to see now.\nBut before we do\nthat, I told you\nI will try to not give you\nthings out of the blue.\nI'll try to build\nsome intuition.\nAnd here, one thing I\nwant to try to tell you\nis, why would such a model\nbe beneficial for us?\nBecause we have the global\nstructure understanding.\nWe have the local\ndetails preserving.\nWe have everything.\nWhy would we need that?\nWell, imagine if\nyou want to generate\nan image of a teddy\nbear next to a mirror.\nWell, what happens\nis in your image,\nwhat you need is for\nthe low level texture\nto be very similar in\none part of the image\nand in a very different\npart of that same image.\nSo the problem with the U-Net\nis you have convolutions\nthat are localized to\nin the neighborhood\nin the vicinity of pixels.\nBut as you go further\nfrom that pixel,\nyou have a bunch of\ninformation that gets\nmixed in whatever you compute.\nSo you don't have almost pixel\nto pixel or patches of pixel\nto patches of pixel interaction.\nSo you're not able to\ncleanly capture or to cleanly\nhave an understanding of a local\ndetail in one part of the image\nand local detail in\nanother part of the image.\nAnd so this is a kind of example\nthat the U-Net may actually\nfail.\nAnd so for that\nreason, the transformer\nis actually a great\nmodel for that because--\nyeah, exactly.\nSo the transformer is\nbased on the concept\nof attention, which was\ninitially introduced for texts.\nI'm going to briefly mention\nit here, but the idea for text\nwas you want to compute\nrepresentations of your words\nas a function of\nall other words.\nSo what you want is to have\ndirect links from one word\nto another word,\nregardless of the distance.\nSo what you have is a concept\nof queries, keys, and values.\nSo what you're wondering\nis, if you have a query,\nif you have a text, you\nwant to know how relevant\nor how similar all the\nother pieces of text,\na.k.a tokens are.\nSo you want to see how the\nquery relates two keys.\nAnd then once you how\nrelevant they are, so you\ntake some separation of\nthe two-- so let's say\ndot product that's\nnormalized in a good way.\nAnd then you can take\nthe associated value.\nSo that's the\nattention mechanism\nor the self-attention\nmechanism that is aimed\nat removing the inductive bias.\nAnd here we can actually use\nthat same mechanism for images.\nSo you can think that you\ntake pieces of your image\nand you're doing the same thing.\nSo you say, OK, a\ngiven a set piece\nof image, what are the other\npieces of the same image that\nare relevant to that one?\nSo it's the same mechanism.\nSo what I told you also happens\nto be very nicely represented\nmathematically-- so very\ntractable computationally\nwith the hardware\nthat we have today.\nSo you may have seen the formula\nsoftmax of Q times K transpose\nover some normalization\nnormalizing\nconstant times V. So that is the\nself-attention operation just\nin matrix form.\nAnd on the right\nside of the slide,\nyou have just the\ntransformer architecture\nas it was initially introduced\nin the context of I believe\nit was translation--\nso for instance,\nEnglish to French translation.\nSo you had two parts--\none on the left side, which\nis called the encoder, which\ncomputes rich embeddings of\nyour input, and the right side\nis the decoder that allows you\nto do translation one at a time,\nby allowing each of your output\nto interact to output that you\ndecoded so far, to interact\nwith the whole input.\nSo four images.\nWe're not translating\nanything, we're just\nprocessing pieces of images.\nSo we're only going\nto borrow the encoder\npart of the transformer--\nso the left part.\nAnd that's what we saw the\nvision transformer did.\nSo it took just the encoder\npart of the transformer,\nand it took an\nimage as an input,\nand it did something very\nspecial to that image\nas a pre-processing step.\nSo what it did was\ncut it into patches,\nand then consider\nthese patches as tokens\nin the same way it\nis done for words,\nand then process them again with\nthe self-attention mechanism,\nallowing each patch of image\nto interact with all other ones\nto just figure out which\nones are actually relevant.\nSo this was the DiT.\nAnd let me introduce you to the\nvision generation equivalent,\nthe diffusion transformer,\nwhich it was introduced\nin 2022, which is also relying\non the self-attention mechanism.\nAnd we're going to\nsee exactly how.\nBut the idea is very similar.\nYou take a noisy latent as\ninput, and what you do is--\nso remember the wish\nlist that we had.\nWe want to understand\nglobal structure.\nWe want to preserve local\ndetails and so on and so forth.\nSo here what we're saying is\nwe're just allowing all patches\nto interact with one another.\nDoes that make sense so far?\nIt's not out of the blue\nthat I brought up this model.\nNo.\nAll good?\nPerfect.\nSo let's go step by step into\nwhat each component means here.\nSo you have on the illustration,\na patchy file operation,\nthat takes in your\nnoised latent and that\ndivides it into patches.\nSo you have let's say, I times\nI times C tensor that you divide\ninto P times P times C patches.\nAnd those patches you just want\nto consider them as tokens.\nAnd you end up with an input\nlength of I over P squared.\nSo the smaller your\npatches, the higher\nor the longer your\nsequence, which\nalso matches your intuition.\nSo in that sense, you can\nalso tell from this step\nthat there is a trade off\nbetween how granular you\nwant to be and how much\ncomputation you want to compute.\nSo that's for that.\nAnd then the second step\nis to actually inject\nyour conditions-- so the\nexternal signals, the time\nstep, and then the\ninput text, let's say.\nSo here what we do is we take\nour timestep embedding, which\nas we saw can be a series\nof sinusoidal functions\nthat you have in\na vector, and then\nyour condition that can\nbe just an embedding.\nSo I believe in the\nDiT paper, they just\nconsider the embedding of the\nwhole text-- so just one vector\nfor the whole text.\nSo let's suppose you have\nthese two quantities.\nNow the question is, how do you\ninject that into your model?\nSo the paper went through\ndifferent methods.\nBut there was one\nthat stood out.\nSo what we're going to do\nis for me to just tell you\nwhat methods they\ntried out and then\nfocus on the one that\nperformed the best.\nSo the first method was\ncalled adaptive layer norm,\nwhich consisted of taking\nthe external signals\nand then modulating the tokens.\nSo do you remember when I told\nyou modulating in the U-Net?\nSo that's the same modulating\nmodulation I'm talking about.\nSo that's the first method.\nThe second method is to say, OK,\nyou have your external signals.\nWhat you can do is to have an\nextra step in your transformer\nblock, where what you do is\nletting the tokens representing\nthe image latents interact\nwith the time step interacts\nwith the label embedding\nvia cross-attention.\nSo here you can think of\nit as you have queries\nwhich are your noise latents.\nAnd you're wondering which\nones of your conditions\nare relevant for\nyour noise patch.\nAnd then you do a\nquery times key,\nlet's say a dot\nproduct of those,\nand then you multiply by value.\nSo you express\nyour noise latents\nas a function of\nyour conditions.\nSo this can be a second option.\nAnd the third option is\nto just say, OK, actually\nwe're going to\ntake these vectors,\nand we're just\ngoing to concatenate\nthat in the input sequence.\nVery easy.\nWell, it turns out that after\nthey did all these experiments,\nthey saw that the adaptive layer\nnorm was the most performant.\nI'm going to give you\na preview of what we're\ngoing to see in lecture 7,\nwhich is how to quantify\nhow good an image is.\nSo there is a metric called\nthe Fréchet Inception Distance,\nthe FID, which is the one\nthat is represented here\nwhere the lower that\nmetric, the better it is.\nAnd what you see here is when\nyou use adaptive layer norm,\nyou get the bottom\ncurve that allows\nyou to get better quality\nimage quality compared\nto the other ones as a\nfunction of how far you\nare in the training process.\nSo if you saw, there's\nactually two versions\nof the adaptive layer norm.\nThere is adaptive layer norm,\nand there's adaptive layer norm\nI'm going to tell you\nwhat that 0 is about.\nBut let's focus on\nadaptive layer norm.\nSo I could very well\njust give you the formula\nand tell you that it\nis adaptive layer norm.\nBut I think it's very\nconvenient to just build\nan intuition as to\nwhy it may make sense.\nSo I'm going to use\nan example for that.\nSo I mentioned each patch can\nbe represented by a vector.\nLet's assume that we can\ninterpret this vector\nand say that let's\nsay a dimension is\nresponsible for something\nand another one for something\nelse, which may not be true.\nBut for the sake\nof this example,\nlet's suppose it is true.\nSo remember, we are\nin the latent space,\nand we can have some\nsemantic interpretation\nof the dimensions.\nSo there is some truth\nto what I'm saying.\nBut let's suppose you have a\nvector where let's say the 10th\ndimension represents the\nintensity of, let's say,\nthe brown color.\nLet's say dimension 24 is\nhow round the shape is.\nDimension 59 is how\nfluffy the local details\nare and then dimension 130,\nwhich is how white the color is.\nSo let's suppose you\nhave such dimensions.\nAnd now let's suppose\nyou want to generate\nan image with the condition,\na brown fluffy teddy bear.\nSo you want to\ngenerate that image.\nAnd as you remember, generating\nan image is not one shot.\nTypically you do\nthat iteratively\nwhere you take a noisy\nlatent as inputs.\nAnd then you have the condition.\nYou have how noisy\nthat image is,\nand you try to have something\nas output that will allow\nyou to denoise your image.\nAnd let's suppose that\nwe're at a stage where\nthere is a lot of noise.\nSo, the noise can be\nrepresented on a scale that's\nhere we're going to\nassume is between 0 and 1,\nwhere 0 is super noisy.\n1 is clean.\nAnd let's assume that time here\nis 0.1-- so a lot of noise.\nSo here what you would\nwant is to focus on-- so\nat that stage of\nthe generation, you\nwant to focus on surfacing the\nglobal structure of the image\nbecause it's still super noisy.\nYou're just trying to sketch\nwhat the final image is.\nSo here you want some\nbrownness in the image.\nYou want some round\nshapes that may represent\nyour teddy bear and so on.\nSo you want these\nfeatures to surface.\nSo our intuition tells us\nthat you want these dimensions\nto have a higher intensity.\nIn contrast to\nthat, you don't want\nto have local details just\nyet because it's very noisy.\nSo that's not the time.\nAnd then you don't\nwant any white color\nbecause your teddy\nbear is brown.\nIt's not white.\nNow let's suppose you have\nthe same condition as inputs,\nbut now you're at a\nmore advanced stage\nin your generation process.\nNow t equals 0.9, which\ncorresponds to almost no noise\nin your input image.\nSo here you may\nwonder, OK, so now\nthe input is already\nquite figured out\nin terms of global structure.\nNow I need to focus\non the details.\nSo you want the, let's\nsay fluffy details,\nto have a higher intensity.\nAnd you don't want\nthe round shape\nto be that intense because\nit's already there.\nAnd the brown color is same.\nIt's already there and\nthen white color again.\nYou don't want it.\nSo what I just\ntold you is how we\nwould like different dimensions\nof the patch embedding\nto have their\nintensity modulated\nas a function of the\ncondition, which is,\nfor instance, the input\ntext and the noise\nlevel in which you are.\nSo in that sense, what you want\nis for your patch embedding\nto exhibit higher intensities\nin the dimensions you care\nand lower intensity in the\ndimensions you don't care.\nSo in that sense,\nwhat I propose is how\nabout we modulate these tokens?\nHow about we modulate\nthese vectors?\nSo here what we would do\nis to take the condition\nto take the time step as input\nand to obtain some vectors.\nSo let's call them\nalpha, gamma, and beta.\nSo let's assume we\nobtain these vectors that\nare a function of the\ncondition and the noise level.\nAnd what we want to\ndo is to modulate\nthe embedding of the patch.\nSo how would we do that?\nWell, you take your vector.\nYou do some normalization\njust because it's not\npart of the\nmodulation procedure,\nbut it's just good because it\njust improves your training\nstability.\nSo let's suppose you\nnormalize your vector.\nAnd you do an element-wise\nmultiplication\nwith 1 plus gamma.\nSo if gamma is equal\nto the vector 0,\nthe element-wise\nmultiplication of this and one\nis completely [INAUDIBLE]\nand nothing changes.\nBut if gamma is a\nvector that tells you\nthat, OK, a given\ndimension should be higher\nand another dimension\nshould be lower,\nthen it will scale your x.\nAnd by the way, I said\n1, but it's the vector 1.\nSo you can think of it as a\nvector matching the dimension\nof gamma of just filled with 1.\nSo in that sense, you\ncan think of gamma\nas being a scale\ncoefficient, a scale\nvector because it scales x.\nThen you can add\nbeta, which is a bias,\nand perform some\noperation, and have\nan element-wise multiplication\nof this whole quantity\nwith alpha.\nAnd alpha will be your gate.\nBecause what you do\nis you take your x.\nYou flow the same x.\nAnd what you do is you make\nsome operation with that x,\nand you scale it.\nYou shift it, and you\ngate it with alpha.\nAnd alpha is there to\ntell you how much of that\nchange is going to\nflow in your embedding.\nSo in that sense, I'm just\ngoing to, again, stress\nthat these stars are\nelement-wise multiplications.\nAnd alpha, gamma, and beta\nhave very specific roles.\nSo alpha really gate\nkeeps this whole quantity\nfrom being injected.\nGamma is responsible for\nscaling the quantity.\nAnd then beta is\nthere to shift it\nbecause it's a plus\nwith that quantity.\nAnd do you remember\nI told you I'm\ngoing to say what\nadaptive layer norm 0 is?\nDo you remember in the chart?\nWell, adaptive layer norm\n0 is adaptive layer norm\nwhere when you\nstart training, you\ninitialize your gates to 0, such\nthat there is no modification.\nSo by the way you, you set\nalpha and gamma and beta to 0,\nI believe in most\nimplementations,\nbut alpha being to\n0 already guarantees\nthat at the very beginning\nof training, you--\nyeah.\nSo the question\nis unconditional.\nYes.\nSo at the very\nbeginning, you don't\nhave any impact from the\ncondition on your embedding.\nSo far so good?\nSo we will have a detailed\nexample after that.\nSo I hope it will be\nalso clearer there.\nBut that is the\nhigh level intuition\nbehind why adaptive\nLayerNorm is useful.\nIt is there to highlight\ndimensions that are\nimportant for the task at hand.\nAnd so here what we do is-- so\njust recapping what we said.\nWe take our condition.\nSo it's the time step.\nIt's the class\nlabel-- so t and c.\nWe add them\ntogether, and then we\nuse just a multi-layer\nperceptron, which is just\na linear projection,\nsome activation,\nand another linear projection,\nto obtain this gate, scale,\nand shift alpha,\ngamma and beta, that\nare then used to modulate\nthe patch embeddings.\nSo the question is,\nis t corresponding\nto the diffusion time step?\nYes.\nSo it's how noisy you are\nin your generation process.\nSo one example is in the\nvery, very beginning.\nIf let's say, your\ninput is super noisy,\nthen t is going to be very\nclose to 0, for instance.\nBut you will represent that by\nyour vector that is composed\nof sinusoidal functions.\nYeah, that's right.\nSo the question is, is\nthis a reverse process?\nWell, actually even\nduring training,\nyou would just inject the t\nthat corresponds to the noise\nlevel of your image.\nSo we're going to see\nexactly an example of this.\nSo I'll actually\nanswer your question\nin great detail in a second.\nPerfect.\nWell, with that, what I\npropose is we wrap up this,\nand I walk you through\nan end to end example\nof what that looks like.\nSo your patch embeddings, you\nrun them through your diffusion\ntransformer blocks.\nThere can be several of them.\nAnd at the very end, you\nobtain encoded tokens-- so\npatch-embedding tokens that\nare aware of one another\nbecause they went through\nall these operations.\nAnd remember what\nwe want is to have\nan output that is of the\nsame shape as the input.\nAnd so here the step is to\nreshape that output in the shape\nthat matters to you.\nWell, the authors of DiT applied\nthis to the DDP end use case,\nand they actually assumed that\nthey were not just predicting\nthe mean but also the\ncovariance matrix.\nSo that's not very\ncommon by the way.\nSo you would more predict\nthe mean but not both.\nBut I'm saying this\nbecause that just explains\nwhy there are two outputs.\nBut in our case, we would\njust have one output--\nin our case, the\nvelocity, which should be\nin the same shape as the input.\nAnd what the authors saw\nwas that if you take the DiT\narchitecture and if\nyou scale it in terms\nof number of\nparameters, then you\nget better and better results.\nAnd they scaled it in terms\nof number of parameters,\nbut they also scaled it\nin terms of how granular\nthe patches were, because the\npatches they have dimension\np times p times c.\nAnd if you take big patches,\nthen you have a much coarser\nview than let's say, a\nsmall patch, small p.\nThe problem with the\nnumber of parameters\nis it does not convey\nthat dimension.\nSo you can have the same\nnumber of parameters\nbut vary p, which is why\nthe authors also use FLOPs.\nSo who has heard\nof FLOPs before?\nFloating Point\nOperations is just\na measure of how many\noperations you're\ndoing in your forward pass.\nAnd that actually includes patch\nsize, because if you remember,\nyour input has a length\nof I over P squared.\nSo if you have a smaller p,\nyou have a bigger sequence,\nwhich is reflected in\nyour flops measure.\nAnd in particular, so\nthat's pretty interesting.\nSo you should not only\nscale one and not the other.\nSo they see that if they\nscale the transformer size,\nthey get better\nresults but not great.\nNow, if they only\nscale the patch size,\nthey get better\nresults but not great.\nBut if they scale both the\ntransformer size and the patch\nsize, then they get\namazing results.\nThat's what you see in\nthe figure on the right\nand also the chart\nthat tells you this\nas a function of FID,\nwhich as I mentioned,\nis a metric we will\nsee in two lectures,\nwhere the lower the\nvalue, the better it is.\nAnd that was the DiT.\nGiven that the DiT is a pretty\nimportant architecture, what\nwe will do is take\nour time to go\nthrough an end to end example\nof exactly how that works.\nSo our goal is to take an\ninput-- so here, the input text,\ngenerate an image of a\nteddy bear that is reading,\nand what we want as an\noutput is the image itself\nor the generated\nimage, I should say.\nSo in lecture 4, we saw that\nwe have a lot of incentive\nto do all of this\nin the latent space,\nbecause it's more\ntractable computationally,\nand it's just\neasier for a model.\nSo what we'll do is\nwe'll take a look\nat the latent space learned by\na VAE that is at our disposal.\nAnd you see you have\ntwo distributions.\nYou have on the bottom left,\nthe initial distribution, which\nis very easy to sample from, and\nthe target distribution, which\nis the one that you\nwant to sample from.\nSo what you do is you sample\nfrom your easy distribution,\ntypically your Gaussian\ndistribution in your latent\nspace.\nLet's call it z 0.\nAnd you obtain this thing--\ndimension I times I times C.\nWhat you do is you\ntake that image,\nand you divide it into patches.\nSo each element has a\ndimension of p times p times c.\nSo if you do some\ncounting, you will\nsee that I squared\nover p squared patches.\nAnd this is the length\nof your sequence.\nSo you take each patch, and\nyou want to represent them\nwith a vector.\nSo you just perform\na linear projection.\nAnd you obtain a\nvector of, let's say,\ndimension D. Great\nfor the patches.\nNow let's take care\nof the conditions.\nSo you have the\ntimestamp embedding,\nand then you have the label\nembedding corresponding\nto let's say the teddy bear.\nAnd what you do is super simple.\nYou just add them.\nAdd them together.\nAnd you obtain your\ncondition embedding.\nSo far so good?\nSo here we are with\nour patchified input,\nwhere each element is\nrepresented with an embedding.\nThere's something I\nhave not told you about.\nAnd it's actually\nsomething that Shervine\nwill cover in great detail\nin hopefully 20 minutes.\nWhen you perform this\nself-attention operations,\nthe great thing is you let\neveryone interact with everyone,\nbut then you lose the concept of\nhow far different elements are\njust because you have\ndirect links, which\nis why you need to specify in\nwhich position each input is.\nYou need to have\na way to do that.\nAnd here a very\nnaive approach is\nto just add some embedding\nthat represents the position.\nThis is not the norm nowadays.\nShervine will go\ndeeper in there,\nbut let's assume here that\nwe add a position embedding\nto the patch embedding.\nAnd here we obtain a\nposition-aware patch embedding.\nAnd we do the same for all\nthe patches in our input.\nAnd nowadays, GPUs\nthey love matrices.\nSo we just put everything\nin a matrix format.\nSo here we concatenate\neverything.\nAnd we also have our\nconditioned embedding vector.\nWell, let's start with that.\nSo I mentioned that the\ndiffusion transformer, so one\nmethod of injecting\nthe conditions\nis to modulate the patch\nembeddings with the conditions.\nSo a first step here is to\nobtain the gate, the scale,\nand the shift coefficients\ncorresponding to that condition.\nSo let's do that here.\nWe input this embedding\nthrough an MLP layer, which\nis a projection\nand an activation\nfunction to introduce\nnonlinearities, and then\nanother projection.\nAnd we obtain six quantities--\ntwo for gate, two for\nscale, two for shifts.\nSo why two?\nBecause we will have two\noperations in the diffusion\ntransformer block.\nOne is the\nself-attention operation.\nThe other one is the\nfeed-forward neural network.\nAnd we want these quantities\nto be respectively\nto go to their own operation.\nSo let's go back to our position\nwhere patch-embedding matrix.\nWe input that into our block.\nSo what we do is we perform a\nlayer normalization operation.\nAnd right after that, we\nuse gamma 1 and beta 1\nto scale and shift them.\nWe input them to the\nself-attention layer,\nand then we get the\nresult with alpha 1,\nwhich we add to the input.\nSo this is becoming very\ncomplicated on the slide.\nSo I'm just going to\nrepresent this operation\nwith just self-attention\nand then alpha\n1, gamma 1, and beta 1.\nAnd as you remember,\nthis is what happens.\nSo you take your\ninput, and then you\ndo the attention operation with\nthe scaled and shifted inputs.\nAnd you get it by alpha 1, where\nthe star operation here is just\nthe element-wise operation.\nYou do the same thing for the\nfeed forward neural network,\nalong with the alpha 2,\ngamma 2, beta 2 coefficients.\nAnd you obtain an output matrix\nthat takes into consideration\nall other patch embeddings.\nSo it's something that went\nthrough this self-attention\ncomputation.\nSo that's why I'm saying\nit's contextualized\nbecause it's in the context\nof the other patch embeddings.\nBut now what you want is\nto have a prediction that\nmatches the input shape.\nSo what you do is you\nperform some normalization,\nsome linear operation\nreshaping in order\nto have your\nprediction, which is\nthe predicted\nvelocity of your input\nz at time t with condition c.\nIn the very beginning,\nz is z, 0, t is 0,\nc is, well, just\nyour class label.\nJust I want an image of a teddy\nbear that is reading a book.\nSo you have this.\nSo just recapping\nexactly what I said.\nSo we have the latent z, 0.\nWe have the time\nstep t equals 0.\nWe have the class label all fed\ninto this diffusion transformer.\nAnd at the end of it, we get\nthe predicted velocity at z,\n0 time t equals 0\nand class label C.\nAnd that's great.\nBut we're not done here.\nWe're only done here for\nthe iteration that allows us\nto go to step 0 plus delta t.\nAnd we perform-- so the\nformula that I wrote\nis just a reference\nto the formula\nthat we derived in\nthe flow-matching case\nwhere you're just\nnumerically solving.\nSo here's an Euler\nsolver that just\nallows you to go from initial\nto target by just following\nthe vector field.\nSo that's exactly\nwhat you're doing.\nSo you obtain this\nz 0 plus delta t\nthat you can also\nhave represented\nlike this on the left\nin your latent space.\nSo that's great.\nSo now let's do one more.\nYou're at time step t i.\nSo you input your latent z t\ni, along with the time step t i\nand the condition\nc that is not--\nor the class label c\nthat is not changing--\nso your input text.\nSo you put that in the\ndiffusion transformer.\nAgain, you get a predicted\nvelocity for that latent z\nt i for that time step t i\nand for the class label c.\nAnd you go through\nthe same thing.\nSo you have the prediction.\nAnd you obtain z t\ni plus 1 by, again,\nfollowing the Euler method.\nSo here on the left side,\nyou have the next step.\nYou continue again and again\nand again and again and again up\nuntil z 1.\nSo now you're at t equal 1.\nYou have z 1.\nThat's great.\nWell, what do you have?\nWell, no.\nIt's not noise.\nIt's just it's the latent space.\nSo from a human perspective,\nyou don't know what that is.\nSo that's why I represent\nit with the noise image.\nBut it is actually\nyour final latent.\nAnd so the last step is to\ntake the final latent Z1\nand pass it through\nyour VA decoder,\nbecause you want to go\nback to the pixel space,\nbecause we humans,\nwe understand pixels.\nWe don't understand the\nlatent, or at least not yet.\nAnd we get the\npixel space image,\nwhich is the image of your\nteddy bear reading a book.\nAnd that's great.\nAnd you will tell me,\nAfshine, that's great.\nWe solved it.\nWell, the truth is, these\ndays people are actually\nusing a variation\nof the diffusion\ntransformer for a\nnumber of reasons\nthat we're going to see now.\nAnd again, I just want to repeat\none thing I said earlier, which\nis there is a number, infinite\nnumber of architectures\nout there, infinite number\nof variations, combinations.\nMy hope is to just motivate\nwhy some elements that we're\ngoing to see are being\nreused actively these days,\nbut they're by no\nmeans exhaustive.\nSo let's go back to the example\nthat we had with respect to us\nwanting to modulate\npatch embeddings.\nSo do you remember\nthe example we\nused where we said we want\na brown fluffy teddy bear\nand we had all these dimensions?\nAnd we said, let's\nsay at t equals 0.1,\nwe wanted brown color and\nround shape to be highlighted\nbut not the other ones.\nDo you remember that?\nSo let's suppose now\nI'm changing the class\nlabel or the condition,\nthe text input,\nto brown fluffy teddy bear\nsurrounded by white walls.\nSo imagine I do that.\nThen the white\ncolor dimension, you\nwould want to also have\nit emphasized because you\nhave white in your input.\nBut remember that\nthis modulation\nis happening for all tokens,\nregardless of where they are.\nSo in other words,\nwhat we're saying\nis if you want to predict the\nvelocity to denoise an image,\nyou're going to modulate\nall patch embeddings\nin the same way.\nBut here what you want is for\nplaces where you have a Teddy\nbear to have Brown\nthat's increased\nbut not the white\ncolor and for places\nwhere there is the\nwhite wall to have\nwhite increase but not brown.\nWell, you cannot do\nthat with the DiT,\nand that's a big limitation,\nwhich is the reason why we want\nto change a little\nbit our approach.\nSo that's great.\nWe're having the\nself-attention mechanism there.\nIt's amazing.\nThe only thing we want to\ndo is to change the way\nwe're injecting conditions.\nSo modulating with\nrespect to the time step,\nI think we can all\nagree that makes sense\nbecause all tokens\nof your input,\nthey're all at the\nsame time step.\nSo it's very fair to\nhave the same treatment.\nBut we need to do\nsomething else when\nit comes to injecting the\ntext input from the user.\nWe don't want to apply the\nsame treatment to all tokens.\nSo out there, there\nare two main classes\nof methods that allows us\nto introduce some nuance\nto the way we do that.\nAnd while there is no standard\nclassification out there,\nI'm just telling you there is\ntwo main classes of methods\nthat seem to emerge--\none that involves\ncross-attention and one\nthat involves joint attention.\nSo before we go\nfurther, I just want\nto explicit a little bit more\nwhat these two correspond to.\nSo cross-attention is the idea\nof having something as input--\nso your queries, your\npatch embeddings--\nand wondering how relevant your\nkeys and values, which here is\nyour text, is to your queries.\nSo in other words, I'm\ngoing to use an analogy,\nand I hope it's something\nthat will be intuitive to you\nas well.\nSo let's suppose you\nhave a painter that\npaints the final\nimage and then let's\nsay a poet that writes\nthe instruction in a very\neloquent way.\nSo it's the same\nthing as saying,\nif we were to say that the\npainter, the one who determines\nwhat changes to\nbring to the image,\nis actually looking at\na piece of text that\nis brought by the writer, and\njust based on that determines\nwhat to change on the image.\nSo it pays attention to the\ninput text for a given patch.\nIt says, OK, what\nis the piece of text\nthat is relevant to that?\nAnd then based on\nthat it says, OK, I\nneed to change\nthis, change that.\nSo that is cross-attention.\nSo now what is joint attention?\nJoint attention is saying, you\nare considering your image patch\nembeddings as inputs, but you're\nalso considering your text\nembeddings as input as well.\nAnd what you're saying is\nthat both these modalities\nare being attended, if you\nwant, through the self-attention\nlayer.\nSo continuing the analogy, so\nlet's say, sorry, I'm a painter.\nAnd let's say\nShervine is a poet.\nSo instead of\nShervine writing to me\nexactly what needs to be\ndrawn, now, both Shervine and I\nare in the same room,\nand we're talking\nabout how things should be\nplaced with respect to the text.\nAnd let's suppose\nif I paint something\nand then, I don't\nknow, I need to write\nStanford top right and then\nmy drawing is in such a way\nthat there is not\nthat much space,\nthen we can talk amongst\none another to say,\nOK, actually, I want Stanford\nto be written in maybe smaller\nfonts so we can change what we\nare each saying as a constraint\nand doing as an image, as\na function of one another.\nSo in other words,\ncross-attention\nis considering text\nmore as being a given.\nSo it's OK.\nSo you have a patch embedding.\nLook at which piece of\ntext is relevant for you,\nand just do something.\nAnd joint attention\nis saying, OK,\nlet's consider both, and try to\nfind a representation of each,\nsuch that we can get to our\nfinal destination in the best\nway possible.\nSo I hope this makes sense.\nAll of that to say that\nnowadays most people do\njoint attention-related\nmethods, and in particular, I'm\ngoing to introduce a\nterm in one second.\nBut before I do that, it's\nexactly what I mentioned\nhere-- the joint attention.\nWe're considering the patch\nembeddings and the text\nembeddings all jointly that goes\nthrough this attention layer\nand so on.\nAnd the name of\nsuch an architecture\nwas coined as being an MM-DiT.\nSo I don't exactly know\nhow you would pronounce it,\nbut I just go by MM-DiT--\nso Multi-Modal Diffusion\nTransformer.\nAnd this term was\ncoined in a paper\nthat's actually not that long\nago-- so Stable Diffusion 3.\nThat was published two\nyears ago-- so in 2024.\nAnd this relies on\na joint attention\nof different modalities.\nNow, there is another dimension\nthat some papers play around\nwith, which is whether you\nwant to consider each modality\nseparately or jointly.\nAnd in particular, you know\nin the diffusion transformer\narchitecture, you have this\nfeed-forward neural network\nwhere you project.\nYou do some activation\nfunction, and you project again\nwhere you learn different\nways to just represent\nthe same thing.\nAnd if you were to consider\nall modalities as going\nthrough the same thing--\nso just continuing the analogy\nof the writer and the poet,\nit would be as if\nyou were saying\nthat both the poet\nand the-- sorry,\nboth the poet and the painter,\nthey use the same tools.\nSo you learn the\nsame projections.\nBut if you were to consider\neach modality on their own,\nif you were to consider\nspecific projection,\ndepending on which\nmodality you're on,\nyou're actually\nlearning tools that\nare tailored to the task\nof whoever's doing it.\nSo the painter will\nhave a great brush\nthat is tailored to\nwhatever they're doing,\nand the poet will have\nexactly whatever is tailored\nto their needs.\nMaybe I'm pushing it too\nfar with this analogy,\nbut all of that to say that\nwe have two different classes\nof MM-DiT.\nOne is single stream.\nSo everything is\ntreated equally.\nAnd the second one\nis double stream.\nEach modality has\nits own stream.\nAnd you even have papers\nthat mixes the two.\nSo I call them hybrids here.\nSo they contain both single\nstream and double stream layers.\nAnd the next few slides are just\nabout calling out such models.\nSo the state of the art models\nthat you would see nowadays,\nthey actually are relying\non this architecture.\nSo I'm going to just mention\na double stream MM-DiT.\nSo this one is an\nimage for those of you\nwho have heard of it.\nThen you have Z-image, as an\nexample of a single stream--\nso here treating\neverything as one.\nAnd then for those of\nyou who have heard of it,\nflux one contexts is\nactually doing a bit of both.\nSo I put all the\nlinks in the slides.\nSo we don't have time to talk\nabout each of these papers.\nBut if you're interested,\nyou can just go there\nand just look at the papers\nto see how they design it.\nIt is not in the\nscope of the finals,\nso don't worry if\nyou don't go there.\nIt's not required.\nBut if you're interested,\nI think it's a good source.\nAnd just continuing\nthe timeline.\nSo nowadays,\nimage-generation models\nare full of MM-DiT-based models.\nAnd in particular, if you\nthink about when the diffusion\ntransformer was published,\nwhich was in 2022,\nStable Diffusion 3, which was\nthe first one to coin MM-DiT\nwas released in 2024.\nAnd then the models I mentioned\nwere released in 2025.\nAnd again, the ones that\nare being published in 2026,\nthey seem to follow\nthe same trend.\nAll of that to say that I\nthink these are relevant\narchitectures that I think\nare good to have in mind.\nI'm looking at the time.\nI'm slightly over time,\nbut any questions on that?\nWe're all good?\nPerfect.\nSo with that, I'm going\nto give it to Shervine.\nThank you, Afshine.\nSo with all these\nmodels, we have\nseen that one constant is\nthat we need to represent\nthe position of the input.\nSo the next section here\nis called optimization.\nBut we're not going to look at\noptimizations of everything--\njust the optimization\nof the position.\nSo in order to\nmake things simple,\nI'm going to start\nin the 1D case.\nAnd then we're going to see\nhow we can adapt this concept\nof positions in the 2D one.\nSo as you recall, the\noriginal transformer\nwas based on text tokens.\nSo in this case, where\nyou have the sentence,\na teddy bear is\nreading, what you\nwould want is when you do\ncomparisons between your tokens\nin the attention layer,\nthat the token teddy\nbear or the representation of it\nis seen as being close to tokens\naround it or itself and far from\nothers that are far from it.\nThat's the goal.\nSo let's write that\nin mathematical form.\nSo what we want is a way for\nus to compare two embeddings\nand when you do an operation\nlike the dot product\nto have it as a function\nof the distance.\nBut here I'm saying\nthe dot product\nof embeddings of these\ntokens it's not totally true.\nHere I'm going to\nput it in quotes,\nbecause in the\ncase of attention,\nwe're not comparing\nthe same embeddings.\nWe're comparing\nthe query embedding\nwith the key embedding\nof the other token.\nSo it's modulo some\ntransformation.\nAnd just to write\nthings down, we\nare going to decompose,\nas a first approach,\nthe representation of the\nembedding of a given token\nwith what we call the input\nembedding, which is whatever\nrepresentation we already have\nthat is not position-specific,\nand then adding it as\nan element-wise addition\nin the vector space,\nthe position embedding.\nThat's what the original\ntransformer paper proposed,\nsuch that when you do the dot\nproduct operation that I just\nmentioned, you have\na term that pops out\nthat is a dot product of these\nposition embeddings together.\nAnd I'm not saying that all the\nother terms are not functions\nof this position embeddings.\nSome of them are cross\nterms, but we're just\ngoing to ignore them for now.\nAnd we're going to focus on what\nchoice to get for these position\nembeddings in order for the\nrepresentation to make sense.\nSo the original transformer\nhard coded it with a formula\nthat I just wrote down here.\nSo it might look scary.\nSome of you might know about it\nalready, but for all the others,\nit might look scary.\nSo you have a combination\nof sines and cosines\nthat you might ask\nyourself, why are they here?\nSo we're going to decompose\nall the notations in there\nand see intuitively\nwhat they are for.\nSo you see that you have\nthe position as a numerator\nwithin these sines and cosines.\nAnd on the denominator,\nyou have some huge number\nput at some exponent.\nAnd that exponent is a function\nof the position in the vector\nand the dimension\nof the embedding\naltogether, such\nthat when you vary\nthis I between the first\nand the middle position,\nyou cover exponents from 0 to 1.\nSo in other words,\nyou have these signs\nthat have frequencies\nthat are either high\nwhen this I is close\nto 0 because you\nhave the position over\nsomething that is small.\nSo it's going to\nvary quite fast.\nSo we're going to call\nthem high frequency.\nAnd on the other\nend of the spectrum,\nwhen you have I close to the\ndimension of the vector over 2,\nit's going to be close to 1.\nAnd as you can see,\nthe number that\nis elevated to that\nexponent is some number\nthat looks arbitrary,\nbut it's quite large.\nIt's voluntarily taken\nquite large with respect\nto the sequence length,\nbecause the mindset behind it\nis that we want these\nfrequencies when I is high,\nto be considered as low.\nSo in other words, when you have\na sequence length of let's say\n500, we want these 1 over\n10,000 to be so small that\nthe variation of that sine and\ncosine is of low frequency with\nrespect to the sequence length.\nDoes that make sense?\nOK.\nAwesome.\nSo now I'm going to show\nyou the exact same figure\nthat Afshine showed\nin a different context\nin a timestep embedding.\nBut it turns out\nthat here we choose\na similar mathematical framing.\nSo the same graph applies.\nAnd we're going to analyze\nparts of these projection\nand then see how it compares\nwith respect to our frequencies\nthat we qualified\nas high and low.\nSo on the left, we're\nlooking at dimensions that\nare early on in the vector.\nSo we call them the\nhigh frequencies.\nAnd as you can see, when you\nvary the sequence position,\nthese numbers, they vary between\nnegative 1 and 1 quite fast.\nAnd on the other end\nof the spectrum, when\nyou look at positions\nof this vector\nthat are larger than the cosine\nand sines take time in order\nto cover the whole face.\nSo now I talked about a given\nfrequency that was hard coded.\nThis is a design choice.\nWe're going to hide\nit under some variable\nthat I'm going to call omega y.\nAnd we're going to look side\nby side what these vectors look\nlike when you take position\nm on one hand and position n.\nAnd we're going\nto try to see what\ntaking the dot products\nbetween both of them\nis going to give us.\nSo here you see that you have\nthese sines that are aligned\nand these cosines, so that\nwhen you do the dot product,\nyou have a sum of these sines of\nsimilar frequencies at position\nm and n and plus a product of\ncosines of a same frequency\nat positions m and n again.\nAnd if you recall your\ntrigonometry class,\nsine A, sine B, plus cosine\nA cosine B is an identity.\nAnd you can rewrite it as\ncosine of A minus B, such\nthat when you compute\nthis dot product,\nthis is nothing else as the sum\nof about dimension of embeddings\nover 2 terms of this cosine\nof difference of terms.\nSo it's quite interpretable.\nSo now let's take a look at\nwhen we compare positions\nm and n what the dot product\nevolves with respect to time.\nSo you see that it has\nthis natural curve that\noverall decreases.\nBut it's not monotonic.\nIt doesn't\nmonotonically decrease,\nbut it tends to decrease.\nAnd you can see multiple\nregions in this curve\nthat you can interpret\nas to why you\nhave such phenomenon happening.\nSo at the very beginning,\nyou see a sudden drop.\nAnd this can be\ninterpreted by the fact\nthat all your\ncosines in your sum,\nwhether high frequency\nor low frequency,\nstart from an angle\nclose to 0, and they\nall drop from these\ncosine of 0 equals 1.\nAnd then as you\nprogress, when you\nincrease the distance\nbetween positions, m and n,\nyou have your high\nfrequency cosine\nterms that oscillate\nbetween minus 1 and 1,\nand they will tend to\ncancel each other out.\nSo this is why you see some\noscillations but not that much.\nAnd then later on you see more\nand more oscillations coming in.\nThis is your low frequency\nterms that start oscillating,\nand this is how it\ncan be interpreted.\nSo why are we choosing\nthese positions embeddings\nin the first place?\nSo we saw that we can have\nan interesting interpretation\nin terms of comparing two\nposition embeddings when\nthey are close versus\nfar from each other.\nYou have an intuitive\ninterpretation\nas to the dot products that can\nbe compared to the distance.\nAnd also something\nthat I haven't put here\nand that was highlighted\nby initial authors,\nthe position embedding when you\nincrease the position by a given\nfactor, k, can be represented\nby a linear operation.\nSo when you have all these\nmatrix multiplication\noperations, you can\nsee that operation\nas being absorbed by\nthese matrix computations,\nsuch that position information\ncan be taken into account.\nSo it has this linear\ninterpretation as well.\nAnd the argument is that\nit's very simple because you\nhave a pre-computed formula.\nSo let's say at\ntraining time, you\nhave a given constraint\non the sequence length.\nIf at inference time you\nchange that parameter,\nthen you're not lost\nbecause you know how\nto extrapolate by the formula.\nAnd so we see that it just\nworks well in practice.\nBut then on the flip side, and\nI'm not talking about the fact\nthat it's hard-coded, but more\nabout the absolute property\nof these position\nembeddings, we saw\nthat it was introduced\nat the input level,\nwhereas the initial\nmotivation where I mentioned\nposition embeddings\nwere helpful were more\nat the attention level.\nSo it seems like we're injecting\nthis position information\nat a place where that\ninformation doesn't matter most,\nbut it might matter\nmost at places\nwhere you want to\ncompare embeddings\nwith respect to one another.\nSo we're going to see\nhow to alleviate that.\nAnd I mentioned as well this\nextra interaction terms.\nWhen you add position embeddings\nat the very beginning,\nthat might interact with\nthe input embeddings.\nAnd I'm not saying\nthis is bad, but I'm\nsaying this might not\nbe the intention we\nhave behind this\nposition embeddings.\nSo it doesn't seem to align\nwith the design choice\nthat we have in mind.\nAnd just to give you some\ninformation regarding who\nused it, basically, everyone.\nLike every first\npaper on transformers\nused absolute position\nembedding-- so not necessarily\nthe hard-coded version, but the\none that adds it in the input.\nSo the transformer, of course,\ndid it the way I presented.\nThe original VIT\ndidn't hardcode it.\nIt was something\nthat was learned.\nAnd then the DiT did hard-code\nit but in 2D space in a manner\nsimilar to one that we're\ngoing to see very soon.\nBut it did so at\nthe input level.\nYeah.\nA great point.\nSo what about the 2D case?\nWe're going to see it.\nAnd yeah, great point.\nBut first before\ndoing that, we're\ngoing to see if there\nis a better location\nto have these position\nembeddings be represented.\nAnd as you might have\nguessed from all my hints,\nthe attention layer is going\nto be the place to put them.\nAnd this is the key insight from\nRoPE Rotary Position Embeddings.\nThat was a paper in\n2021 that introduced\nthese kinds of\nrepresentation of positions,\nand that is the leading way\npeople do it in practice today.\nAnd the way it\nworks is as follows.\nYou take queries.\nYou take keys.\nAnd instead of fitting them\nin the dot product as is,\nyou will rotate them by a\nrotation operation that takes\ninto account their position.\nSo you take the query.\nYou rotate it with respect to\nsomething that depends on m.\nSame for key.\nThat depends on n, its position.\nAnd you're going to do the dot\nproduct of these rotated queries\nand keys instead\nof the raw ones.\nAnd one nice property\nthat is interpretable\nhere is that you see\na rotation matrix that\ndepends on the difference of\npositions, n minus m, pop out.\nSo you feel like it's a design\nchoice that that makes sense.\nAnd then to answer your\npoints, now we're good for 1D.\nBut what about 2D?\nSo 2D you have this coordinates.\nBut if you don't talk\nabout coordinates just yet,\nyou might number\nthem in a 1D manner.\nAnd it's not super clear whether\nit makes sense at all to compare\n1D numbers with\nrespect to one another.\nSo you have a few\nways to get around it.\nSo the first idea, which\nis a similar flavor of what\nthe original DiT paper\nused is to segregate axes,\nsuch that you represent\nvectors with respect\nto their coordinates\nin the 2D space.\nAnd you do the x-axis in\nsome part of the vector\nand the y-axis at\nsome other part.\nAnd here we're talking\nabout one given\ndesign choice of how to order\nthe indices with respect\nto where you project.\nBut it doesn't have to be\ngrouped by even or odd indices.\nYou can group these\nby any way you\nwant because this is arbitrary.\nAnd so this is one\nway of doing it.\nIt's called axial RoPE.\nThere is another way that\nyou could get around it\nthat mitigates the fact that--\nso here if you do\nthe actual way,\none thing is that if you do\nthe dot product between two\nrotated vectors, you realize\nthat you're comparing\nx with x and y with y.\nSo you're missing that\ninteraction component.\nAnd one way you can go around it\nis to mix rotations with respect\nto x and y in the same vector.\nSo this is the\nso-called mixed RoPE.\nAnd the authors of the paper\nthat discuss these two 2D\nstrategies made a representation\nof a given input position\nand applied a frequency-based\ntechnique that I know some\nof you might know from the\nphysics space called the Fourier\nTransform.\nSo to apply the\nFourier Transform,\nit's filtered out for a\ngiven frequency's budget--\nonly those that were\ntaken into consideration.\nAnd after trying to\nreconstruct the signal\nfrom these set of\nfrequencies, saw\nthat Axial RoPE had all\nthese axial artifacts that\nwere due to this lack of\ninteraction between the two\naxes, whereas Mixed RoPE\nwas able to leverage\nthe same set of frequencies,\nlike the same set\nof frequencies budgets in\na way more efficient way.\nSo these are two ways\nof looking at them,\nand mixing things seems\nto make it better.\nAnd something else that you\nmight worry about beyond taking\ninto account the 2D case, is how\nto make sense of these positions\nwhen you have different number\nof patches presented to you.\nSo, for example, let's\nsay your teddy bear\nis in low resolution\nversus high resolution.\nHow does it make\nsense me as a model\nto interpret what is at the\ncenter of the image versus what\nis on the left or\nwhat is on the right?\nAnd this is what\nSeedream 2 thought about.\nAnd the idea here is to\ncenter the coordinates\nin a way that will\ntell the model where\nthe center of the image is\nin order for it to locate\ndifferent parts of the image.\nSo instead of having like\na grid that starts from 0,\nyou have the 0 roughly being\nat the center of the image,\nand then you adjust\nthe external points.\nAnd one thing that you might\nwonder by Afshine's description\nof MM-DiT models,\nfor example, those\nthat perform joint\nattention, so you\nhave these points\nin the architecture\nwhere you might have text tokens\ninteracting with image tokens.\nSo one question you\nmight ask yourself,\nhow to quantify the position of\none with respect to the other.\nAnd by thinking\nabout this, one thing\nyou might want to think\nabout is what wouldn't work.\nSo what wouldn't\nwork intuitively\nis the positions at the\nhorizontal lines of the image\nand the vertical ones.\nBecause intuitively, you\ndo not want your model\nto think that your\ntext tokens are\na continuation of your image.\nSo one natural position that\nthe coin image paper points out\nis the diagonal, because\nit's clear that it's out\nof the area of the image.\nAnd by doing so, they see that\nthey can just live together.\nAnd if you use an actual\nformulation of the 2D\nrepresentation, you even notice\nthat your text tokens become\nequivalent to the 1D case\nbecause you have your x\nand y's that are incremented\nby 1 between one another.\nSo just you fall back\non the same case.\nAnd so I just went through\nsome of the keys that made some\nof these techniques work well.\nI just want to say that this\nis very much an open problem.\nThere is no many papers that use\nthe same techniques but rather\nmany that use variations to\nreach their own architectures,\ngoals.\nAnd then there are\ntrade offs as well.\nAnd you might remember\nfrom the early slides\nthat we were talking about teddy\nbear that was wanting to dance.\nSo here is our teddy bear\nwishing you a great weekend.",
+  "segments": [
+    {
+      "text": "Hello, everyone, and welcome to lecture 5 of CME 296. So we are officially entering the second half of this class. So we did a lot of hard work during the first half. We derived a tractable loss to learn how to generate images. So if you remember, the",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "first three lectures was us looking from different perspectives to derive that loss. And then something else we did, which was, again, hard work, was figuring out in which space those images were living-- so how to represent images. And so this second half is",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "going to be more practical. And this lecture is specifically going to be about the architectures behind the image-generation models. So before we start, as usual, we're going to recap what we did the last times. So as I mentioned, the first three lectures",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "were around deriving a tractable training loss to learn how to generate images. So what we want is to be able to generate images like the one that is on the slides. And we saw that a common denominator is us starting from those. So we saw three perspectives.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "The first one was diffusion with DDPM. So we saw that we were corrupting a clean image. And then we were learning how to reconstruct it by predicting the noise that we had to remove. And so we ended up with a loss that was actually quite nice--",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "L2 loss on the noise. Then in lecture 2, we saw another perspective, which was, let's figure out the regions of high density of the data distribution of interest. And what we did was derive a loss that is based on the score. The score here is the",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "gradient of the logarithm of the probability distribution. And then the last one was lecture 3, where we actually said, OK, this problem can actually be framed as a transport problem, where we want to go from an initial distribution, which is",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "the noise, to the target one. And here we derive the loss based on the velocity, a.k.a, vector field, which is again, very nice. It can be expressed as an L2 regression loss. And in between, we have this denoising process that is similar in these three",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "paradigms but done differently. And then in lecture 4 we said, OK, up until that point, we just assumed that we were able to represent images, the XTs, and we said, OK, actually, let's figure out a good way to represent them in a way that makes sense.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And what we said was that we wanted them to be represented in a space that was not too high in dimensionality. So there was a space called latent space, in which we want our images to be represented. And we want the representations to be meaningful.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So what does meaningful mean? It means having some structure to the space, because what we want is our model to have an easy time learning this generation process. And we focused on the VAE, Variational Autoencoder, which was structuring the latent",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "space by having some constraints on how the distribution was behaving over the latent space. So we saw this KL divergence term in the loss. But then we said, OK, actually the images were becoming blurry. So then we looked at a number of strategies",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "to combat the blurriness. So we saw the adversarial loss. We saw perceptual loss and so on. So we're happy. Now we know how to represent those images. And we saw also that if we were to condition our generation process with the condition, we also",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "had a method called classifier free guidance that allowed us to generate images by emphasizing more on the prompts. And we did that by predicting twice the, let's say, noise to remove or velocity or score. And with a guidance factor,",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "emphasize the generation process more towards the prompt. So here this can be represented on the image. And this is where we stopped. And then, of course, we had the midterm. And today, what we're going to do is to focus on the architecture",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "behind the image-generation model, which until now we considered as being a black box. So I want to give a disclaimer. There are many different architectures. Our goal is not going to just have a catalog of every single one of them. But what I hope this",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "lecture will provide is at least an intuition as to why certain components are always being reused. So if you walk away with just an understanding of why things are the way they are, then I think it's going to be a good thing for us. So let's first start",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "by what we want. So what we want, if you remember, diffusion, score matching, flow matching, they had a few things as inputs. So first, they had x t-- the noisy image or the noisy latent that you're trying to denoise. You also had some indication",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "of the noise level that's given by time step, t. And you also have a condition. Let's call it C, which it can be a text prompt. For instance, if you want to generate an image of a teddy bear reading a book, that can be your condition. So these three elements",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "are your inputs that goes through your generation model. And as an output, you want to predict, let's say, the velocity that will allow you to then iteratively move towards your desired predicted image. And the goal of this whole lecture is to focus on that",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "generation model. So that's the model that we're talking about. But before we go into that, I just want to give a few slides notes. So the first one is the condition. So I mentioned it can be a piece of text. In that case, such models are",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "called text to image models, T to I. But you can also have a text and an image as input-- so an image editing problem, in which case the model will be called a TI to I model, Text Image to Image Model. So here make this teddy bear dance along with the image of",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "the teddy bear. And then another thing is, of course, the outputs. I mentioned there are several ways to parameterize your generation. You can either predict the velocity or, of course, the noise or the score. All of this is roughly the same thing.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "But just for the sake of consistency, we're just going to say that we're going to predict the velocity just because nowadays most models do that. So with that in mind, what do we want our model to be? So first we want our model to be able to understand",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "the global structure of the image that it wants to generate. So that's one. But we also wanted to understand the nuances of the local details so that it can also generate crisp images. And of course, we want a model that not only is able to",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "have x t and t as input, but can also condition that based on external signals. And so here it can be input text or input image. And we want, of course, that model to be scalable because of course, nowadays, we're generating images of very high resolution,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "and we're also generating videos, which we have not seen so far, but you can think of this as being also applicable there. So these are our wish lists. And let's start with the first model by first thinking about how humans look at an image. So you see this",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "teddy bear image. So you have an eye on the right side of the slide. So when you look at this image, what you're doing is focusing on a specific part of the image and skimming through that image, scanning that image. That's what we do as humans.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "So one natural way of thinking about how to build such a model is to have this bias. I will call it bias, and I will justify it why I say it that way. We want to have our model be biased towards looking at the image in the way we humans look at it.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to call that bias, inductive bias. Who has heard of inductive bias by the way? Yeah, a few people. So we say that the model has an inductive bias when we build it in such a way that it behaves in some way that we think it should behave.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "So in other words, here we're going to say, OK, we want our model to take some image as input, and scan it a little bit like humans do. And that's the reason why I'm going to introduce an operation that maybe you're already familiar with, which is called",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "the convolution operation, which takes some inputs, let's say an input image, and then uses a filter to perform convolution operation across that input in order to generate or in order to produce an output. So just on the terminology side, the output",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "is usually called feature map or activation map. And here this convolution process typically leads to your output exhibiting things like edges, corners, texture, from your inputs. So it's going to extract features, visual features. So another thing that I",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "will note is on this slide, you may think the convolution is done in a 2D manner, but let's remember that images are represented in height, width, but also depth, because you have the three values that represent a pixel. And so the filter is as deep--",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "if you want to think of it that way-- as the input. And so the convolution is really across the depth axis as well. So in particular, those filters, they're 3D. They have a dimension of F times F times C, which is the same C as the number of channels",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "from the input. And we typically have K such filters. And then the number of steps by which we move the filter is called the stride. So that's also a terminology you should have in mind. So based on that, let's remember the conditions we had.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "We want our image to understand global structure. We want to preserve local details. We want external signals. And we want it to be scalable. Well, with that, at least we have seemingly a tractable way of doing this computation. So let's say that",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "number 4 is good. Local details, I think that's also something that is valid here, because you are able to capture patterns within a certain range of, let's say, pixels. So that one is also good. But how about the global structure? You want your output-- so",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "here you want your output to have seen the whole input to be able to be aware of it. So there is this concept of a receptive field, which is defined by the area that an activation element is able to see. So here, let's suppose we have an input that",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "has a series of convolutions. So what we're saying is if we take just one element from the output, we want to know how many elements from the input it has seen. So this is the receptive field. So there is some formulas there that I don't want us to just",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "remember, but I just want to call out that the area that an element can see is a function of the filter dimension and the strides. And if you want the output to have seen all the input, you can imagine that you need a lot of convolutions, because here in this",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "slide, if you do, let's say, just one convolution, then the area is just, let's say, five. So you do two convolutions actually. But images, they are typically 500 by 500, 1,000 by 1,000. So you need a lot of such convolutions, which may not be as tractable.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "So one idea that we can have is to have down-sampling operations that would allow us was to have a bigger receptive field early on so that we can have a global understanding of the structure, and then we can have some up-sampling operations to then",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "end up with the same dimensions as the input. That's just an idea I'm throwing out, because let's remember that our model needs to have the inputs X-- so the noisy image as input. And it needs to return something that is as the same dimension",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "as the input as well. So you cannot just reduce the dimension and just call it a day. You cannot do that. So for that reason, we're going to see a series of operations that are going to help us in building such a model. So here let's see a very",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "common down-sampling operation. So who has heard of pooling here? Pooling? Great. So pooling, as you know, is you take, let's say a given square, and what you do is you just down-sample it by either taking the max value or just the average value.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "So there is no learnable parameters there. And speaking of learnable parameters, I may have been a bit too fast there, but here the filters that are used for convolutional operation, they, of course, are learnable. And you have F times F times",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "C parameters per filter plus some bias term, if you assume that there is bias, times K. Not that I want to go to formulas, but just giving you a sense of what is learned and what is not learned. So pooling, you don't learn anything--",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "just the pooling operation. So this is just down-sampling operations. But I mentioned we want to also be able to up-sample. And there is an operation called the transpose convolution that we're not going to go into too much detail, but I just want to call out",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "that there is an up-sampling operation, that is the transpose convolution that uses filters to broadcast elements from the input towards the output-- so just up-samples it. So given that, I hope it's not coming out of the blue, that's a model that",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "down-samples the input and then up-samples it could be a natural choice of such a model, because here what you're doing is during the down-sampling step, you're able to have receptive fields of your output that sees most of the inputs,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "which is the global structure understanding part. And then you have the up-sampling part-- so the one on the right-- that just increases your output once again back to the dimension that it was just in order for you to have a shape that's",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "abides by what you want. And here you can also have direct connections from one to the other to just transport some local details that you may have computed. So such a model is called U-Net-- well, because it's a shape like a U when you do the illustration.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "And so I mentioned a little bit of the intuition. But we're going to go step by step. So the first step is the down-sampling step. So it has a combination of convolutions and pooling that are able to down-sample the dimension of the feature map.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "And as we saw, it just allows your output to have seen more and more of the input. And when I say that, what I mean is if you take a single pixel, a single activation value, it has seen more and more of the input-- a bigger area of the input. So in that sense,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "what I'm saying is, it is able to understand the global structure of the inputs. Is everyone clear on that statement? Cool. So this is similar to an encoder. And then you have the second step, which is the up-sampling part. So you have here a feature",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "map at the very beginning of the up-sampling step, which is very small. And what you want is to up-sample that feature map back to the dimension of the input. So here you're using a mix of transpose convolution also called up convolution and convolutions.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "And you can think of this more as a decoder. So it just leverages the understanding, the global structure understanding that is compressed in the representation at the very bottom, which is called the bottleneck. And it just gets it back to the",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "same dimension as the input. But at that step, you may tell me, well, sure, you can have a global understanding of the structure, but you may lose the details. And that's where these connections come into play. So during the down-sampling step, what you want",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "is to leverage the patterns that you're computing in the up-sampling step. So what you're doing is you're taking at each level a part of the feature map, and you're just simply copying-- so cropping and copying. So that just allows local details",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "to flow from what you have computed in the down-sampling step to the up-sampling step. Is that part clear? So the question is, what are you copying? What are you cropping? So great question. So what you're doing here is the feature map that you're computing in",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "the down-sampling step, you're just literally taking that-- literally doing that-- and then the feature map that is part of the up-sampling step, you're just concatenating those features to the features that are in the up-sampling step.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "So in other words, in the up-sampling procedure, you may have a feature map that you're computing that is let's say of size O times O times C. So what you're saying here is you're concatenating something that is also of size O times O times C, where",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "maybe the C can be different, but you're just concatenating the two. So of course, you have some variations of how this is done, but this is what this illustration represents. So the question is, why are you not looking at the down-sampled features?",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "Because we have already lost the details already. So if you see on the slide, we're actually copying and cropping the features that are before we're at that very down-sampled outputs. Because as you go down, you lose more and more details,",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "but then you're gaining global understanding of the inputs. And so that's why you want your connections to go from the very top to the other way and so on. Yeah. So the question is, how we're training this model. So we're training it jointly.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "So we're not going to go into details there, but let's just assume you can train the whole thing by just considering it as just a model. So the question is, can the model output exactly what the input image? So that is not what you want because-- so I",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "think you're maybe remembering the autoencoder that we saw last time. So the goal of the autoencoder is to learn a representation of the inputs and compress it into in a latent space so that you can sample from the latent space and then reconstruct it.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "And the problem here is you have the connections that come from the thing that you're not supposed to have. So you can think of this model as taking a noisy latent as input. But your goal is to not reconstruct that output, it's actually to",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "predict the thing that will allow you to denoise it. So in that sense, there are some similarities with an autoencoder, but it's very different. Yep. So the question is, does the output of the model have to be equal to the dimensions of the input? Yes.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Because so the question is, why? Well if you take your input latent x t, so if you remember back in lecture 3, which was like two or three weeks ago, we had the iterative step, which was, sorry xt plus dt is equal to xt plus the velocity times dt.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "So if you just look at that equation, you just see that the dimensions need to match. Another way to think about it is in the diffusion with the DPM formulation. What you want is to find the noise to remove, and that noise needs to match your input image.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Exactly, exactly. OK, perfect. I have a lot of content. So we'll try to move a little bit faster, but I try to also do some pauses here and there to make sure we're still together now. So you have that model. But now you may wonder, well, how can you",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "add external conditions? How can you inform your model that you're at time step t? How can you inform your model that you want to condition it with respect to some condition? Well, that's a great question. And so to answer that question, you first",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "need to think about how you want to represent your time step t and your condition C. Well, let's start with the time step. Here the goal is to represent the time step in a D dimensional space. And before I tell you how we do it, I just want you to",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "look at your watch. Well, as humans, we construct time as a function of different dimensions-- hours, minutes, seconds, days, and so on and so forth. And you can think of each of these dimensions as being part of a vector if you think about it.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "And one thing that's quite interesting about these dimensions is that they run at different frequencies. So for instance, an hour is kind of slow to pass. So I hope, by the way, this lecture is fun so you're not feeling like an hour is low, but hour is slow.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Minute is faster. Seconds are even faster. So you have a difference in frequencies, a difference in frequencies, which hopefully motivates the fact that what we want is to represent these time steps as vectors of quantities that are also sinusoidal--",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "so things that have some frequency to it-- where some dimensions are, let's say, slower than others. So is that motivating example intuitive enough for this to be making sense? So in other words, let me tell you what that illustration represents.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "If you take a single row, then what you have is an illustration of the values of each dimension. So what that means is, for instance, at the very bottom, or let's start at the very top, let's say. You have values that alternate between let's say 1 and 0",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "in this example. And then as you move down, you see that some dimensions they vary faster than others. And this is exactly matching the intuition I mentioned. So that is for the time step. Now the condition. So I mentioned a condition can be a piece of text.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "Well, you have a number of ways to represent that text. We've seen some methods in the past lecture in terms of how to represent text and image. But here, I'll just mention just a few categories of methods. So there's one where you have",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "very basic predefined class. And what you're doing is you're just learning the vector representation of that class. Or you can go more granular and divide your input text into tokens and then have representation for each of these tokens. So for both these",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "categories of methods, you have a bunch of such methods. But one very common method these days is just to get a pre-trained LLM, and just grab the embeddings, which we will not go into details here but what people do nowadays. And then for the first method, we",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "can simply take a VIT-based model and just take the representation of the CLS token, which I believe we briefly saw in the last lecture. All of that to say that we have ways to represent the condition. Cool. So let's suppose we have a",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "representation of the time step. We have a representation of the condition. Now, how do you inject it in your model? Well, here again, you have a number of methods. There is no consensus. One is injecting that to the feature map. So here what I mean is",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "you take your vector t, you take your vector c, let's say you add them, and then you make sure that the dimension of your vector is, let's say, c the number of channels. And then what you do is you add it to your feature map, which if you remember",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "is of depth c. So that can be one way. Another way is to modulate that feature. And that part we will see that in about 20 minutes. So just wait for that. And then the third one is you do some cross attention operation there, which we're going to see",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "as well, maybe in 40 minutes. So all of that to say that there are a number of ways to inject TNC, and there is not like a standard way that people do it. So this is just a way for me to tell you there are several methods. So in terms of",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "timeline, we're in 2026. So just giving you a sense of when these models were published when these were used. So in 2015, the U-Net paper came out in the context of image segmentation for, I believe, medical images. But it is something that has not",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "been widely in use in the image generation field up until the early 2020s. So for instance, you have the DDPM paper, which if you remember, we focused on during lecture one that actually used U-Net as an architecture. And then another thing",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "that's quite noteworthy is latent diffusion model, which was a paper that introduced or that popularized the fact of generating images in the latent space, also used some form of the U-Net. And then we also had a U-Net that was quite scaled in a very big way",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "in Stable Diffusion, Excel, which was published in 2023. So if you look at that timeline and if you look at my explanations, you may think, well, that's great. We have everything. Let's stop here. We have our model. Well, not so fast, because",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "in 2017 and in 2020, there are papers that were landmark papers that really revolutionize, for instance, transformer revolutionized the NLP field? And one question you may wonder is, well, they're performing so well there. What about here? What about us?",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "And that's what the vision transformer did in the image understanding space, which took a backbone of the transformer and applied it in the image-understanding case and saw great results. And so now you may wonder, OK, but can we do the same",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "for image-generation? And that's what we're going to see now. But before we do that, I told you I will try to not give you things out of the blue. I'll try to build some intuition. And here, one thing I want to try to tell you is, why would such a model",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "be beneficial for us? Because we have the global structure understanding. We have the local details preserving. We have everything. Why would we need that? Well, imagine if you want to generate an image of a teddy bear next to a mirror. Well, what happens",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "is in your image, what you need is for the low level texture to be very similar in one part of the image and in a very different part of that same image. So the problem with the U-Net is you have convolutions that are localized to in the neighborhood",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "in the vicinity of pixels. But as you go further from that pixel, you have a bunch of information that gets mixed in whatever you compute. So you don't have almost pixel to pixel or patches of pixel to patches of pixel interaction. So you're not able to",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "cleanly capture or to cleanly have an understanding of a local detail in one part of the image and local detail in another part of the image. And so this is a kind of example that the U-Net may actually fail. And so for that reason, the transformer",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "is actually a great model for that because-- yeah, exactly. So the transformer is based on the concept of attention, which was initially introduced for texts. I'm going to briefly mention it here, but the idea for text was you want to compute",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "representations of your words as a function of all other words. So what you want is to have direct links from one word to another word, regardless of the distance. So what you have is a concept of queries, keys, and values. So what you're wondering",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "is, if you have a query, if you have a text, you want to know how relevant or how similar all the other pieces of text, a.k.a tokens are. So you want to see how the query relates two keys. And then once you how relevant they are, so you take some separation of",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "the two-- so let's say dot product that's normalized in a good way. And then you can take the associated value. So that's the attention mechanism or the self-attention mechanism that is aimed at removing the inductive bias. And here we can actually use",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "that same mechanism for images. So you can think that you take pieces of your image and you're doing the same thing. So you say, OK, a given a set piece of image, what are the other pieces of the same image that are relevant to that one?",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So it's the same mechanism. So what I told you also happens to be very nicely represented mathematically-- so very tractable computationally with the hardware that we have today. So you may have seen the formula softmax of Q times K transpose",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "over some normalization normalizing constant times V. So that is the self-attention operation just in matrix form. And on the right side of the slide, you have just the transformer architecture as it was initially introduced in the context of I believe",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "it was translation-- so for instance, English to French translation. So you had two parts-- one on the left side, which is called the encoder, which computes rich embeddings of your input, and the right side is the decoder that allows you",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "to do translation one at a time, by allowing each of your output to interact to output that you decoded so far, to interact with the whole input. So four images. We're not translating anything, we're just processing pieces of images. So we're only going",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "to borrow the encoder part of the transformer-- so the left part. And that's what we saw the vision transformer did. So it took just the encoder part of the transformer, and it took an image as an input, and it did something very special to that image",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "as a pre-processing step. So what it did was cut it into patches, and then consider these patches as tokens in the same way it is done for words, and then process them again with the self-attention mechanism, allowing each patch of image",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "to interact with all other ones to just figure out which ones are actually relevant. So this was the DiT. And let me introduce you to the vision generation equivalent, the diffusion transformer, which it was introduced in 2022, which is also relying",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "on the self-attention mechanism. And we're going to see exactly how. But the idea is very similar. You take a noisy latent as input, and what you do is-- so remember the wish list that we had. We want to understand global structure. We want to preserve local",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "details and so on and so forth. So here what we're saying is we're just allowing all patches to interact with one another. Does that make sense so far? It's not out of the blue that I brought up this model. No. All good? Perfect. So let's go step by step into",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "what each component means here. So you have on the illustration, a patchy file operation, that takes in your noised latent and that divides it into patches. So you have let's say, I times I times C tensor that you divide into P times P times C patches.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "And those patches you just want to consider them as tokens. And you end up with an input length of I over P squared. So the smaller your patches, the higher or the longer your sequence, which also matches your intuition. So in that sense, you can",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "also tell from this step that there is a trade off between how granular you want to be and how much computation you want to compute. So that's for that. And then the second step is to actually inject your conditions-- so the external signals, the time",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "step, and then the input text, let's say. So here what we do is we take our timestep embedding, which as we saw can be a series of sinusoidal functions that you have in a vector, and then your condition that can be just an embedding. So I believe in the",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "DiT paper, they just consider the embedding of the whole text-- so just one vector for the whole text. So let's suppose you have these two quantities. Now the question is, how do you inject that into your model? So the paper went through different methods.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "But there was one that stood out. So what we're going to do is for me to just tell you what methods they tried out and then focus on the one that performed the best. So the first method was called adaptive layer norm, which consisted of taking",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "the external signals and then modulating the tokens. So do you remember when I told you modulating in the U-Net? So that's the same modulating modulation I'm talking about. So that's the first method. The second method is to say, OK,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "you have your external signals. What you can do is to have an extra step in your transformer block, where what you do is letting the tokens representing the image latents interact with the time step interacts with the label embedding via cross-attention.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "So here you can think of it as you have queries which are your noise latents. And you're wondering which ones of your conditions are relevant for your noise patch. And then you do a query times key, let's say a dot product of those,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "and then you multiply by value. So you express your noise latents as a function of your conditions. So this can be a second option. And the third option is to just say, OK, actually we're going to take these vectors, and we're just going to concatenate",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "that in the input sequence. Very easy. Well, it turns out that after they did all these experiments, they saw that the adaptive layer norm was the most performant. I'm going to give you a preview of what we're going to see in lecture 7,",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "which is how to quantify how good an image is. So there is a metric called the Fréchet Inception Distance, the FID, which is the one that is represented here where the lower that metric, the better it is. And what you see here is when",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "you use adaptive layer norm, you get the bottom curve that allows you to get better quality image quality compared to the other ones as a function of how far you are in the training process. So if you saw, there's actually two versions",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "of the adaptive layer norm. There is adaptive layer norm, and there's adaptive layer norm I'm going to tell you what that 0 is about. But let's focus on adaptive layer norm. So I could very well just give you the formula and tell you that it",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "is adaptive layer norm. But I think it's very convenient to just build an intuition as to why it may make sense. So I'm going to use an example for that. So I mentioned each patch can be represented by a vector. Let's assume that we can interpret this vector",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "and say that let's say a dimension is responsible for something and another one for something else, which may not be true. But for the sake of this example, let's suppose it is true. So remember, we are in the latent space, and we can have some",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "semantic interpretation of the dimensions. So there is some truth to what I'm saying. But let's suppose you have a vector where let's say the 10th dimension represents the intensity of, let's say, the brown color. Let's say dimension 24 is",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "how round the shape is. Dimension 59 is how fluffy the local details are and then dimension 130, which is how white the color is. So let's suppose you have such dimensions. And now let's suppose you want to generate an image with the condition,",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "a brown fluffy teddy bear. So you want to generate that image. And as you remember, generating an image is not one shot. Typically you do that iteratively where you take a noisy latent as inputs. And then you have the condition. You have how noisy",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "that image is, and you try to have something as output that will allow you to denoise your image. And let's suppose that we're at a stage where there is a lot of noise. So, the noise can be represented on a scale that's here we're going to",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "assume is between 0 and 1, where 0 is super noisy. 1 is clean. And let's assume that time here is 0.1-- so a lot of noise. So here what you would want is to focus on-- so at that stage of the generation, you want to focus on surfacing the",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "global structure of the image because it's still super noisy. You're just trying to sketch what the final image is. So here you want some brownness in the image. You want some round shapes that may represent your teddy bear and so on. So you want these",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "features to surface. So our intuition tells us that you want these dimensions to have a higher intensity. In contrast to that, you don't want to have local details just yet because it's very noisy. So that's not the time. And then you don't",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "want any white color because your teddy bear is brown. It's not white. Now let's suppose you have the same condition as inputs, but now you're at a more advanced stage in your generation process. Now t equals 0.9, which corresponds to almost no noise",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "in your input image. So here you may wonder, OK, so now the input is already quite figured out in terms of global structure. Now I need to focus on the details. So you want the, let's say fluffy details, to have a higher intensity. And you don't want",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "the round shape to be that intense because it's already there. And the brown color is same. It's already there and then white color again. You don't want it. So what I just told you is how we would like different dimensions of the patch embedding to have their",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "intensity modulated as a function of the condition, which is, for instance, the input text and the noise level in which you are. So in that sense, what you want is for your patch embedding to exhibit higher intensities in the dimensions you care",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "and lower intensity in the dimensions you don't care. So in that sense, what I propose is how about we modulate these tokens? How about we modulate these vectors? So here what we would do is to take the condition to take the time step as input",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "and to obtain some vectors. So let's call them alpha, gamma, and beta. So let's assume we obtain these vectors that are a function of the condition and the noise level. And what we want to do is to modulate the embedding of the patch. So how would we do that?",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "Well, you take your vector. You do some normalization just because it's not part of the modulation procedure, but it's just good because it just improves your training stability. So let's suppose you normalize your vector. And you do an element-wise",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "multiplication with 1 plus gamma. So if gamma is equal to the vector 0, the element-wise multiplication of this and one is completely [INAUDIBLE] and nothing changes. But if gamma is a vector that tells you that, OK, a given dimension should be higher",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "and another dimension should be lower, then it will scale your x. And by the way, I said 1, but it's the vector 1. So you can think of it as a vector matching the dimension of gamma of just filled with 1. So in that sense, you can think of gamma",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "as being a scale coefficient, a scale vector because it scales x. Then you can add beta, which is a bias, and perform some operation, and have an element-wise multiplication of this whole quantity with alpha. And alpha will be your gate. Because what you do",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "is you take your x. You flow the same x. And what you do is you make some operation with that x, and you scale it. You shift it, and you gate it with alpha. And alpha is there to tell you how much of that change is going to flow in your embedding.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So in that sense, I'm just going to, again, stress that these stars are element-wise multiplications. And alpha, gamma, and beta have very specific roles. So alpha really gate keeps this whole quantity from being injected. Gamma is responsible for",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "scaling the quantity. And then beta is there to shift it because it's a plus with that quantity. And do you remember I told you I'm going to say what adaptive layer norm 0 is? Do you remember in the chart? Well, adaptive layer norm 0 is adaptive layer norm",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "where when you start training, you initialize your gates to 0, such that there is no modification. So by the way you, you set alpha and gamma and beta to 0, I believe in most implementations, but alpha being to 0 already guarantees that at the very beginning",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "of training, you-- yeah. So the question is unconditional. Yes. So at the very beginning, you don't have any impact from the condition on your embedding. So far so good? So we will have a detailed example after that. So I hope it will be also clearer there.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "But that is the high level intuition behind why adaptive LayerNorm is useful. It is there to highlight dimensions that are important for the task at hand. And so here what we do is-- so just recapping what we said. We take our condition. So it's the time step.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "It's the class label-- so t and c. We add them together, and then we use just a multi-layer perceptron, which is just a linear projection, some activation, and another linear projection, to obtain this gate, scale, and shift alpha, gamma and beta, that",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "are then used to modulate the patch embeddings. So the question is, is t corresponding to the diffusion time step? Yes. So it's how noisy you are in your generation process. So one example is in the very, very beginning. If let's say, your",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "input is super noisy, then t is going to be very close to 0, for instance. But you will represent that by your vector that is composed of sinusoidal functions. Yeah, that's right. So the question is, is this a reverse process? Well, actually even",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "during training, you would just inject the t that corresponds to the noise level of your image. So we're going to see exactly an example of this. So I'll actually answer your question in great detail in a second. Perfect. Well, with that, what I",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "propose is we wrap up this, and I walk you through an end to end example of what that looks like. So your patch embeddings, you run them through your diffusion transformer blocks. There can be several of them. And at the very end, you",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "obtain encoded tokens-- so patch-embedding tokens that are aware of one another because they went through all these operations. And remember what we want is to have an output that is of the same shape as the input. And so here the step is to",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "reshape that output in the shape that matters to you. Well, the authors of DiT applied this to the DDP end use case, and they actually assumed that they were not just predicting the mean but also the covariance matrix. So that's not very common by the way.",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "So you would more predict the mean but not both. But I'm saying this because that just explains why there are two outputs. But in our case, we would just have one output-- in our case, the velocity, which should be in the same shape as the input.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "And what the authors saw was that if you take the DiT architecture and if you scale it in terms of number of parameters, then you get better and better results. And they scaled it in terms of number of parameters, but they also scaled it",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "in terms of how granular the patches were, because the patches they have dimension p times p times c. And if you take big patches, then you have a much coarser view than let's say, a small patch, small p. The problem with the number of parameters",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "is it does not convey that dimension. So you can have the same number of parameters but vary p, which is why the authors also use FLOPs. So who has heard of FLOPs before? Floating Point Operations is just a measure of how many operations you're",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "doing in your forward pass. And that actually includes patch size, because if you remember, your input has a length of I over P squared. So if you have a smaller p, you have a bigger sequence, which is reflected in your flops measure. And in particular, so",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "that's pretty interesting. So you should not only scale one and not the other. So they see that if they scale the transformer size, they get better results but not great. Now, if they only scale the patch size, they get better results but not great.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "But if they scale both the transformer size and the patch size, then they get amazing results. That's what you see in the figure on the right and also the chart that tells you this as a function of FID, which as I mentioned, is a metric we will",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "see in two lectures, where the lower the value, the better it is. And that was the DiT. Given that the DiT is a pretty important architecture, what we will do is take our time to go through an end to end example of exactly how that works.",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "So our goal is to take an input-- so here, the input text, generate an image of a teddy bear that is reading, and what we want as an output is the image itself or the generated image, I should say. So in lecture 4, we saw that we have a lot of incentive",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "to do all of this in the latent space, because it's more tractable computationally, and it's just easier for a model. So what we'll do is we'll take a look at the latent space learned by a VAE that is at our disposal. And you see you have two distributions.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "You have on the bottom left, the initial distribution, which is very easy to sample from, and the target distribution, which is the one that you want to sample from. So what you do is you sample from your easy distribution, typically your Gaussian",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "distribution in your latent space. Let's call it z 0. And you obtain this thing-- dimension I times I times C. What you do is you take that image, and you divide it into patches. So each element has a dimension of p times p times c. So if you do some",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "counting, you will see that I squared over p squared patches. And this is the length of your sequence. So you take each patch, and you want to represent them with a vector. So you just perform a linear projection. And you obtain a vector of, let's say,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "dimension D. Great for the patches. Now let's take care of the conditions. So you have the timestamp embedding, and then you have the label embedding corresponding to let's say the teddy bear. And what you do is super simple. You just add them.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "Add them together. And you obtain your condition embedding. So far so good? So here we are with our patchified input, where each element is represented with an embedding. There's something I have not told you about. And it's actually something that Shervine",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "will cover in great detail in hopefully 20 minutes. When you perform this self-attention operations, the great thing is you let everyone interact with everyone, but then you lose the concept of how far different elements are just because you have",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "direct links, which is why you need to specify in which position each input is. You need to have a way to do that. And here a very naive approach is to just add some embedding that represents the position. This is not the norm nowadays. Shervine will go",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "deeper in there, but let's assume here that we add a position embedding to the patch embedding. And here we obtain a position-aware patch embedding. And we do the same for all the patches in our input. And nowadays, GPUs they love matrices.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "So we just put everything in a matrix format. So here we concatenate everything. And we also have our conditioned embedding vector. Well, let's start with that. So I mentioned that the diffusion transformer, so one method of injecting the conditions",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "is to modulate the patch embeddings with the conditions. So a first step here is to obtain the gate, the scale, and the shift coefficients corresponding to that condition. So let's do that here. We input this embedding through an MLP layer, which",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "is a projection and an activation function to introduce nonlinearities, and then another projection. And we obtain six quantities-- two for gate, two for scale, two for shifts. So why two? Because we will have two operations in the diffusion transformer block.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "One is the self-attention operation. The other one is the feed-forward neural network. And we want these quantities to be respectively to go to their own operation. So let's go back to our position where patch-embedding matrix. We input that into our block.",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "So what we do is we perform a layer normalization operation. And right after that, we use gamma 1 and beta 1 to scale and shift them. We input them to the self-attention layer, and then we get the result with alpha 1, which we add to the input.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "So this is becoming very complicated on the slide. So I'm just going to represent this operation with just self-attention and then alpha 1, gamma 1, and beta 1. And as you remember, this is what happens. So you take your input, and then you",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "do the attention operation with the scaled and shifted inputs. And you get it by alpha 1, where the star operation here is just the element-wise operation. You do the same thing for the feed forward neural network, along with the alpha 2,",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "gamma 2, beta 2 coefficients. And you obtain an output matrix that takes into consideration all other patch embeddings. So it's something that went through this self-attention computation. So that's why I'm saying it's contextualized",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "because it's in the context of the other patch embeddings. But now what you want is to have a prediction that matches the input shape. So what you do is you perform some normalization, some linear operation reshaping in order to have your prediction, which is",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "the predicted velocity of your input z at time t with condition c. In the very beginning, z is z, 0, t is 0, c is, well, just your class label. Just I want an image of a teddy bear that is reading a book. So you have this. So just recapping",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "exactly what I said. So we have the latent z, 0. We have the time step t equals 0. We have the class label all fed into this diffusion transformer. And at the end of it, we get the predicted velocity at z, 0 time t equals 0 and class label C. And that's great.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "But we're not done here. We're only done here for the iteration that allows us to go to step 0 plus delta t. And we perform-- so the formula that I wrote is just a reference to the formula that we derived in the flow-matching case where you're just",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "numerically solving. So here's an Euler solver that just allows you to go from initial to target by just following the vector field. So that's exactly what you're doing. So you obtain this z 0 plus delta t that you can also have represented",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "like this on the left in your latent space. So that's great. So now let's do one more. You're at time step t i. So you input your latent z t i, along with the time step t i and the condition c that is not-- or the class label c that is not changing--",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "so your input text. So you put that in the diffusion transformer. Again, you get a predicted velocity for that latent z t i for that time step t i and for the class label c. And you go through the same thing. So you have the prediction. And you obtain z t",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "i plus 1 by, again, following the Euler method. So here on the left side, you have the next step. You continue again and again and again and again and again up until z 1. So now you're at t equal 1. You have z 1. That's great. Well, what do you have? Well, no.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "It's not noise. It's just it's the latent space. So from a human perspective, you don't know what that is. So that's why I represent it with the noise image. But it is actually your final latent. And so the last step is to take the final latent Z1",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "and pass it through your VA decoder, because you want to go back to the pixel space, because we humans, we understand pixels. We don't understand the latent, or at least not yet. And we get the pixel space image, which is the image of your",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "teddy bear reading a book. And that's great. And you will tell me, Afshine, that's great. We solved it. Well, the truth is, these days people are actually using a variation of the diffusion transformer for a number of reasons that we're going to see now.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "And again, I just want to repeat one thing I said earlier, which is there is a number, infinite number of architectures out there, infinite number of variations, combinations. My hope is to just motivate why some elements that we're going to see are being",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "reused actively these days, but they're by no means exhaustive. So let's go back to the example that we had with respect to us wanting to modulate patch embeddings. So do you remember the example we used where we said we want a brown fluffy teddy bear",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "and we had all these dimensions? And we said, let's say at t equals 0.1, we wanted brown color and round shape to be highlighted but not the other ones. Do you remember that? So let's suppose now I'm changing the class label or the condition, the text input,",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "to brown fluffy teddy bear surrounded by white walls. So imagine I do that. Then the white color dimension, you would want to also have it emphasized because you have white in your input. But remember that this modulation is happening for all tokens,",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "regardless of where they are. So in other words, what we're saying is if you want to predict the velocity to denoise an image, you're going to modulate all patch embeddings in the same way. But here what you want is for places where you have a Teddy",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "bear to have Brown that's increased but not the white color and for places where there is the white wall to have white increase but not brown. Well, you cannot do that with the DiT, and that's a big limitation, which is the reason why we want",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "to change a little bit our approach. So that's great. We're having the self-attention mechanism there. It's amazing. The only thing we want to do is to change the way we're injecting conditions. So modulating with respect to the time step, I think we can all",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "agree that makes sense because all tokens of your input, they're all at the same time step. So it's very fair to have the same treatment. But we need to do something else when it comes to injecting the text input from the user. We don't want to apply the",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "same treatment to all tokens. So out there, there are two main classes of methods that allows us to introduce some nuance to the way we do that. And while there is no standard classification out there, I'm just telling you there is two main classes of methods",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "that seem to emerge-- one that involves cross-attention and one that involves joint attention. So before we go further, I just want to explicit a little bit more what these two correspond to. So cross-attention is the idea of having something as input--",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "so your queries, your patch embeddings-- and wondering how relevant your keys and values, which here is your text, is to your queries. So in other words, I'm going to use an analogy, and I hope it's something that will be intuitive to you as well.",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "So let's suppose you have a painter that paints the final image and then let's say a poet that writes the instruction in a very eloquent way. So it's the same thing as saying, if we were to say that the painter, the one who determines what changes to",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "bring to the image, is actually looking at a piece of text that is brought by the writer, and just based on that determines what to change on the image. So it pays attention to the input text for a given patch. It says, OK, what is the piece of text",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "that is relevant to that? And then based on that it says, OK, I need to change this, change that. So that is cross-attention. So now what is joint attention? Joint attention is saying, you are considering your image patch embeddings as inputs, but you're",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "also considering your text embeddings as input as well. And what you're saying is that both these modalities are being attended, if you want, through the self-attention layer. So continuing the analogy, so let's say, sorry, I'm a painter. And let's say",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "Shervine is a poet. So instead of Shervine writing to me exactly what needs to be drawn, now, both Shervine and I are in the same room, and we're talking about how things should be placed with respect to the text. And let's suppose if I paint something",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "and then, I don't know, I need to write Stanford top right and then my drawing is in such a way that there is not that much space, then we can talk amongst one another to say, OK, actually, I want Stanford to be written in maybe smaller",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "fonts so we can change what we are each saying as a constraint and doing as an image, as a function of one another. So in other words, cross-attention is considering text more as being a given. So it's OK. So you have a patch embedding. Look at which piece of",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "text is relevant for you, and just do something. And joint attention is saying, OK, let's consider both, and try to find a representation of each, such that we can get to our final destination in the best way possible. So I hope this makes sense.",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "All of that to say that nowadays most people do joint attention-related methods, and in particular, I'm going to introduce a term in one second. But before I do that, it's exactly what I mentioned here-- the joint attention. We're considering the patch",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "embeddings and the text embeddings all jointly that goes through this attention layer and so on. And the name of such an architecture was coined as being an MM-DiT. So I don't exactly know how you would pronounce it, but I just go by MM-DiT--",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "so Multi-Modal Diffusion Transformer. And this term was coined in a paper that's actually not that long ago-- so Stable Diffusion 3. That was published two years ago-- so in 2024. And this relies on a joint attention of different modalities.",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "Now, there is another dimension that some papers play around with, which is whether you want to consider each modality separately or jointly. And in particular, you know in the diffusion transformer architecture, you have this feed-forward neural network",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "where you project. You do some activation function, and you project again where you learn different ways to just represent the same thing. And if you were to consider all modalities as going through the same thing-- so just continuing the analogy",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "of the writer and the poet, it would be as if you were saying that both the poet and the-- sorry, both the poet and the painter, they use the same tools. So you learn the same projections. But if you were to consider each modality on their own,",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "if you were to consider specific projection, depending on which modality you're on, you're actually learning tools that are tailored to the task of whoever's doing it. So the painter will have a great brush that is tailored to whatever they're doing,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "and the poet will have exactly whatever is tailored to their needs. Maybe I'm pushing it too far with this analogy, but all of that to say that we have two different classes of MM-DiT. One is single stream. So everything is treated equally. And the second one",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "is double stream. Each modality has its own stream. And you even have papers that mixes the two. So I call them hybrids here. So they contain both single stream and double stream layers. And the next few slides are just about calling out such models.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "So the state of the art models that you would see nowadays, they actually are relying on this architecture. So I'm going to just mention a double stream MM-DiT. So this one is an image for those of you who have heard of it. Then you have Z-image, as an",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "example of a single stream-- so here treating everything as one. And then for those of you who have heard of it, flux one contexts is actually doing a bit of both. So I put all the links in the slides. So we don't have time to talk about each of these papers.",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "But if you're interested, you can just go there and just look at the papers to see how they design it. It is not in the scope of the finals, so don't worry if you don't go there. It's not required. But if you're interested, I think it's a good source.",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "And just continuing the timeline. So nowadays, image-generation models are full of MM-DiT-based models. And in particular, if you think about when the diffusion transformer was published, which was in 2022, Stable Diffusion 3, which was",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "the first one to coin MM-DiT was released in 2024. And then the models I mentioned were released in 2025. And again, the ones that are being published in 2026, they seem to follow the same trend. All of that to say that I think these are relevant",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "architectures that I think are good to have in mind. I'm looking at the time. I'm slightly over time, but any questions on that? We're all good? Perfect. So with that, I'm going to give it to Shervine. Thank you, Afshine. So with all these models, we have",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "seen that one constant is that we need to represent the position of the input. So the next section here is called optimization. But we're not going to look at optimizations of everything-- just the optimization of the position. So in order to",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "make things simple, I'm going to start in the 1D case. And then we're going to see how we can adapt this concept of positions in the 2D one. So as you recall, the original transformer was based on text tokens. So in this case, where you have the sentence,",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "a teddy bear is reading, what you would want is when you do comparisons between your tokens in the attention layer, that the token teddy bear or the representation of it is seen as being close to tokens around it or itself and far from",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "others that are far from it. That's the goal. So let's write that in mathematical form. So what we want is a way for us to compare two embeddings and when you do an operation like the dot product to have it as a function of the distance. But here I'm saying",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "the dot product of embeddings of these tokens it's not totally true. Here I'm going to put it in quotes, because in the case of attention, we're not comparing the same embeddings. We're comparing the query embedding with the key embedding of the other token.",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "So it's modulo some transformation. And just to write things down, we are going to decompose, as a first approach, the representation of the embedding of a given token with what we call the input embedding, which is whatever representation we already have",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "that is not position-specific, and then adding it as an element-wise addition in the vector space, the position embedding. That's what the original transformer paper proposed, such that when you do the dot product operation that I just mentioned, you have",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "a term that pops out that is a dot product of these position embeddings together. And I'm not saying that all the other terms are not functions of this position embeddings. Some of them are cross terms, but we're just going to ignore them for now.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "And we're going to focus on what choice to get for these position embeddings in order for the representation to make sense. So the original transformer hard coded it with a formula that I just wrote down here. So it might look scary.",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "Some of you might know about it already, but for all the others, it might look scary. So you have a combination of sines and cosines that you might ask yourself, why are they here? So we're going to decompose all the notations in there and see intuitively",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "what they are for. So you see that you have the position as a numerator within these sines and cosines. And on the denominator, you have some huge number put at some exponent. And that exponent is a function of the position in the vector and the dimension",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "of the embedding altogether, such that when you vary this I between the first and the middle position, you cover exponents from 0 to 1. So in other words, you have these signs that have frequencies that are either high when this I is close to 0 because you",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "have the position over something that is small. So it's going to vary quite fast. So we're going to call them high frequency. And on the other end of the spectrum, when you have I close to the dimension of the vector over 2, it's going to be close to 1.",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "And as you can see, the number that is elevated to that exponent is some number that looks arbitrary, but it's quite large. It's voluntarily taken quite large with respect to the sequence length, because the mindset behind it is that we want these",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "frequencies when I is high, to be considered as low. So in other words, when you have a sequence length of let's say 500, we want these 1 over 10,000 to be so small that the variation of that sine and cosine is of low frequency with",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "respect to the sequence length. Does that make sense? OK. Awesome. So now I'm going to show you the exact same figure that Afshine showed in a different context in a timestep embedding. But it turns out that here we choose a similar mathematical framing.",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "So the same graph applies. And we're going to analyze parts of these projection and then see how it compares with respect to our frequencies that we qualified as high and low. So on the left, we're looking at dimensions that are early on in the vector.",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "So we call them the high frequencies. And as you can see, when you vary the sequence position, these numbers, they vary between negative 1 and 1 quite fast. And on the other end of the spectrum, when you look at positions of this vector",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "that are larger than the cosine and sines take time in order to cover the whole face. So now I talked about a given frequency that was hard coded. This is a design choice. We're going to hide it under some variable that I'm going to call omega y.",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "And we're going to look side by side what these vectors look like when you take position m on one hand and position n. And we're going to try to see what taking the dot products between both of them is going to give us. So here you see that you have",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "these sines that are aligned and these cosines, so that when you do the dot product, you have a sum of these sines of similar frequencies at position m and n and plus a product of cosines of a same frequency at positions m and n again. And if you recall your",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "trigonometry class, sine A, sine B, plus cosine A cosine B is an identity. And you can rewrite it as cosine of A minus B, such that when you compute this dot product, this is nothing else as the sum of about dimension of embeddings over 2 terms of this cosine",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "of difference of terms. So it's quite interpretable. So now let's take a look at when we compare positions m and n what the dot product evolves with respect to time. So you see that it has this natural curve that overall decreases. But it's not monotonic.",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "It doesn't monotonically decrease, but it tends to decrease. And you can see multiple regions in this curve that you can interpret as to why you have such phenomenon happening. So at the very beginning, you see a sudden drop. And this can be",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "interpreted by the fact that all your cosines in your sum, whether high frequency or low frequency, start from an angle close to 0, and they all drop from these cosine of 0 equals 1. And then as you progress, when you increase the distance",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "between positions, m and n, you have your high frequency cosine terms that oscillate between minus 1 and 1, and they will tend to cancel each other out. So this is why you see some oscillations but not that much. And then later on you see more",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "and more oscillations coming in. This is your low frequency terms that start oscillating, and this is how it can be interpreted. So why are we choosing these positions embeddings in the first place? So we saw that we can have an interesting interpretation",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "in terms of comparing two position embeddings when they are close versus far from each other. You have an intuitive interpretation as to the dot products that can be compared to the distance. And also something that I haven't put here and that was highlighted",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "by initial authors, the position embedding when you increase the position by a given factor, k, can be represented by a linear operation. So when you have all these matrix multiplication operations, you can see that operation as being absorbed by",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "these matrix computations, such that position information can be taken into account. So it has this linear interpretation as well. And the argument is that it's very simple because you have a pre-computed formula. So let's say at training time, you",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "have a given constraint on the sequence length. If at inference time you change that parameter, then you're not lost because you know how to extrapolate by the formula. And so we see that it just works well in practice. But then on the flip side, and",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "I'm not talking about the fact that it's hard-coded, but more about the absolute property of these position embeddings, we saw that it was introduced at the input level, whereas the initial motivation where I mentioned position embeddings",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "were helpful were more at the attention level. So it seems like we're injecting this position information at a place where that information doesn't matter most, but it might matter most at places where you want to compare embeddings",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "with respect to one another. So we're going to see how to alleviate that. And I mentioned as well this extra interaction terms. When you add position embeddings at the very beginning, that might interact with the input embeddings. And I'm not saying",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "this is bad, but I'm saying this might not be the intention we have behind this position embeddings. So it doesn't seem to align with the design choice that we have in mind. And just to give you some information regarding who used it, basically, everyone.",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "Like every first paper on transformers used absolute position embedding-- so not necessarily the hard-coded version, but the one that adds it in the input. So the transformer, of course, did it the way I presented. The original VIT didn't hardcode it.",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "It was something that was learned. And then the DiT did hard-code it but in 2D space in a manner similar to one that we're going to see very soon. But it did so at the input level. Yeah. A great point. So what about the 2D case? We're going to see it.",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "And yeah, great point. But first before doing that, we're going to see if there is a better location to have these position embeddings be represented. And as you might have guessed from all my hints, the attention layer is going to be the place to put them.",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "And this is the key insight from RoPE Rotary Position Embeddings. That was a paper in 2021 that introduced these kinds of representation of positions, and that is the leading way people do it in practice today. And the way it works is as follows.",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "You take queries. You take keys. And instead of fitting them in the dot product as is, you will rotate them by a rotation operation that takes into account their position. So you take the query. You rotate it with respect to something that depends on m.",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "Same for key. That depends on n, its position. And you're going to do the dot product of these rotated queries and keys instead of the raw ones. And one nice property that is interpretable here is that you see a rotation matrix that",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "depends on the difference of positions, n minus m, pop out. So you feel like it's a design choice that that makes sense. And then to answer your points, now we're good for 1D. But what about 2D? So 2D you have this coordinates. But if you don't talk",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "about coordinates just yet, you might number them in a 1D manner. And it's not super clear whether it makes sense at all to compare 1D numbers with respect to one another. So you have a few ways to get around it. So the first idea, which",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "is a similar flavor of what the original DiT paper used is to segregate axes, such that you represent vectors with respect to their coordinates in the 2D space. And you do the x-axis in some part of the vector and the y-axis at some other part.",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "And here we're talking about one given design choice of how to order the indices with respect to where you project. But it doesn't have to be grouped by even or odd indices. You can group these by any way you want because this is arbitrary. And so this is one",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "way of doing it. It's called axial RoPE. There is another way that you could get around it that mitigates the fact that-- so here if you do the actual way, one thing is that if you do the dot product between two rotated vectors, you realize",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "that you're comparing x with x and y with y. So you're missing that interaction component. And one way you can go around it is to mix rotations with respect to x and y in the same vector. So this is the so-called mixed RoPE. And the authors of the paper",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "that discuss these two 2D strategies made a representation of a given input position and applied a frequency-based technique that I know some of you might know from the physics space called the Fourier Transform. So to apply the Fourier Transform,",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "it's filtered out for a given frequency's budget-- only those that were taken into consideration. And after trying to reconstruct the signal from these set of frequencies, saw that Axial RoPE had all these axial artifacts that were due to this lack of",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "interaction between the two axes, whereas Mixed RoPE was able to leverage the same set of frequencies, like the same set of frequencies budgets in a way more efficient way. So these are two ways of looking at them, and mixing things seems to make it better.",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "And something else that you might worry about beyond taking into account the 2D case, is how to make sense of these positions when you have different number of patches presented to you. So, for example, let's say your teddy bear is in low resolution",
+      "start": 1686,
+      "duration": 6
+    },
+    {
+      "text": "versus high resolution. How does it make sense me as a model to interpret what is at the center of the image versus what is on the left or what is on the right? And this is what Seedream 2 thought about. And the idea here is to center the coordinates",
+      "start": 1692,
+      "duration": 6
+    },
+    {
+      "text": "in a way that will tell the model where the center of the image is in order for it to locate different parts of the image. So instead of having like a grid that starts from 0, you have the 0 roughly being at the center of the image, and then you adjust",
+      "start": 1698,
+      "duration": 6
+    },
+    {
+      "text": "the external points. And one thing that you might wonder by Afshine's description of MM-DiT models, for example, those that perform joint attention, so you have these points in the architecture where you might have text tokens interacting with image tokens.",
+      "start": 1704,
+      "duration": 6
+    },
+    {
+      "text": "So one question you might ask yourself, how to quantify the position of one with respect to the other. And by thinking about this, one thing you might want to think about is what wouldn't work. So what wouldn't work intuitively is the positions at the",
+      "start": 1710,
+      "duration": 6
+    },
+    {
+      "text": "horizontal lines of the image and the vertical ones. Because intuitively, you do not want your model to think that your text tokens are a continuation of your image. So one natural position that the coin image paper points out is the diagonal, because",
+      "start": 1716,
+      "duration": 6
+    },
+    {
+      "text": "it's clear that it's out of the area of the image. And by doing so, they see that they can just live together. And if you use an actual formulation of the 2D representation, you even notice that your text tokens become equivalent to the 1D case",
+      "start": 1722,
+      "duration": 6
+    },
+    {
+      "text": "because you have your x and y's that are incremented by 1 between one another. So just you fall back on the same case. And so I just went through some of the keys that made some of these techniques work well. I just want to say that this",
+      "start": 1728,
+      "duration": 6
+    },
+    {
+      "text": "is very much an open problem. There is no many papers that use the same techniques but rather many that use variations to reach their own architectures, goals. And then there are trade offs as well. And you might remember from the early slides",
+      "start": 1734,
+      "duration": 6
+    },
+    {
+      "text": "that we were talking about teddy bear that was wanting to dance. So here is our teddy bear wishing you a great weekend.",
+      "start": 1740,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,934 @@
+{
+  "videoId": "I5BKi32IEa8",
+  "title": "Stanford CS25: Transformers United V6 I The Ultra-Scale Talk: Scaling Training to Thousands of GPUs",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 47739,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "Today, it's our pleasure to host\nNouamane Tazi from Hugging Face.\nHe's the lead author of\nthe Ultra-Scale Playbook\nand a core developer\nof Nanotronics,\nHugging Face's open source\ndistributed training library.\nHis work expands projects\nlike Star StarCoder 2,\nSmall LLM 3, and mixture\nof expert scaling\nwith several initiatives.\nAnd he is passionate about\nmaking large scale training\npractical and accessible.\nSo without further ado,\nlet me hand it off to him.\nThank you so much\nfor the invitation.\nSo hello, everyone.\nMy name is Nouamane Tazi.\nI've been working with Hugging\nFace now for four years.\nAnd the talk for today\nis Scaling Training\nto Thousands of GPUs.\nSo today's talk is going to\nbe mainly inspired by the book\nthat Hugging Face made.\nIt's called\nUltra-Scale Playbook.\nSo make sure to check it out.\nIt's available online and\nthere is a printed version\nif you need it.\nBut I also added some\nelements since the book now\ndates from one year\nago, especially\nregarding MOE scaling\nand some new things\nthat we can take a look at.\nSo without further ado, let's\nstart with the first question\nis, why does scaling matter?\nAnd if we take a look at the\nlatest releases of the latest\nLLMs, we can see that\nthe trend is still\nto train larger and larger.\nAnd why is that?\nThat's also because\nwe can see that there\nis a correlation\nwith intelligence.\nIt seems that the bigger the\nLLMs are, the smarter they are.\nAnd there's just an example\nfrom this week, Kimi K2.6,\nwhich is also one\ntrillion parameter model.\nSo to take just some\nnumbers, models of these days\nare one trillion parameter\nlarge, or even larger.\nThey get trained on 15\ntrillion training tokens\nand for context lengths\nas far as one million.\nSo how can we do that?\nNow, to take some quick\noverview about what\ndoes this entail from\na infra point of view.\nSo if you want to train\nthis kind of model,\nfirst, you need to\nload the data, which\nis about 15 trillion.\nImagine that's stored\non a storage somewhere,\nand you need to load\nthat continuously\nin your training loop.\nAnd each training\niteration, even if the model\nis as big as one\ntrillion parameter model,\nneeds to take about one second.\nAnd you're limited by the\nmemory within each GPU or TPU\nor whatever you're using.\nAnd you need to save\ncheckpoints to that storage\nevery now and then.\nSo you're putting a lot of\npressure into these GPUs.\nSo the talk of today is\ngoing to be mainly focused\non training, the training\niteration or the training.\nSo let's start\nquickly on one GPU.\nSo there is a model.\nWe do forward, backward.\nWe compute gradients, and\nthen we do the optimizer step\nand we have an updated model.\nBut for our case, we usually\nhave global batch size\nof one million to 10 million,\neven like 50 million tokens.\nSo that, of course, doesn't fit\non a single training iteration.\nSo what we do usually is we\ncan do gradient accumulation.\nSo we're going to divide the\nbatch size to smaller batch\nsizes.\nAnd we're going to do multiple\nforward and backwards.\nAnd we're going to accumulate\ngradients sequentially.\nThe problem with\nthis approach is\nwe're going to assume that the\nmodel already fits in memory,\nwhich is not always the case.\nModels now are so\nbig, one trillion.\nAnd we said that\nwe're still limited\nby the available VRAM in each\naccelerator you're going to use.\nSo how can we solve\nthis with more GPUs?\nThe other thing is that\nif you train sequentially\nwith this approach, you're going\nto need to wait for a long time.\nSo if we have more GPUs,\nhow can we speed this up?\nAnd for this, there is multiple\nforms of parallelism we can use.\nAnd each one of them is\nused in a specific use case.\nAnd hopefully today, you can\nget at least an intuition\nwhich parallelism you can\nuse for which use case.\nAnd to help you--\nso basically for\ntoday, I'm going\nto mainly focus on the\nfirst two parallelisms\nbecause they're going to explain\njust the intuition of how we can\nthink about these parallelism.\nAnd the final three, we're going\nto just quickly skim over them\nbecause there's not enough time.\nAnd I think that the\napproach can be generalized.\nSo before starting, a few notes.\nSo this approach can be applied\nto an accelerator, GPUs, TPUs.\nSo in the slides, I\nuse GPUs, but the same\ncan be applied for anything.\nAnd it's useful for\npre-training, post-training,\ndistillation\ntraining, inference.\nSo any type of workload can\nbenefit from these parallelisms.\nAnd it's applicable.\nYou don't need 1,000 GPUs\nto benefit from this.\nAs long as you\nhave two, at least,\nyou can benefit from\nthese parallelism.\nSo naively, what we want to do?\nSo we said that the\nmodel doesn't fit.\nSo ideally, we want to be\nable to shard the model,\nso either vertically\nor horizontally.\nAnd that means we're\ngoing to also shard\nthe gradients and the\noptimizer and shard the data.\nBecause we don't\nwant to wait too long\nto train sequentially on data.\nSo let's deep dive into scaling.\nAnd first of all, we're going\nto start with data parallelism.\nAnd I'm assuming this\nis the basic form\nthat everyone is using.\nSo I'm going to go\nquickly over it.\nSo instead of\ntraining sequentially\nover multiple batches, I'm going\nto feed each batch to a GPU.\nSo I'm going to have\ndifferent batches per GPU.\nThus, the name data parallelism.\nI'm going to shard the data.\nAnd of course, if I have\ndifferent data per GPU,\neach GPU is going to\ncompute different gradients.\nAnd to keep the same model\nduplicated on each GPU,\nI'm going to need to\nsynchronize these gradients.\nAnd how am I going to do that?\nIt's going to be the same\nas accumulating gradient,\nbut it's going to be in\na distributed fashion.\nThus, we're going to need to\nuse the AllReduce collective\noperation, which is\njust a distributed\nsum over multiple GPUs.\nSo we end up with\nthe same gradients,\nand thus, we can do the same\noptimizer step over all GPUs.\nAnd if you want to take\na look at the code,\nit's going to look like this.\nWe can use the DDP\nclass by PyTorch.\nAnd when you wrap\nyour model with it,\nwhen you do the\nforward and backward,\nit automatically handles the\nAllReduce part in the backward.\nSo there is a small\nproblem with this.\nWhen we do the AllReduce, the\nGPU stay idle in that time.\nAnd for that, there is a very\nnice tool called torch.profiler\nthat helps you visualize what\nthe timeline is basically,\nor the workflow for\nthe CPU and GPU.\nAnd for example, if we apply\nit on a naive implementation\nof DDP, we can see that there\nis a CPU stream that is forward\nand backward.\nAnd then there is the GPU\nstreams, GPU computation\nand communication.\nSo there is two things.\nSo the biggest\nthing that we want\nis we don't want\nGPU to stay idle.\nSo we definitely want the\nGPU computation stream\nto be always full, which\nis not the case in here,\nas we can see here.\nThe other thing is\nwe need to make sure\nthat the CPU is always\nahead of the GPU,\nso that we can always\nschedule kernels beforehand.\nAnd the third thing is, for\nexample, in this case of DDP,\nwe can see that the\nAllReduce is not overlapped\nwith the computation.\nSo ideally, we want to\noverlap this communication\nwith computation.\nSo this is a simplified\ndiagram of the previous.\nSo how can we overlap\nthis AllReduce?\nWe can just start\nAllReduce in the gradient\nonce a bucket of the\ngradients is computed.\nBasically when you\ndo the forward,\nyou start doing the backward\nfrom the last layers.\nSo you don't need to do the\nbackward of the entire model\nto be able to AllReduce them.\nSo once, for\nexample, you compute\nthe gradient of\nthe last layer, you\ncan already start the AllReduce.\nAnd this is what\nwe do in practice.\nSo for example, if\n2 is the last layer,\nonce the gradients of the\nlast layer is computed,\nwe can AllReduce it and we can\ncontinue doing the backward.\nAnd this bucket can-- we\ncontrol the size of this bucket\nin PyTorch via this argument\nbucket cup micro-batch--\nmicrobits.\nSo you can control how big or\nhow small the bucket should\nbe, so that you have a better\noverlap of communication\nand computation.\nAnd this is what goes through\nthe mind of any engineer who\ntries to scale models.\nBasically, when you\nhave a lot of GPUs,\nyou definitely want to overlap\nefficiently your computation\nwith communication so that\nyou avoid any idle time here\nfor the GPU computation\nand to benefit\nof the tensor cores of GPUs.\nSo this is the end goal\nof this presentation.\nSo quickly, you can\ngo over a recap of DP.\nSo it's easy to implement.\nIt's very efficiently\noverlapped.\nIt's really good.\nAnd it's model agnostic, right?\nSo we can just wrap\nany model and it's\ngoing to automatically reduce\nthe gradients in the backward.\nBut the problem is\nthat the optimizer step\nis duplicated across GPUs.\nBecause if you have the same\nmodel in each of your GPU,\nall of them are going\nto do the same optimizer\nstep, which is bad.\nIt's duplicated work.\nThe second thing is that\nif you scale more and more\nin the number of\nGPUs, you're also\ngoing to need more and\nmore batches of data.\nAnd this is what we\ncall global batch size.\nSo your global batch size\nis also going to scale.\nBut of course, you can't\njust scale indefinitely.\nWe're limited by tens\nof millions of tokens.\nAnd so you can just\napply DP-- if you have,\nI don't know, one\nmillion GPUs, you\ncan just use the DP\nover all of your GPUs.\nAnd the third thing, which\nis the biggest bottleneck,\nis that DP assumes that the\ntraining step fits in memory.\nAnd this is not always\nthe case, unfortunately.\nAnd so we need other\napproaches to optimize memory.\nAnd we can look at the\nfirst one, which is DP ZeRO.\nSo from the name,\nDP ZeRO 1 tries\nto solve the optimizer step.\nBasically, we said\nthat in DP we're\ngoing to duplicate the\nmodel and all of them\nare going to do the\nsame optimizer step.\nSo how can we reduce the memory\nat least of the optimizer states\nso that they're not\nduplicated and each GPU can\ndo a different part of the\noptimizer-- of the optimization?\nSo the simplest approach is\ninstead of having the optimizer\nstates of all the\nmodels, I'm going\nto shard them across my GPUs.\nAnd when I do the\nbackward step, I'm\nonly going to reduce\nscatter the gradients.\nSo I'm not going to have\nall the reduce here.\nI'm only going to\nhave reduce scatter.\nAnd then I'm going to do the\noptimizer step for each shard.\nAnd this is what's\nreally good about ZeRO 1.\nWe're not going to\nhave duplicated work.\nAnd once I have my\nupdated parameter shards,\nI need to all gather them\nbefore the next step.\nSo this is ZeRO 1 in brief.\nAnd there is s very\nimportant intuition\nthat you can learn from this.\nSo before in Vanilla DP, we had\nan AllReduce in the backward,\nright?\nIn here, we had an AllReduce.\nAnd the trick that we\nmade for ZeRO 1 to work\nis that we replaced the\nAllReduce with a reduce scatter\nand an all gather.\nAnd this works great.\nAnd we're going to reuse\nthis trick in the future.\nWhy?\nBecause AllReduce, essentially,\nis just a reduce-scatter\nplus an all-gather.\nSo basically, we didn't\nadd any communication.\nIt's the same communication.\nIt's just that instead\nof doing the AllReduce,\nI did reduce-scatter\nfirst so that-- to compute\nthe gradients first.\nAnd then I can do\nthe optimizer step.\nAnd then I all-gather\nthe parameters.\nThe second thing is\nfor the gradients,\nI didn't use all of them, right?\nSo when I did the\nreduce scatter,\nI only used the shards\nthat I optimized later.\nSo I can just throw\nthe parts that I\ndon't need from the gradients.\nAnd this is ZeRO 2.\nSo ZeRO 2 optimizes or\nsaves memory even further\nby just discarding the\ngradients that I don't use.\nAnd this is the difference\nbetween ZeRO 1 and ZeRO 2.\nIt's a small difference.\nIt's just that I don't\nneed to keep the gradients.\nSo it's easier said than done.\nBecause in the\nimplementation, it's\nannoying to just discard things.\nSo people usually just use ZeRO\n1 and they keep the gradients.\nAnd also an important note since\nnow there is Muon optimizer,\noptimizer requires the\nfull tensors grads.\nSo previously, people would\ntake their entire parameters,\nand they would just shard them.\nThey would flatten everything.\nSo we don't keep the\nnotion of a tensor.\nYou just flatten\nall your parameters,\nand then you would shard\nthem along the number of GPUs\nyou have.\nBut the problem is for Muon, you\ncan just split your parameters.\nYou want your tensors to be full\nso that you can do the Newton\noptimization on them.\nSo the thing is\nhere, when you want\nto split your parameters or\nyour gradients on your GPUs,\nyou need to make sure to\nkeep your tensors full.\nSo for example, I'm going to\ngive the first, I don't know,\nfive full tensors to the\nfirst GPU and the five--\nthe second five tensors\nto the second GPU.\nSo this is for Muon, but\nalso for other optimizers.\nAnd lastly, for\nZeRO 3, I also want\nto save memory of\nthe parameters.\nAnd this is the craziest part,\nbecause how can I save memory\nby sharding the\nmodel's memory when\nI need them in the\nforward and the backward?\nAnd there is a very nice trick\nthat the ZeRO 3 engineers came\nfrom-- came with is when\nI do the optimizer step,\nI don't need to all\ngather right away.\nI can just keep the shards\nof the model on each GPU,\nand whenever I need to do\nthe forward of that layer,\nfor example, for\nthe first layer,\nI'm just going to ask\nfor these other shards\nfrom the other GPUs.\nSo for example, for\nthe first layer,\nI'm going to ask for\nthe other shards.\nI'm going to do the forward.\nAnd then I'm going to\nfree the other parameters.\nAnd then for the other layer,\nI'm going to do the same thing.\nSo this looks very slow, right?\nBecause on each layer, you\nneed to ask for all the--\nfor the rest of your parameters\nfrom your other GPUs,\ndo the forward and\nthen free them.\nBut in practice,\nit works very well.\nAnd the reason is--\nby the way, it's the\nsame for the backward.\nSo for the backward,\nwe also just do\nthe all-gather of the weights\nand then compute the backward\nand we free the weights.\nSo the reason is we\nprefetch the next layer\nwhile computing\nthe current layer.\nSo this is the trick.\nSo I had previously\nan all-gather\nhere after the optimizer step.\nBut now, I just separated the\nall-gather on multiple layers.\nAnd for example,\nfor the first layer,\nI'm going to all-gather it here.\nI'm going to do the compute.\nAnd while I'm computing for\nthe forward of the first layer,\nI'm already all-gathering\nthe next layer, et cetera.\nAnd then I free it, et cetera.\nAnd so concretely, I\nnever have more than two\nwhat we call FSDP modules\nor FSDP units in my memory,\nbecause I always free one when\nI all-gather the other one.\nAnd the same thing\nfor the backward.\nAnd so I still do the\ndistributed optimizer and I\nrepeat.\nSo this is basically the best\nform of DP that we can have.\nWhy?\nBecause I efficiently\noptimize my memory.\nI saved memory on\noptimizer states,\non gradients, and on the model.\nAnd I also prefetch.\nSo everything is\nvery well-overlapped.\nAnd besides that, similar\nto DP's bucket size,\nI can also control the\nsize of the buckets, which\nwe call the size of the\nFSDP modules that we have.\nAnd so for the code-- so\nthere is two-- by the way,\nZeRO 3 is also called FSDP.\nFSDP is fully sharded\ndata parallel.\nAnd there is two\nversions in PyTorch.\nSo FSDP1, we used to\njust have a class FSDP\nwhere we can wrap\nour model and we\ncan define the\nwrap policy, which\nis similar to the bucket size.\nAnd for FSDP2, there is now a\nfunction called fully shard.\nAnd you just call\nit over your model\nand it's going to\nautomatically transform\nyour modules to FSDP modules.\nSo the difference between the\ntwo versions, the first one,\nas I said, it flattens\nall of your parameters\nand we already talked\nof the problems of that.\nFor example, Muon\nand some optimizers,\nthey need full tensors,\nand this is bad.\nSo ideally, when you\nshard your parameters,\nyou want to keep full\ntensors on each GPU.\nSo FSDP2 enables that.\nThe second thing is\nFSDP2 uses DTensor, which\nis a new utility in PyTorch.\nAnd it helps being combined\nwith other forms of parallelism\nas we're going to see.\nAnd so to recap, please\ncompare ZeRO 2 with ZeRO 3.\nSo in ZeRO 2, we had\na big all-gather here\nto all-gather the parameters\nthat we optimized.\nAnd in ZeRO 3, I just\ndivided this big all-gather\ninto smaller all gathers of\nthe different FSDP modules.\nSo it allows me to overlap this\nall gather with the forwards.\nAnd I can control the\nsize of the FSDP modules.\nAnd it's also model\nagnostic, because I\ndon't care about the\narchitecture of my model.\nAnd it's just great.\nIt works very good.\nSo the pros and\ncons of DP ZeRO 3.\nIt creates memory for comms.\nSo DP Vanilla, I didn't\noptimize memory at all.\nI just assumed that the\nmodel fits in memory.\nBut if I needed to save memory,\nI can just do ZeRO 1 or ZeRO 3\nor ZeRO 2 or ZeRO 3.\nAnd this is something\nto pay attention to.\nSo a lot of people just throw\nFSDP2 on all of their models.\nAnd this is not a good thing.\nBecause if your model\nfits on GPUs with ZeRO 1,\nyou don't need ZeRO\n3 because ZeRO 3\nyou're going to add more\ncommunications than you're going\nto make your training slower.\nSo just use the ZeRO degree\nthat you need to save\nmemory, because there\nis no other benefits.\nIf ZeRO 1 fits, it's going\nto be faster than ZeRO 3.\nSo the second thing is the great\noverlap of comms with compute.\nAs we've seen, everything\nis well-overlapped.\nAnd the third thing\nis model-agnostic.\nSo there is no headache\nof implementation.\nYou can just-- whatever\nthe PyTorch module is,\nyou can just wrap it with FSDP.\nYou don't care if\nit's a state model.\nYou don't care if it's anything.\nIt's going to work\nout of the box.\nThe negatives, though,\nis that at scale,\nsince you need to all-gather the\nparameters for each FSDP module,\nif you scale it too much,\neven if it's overlapped,\nyou can't hide the\ncommunication anymore,\nbecause it's not perfect.\nIf you have a very slow network,\nyou cannot overlap that anymore.\nSo there is a solution\nfor that, which is\ncalled hybrid sharding or HSDP.\nSo you would use FSDP on a\nslow-- on a smaller circle.\nAnd on the larger circle,\nyou can use Vanilla DP.\nSo this is something\nyou can look up later.\nAnd the other thing\nis ZeRO 3 is--\nwe're still in data parallel.\nSo we're still\nscaling with batches.\nSo every GPU has\na different batch.\nAnd we still have\nthis restriction.\nWe can't scale indefinitely.\nSo what if I reached\nmy global batch size?\nSo I have, I don't\nknow, 10,000 GPUs.\nAnd at 1,000 GPUs, I already\nreach my global batch size.\nI need another form\nof parallelism.\nSo let's take a look at TP.\nAnd the motivation\nbehind tensor parallelism\nis that if I have a model,\ntransformer model, for example,\nI want to keep the same\nbatch, so the same inputs,\nthe same data, and\nchart the model so\nthat I do the same computation\nas if I had one GPU.\nSo basically, instead of doing\nthe computation with one GPU.\nI would do it with two.\nAnd essentially,\nI'm going to shard\nthe memory for my model for\nmy gradients optimizer states\nby the number of GPUs I have.\nSo the question is-- and\nthis is a very fun question\nthat people like to ask\nin interviews, et cetera.\nSo do we cope-- do we keep\nfull or half activations\nin tensor parallel?\nAnd we're going to\nanswer that after a bit.\nSo let's start with\nan easy example, which\nis matrix multiplication.\nSo if we take X\nmultiplied by Y--\nby W here, a simple\napproach, and we want\nto parallelize that onto GPUs.\nWe can just split our\nMatrix on columns.\nAnd then I can\nall-gather the outputs.\nLet's take the example\nof two matmuls now.\nSo I have Y1, which is X\nmultiplied YW1, and Y2, which\nis Y2 multiplied by W2.\nSo if I split my first\nweight by columns\nand if I split the\nsecond one by rows,\nI can do the same computation,\nwhich is two multiplications.\nAnd then I do an\nAllReduce here, and I\nwould get the same result\nand the same computation\nas if I did this with one GPU.\nSo this is the power\nof tensor parallelism,\nand this is the\nintuition behind it.\nIf I had one GPU, I would\ndo two matrix multiplication\nwith the full matrices.\nSo I managed to distribute\nthis operation on two GPUs\nby splitting the weights.\nSo each GPU only\nhas half the weights\nand each GPU only\ndoes half the compute.\nBut the caveat of\nthis is that I need\nto do a distributed\ncommunication on AllReduce\nto keep the correctness.\nHow does this work for\nthe backward, though?\nIt's the same thing.\nAnd again, I'm going\nto assume that I\nhave the same upstream grad,\nand this is a big headache.\nWe can talk about it in a bit.\nSo if we assume that I have\nthe same upstream grad, which\nis this, the Y2 and\nY2, similarly, it's\njust going to be multiplied\nby the transpose of W2 and W1.\nThis is, of course, to\ncompute the dx, which\nis the Dout, the out gradient.\nSo again, it's just--\nI'm going to do\ntwo multiplication.\nAnd again, it's just\nhalf the weights.\nAnd again, I just need\nto do an AllReduce.\nSo to efficiently distribute\ntwo matrix multiplications\non multiple GPUs,\nI'm going to need\none AllReduce in the\nforward and one AllReduce\nin the backward\nunder the assumption\nthat I have the same upstream\ngradients, which is the outputs,\nand I had the same inputs.\nSo let's apply this on our MLP.\nSo in MLP, we have, for example,\nY activation of X times A.\nAnd then I multiply\nit by another matrix.\nSo I always going to have\ntwo matrix multiplications.\nSo I apply the same trick.\nThe first one is going\nto be a column linear.\nThe second one is a row linear.\nAnd I need an AllReduce\nto keep the math correct.\nAnd as we said, we assume--\nand this is a big assumption.\nIn our transformer,\nwe assume that I'm\ngoing to always have the same\nactivations, the same inputs,\nthe same data, and I need to\nhave the same output and later\nthe same upstream gradients.\nSo all the operations\nafter that must\nbe the same in the two GPUs.\nAnd another thing to\nbasically what we said,\nwe're going to divide\nthe compute by half.\nSo A1 and A2 are halves of\nthe original matrix A, right?\nSo hidden_dim is\nsharded in here.\nAnd this is what we just said.\nWe need the same input.\nAnd we need the same\nupstream gradient\nto keep the math correct.\nLet's take an\nexample of attention.\nSo for attention, similarly, we\nhave two matrix multiplication,\nwhich is the QKV projections\nand the output projections.\nSo the question would\nbe should we shard along\na hidden dimension or\nnumber of heads or both.\nAnd what does it mean?\nSo the question you\nreally want to ask--\nand this is a very\ngeneric question.\nIf you have a\nmodel and you don't\nknow how to implement\ntensor parallelism on it,\nor you want to check that the\nimplementation is correct,\nyou should really\nask, would GPUs\ncompute the same\nactivations as without TP?\nSo let's say I sharded\na long head dimension.\nThen when I do the softmax,\nwhich is Q times K,\nit's going to have a\nreduced hidden dimension.\nAnd that would impact\nthe softmax calculation.\nSo it wouldn't give the same\nresults as if I had a TP one.\nBut if I sharded a\nlong number of heads,\nsince the heads\nare independent, I\nwould get the same activations\nas if I didn't use TP.\nSo this is really\nthe whole thing.\nSo we showed a long\nnumber of heads\nsince the attention heads are\nindependent to keep attention\ncorrect.\nAnd again, we need\nthe same inputs,\nand we need the same\nupstream gradients.\nSo as a recap, the pros\nis that we shard the model\nand compute across\nGPUs and we're\nmemory and sample efficient.\nSo at the same time,\nI sharded memory.\nSo model parameters gradients\nand optimizer states.\nAnd I didn't need to\nhave multiple batches.\nSo I used the same\nsample across my GPUs.\nThe second thing I didn't need\nan AllReduce for the gradients\nbecause all GPUs I'm assuming\nthey're doing the same work.\nIt's like I have\none big GPU that I\ndistributed on smaller GPUs.\nAnd the cons is that\ncommunication is heavy\nbecause at each attention,\nat each MLP block,\nI need to do an\nAllReduce for the forward\nand for the backward.\nThe second thing is-- and this\nis something we can see later.\nThe parameters that are\noutside the TP region,\nwhich is the region where the\nhidden dimension is sharded,\nshould stay synchronized.\nOtherwise, I won't\nhave the same inputs\nand the same upstream\ngradients because this\nis a big assumption for the\nmatmuls to stay correct.\nSo in practice, the parameters\nthat are outside the TP region,\nthey need to stay the same.\nThey need to stay duplicated.\nSo in practice, we all\nreduce their grads.\nAnd this is something\nthat screws up training\nwhen you use TP.\nAnd just due to\nnumerical precision--\nbecause theoretically,\nyou don't need to do this,\nbut due to numerical\nimprecisions, they drift apart.\nSo in practice, we\nalways use their grads.\nAnd the third thing is, of\ncourse, complex implementation.\nAnd it's not easy if you\nchange the architecture.\nLet's say you want to use MLA\nor some other fancy attention.\nIt's a headache to apply\ntensor parallelism on it.\nSo let's take a look at\nsequence parallelism.\nSo what's the motivation\nbehind sequence parallelism,\nwhich is a flavor to TP?\nSo in TP, we've\nseen that we have\nthis TP region, which\nis the attention,\nand this TP region,\nwhich is the MLP.\nAnd we do the AllReduce here.\nSo the second layers,\nwhich are the row layers,\nthey have an AllReduce.\nOK, cool.\nSo in the TP region, the\nshape is a sequence patch\nand we shard the hidden\ndimension we set.\nAnd after the second\nmatrix in each TP region,\nI'm going to get back\nthe original shapes.\nSo I'm going to get back the\noriginal hidden dimension.\nSo the question is these parts\nare duplicated across GPUs\nand it's annoying, as we said,\nto keep them synchronized.\nAs we said in practice, we need\nto always use this layer norm.\nAnd if I had some\nother operation,\nI also need to make\nsure it's replicated.\nSo can we just\ndistribute them as well?\nAnd this is what sequence\nparallelism tries to solve.\nAnd we're going to use the trick\nthat we talked about earlier.\nSo we have an AllReduce.\nAnd we know that AllReduce, its\nreduce-scatter and all-gather.\nSo how can we apply\nit in this case?\nThis is what sequence\nparallelism is.\nSo this AllReduce, I'm\ngoing to replace it\nwith the reduce-scatter.\nAnd I'm going to--\nthis identity-- we can\ncall this an identity.\nThis identity, I'm going to\ntransform it to all-gather.\nSo in the TPU region, I'm\ngoing to shard my activations\nalong the hidden dimension.\nAnd then I reduce scatter\nalong the sequence dimension.\nSo in this sequence\nregion, SP region,\nI have my sequence,\nwhich is sharded by TP.\nAnd then I all-gather it again\nto have H, which is sharded.\nSo basically, I play\nbetween sharding\nalong the hidden dimension and\nalong the sequence dimension.\nSo this is moving\nfrom TP to TP with SP.\nAnd what this helps me\ndo is multiple things.\nSo first of all, the\nactivations that are stored.\nSo before, I had to store\nvery big activations here,\nwhich are SBH, but\nthanks to sequence\nparallelism my size is\nalways divided by TP.\nSo this helps me\navoid big activations.\nThe second thing is it's the\nsame amount of communications\nsince AllReduce,\nas we've seen, it's\njust the reduce-scatter\nand all-gather.\nSo I didn't have to\nadd any communication.\nAnd the last question\nis about layer norm.\nSo since we did this operation,\nshould we think layer norms\ngrids in this case?\nAnd the answer is no.\nAnd for this, let's take\na look at the backward.\nSo similarly to what we did\nbefore with the matmuls,\nyou can verify later that the\nbackward of a reduce scatter\nis all gather and the\nbackward of an all gather\nis reduce-scatter.\nBasically reduce-scatter\nand all-gather,\nthey are inverse of each other.\nSo if this is the forward, the\nbackward becomes like this.\nSo the backward is I'm\ngoing to do all gather here\nand then reduce\nscatter here cetera.\nSo we notice here that\nbefore layer norms\nwe have reduced scatter.\nAnd thanks to these reduced\nscatter that I now added they\ntake care of synchronizing\nthe gradients.\nSo it's really beautiful\nthat it works out like this.\nSo thanks to the fact\nthat now the GPUs,\nthey don't do the same work,\nthey see different batches.\nAnd thanks to the fact\nthat in the backward\nI have a reduce\nscatter here now,\ninstead of just assuming\nthe perfect case\nthat it's an identity and that\nthe layer norm would always\nstay synchronized.\nI just have this all-gather\nand reduce-scatter,\nand they take care of\nsynchronizing my gradients.\nSo you can verify this,\nthe inverse reduce-scatter\nand all-gather later.\nAnd the pros, cons,\nso let's take a recap.\nSo the pros is that now\nwe're sharding the model\nand compute across GPUs.\nAnd we're being memory\nand sample efficient\nespecially sample\nefficient, which\nis what we didn't have in DP.\nAnd again, we don't\nneed grad AllReduce\nbecause GPUs are essentially\ndoing the same work.\nAnd thanks to SP, I don't\nneed to AllReduce layer norms\nas well because they now\nhave the reduce-scatter\nin the backward.\nBut we still have\nthe same problem.\nWe're communication heavy and\nthe implementation is complex.\nAnd for this\ncommunication heavy,\nthis is why it's\nrecommended if you\ntake a look at the different\ndistributed training libraries.\nThey recommend that you use\nTP within a single node.\nSo if you have a\nnode of 8 GPUs, they\nsay that it's better\nto use TP lower than 8\nso that the communications\nfor TP stay within a node,\nso that when you do\nforwards and backwards,\nyou don't get stuck\nwaiting for the AllReduces\nor the reduce-scatter and\nall-gather in forwards\nand backwards.\nSo now, we've seen two\naxes of parallelism.\nAnd before generalizing\nto the others,\nlet's see what it\nmeans to combine them.\nSo we've seen the data\nparallel, which shards data.\nHere, we have data\nparallel size three.\nAnd we've seen tensor\nparallelism, which shards\nthe model into dimensions.\nSo what does it mean\nto combine these two?\nWell, the cool thing\nabout the forms of\nparallelism that\nwe've seen that they\nare orthogonal of each other.\nSo if batch is sharded along\nthe data axis, it's replicated.\nSo it's replicated here along\nthe model axis and vice versa.\nIf the model is sharded\nalong the TP axis,\nit's replicated\nalong the data axis.\nSo this helps us make a\nmesh of all the parallelism.\nNow, we've only seen two,\nbut later we can see five\nor there's even six or seven.\nIt depends on how many\npartners you want.\nAnd in the code, if you look\nat TorchTitan or megatron\nor narratron, you're\ngoing to see that--\nat first, they init\nthe process group,\nso they init all the WORLD_SIZE.\nLet's say you have\nsix GPUs here.\nSo you're going to create your\nTP groups and your DP groups.\nAnd later, you can\njust pick on which\naxis you want to do the\ncommunication operations.\nSo for example, I want to\nalready use along the TP group.\nSo I'm going to AllReduce\nlike this and AllReduce\nlike this along\nall the other axes.\nSo this is the beauty\nof this parallelism.\nWe make sure that they are\northogonal of each other.\nAnd now, we've gone through\nthe first two big parallelisms,\nthe last three I'm going\nto go fast over them.\nSo for PP, it's\nmuch easier than TP.\nSo we have our layers like this.\nAnd instead of sharding\nthem horizontally,\nI'm going to share\nthem vertically.\nSo I'm going to put some\nlayers on the first GPU,\nsome layers on the second GPU.\nBut you can see here that\nthe problem is for GPU 1,\nat the beginning, it doesn't\nhave any activations.\nSo it's just going to say\nkeep waiting for the first GPU\nand for the first\nGPU after it goes--\nafter the forward goes\nthrough the first four layers,\nit just waits for the other GPU.\nSo how can we solve this?\nAnd for pipeline\nparallelism, there\nis what we call PP schedules\npipeline parallelism schedulers.\nSo the schedulers,\nthey define how\nyour GPUs are going to do--\nare going to load the data,\nand they're going to communicate\nactivations and gradients\nwith the other ranks.\nSo let's start with\na simple assumption.\nEach GPU has one\nlayer of your model.\nAnd we're going to start\nwith the simplest scheduler,\nthe all forward, all\nbackward scheduler.\nSo we're going to have the\nfirst batch, which is this one.\nSo it starts at the first GPU.\nAnd then he sends\nthe activations\nto the second GPU and then\nthird and then fourth.\nAnd then I have another batch.\nSo the GPUs don't wait.\nI'm going to schedule\neight batches.\nSo all of them, they're\ngoing to do the forwards.\nAnd then they're going\nto do the backwards.\nSo every time one GPU\ndoes the backward,\nit sends the gradients to the\nprevious layer, et cetera.\nAnd I repeat this.\nSo this is all\nforward all backward.\nAnd I schedule multiple batches\nto minimize the idle time.\nSo the idle time is this.\nAnd it's the biggest problem\nin pipeline parallelism.\nSo there is-- the\nbest way to solve\nit is to have more\ncomplex schedulers.\nSo this is the one forward,\none backward scheduler.\nAnd the name comes from the fact\nthat if you prioritize backwards\nover forwards,\nyou're going to have\nat some point like\nin the middle,\nyou're going to have\na forward, backward.\nSo they're interleaved\nbasically, forward,\nbackward forward, backward.\nBut we still didn't solve\nthe pipeline bubble.\nThis just helps with\nthe memory a little bit.\nSo the best way\nto solve it would\nbe to start doing forwards\nfrom this side as well.\nAnd this is what Deepseek\nhas done in their DualPipe.\nSo basically, if you\nhave eight devices,\nyou're going to distribute the\nlayers in a round-robin fashion.\nSo the first layer,\nyou're going to put it\nboth on the first\ndevice and last device.\nSo that both of them, they can\nstart with data, et cetera.\nSo there is a forward\nthat's going like this.\nAnd there's a forward\nthat's going like this.\nAnd then a backward like this,\nand then a backward like this.\nAnd you manage the\noverlap in the house.\nSo as we said, it's\neasier said than done\nbecause the implementation\nis very complex.\nAnd you need to keep\ntrack of the batches\nand the forwards\nand backwards so\nthat you send the correct\nactivations, and this--\nand the correct gradients.\nSo in general,\nthe pros and cons.\nSo the pros is that the\ncommunications are cheap.\nThere is no AllReduce, nothing\nto have a headache about.\nYou just exchange the\nactivations and the gradients.\nAnd the sharding\nis very efficient\nbecause every GPU keeps track\nof just a shard of the model.\nIt's model-agnostic.\nI don't care about\nthe nature's model,\nas long as I just have\nlayers, and I just\nsend activations and gradients.\nAnd the cons is that I\nneed to save activations\nfor multiple micro-batches,\nwhich is annoying.\nSo for example, if in this case,\nI had eight backwards in here,\nthey scale 20 micro-batches.\nSo I need to save 20 times the\nactivations for the different.\nSo usually for PP and FSDP since\nthey rely on activations a lot,\nwe offload the activations.\nSo we use activation\ncheckpointing\nor now there is\neven CPU offloading.\nIf you have a good GPU, you\ncan offload the activations\nto the CPU, and then\nyou just load them back\nwhen you need them.\nThe other annoying thing is, if\nyou want to hide the PP bubble,\nyou need an advanced pipeline\nscheduler like dual pipe.\nAnd the implementation\nis complex.\nIt's very hard and it's\ntough to add to the library.\nAnd 13 is you need multiple\nmicro-batches to hide PP bubble.\nSo in a sense, this is\nlike the deep issue,\nis that you need to\nscale your global batch\nsize with the PP size.\nAnd the last two\nparallelisms, they\nare specific to two use cases.\nFor example, for CPP, the\nissue we want to solve\nis sequence parallelism.\nSo once you scale your sequence\nlength, the activations,\nthey explode.\nSo the question--\neven with TP, even\nwith PP, the question\nis, how can we\namortize the memory cost when\ndoing long contact training?\nSo what we've seen previously\nin data parallelism, when\nwe have a batch, we can shard\nit along the batch dimension.\nBut the other-- what\nwe can do now is let's\nshard it along the\nsequence dimension.\nSo it's analogous\nto data parallelism.\nBut if I do that, and if I\ngive a different sequences\nto the GPUs, what\nabout attention?\nBecause when I do\nthe forward, each GPU\nhas only a part of the sequence.\nSo how can I compute attention\nover my entire sequence?\nThis is where ring\nattention comes from.\nAnd the idea is similar\nto online softmax that\nis used in flash attention.\nSo you don't need to compute\nsoftmax out of the box.\nYou can compute it\nin an online fashion.\nSo each GPU, they\ncompute softmax locally\nand then they exchange K\nand V with the other GPUs.\nThen they update the\nsoftmax, et cetera.\nSo this is the idea\nbehind ring attention.\nSo the problem with\nthis, the small problem,\nis that we need to communicate\nK and V inside the attention\nblock.\nSo inside each\nattention block, which\nis a similar problem to TP, so\nit's also communication heavy.\nAnd for that, we can use send\nreceive operation for GPUs\nto send the other case.\nAnd this you can also\nuse all-gather for that.\nSo the pros is it's\nthe only parallelism\nthat efficiently partition\nlarge sequences memory, sorry.\nAnd because the\nother parallelisms,\nthey don't really\nshard the sequence.\nSo if you have a big\nsequence, there's a problem.\nThe cons is that it's\ncommunication heavy\nbecause in each attention\nblock, you need to exchange\nK's and V's.\nAnd similar to DP, since\neach GPU sees different data,\nwe need to AllReduce\nthe gradients\nand it doesn't help much\nfor short sequences.\nSo really, it's really\nused if and only\nif you're doing long\ncontext training.\nAnd for the last one\nEP, it's used for MoEs.\nAnd for MoEs, we don't have\ntime to go really through them.\nBut how can we parallelize them?\nSo when you have\nyour router and you\nwant to route your tokens\nto different experts,\nyou can just shard your\nexperts across GPUs.\nSo the question\nwould be, what comes\nwould I add so that\nI can do the routing?\nFor routing, there is a switch\ntransformer and top K version.\nSo let's talk about top K,\nwhich is the more generic one.\nFor this, let's take a look\nat all-to-all operation.\nSo all-to-all, it's\nthe most generic way\nof exchanging messages.\nSo basically, you\nhave, for example,\nfour processes, four GPUs.\nEach one of them, they have\nfour different messages.\nSo all-to-all what it\ndoes is just each process,\nit's going to send their\nmessages to the other four.\nAnd each process is going to get\nmessages from the other four.\nSo in a sense, all\nprocesses, they\ncommunicate with each other.\nIt's like an n squared\ntype of communication.\nIt's the more-- it's\nthe most complex one.\nAnd how does this apply in MoEs?\nSo let's say each GPU\nhas different experts.\nSo when you're\ndoing the routing,\neach GPU is going to have\nsome tokens that need\nto be routed to the first GPU.\nSo this is why all-to-all helps.\nSo the first GPU here,\nwhich has the first expert,\nneeds to get the\ntokens associated\nto it from the other GPUs.\nSo how can we apply\nexpert parallelism?\nFirst, we shard the\nexperts across GPUs\nand only the experts.\nSo expert parallelism is\nreally only applied in MoE.\nIt doesn't touch attention.\nAnd so to avoid duplicated\nwork in attention,\nwe need to share\ndata across GPUs.\nSo EP is-- actually, it's not\northogonal to DP in this sense.\nSo you also shard data\nacross expert parallelism.\nAnd we need an all-to-all\ncommunication to route tokens\nto their respective experts,\nwhich is the operation\nthat we call dispatch.\nAnd of course, we also need to\ncombine them after the experts\nto retrieve the\noriginal sequences.\nSo the problem and the\nbigger-- the biggest problem\nthat you're going to\nface when scaling MoEs.\nSo how do we know what\nall-to-all dispatch to use?\nSo basically, in order to know\nhow the tokens are routed,\nyou need for the router\nto compute the scores.\nSo the CPU needs to\nwait for the router\nto compute the expert scores.\nAnd this is annoying.\nWhy?\nBecause the CPU needs\nto wait here for the GPU\nto do the router\ncalculation, what we\ncall the dispatch preprocess.\nAnd the GPU needs to tell us\nwhat are the buffer sizes,\nand what are the tokens\nper expert that we need.\nAnd to solve this, there's, for\nexample, deep EP by Deepseek\nand there is hybrid\nEP by NVIDIA.\nAnd the only way\nto solve this is\nto use recent hardware so\nfar, which has IBGDI and RDMA.\nSo these allow us to--\nso they allocate specific\nSMs and specific memory\nto basically--\nwhenever they\ncalculate or they know\nwhich tokens to\nroute to each GPU,\nthey have already allocated the\nmemory for that calculation.\nAnd this is a problem\nbecause for example,\nif you have H hundreds or if you\ndon't have InfiniBand network,\nyou're stuck with\nthis CPU-GPU sink.\nAnd this is why most labs\nwho do MoE trainings,\nthey have very slow\ntrainings just because\nof this problem of hardware.\nAnd even the Deep EP, that\nDeepseek has open source,\nyou're going to find\nout that it only works\non IBGDI, which is InfiniBand.\nSo the other labs have a hard\ntime catching up with this.\nSo in summary,\nexpert parallelism\nis the only way to\ndistribute MoEs efficiently,\nand it's communication heavy.\nIt needs an all-to-all,\nevery MoE block.\nAnd since it has\ndifferent data, it\nneeds to all reduce gradients.\nAnd there is a\nCPU-GPU sync, which\nslows down your\ntraining very much\nto launch this batch operation.\nSo in summary, it is only to be\nused for MoE trainings and/or--\nso the practical\nsolution that people\ndo to train with\nexpert parallelism\nis to combine it with PPE.\nAnd how do they do that?\nSo we said that the dispatch\nand combine are slow.\nAnd if you remember, for our\none forward, one backward,\nwe can overlap the\nforward and the backward.\nSo what we do here is-- so\nwe have two batches, which\nis the blue and the green here.\nSo when we want to do\nthe dispatch, which\nis for the blue\nbatch, in parallel,\nwe can do the backward\nfor the other batch.\nAnd this is nice because--\nso MLP here doesn't\nneed this batch.\nAnd we can do the dispatch here.\nAnd once this is done,\nwe can do the dispatch\nfor the other batch, et cetera.\nAnd this is already\nimplemented in some libraries.\nFor example in Megatron,\nyou can use these two flags.\nSo in a nutshell, you can\ncombine all five parallelisms.\nAnd you're going to have\ndifferent communications\nin different steps\nof your training.\nAnd we've seen that CP and\nEP-- so EP only applied to MoEs\nand it only touches the MoE.\nAnd CP only touches\nself-attention here.\nAnd yeah, all parallelism\nare orthogonal.\nSo you can combine\nall five of them.\nAnd yeah, as a recap, we've\nseen the five parallelisms.\nAnd you can find a\ncheat sheet that we\nmade in the Ultra-scale\nPlaybook on how\nto make decisions following\nthe number of GPUs you have.\nAnd finally, if you're more\ninterested in the infra\nside of things, you can take\na look at the small training\nplaybook in the infra section.\nWe've made a lot of\nbenchmarks on how infra can\nhandle these types of workload.\nAnd you can find more references\nin the two books mentioned.\nAlso, the Jax Scaling Book\nfor TPU point of view.\nAnd if you're interested\nin these kind of things,\ncontributions are\nvery welcome, so\nNanotron, Torchtitan,\nMegatron-LM,\nand a lot of other libraries.\nSo feel free to reach out\nif you want to contribute.\nAnd one last thing is as we\nscale to thousands of GPUs,\nlet's be mindful of their energy\nimpact and use them responsibly.\nThank you.\nOK.\nWe'll take any questions\nin person or over Zoom.\nAny in the room?\nYeah, thanks for the talk.\nIt seems that for\nexpert parallelism,\nyou also have to have the tokens\nrouted evenly across ranks.\nBecause if all of your tokens\nend up routed to one GPU,\nthen everything else is idle.\nWhat are ways to fix\nthis in practice?\nThat's what the load\nbalancing tries to do.\nSo depending on which approach,\nfor example, Deepseek,\nthey initially introduced\nthe load balancing loss.\nSorry.\nSo the load balancing\nacts basically\nin the loss, a\nfactor that penalizes\nuneven distribution of tokens.\nAnd there's multiple\nways to do it.\nThere's the auxiliary\nloss free where you just\nadd a bias term when\nyou compute the router,\nand it would automatically\nadjust the distribution\nso that it's even across GPUs.\nWe also have some on Slido.\nOne is, do different parallelism\nstrategies meaningfully\naffect scaling efficiency model\nperformance or convergence,\nor do they just enable\nreaching larger scales?\nWhat's the first one,\nscaling convergence?\nEfficiency.\nConvergence efficiency.\nI think they would like scaling\nlaws of language models.\nOK.\nSo actually, the\ndifferent policies\ndo not change the\nforwards and backwards.\nSo ideally, if everything\nis implemented correctly,\nit should have the same\neffect as if you had one GPU.\nSo like the same\nscaling laws applies.\nAnd you shouldn't find any\ndifference in using PP over EP\nfrom computation point of view.\nAnother is, how can we reduce\nGPU idle time during, say,\nRL training when CPU side\ncheckpointing or environment\ndata processing becomes\nsequential and a bottleneck?\nYeah.\nSo for that, at\nleast for text, you\ncan allocate a lot of\nworkers beforehand.\nSo the PyTorch\ndata loaders, they\nallow you to specify the number\nof workers that you can use,\nand they can\npre-process the data\nbefore the training workload.\nSo that should at least help\nalleviate the pre-processing\nso that it's done before you\neven go through the training\niterations.\nAny more in the room?\nAlso, someone asked, do\nwe have an automatic way\nto decide the best parallelism?\nYeah, there have been\nsome papers for that.\nI think if you take\na look at Jax book,\nthey've played with\nthat and dilated\nthe TPU decide on what's\nthe best parallelism.\nBut it really depends\non your specific.\nSo model size, how\nmany data you have,\nthe global batch size,\nand the network you have.\nSo the biggest factor in what\nwe've said when you scale,\nof course, is the\nnetwork bottleneck.\nSo if you have, for\nexample, let's say NVLink.\nSo in GPUs, usually\nNVLink is either\nfour, eight, or for the most\nrecent one, 32 or even 72.\nSo it depends on that.\nYou can even use the more\ncommunication heavy forms\nof parallelism or the less\ncommunication heavy ones.\nAnd for example, for GPUs,\nsince they are in pods of 32,\nusually people, they\nallow themselves\nto use tensor parallelism\nover the 32 pods.\nSo yeah, it really\ndepends on the hardware\nand the global batch size.\nAll right.\nThanks, guys.\nThanks so much Nouamane for\nthe amazing insightful talk.\nSo let's give it a hand\nagain for our speaker.",
+  "segments": [
+    {
+      "text": "Today, it's our pleasure to host Nouamane Tazi from Hugging Face. He's the lead author of the Ultra-Scale Playbook and a core developer of Nanotronics, Hugging Face's open source distributed training library. His work expands projects like Star StarCoder 2,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Small LLM 3, and mixture of expert scaling with several initiatives. And he is passionate about making large scale training practical and accessible. So without further ado, let me hand it off to him. Thank you so much for the invitation. So hello, everyone.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "My name is Nouamane Tazi. I've been working with Hugging Face now for four years. And the talk for today is Scaling Training to Thousands of GPUs. So today's talk is going to be mainly inspired by the book that Hugging Face made. It's called",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "Ultra-Scale Playbook. So make sure to check it out. It's available online and there is a printed version if you need it. But I also added some elements since the book now dates from one year ago, especially regarding MOE scaling and some new things",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "that we can take a look at. So without further ado, let's start with the first question is, why does scaling matter? And if we take a look at the latest releases of the latest LLMs, we can see that the trend is still to train larger and larger.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "And why is that? That's also because we can see that there is a correlation with intelligence. It seems that the bigger the LLMs are, the smarter they are. And there's just an example from this week, Kimi K2.6, which is also one trillion parameter model.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So to take just some numbers, models of these days are one trillion parameter large, or even larger. They get trained on 15 trillion training tokens and for context lengths as far as one million. So how can we do that? Now, to take some quick",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "overview about what does this entail from a infra point of view. So if you want to train this kind of model, first, you need to load the data, which is about 15 trillion. Imagine that's stored on a storage somewhere, and you need to load that continuously",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "in your training loop. And each training iteration, even if the model is as big as one trillion parameter model, needs to take about one second. And you're limited by the memory within each GPU or TPU or whatever you're using. And you need to save",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "checkpoints to that storage every now and then. So you're putting a lot of pressure into these GPUs. So the talk of today is going to be mainly focused on training, the training iteration or the training. So let's start quickly on one GPU. So there is a model.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "We do forward, backward. We compute gradients, and then we do the optimizer step and we have an updated model. But for our case, we usually have global batch size of one million to 10 million, even like 50 million tokens. So that, of course, doesn't fit",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "on a single training iteration. So what we do usually is we can do gradient accumulation. So we're going to divide the batch size to smaller batch sizes. And we're going to do multiple forward and backwards. And we're going to accumulate",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "gradients sequentially. The problem with this approach is we're going to assume that the model already fits in memory, which is not always the case. Models now are so big, one trillion. And we said that we're still limited by the available VRAM in each",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "accelerator you're going to use. So how can we solve this with more GPUs? The other thing is that if you train sequentially with this approach, you're going to need to wait for a long time. So if we have more GPUs, how can we speed this up?",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "And for this, there is multiple forms of parallelism we can use. And each one of them is used in a specific use case. And hopefully today, you can get at least an intuition which parallelism you can use for which use case. And to help you-- so basically for",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "today, I'm going to mainly focus on the first two parallelisms because they're going to explain just the intuition of how we can think about these parallelism. And the final three, we're going to just quickly skim over them because there's not enough time.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And I think that the approach can be generalized. So before starting, a few notes. So this approach can be applied to an accelerator, GPUs, TPUs. So in the slides, I use GPUs, but the same can be applied for anything. And it's useful for",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "pre-training, post-training, distillation training, inference. So any type of workload can benefit from these parallelisms. And it's applicable. You don't need 1,000 GPUs to benefit from this. As long as you have two, at least, you can benefit from",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "these parallelism. So naively, what we want to do? So we said that the model doesn't fit. So ideally, we want to be able to shard the model, so either vertically or horizontally. And that means we're going to also shard the gradients and the",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "optimizer and shard the data. Because we don't want to wait too long to train sequentially on data. So let's deep dive into scaling. And first of all, we're going to start with data parallelism. And I'm assuming this is the basic form that everyone is using.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to go quickly over it. So instead of training sequentially over multiple batches, I'm going to feed each batch to a GPU. So I'm going to have different batches per GPU. Thus, the name data parallelism. I'm going to shard the data.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And of course, if I have different data per GPU, each GPU is going to compute different gradients. And to keep the same model duplicated on each GPU, I'm going to need to synchronize these gradients. And how am I going to do that? It's going to be the same",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "as accumulating gradient, but it's going to be in a distributed fashion. Thus, we're going to need to use the AllReduce collective operation, which is just a distributed sum over multiple GPUs. So we end up with the same gradients, and thus, we can do the same",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "optimizer step over all GPUs. And if you want to take a look at the code, it's going to look like this. We can use the DDP class by PyTorch. And when you wrap your model with it, when you do the forward and backward, it automatically handles the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "AllReduce part in the backward. So there is a small problem with this. When we do the AllReduce, the GPU stay idle in that time. And for that, there is a very nice tool called torch.profiler that helps you visualize what the timeline is basically,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "or the workflow for the CPU and GPU. And for example, if we apply it on a naive implementation of DDP, we can see that there is a CPU stream that is forward and backward. And then there is the GPU streams, GPU computation and communication.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So there is two things. So the biggest thing that we want is we don't want GPU to stay idle. So we definitely want the GPU computation stream to be always full, which is not the case in here, as we can see here. The other thing is we need to make sure",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "that the CPU is always ahead of the GPU, so that we can always schedule kernels beforehand. And the third thing is, for example, in this case of DDP, we can see that the AllReduce is not overlapped with the computation. So ideally, we want to",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "overlap this communication with computation. So this is a simplified diagram of the previous. So how can we overlap this AllReduce? We can just start AllReduce in the gradient once a bucket of the gradients is computed. Basically when you do the forward,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "you start doing the backward from the last layers. So you don't need to do the backward of the entire model to be able to AllReduce them. So once, for example, you compute the gradient of the last layer, you can already start the AllReduce. And this is what",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "we do in practice. So for example, if 2 is the last layer, once the gradients of the last layer is computed, we can AllReduce it and we can continue doing the backward. And this bucket can-- we control the size of this bucket in PyTorch via this argument",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "bucket cup micro-batch-- microbits. So you can control how big or how small the bucket should be, so that you have a better overlap of communication and computation. And this is what goes through the mind of any engineer who tries to scale models.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Basically, when you have a lot of GPUs, you definitely want to overlap efficiently your computation with communication so that you avoid any idle time here for the GPU computation and to benefit of the tensor cores of GPUs. So this is the end goal",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "of this presentation. So quickly, you can go over a recap of DP. So it's easy to implement. It's very efficiently overlapped. It's really good. And it's model agnostic, right? So we can just wrap any model and it's going to automatically reduce",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "the gradients in the backward. But the problem is that the optimizer step is duplicated across GPUs. Because if you have the same model in each of your GPU, all of them are going to do the same optimizer step, which is bad. It's duplicated work.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "The second thing is that if you scale more and more in the number of GPUs, you're also going to need more and more batches of data. And this is what we call global batch size. So your global batch size is also going to scale. But of course, you can't",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "just scale indefinitely. We're limited by tens of millions of tokens. And so you can just apply DP-- if you have, I don't know, one million GPUs, you can just use the DP over all of your GPUs. And the third thing, which is the biggest bottleneck,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is that DP assumes that the training step fits in memory. And this is not always the case, unfortunately. And so we need other approaches to optimize memory. And we can look at the first one, which is DP ZeRO. So from the name, DP ZeRO 1 tries",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "to solve the optimizer step. Basically, we said that in DP we're going to duplicate the model and all of them are going to do the same optimizer step. So how can we reduce the memory at least of the optimizer states so that they're not",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "duplicated and each GPU can do a different part of the optimizer-- of the optimization? So the simplest approach is instead of having the optimizer states of all the models, I'm going to shard them across my GPUs. And when I do the backward step, I'm",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "only going to reduce scatter the gradients. So I'm not going to have all the reduce here. I'm only going to have reduce scatter. And then I'm going to do the optimizer step for each shard. And this is what's really good about ZeRO 1. We're not going to",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "have duplicated work. And once I have my updated parameter shards, I need to all gather them before the next step. So this is ZeRO 1 in brief. And there is s very important intuition that you can learn from this. So before in Vanilla DP, we had",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "an AllReduce in the backward, right? In here, we had an AllReduce. And the trick that we made for ZeRO 1 to work is that we replaced the AllReduce with a reduce scatter and an all gather. And this works great. And we're going to reuse this trick in the future.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Why? Because AllReduce, essentially, is just a reduce-scatter plus an all-gather. So basically, we didn't add any communication. It's the same communication. It's just that instead of doing the AllReduce, I did reduce-scatter first so that-- to compute",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "the gradients first. And then I can do the optimizer step. And then I all-gather the parameters. The second thing is for the gradients, I didn't use all of them, right? So when I did the reduce scatter, I only used the shards that I optimized later.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "So I can just throw the parts that I don't need from the gradients. And this is ZeRO 2. So ZeRO 2 optimizes or saves memory even further by just discarding the gradients that I don't use. And this is the difference between ZeRO 1 and ZeRO 2.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "It's a small difference. It's just that I don't need to keep the gradients. So it's easier said than done. Because in the implementation, it's annoying to just discard things. So people usually just use ZeRO 1 and they keep the gradients.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "And also an important note since now there is Muon optimizer, optimizer requires the full tensors grads. So previously, people would take their entire parameters, and they would just shard them. They would flatten everything. So we don't keep the",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "notion of a tensor. You just flatten all your parameters, and then you would shard them along the number of GPUs you have. But the problem is for Muon, you can just split your parameters. You want your tensors to be full so that you can do the Newton",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "optimization on them. So the thing is here, when you want to split your parameters or your gradients on your GPUs, you need to make sure to keep your tensors full. So for example, I'm going to give the first, I don't know, five full tensors to the",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "first GPU and the five-- the second five tensors to the second GPU. So this is for Muon, but also for other optimizers. And lastly, for ZeRO 3, I also want to save memory of the parameters. And this is the craziest part, because how can I save memory",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "by sharding the model's memory when I need them in the forward and the backward? And there is a very nice trick that the ZeRO 3 engineers came from-- came with is when I do the optimizer step, I don't need to all gather right away. I can just keep the shards",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "of the model on each GPU, and whenever I need to do the forward of that layer, for example, for the first layer, I'm just going to ask for these other shards from the other GPUs. So for example, for the first layer, I'm going to ask for the other shards.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to do the forward. And then I'm going to free the other parameters. And then for the other layer, I'm going to do the same thing. So this looks very slow, right? Because on each layer, you need to ask for all the-- for the rest of your parameters",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "from your other GPUs, do the forward and then free them. But in practice, it works very well. And the reason is-- by the way, it's the same for the backward. So for the backward, we also just do the all-gather of the weights and then compute the backward",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "and we free the weights. So the reason is we prefetch the next layer while computing the current layer. So this is the trick. So I had previously an all-gather here after the optimizer step. But now, I just separated the all-gather on multiple layers.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "And for example, for the first layer, I'm going to all-gather it here. I'm going to do the compute. And while I'm computing for the forward of the first layer, I'm already all-gathering the next layer, et cetera. And then I free it, et cetera.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "And so concretely, I never have more than two what we call FSDP modules or FSDP units in my memory, because I always free one when I all-gather the other one. And the same thing for the backward. And so I still do the distributed optimizer and I repeat.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "So this is basically the best form of DP that we can have. Why? Because I efficiently optimize my memory. I saved memory on optimizer states, on gradients, and on the model. And I also prefetch. So everything is very well-overlapped. And besides that, similar",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "to DP's bucket size, I can also control the size of the buckets, which we call the size of the FSDP modules that we have. And so for the code-- so there is two-- by the way, ZeRO 3 is also called FSDP. FSDP is fully sharded data parallel. And there is two",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "versions in PyTorch. So FSDP1, we used to just have a class FSDP where we can wrap our model and we can define the wrap policy, which is similar to the bucket size. And for FSDP2, there is now a function called fully shard. And you just call it over your model",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "and it's going to automatically transform your modules to FSDP modules. So the difference between the two versions, the first one, as I said, it flattens all of your parameters and we already talked of the problems of that. For example, Muon",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "and some optimizers, they need full tensors, and this is bad. So ideally, when you shard your parameters, you want to keep full tensors on each GPU. So FSDP2 enables that. The second thing is FSDP2 uses DTensor, which is a new utility in PyTorch.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "And it helps being combined with other forms of parallelism as we're going to see. And so to recap, please compare ZeRO 2 with ZeRO 3. So in ZeRO 2, we had a big all-gather here to all-gather the parameters that we optimized. And in ZeRO 3, I just",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "divided this big all-gather into smaller all gathers of the different FSDP modules. So it allows me to overlap this all gather with the forwards. And I can control the size of the FSDP modules. And it's also model agnostic, because I don't care about the",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "architecture of my model. And it's just great. It works very good. So the pros and cons of DP ZeRO 3. It creates memory for comms. So DP Vanilla, I didn't optimize memory at all. I just assumed that the model fits in memory. But if I needed to save memory,",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "I can just do ZeRO 1 or ZeRO 3 or ZeRO 2 or ZeRO 3. And this is something to pay attention to. So a lot of people just throw FSDP2 on all of their models. And this is not a good thing. Because if your model fits on GPUs with ZeRO 1, you don't need ZeRO",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "3 because ZeRO 3 you're going to add more communications than you're going to make your training slower. So just use the ZeRO degree that you need to save memory, because there is no other benefits. If ZeRO 1 fits, it's going to be faster than ZeRO 3.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So the second thing is the great overlap of comms with compute. As we've seen, everything is well-overlapped. And the third thing is model-agnostic. So there is no headache of implementation. You can just-- whatever the PyTorch module is,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "you can just wrap it with FSDP. You don't care if it's a state model. You don't care if it's anything. It's going to work out of the box. The negatives, though, is that at scale, since you need to all-gather the parameters for each FSDP module,",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "if you scale it too much, even if it's overlapped, you can't hide the communication anymore, because it's not perfect. If you have a very slow network, you cannot overlap that anymore. So there is a solution for that, which is called hybrid sharding or HSDP.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "So you would use FSDP on a slow-- on a smaller circle. And on the larger circle, you can use Vanilla DP. So this is something you can look up later. And the other thing is ZeRO 3 is-- we're still in data parallel. So we're still scaling with batches.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So every GPU has a different batch. And we still have this restriction. We can't scale indefinitely. So what if I reached my global batch size? So I have, I don't know, 10,000 GPUs. And at 1,000 GPUs, I already reach my global batch size. I need another form",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "of parallelism. So let's take a look at TP. And the motivation behind tensor parallelism is that if I have a model, transformer model, for example, I want to keep the same batch, so the same inputs, the same data, and chart the model so",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "that I do the same computation as if I had one GPU. So basically, instead of doing the computation with one GPU. I would do it with two. And essentially, I'm going to shard the memory for my model for my gradients optimizer states by the number of GPUs I have.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "So the question is-- and this is a very fun question that people like to ask in interviews, et cetera. So do we cope-- do we keep full or half activations in tensor parallel? And we're going to answer that after a bit. So let's start with",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "an easy example, which is matrix multiplication. So if we take X multiplied by Y-- by W here, a simple approach, and we want to parallelize that onto GPUs. We can just split our Matrix on columns. And then I can all-gather the outputs. Let's take the example",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "of two matmuls now. So I have Y1, which is X multiplied YW1, and Y2, which is Y2 multiplied by W2. So if I split my first weight by columns and if I split the second one by rows, I can do the same computation, which is two multiplications. And then I do an",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "AllReduce here, and I would get the same result and the same computation as if I did this with one GPU. So this is the power of tensor parallelism, and this is the intuition behind it. If I had one GPU, I would do two matrix multiplication",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "with the full matrices. So I managed to distribute this operation on two GPUs by splitting the weights. So each GPU only has half the weights and each GPU only does half the compute. But the caveat of this is that I need to do a distributed",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "communication on AllReduce to keep the correctness. How does this work for the backward, though? It's the same thing. And again, I'm going to assume that I have the same upstream grad, and this is a big headache. We can talk about it in a bit.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "So if we assume that I have the same upstream grad, which is this, the Y2 and Y2, similarly, it's just going to be multiplied by the transpose of W2 and W1. This is, of course, to compute the dx, which is the Dout, the out gradient. So again, it's just--",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to do two multiplication. And again, it's just half the weights. And again, I just need to do an AllReduce. So to efficiently distribute two matrix multiplications on multiple GPUs, I'm going to need one AllReduce in the forward and one AllReduce",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "in the backward under the assumption that I have the same upstream gradients, which is the outputs, and I had the same inputs. So let's apply this on our MLP. So in MLP, we have, for example, Y activation of X times A. And then I multiply it by another matrix.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "So I always going to have two matrix multiplications. So I apply the same trick. The first one is going to be a column linear. The second one is a row linear. And I need an AllReduce to keep the math correct. And as we said, we assume--",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "and this is a big assumption. In our transformer, we assume that I'm going to always have the same activations, the same inputs, the same data, and I need to have the same output and later the same upstream gradients. So all the operations after that must",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "be the same in the two GPUs. And another thing to basically what we said, we're going to divide the compute by half. So A1 and A2 are halves of the original matrix A, right? So hidden_dim is sharded in here. And this is what we just said.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "We need the same input. And we need the same upstream gradient to keep the math correct. Let's take an example of attention. So for attention, similarly, we have two matrix multiplication, which is the QKV projections and the output projections.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "So the question would be should we shard along a hidden dimension or number of heads or both. And what does it mean? So the question you really want to ask-- and this is a very generic question. If you have a model and you don't know how to implement",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "tensor parallelism on it, or you want to check that the implementation is correct, you should really ask, would GPUs compute the same activations as without TP? So let's say I sharded a long head dimension. Then when I do the softmax, which is Q times K,",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "it's going to have a reduced hidden dimension. And that would impact the softmax calculation. So it wouldn't give the same results as if I had a TP one. But if I sharded a long number of heads, since the heads are independent, I would get the same activations",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "as if I didn't use TP. So this is really the whole thing. So we showed a long number of heads since the attention heads are independent to keep attention correct. And again, we need the same inputs, and we need the same upstream gradients.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So as a recap, the pros is that we shard the model and compute across GPUs and we're memory and sample efficient. So at the same time, I sharded memory. So model parameters gradients and optimizer states. And I didn't need to have multiple batches.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "So I used the same sample across my GPUs. The second thing I didn't need an AllReduce for the gradients because all GPUs I'm assuming they're doing the same work. It's like I have one big GPU that I distributed on smaller GPUs. And the cons is that",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "communication is heavy because at each attention, at each MLP block, I need to do an AllReduce for the forward and for the backward. The second thing is-- and this is something we can see later. The parameters that are outside the TP region,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "which is the region where the hidden dimension is sharded, should stay synchronized. Otherwise, I won't have the same inputs and the same upstream gradients because this is a big assumption for the matmuls to stay correct. So in practice, the parameters",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "that are outside the TP region, they need to stay the same. They need to stay duplicated. So in practice, we all reduce their grads. And this is something that screws up training when you use TP. And just due to numerical precision-- because theoretically,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "you don't need to do this, but due to numerical imprecisions, they drift apart. So in practice, we always use their grads. And the third thing is, of course, complex implementation. And it's not easy if you change the architecture.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "Let's say you want to use MLA or some other fancy attention. It's a headache to apply tensor parallelism on it. So let's take a look at sequence parallelism. So what's the motivation behind sequence parallelism, which is a flavor to TP? So in TP, we've",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "seen that we have this TP region, which is the attention, and this TP region, which is the MLP. And we do the AllReduce here. So the second layers, which are the row layers, they have an AllReduce. OK, cool. So in the TP region, the shape is a sequence patch",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "and we shard the hidden dimension we set. And after the second matrix in each TP region, I'm going to get back the original shapes. So I'm going to get back the original hidden dimension. So the question is these parts are duplicated across GPUs",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "and it's annoying, as we said, to keep them synchronized. As we said in practice, we need to always use this layer norm. And if I had some other operation, I also need to make sure it's replicated. So can we just distribute them as well?",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "And this is what sequence parallelism tries to solve. And we're going to use the trick that we talked about earlier. So we have an AllReduce. And we know that AllReduce, its reduce-scatter and all-gather. So how can we apply it in this case?",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "This is what sequence parallelism is. So this AllReduce, I'm going to replace it with the reduce-scatter. And I'm going to-- this identity-- we can call this an identity. This identity, I'm going to transform it to all-gather. So in the TPU region, I'm",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "going to shard my activations along the hidden dimension. And then I reduce scatter along the sequence dimension. So in this sequence region, SP region, I have my sequence, which is sharded by TP. And then I all-gather it again to have H, which is sharded.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So basically, I play between sharding along the hidden dimension and along the sequence dimension. So this is moving from TP to TP with SP. And what this helps me do is multiple things. So first of all, the activations that are stored.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "So before, I had to store very big activations here, which are SBH, but thanks to sequence parallelism my size is always divided by TP. So this helps me avoid big activations. The second thing is it's the same amount of communications since AllReduce,",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "as we've seen, it's just the reduce-scatter and all-gather. So I didn't have to add any communication. And the last question is about layer norm. So since we did this operation, should we think layer norms grids in this case? And the answer is no.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "And for this, let's take a look at the backward. So similarly to what we did before with the matmuls, you can verify later that the backward of a reduce scatter is all gather and the backward of an all gather is reduce-scatter. Basically reduce-scatter",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "and all-gather, they are inverse of each other. So if this is the forward, the backward becomes like this. So the backward is I'm going to do all gather here and then reduce scatter here cetera. So we notice here that before layer norms",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "we have reduced scatter. And thanks to these reduced scatter that I now added they take care of synchronizing the gradients. So it's really beautiful that it works out like this. So thanks to the fact that now the GPUs, they don't do the same work,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "they see different batches. And thanks to the fact that in the backward I have a reduce scatter here now, instead of just assuming the perfect case that it's an identity and that the layer norm would always stay synchronized. I just have this all-gather",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "and reduce-scatter, and they take care of synchronizing my gradients. So you can verify this, the inverse reduce-scatter and all-gather later. And the pros, cons, so let's take a recap. So the pros is that now we're sharding the model and compute across GPUs.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "And we're being memory and sample efficient especially sample efficient, which is what we didn't have in DP. And again, we don't need grad AllReduce because GPUs are essentially doing the same work. And thanks to SP, I don't need to AllReduce layer norms",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "as well because they now have the reduce-scatter in the backward. But we still have the same problem. We're communication heavy and the implementation is complex. And for this communication heavy, this is why it's recommended if you",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "take a look at the different distributed training libraries. They recommend that you use TP within a single node. So if you have a node of 8 GPUs, they say that it's better to use TP lower than 8 so that the communications for TP stay within a node,",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "so that when you do forwards and backwards, you don't get stuck waiting for the AllReduces or the reduce-scatter and all-gather in forwards and backwards. So now, we've seen two axes of parallelism. And before generalizing to the others, let's see what it",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "means to combine them. So we've seen the data parallel, which shards data. Here, we have data parallel size three. And we've seen tensor parallelism, which shards the model into dimensions. So what does it mean to combine these two? Well, the cool thing",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "about the forms of parallelism that we've seen that they are orthogonal of each other. So if batch is sharded along the data axis, it's replicated. So it's replicated here along the model axis and vice versa. If the model is sharded along the TP axis,",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "it's replicated along the data axis. So this helps us make a mesh of all the parallelism. Now, we've only seen two, but later we can see five or there's even six or seven. It depends on how many partners you want. And in the code, if you look",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "at TorchTitan or megatron or narratron, you're going to see that-- at first, they init the process group, so they init all the WORLD_SIZE. Let's say you have six GPUs here. So you're going to create your TP groups and your DP groups. And later, you can",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "just pick on which axis you want to do the communication operations. So for example, I want to already use along the TP group. So I'm going to AllReduce like this and AllReduce like this along all the other axes. So this is the beauty of this parallelism.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "We make sure that they are orthogonal of each other. And now, we've gone through the first two big parallelisms, the last three I'm going to go fast over them. So for PP, it's much easier than TP. So we have our layers like this. And instead of sharding",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "them horizontally, I'm going to share them vertically. So I'm going to put some layers on the first GPU, some layers on the second GPU. But you can see here that the problem is for GPU 1, at the beginning, it doesn't have any activations.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "So it's just going to say keep waiting for the first GPU and for the first GPU after it goes-- after the forward goes through the first four layers, it just waits for the other GPU. So how can we solve this? And for pipeline parallelism, there",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "is what we call PP schedules pipeline parallelism schedulers. So the schedulers, they define how your GPUs are going to do-- are going to load the data, and they're going to communicate activations and gradients with the other ranks. So let's start with",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "a simple assumption. Each GPU has one layer of your model. And we're going to start with the simplest scheduler, the all forward, all backward scheduler. So we're going to have the first batch, which is this one. So it starts at the first GPU.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "And then he sends the activations to the second GPU and then third and then fourth. And then I have another batch. So the GPUs don't wait. I'm going to schedule eight batches. So all of them, they're going to do the forwards. And then they're going",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "to do the backwards. So every time one GPU does the backward, it sends the gradients to the previous layer, et cetera. And I repeat this. So this is all forward all backward. And I schedule multiple batches to minimize the idle time. So the idle time is this.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "And it's the biggest problem in pipeline parallelism. So there is-- the best way to solve it is to have more complex schedulers. So this is the one forward, one backward scheduler. And the name comes from the fact that if you prioritize backwards",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "over forwards, you're going to have at some point like in the middle, you're going to have a forward, backward. So they're interleaved basically, forward, backward forward, backward. But we still didn't solve the pipeline bubble. This just helps with",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "the memory a little bit. So the best way to solve it would be to start doing forwards from this side as well. And this is what Deepseek has done in their DualPipe. So basically, if you have eight devices, you're going to distribute the",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "layers in a round-robin fashion. So the first layer, you're going to put it both on the first device and last device. So that both of them, they can start with data, et cetera. So there is a forward that's going like this. And there's a forward",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "that's going like this. And then a backward like this, and then a backward like this. And you manage the overlap in the house. So as we said, it's easier said than done because the implementation is very complex. And you need to keep track of the batches",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "and the forwards and backwards so that you send the correct activations, and this-- and the correct gradients. So in general, the pros and cons. So the pros is that the communications are cheap. There is no AllReduce, nothing to have a headache about.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "You just exchange the activations and the gradients. And the sharding is very efficient because every GPU keeps track of just a shard of the model. It's model-agnostic. I don't care about the nature's model, as long as I just have layers, and I just",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "send activations and gradients. And the cons is that I need to save activations for multiple micro-batches, which is annoying. So for example, if in this case, I had eight backwards in here, they scale 20 micro-batches. So I need to save 20 times the",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "activations for the different. So usually for PP and FSDP since they rely on activations a lot, we offload the activations. So we use activation checkpointing or now there is even CPU offloading. If you have a good GPU, you can offload the activations",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "to the CPU, and then you just load them back when you need them. The other annoying thing is, if you want to hide the PP bubble, you need an advanced pipeline scheduler like dual pipe. And the implementation is complex. It's very hard and it's",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "tough to add to the library. And 13 is you need multiple micro-batches to hide PP bubble. So in a sense, this is like the deep issue, is that you need to scale your global batch size with the PP size. And the last two parallelisms, they",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "are specific to two use cases. For example, for CPP, the issue we want to solve is sequence parallelism. So once you scale your sequence length, the activations, they explode. So the question-- even with TP, even with PP, the question is, how can we",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "amortize the memory cost when doing long contact training? So what we've seen previously in data parallelism, when we have a batch, we can shard it along the batch dimension. But the other-- what we can do now is let's shard it along the sequence dimension.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "So it's analogous to data parallelism. But if I do that, and if I give a different sequences to the GPUs, what about attention? Because when I do the forward, each GPU has only a part of the sequence. So how can I compute attention over my entire sequence?",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "This is where ring attention comes from. And the idea is similar to online softmax that is used in flash attention. So you don't need to compute softmax out of the box. You can compute it in an online fashion. So each GPU, they compute softmax locally",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "and then they exchange K and V with the other GPUs. Then they update the softmax, et cetera. So this is the idea behind ring attention. So the problem with this, the small problem, is that we need to communicate K and V inside the attention block.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "So inside each attention block, which is a similar problem to TP, so it's also communication heavy. And for that, we can use send receive operation for GPUs to send the other case. And this you can also use all-gather for that. So the pros is it's",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "the only parallelism that efficiently partition large sequences memory, sorry. And because the other parallelisms, they don't really shard the sequence. So if you have a big sequence, there's a problem. The cons is that it's communication heavy",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "because in each attention block, you need to exchange K's and V's. And similar to DP, since each GPU sees different data, we need to AllReduce the gradients and it doesn't help much for short sequences. So really, it's really used if and only",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "if you're doing long context training. And for the last one EP, it's used for MoEs. And for MoEs, we don't have time to go really through them. But how can we parallelize them? So when you have your router and you want to route your tokens",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "to different experts, you can just shard your experts across GPUs. So the question would be, what comes would I add so that I can do the routing? For routing, there is a switch transformer and top K version. So let's talk about top K,",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "which is the more generic one. For this, let's take a look at all-to-all operation. So all-to-all, it's the most generic way of exchanging messages. So basically, you have, for example, four processes, four GPUs. Each one of them, they have",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "four different messages. So all-to-all what it does is just each process, it's going to send their messages to the other four. And each process is going to get messages from the other four. So in a sense, all processes, they communicate with each other.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "It's like an n squared type of communication. It's the more-- it's the most complex one. And how does this apply in MoEs? So let's say each GPU has different experts. So when you're doing the routing, each GPU is going to have some tokens that need",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "to be routed to the first GPU. So this is why all-to-all helps. So the first GPU here, which has the first expert, needs to get the tokens associated to it from the other GPUs. So how can we apply expert parallelism? First, we shard the experts across GPUs",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "and only the experts. So expert parallelism is really only applied in MoE. It doesn't touch attention. And so to avoid duplicated work in attention, we need to share data across GPUs. So EP is-- actually, it's not orthogonal to DP in this sense.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "So you also shard data across expert parallelism. And we need an all-to-all communication to route tokens to their respective experts, which is the operation that we call dispatch. And of course, we also need to combine them after the experts to retrieve the",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "original sequences. So the problem and the bigger-- the biggest problem that you're going to face when scaling MoEs. So how do we know what all-to-all dispatch to use? So basically, in order to know how the tokens are routed, you need for the router",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "to compute the scores. So the CPU needs to wait for the router to compute the expert scores. And this is annoying. Why? Because the CPU needs to wait here for the GPU to do the router calculation, what we call the dispatch preprocess.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "And the GPU needs to tell us what are the buffer sizes, and what are the tokens per expert that we need. And to solve this, there's, for example, deep EP by Deepseek and there is hybrid EP by NVIDIA. And the only way to solve this is to use recent hardware so",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "far, which has IBGDI and RDMA. So these allow us to-- so they allocate specific SMs and specific memory to basically-- whenever they calculate or they know which tokens to route to each GPU, they have already allocated the memory for that calculation.",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "And this is a problem because for example, if you have H hundreds or if you don't have InfiniBand network, you're stuck with this CPU-GPU sink. And this is why most labs who do MoE trainings, they have very slow trainings just because",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "of this problem of hardware. And even the Deep EP, that Deepseek has open source, you're going to find out that it only works on IBGDI, which is InfiniBand. So the other labs have a hard time catching up with this. So in summary, expert parallelism",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "is the only way to distribute MoEs efficiently, and it's communication heavy. It needs an all-to-all, every MoE block. And since it has different data, it needs to all reduce gradients. And there is a CPU-GPU sync, which slows down your training very much",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "to launch this batch operation. So in summary, it is only to be used for MoE trainings and/or-- so the practical solution that people do to train with expert parallelism is to combine it with PPE. And how do they do that? So we said that the dispatch",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "and combine are slow. And if you remember, for our one forward, one backward, we can overlap the forward and the backward. So what we do here is-- so we have two batches, which is the blue and the green here. So when we want to do the dispatch, which",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "is for the blue batch, in parallel, we can do the backward for the other batch. And this is nice because-- so MLP here doesn't need this batch. And we can do the dispatch here. And once this is done, we can do the dispatch for the other batch, et cetera.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "And this is already implemented in some libraries. For example in Megatron, you can use these two flags. So in a nutshell, you can combine all five parallelisms. And you're going to have different communications in different steps of your training.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "And we've seen that CP and EP-- so EP only applied to MoEs and it only touches the MoE. And CP only touches self-attention here. And yeah, all parallelism are orthogonal. So you can combine all five of them. And yeah, as a recap, we've",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "seen the five parallelisms. And you can find a cheat sheet that we made in the Ultra-scale Playbook on how to make decisions following the number of GPUs you have. And finally, if you're more interested in the infra side of things, you can take",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "a look at the small training playbook in the infra section. We've made a lot of benchmarks on how infra can handle these types of workload. And you can find more references in the two books mentioned. Also, the Jax Scaling Book for TPU point of view.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "And if you're interested in these kind of things, contributions are very welcome, so Nanotron, Torchtitan, Megatron-LM, and a lot of other libraries. So feel free to reach out if you want to contribute. And one last thing is as we scale to thousands of GPUs,",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "let's be mindful of their energy impact and use them responsibly. Thank you. OK. We'll take any questions in person or over Zoom. Any in the room? Yeah, thanks for the talk. It seems that for expert parallelism, you also have to have the tokens",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "routed evenly across ranks. Because if all of your tokens end up routed to one GPU, then everything else is idle. What are ways to fix this in practice? That's what the load balancing tries to do. So depending on which approach, for example, Deepseek,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "they initially introduced the load balancing loss. Sorry. So the load balancing acts basically in the loss, a factor that penalizes uneven distribution of tokens. And there's multiple ways to do it. There's the auxiliary loss free where you just",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "add a bias term when you compute the router, and it would automatically adjust the distribution so that it's even across GPUs. We also have some on Slido. One is, do different parallelism strategies meaningfully affect scaling efficiency model",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "performance or convergence, or do they just enable reaching larger scales? What's the first one, scaling convergence? Efficiency. Convergence efficiency. I think they would like scaling laws of language models. OK. So actually, the different policies",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "do not change the forwards and backwards. So ideally, if everything is implemented correctly, it should have the same effect as if you had one GPU. So like the same scaling laws applies. And you shouldn't find any difference in using PP over EP",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "from computation point of view. Another is, how can we reduce GPU idle time during, say, RL training when CPU side checkpointing or environment data processing becomes sequential and a bottleneck? Yeah. So for that, at least for text, you can allocate a lot of",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "workers beforehand. So the PyTorch data loaders, they allow you to specify the number of workers that you can use, and they can pre-process the data before the training workload. So that should at least help alleviate the pre-processing",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "so that it's done before you even go through the training iterations. Any more in the room? Also, someone asked, do we have an automatic way to decide the best parallelism? Yeah, there have been some papers for that. I think if you take a look at Jax book,",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "they've played with that and dilated the TPU decide on what's the best parallelism. But it really depends on your specific. So model size, how many data you have, the global batch size, and the network you have. So the biggest factor in what",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "we've said when you scale, of course, is the network bottleneck. So if you have, for example, let's say NVLink. So in GPUs, usually NVLink is either four, eight, or for the most recent one, 32 or even 72. So it depends on that. You can even use the more",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "communication heavy forms of parallelism or the less communication heavy ones. And for example, for GPUs, since they are in pods of 32, usually people, they allow themselves to use tensor parallelism over the 32 pods. So yeah, it really depends on the hardware",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "and the global batch size. All right. Thanks, guys. Thanks so much Nouamane for the amazing insightful talk. So let's give it a hand again for our speaker.",
+      "start": 1098,
+      "duration": 6
+    }
+  ]
+}

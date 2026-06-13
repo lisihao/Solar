@@ -1,0 +1,909 @@
+{
+  "videoId": "e_H_tkpCAK4",
+  "title": "Stanford CS25: Transformers United V6 I From Next-Token Prediction to Next-Generation Intelligence",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 46212,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "I'd like to introduce\nour speaker for today.\nSo Shrimai is an AI\nScientist at Mistral AI,\nas well as an Adjunct\nProfessor at Boston University.\nAnd her research focuses on\nadvancing large language models\nor LLMs, particularly improving\ntheir reasoning capabilities.\nSo prior to this, she\nwas lead contributor\nto NVIDIA's Nemo Tron\nfamily of models,\nworking on data curation,\npre-training, and scaling.\nHer work emphasizes optimizing\npre-training pipelines,\nincluding data\nselection, blending,\nand ordering strategies to\nmaximize downstream model\nperformance.\nSo without further ado,\nI'll hand it off to Shrimai.\n[APPLAUSE]\nHello, everyone.\nYeah, thank you for\nthat introduction.\nYeah, I joined\nMistral this Monday.\nBut today, I'll be talking\nabout a lot of my work I've\ndone during my time at NVIDIA.\nAnd if any of you are\ninterested to know\nabout Mistral AI or\nopportunities at Mistral AI,\nplease feel free to email\nme at my email address.\nAnd I'm also here after the\nclass to answer any questions.\nSo let's get started.\nSo today, I'll be talking about\nfrom next-token prediction\nto next-generation\nof intelligence.\nAnd what's the future of\npre-training in general?\nBefore I get started,\nthis according to me,\nis the recipe to\nbuild a SOTA LLM.\nAnd it has four key components.\nYou need smart data.\nYou need a lot of high-quality\ndata which is diverse.\nYou need to be able to do good\nfiltering, de-duplication,\nand so on.\nYou need smart architecture.\nSo as you know,\narchitectures are evolving.\nFrom transformers, we now have\nMamba2 hybrid architectures\nand so on.\nYou need smart algorithms.\nHow can you build\nadvanced training recipes?\nAnd you, obviously,\nneed smart collaboration\nbetween pre-training,\npost-training teams,\nresearch, and\nengineering and so on.\nSo, what is the work that\nwe have done in building\nsmart data for LLMs?\nI just want to give a\nbrief overview of that.\nSo during my time\nat NVIDIA, I was\nable to contribute towards MIND,\nwhich is a synthetic dialogues.\nBut they are all\nrelated to math.\nNemotron-CC-Math,\nwhich is common math\nthat is passed from\nCommon Crawl documents.\nAnd all of this data, including\nthe Nemotron Nano 2 dataset,\nit's available in an open-source\nmanner on Hugging Face.\nWe also developed\nprismatic synthesis,\nwhich encourages diversity\nin synthetic data generation.\nAnd Nemotron-CrossThink,\nwhich was a dataset more\ngeared towards reasoning\nbeyond math and code.\nAnd this particular\nNemotron-CrossThink dataset\nbecame one of the\nmost trending datasets\nfrom NVIDIA on Hugging Face\nthe week that it was released.\nBut today, I'll be talking\nabout building smart algorithms\nfor LLMs.\nAnd in particular, I want to\ntalk about three of our works--\nmaximizing your data's\npotential, front-loading\nreasoning, and RLP, which\nis using reinforcement\nas a pre-training objective.\nSo before I get started,\nI want to give you\nan overview of what I'm\ngoing to be talking about,\nand what are the key\ncomponents of what\nI'm going to be talking about?\nSo let's say there\nare these four kids--\nPascal, Volta,\nAmpere, and Hopper.\nThey all have access\nto the exact same data,\nthe exact amount of\ndata, quality of data.\nEverything is same.\nBut what is different\nfor these four kids\nis how they learn\nfrom this data.\nAnd there are three\nkey components there.\nOne is curriculum which is the\norder in which you see the data.\nSecond is front-loading\nreasoning.\nWhat I mean by that\nis all four of them\nhave access to high-quality\nreasoning data.\nBut, how do they use it?\nDo they use it early on?\nOr do they wait later\non in life to use it?\nAnd I like to give\nan analogy over here\nwith the American education\nsystem, where there\nis this concept of\ntaking AP classes, which\nis college level classes\nduring your schooling years.\nAnd the idea behind that\nis that you will do well\nif you do-- if you take\nthose classes during school,\nthen you'll not only\ndo well in school,\nbut you'll also do\nwell in college.\nSo that basically\ncaptures the idea\nbehind front-loading reasoning.\nAnd then finally, learning\nthrough thinking, not just\nobserving.\nSo these are the\nthree key strategies.\nAnd let's see how\nthese four kids learn\nusing these three strategies.\nSo Pascal, unfortunately,\ndoes not follow a curriculum.\nThe data that's\navailable to him,\nhe is just reading it randomly.\nHe may read one text from\nhistory, one very advanced math\ndocument, and then a\nvery basic math document.\nHe does not utilize the\nreasoning high-quality data\nthat is available to him.\nHe just never reads it.\nAnd finally, he does not\nlearn through thinking.\nVolta, on the other hand,\nfollows a curriculum\nthat is, she reads the documents\nin a certain order and finds out\nthat it's beneficial,\nbut she decides\nnot to read the high-quality\ndocuments available to her,\nand she also doesn't\nlearn through thinking.\nAmpere follows a curriculum and\nuses the reasoning documents\nthat are available\nto him, but he also\ndoesn't learn through thinking.\nAnd finally, Hopper learns\nthrough a curriculum.\nShe also makes good use of\nthe high quality documents\nthat she has, and she also\nlearns through thinking\nand engaging with the material.\nShe's not just\nreading the material.\nSo this is what we will go\nover throughout the whole talk.\nI'm going to be showing\ncomparisons between Pascal,\nVolta, Ampere, and Hopper.\nSo first, let's cover\nmaximize your data's potential\nand enhancing LLM accuracy\nwith two-phase pre-training.\nSo as you all know,\nLLMs today are\ntrained on trillions\nand trillions of tokens.\nAnd they come from vast\nsources, like all kinds\nof diverse sources that are\nlegal documents, books, papers,\nweb crawl, which is\neverything and anything.\nAnd you have math documents.\nAnd this is an analysis\ndone by Epoch AI, where\nit shows how much data is\nconsumed by the LLMs today.\nAnd it projects that by\nsomewhere around 2030,\nLLMs would consume more than\n95% of human generated data.\nAnd the blue curve here is what\nI want you to follow and see\nthat in somewhere 2021,\nwhen GPT-3 was trained,\nit was trained on hundreds\nof billions of tokens.\nBut Llama 3, which\nwas in late 2024,\nwas trained on tens of\ntrillions of tokens.\nAnd that's where we are today.\nAnd soon we will consume all\nof the human-generated data.\nSo now that you have all these\ndifferent data sources, now\nthere are two important\nquestions to answer.\nFirst is that, how do you weigh\nthese different data sources?\nWhich is that, how do\nyou decide which document\nis a better quality document\nand which document is not?\nAnd, how do you order these\ndifferent data sources?\nSo again, like\ncurriculum, how do you\nknow which document\nto read first\nand which document to\nread later on in life?\nSo to create an optimal\nblend or data mixture,\nwe follow this simple pipeline\nwhere you have all this data\nand you do quality estimations.\nSo you build quality\nclassifiers and you\ntry to estimate what's the\nquality of each of your data\nsource.\nAnd the idea then, when you're\ncreating your optimal data\nmixture, is that data sources\nthat have the same quality,\nthey should be weighed\nsimilarly in your data mixture.\nAnd higher quality\ndatasets must be\nweighed higher than medium\nand low quality data sources.\nNext, you want to\ndo epoch estimation.\nThis is basically estimating how\nmany repeats of a data source\nyou want to see.\nSo to get the most juice out of\nyour high quality data source\nespecially, you\nwant to estimate,\nwhat is the maximum\nnumber of repeats\nyou want to see of this\nparticular data source\nbefore it starts giving\ndiminishing gains\non your downstream tasks?\nSo you'll estimate the quality.\nYou'll estimate the\nnumber of repeats.\nAnd based on this, you create\nyour blend, optimal blend\nor your optimal data mixture.\nAnd then for\ncurriculum, we follow\na two-phase pre-training\napproach, where in phase 1,\nthe idea is to encourage\ndiversity in data.\nSo you want to be able to\nexpose the model to as much data\nas you can and as\ndiverse data as you can,\nwhere this is also mostly\nthe data mixture looks\nlike it has a lot of web\ncrawl, including both medium\nand low quality crawl.\nYou also show lower number of\nepochs of high quality data\nsources at this time.\nAnd then in phase\n2, the emphasis\nis only on high quality\ndata, that is, only\non higher number of epochs\nof high quality data\nsources like math,\nWikipedia, code, and so on.\nSo this is the\ntwo-phase approach.\nAnd this is what we follow\nin our pre-training.\nAnd what are the baselines\nfor this approach?\nSo first is natural\ndistribution.\nSo you have three\naxes-- quality, epochs,\nand order of the data.\nSo in natural distribution,\nit's basically\nyou don't care what is\nthe quality of the data\nor, how many repeats should\nI see of a particular data?\nIn natural distribution,\nthe way you\ncreate the blend is that you\njust draw samples from a data\nsource, and they are equivalent\nto how many tokens are\navailable in that data source.\nSo if you have a data source,\nwhich is low in quality,\nbut it is a huge\ndata source, it is\nvery large in number\nof tokens, then\nyou will see more\nof that data source\njust because it has more\ntokens available in it.\nAnd in this baseline,\nyou also don't\nshow any ordering of the data.\nThe second is where you\ncreate an optimal blend, that\nis now you have\nfigured out, what\nis a higher quality data source?\nAnd what is a low\nquality data source?\nAnd you've created\na nice data mixture\nusing this information\nabout the quality\nand information about how\nmany repeats you should see.\nBut you're not really showing\nit in any particular order\nto the model during\npre-training.\nYou're just showing\nit in a random order.\nAnd finally, our\ntwo-phase approach\nwhere you create\nthe optimal blend,\nbut you also make\nsure that you show it\nin a particular order,\nwhere in phase 2,\nyou show more of the\nhigh quality data source.\nSo you take care of quality\nepochs and order in this.\nAnd so this is the difference\nbetween Pascal and Volta\nthat I was talking\nabout earlier, where\nPascal neither did he\nestimate quality or epochs.\nAnd he didn't follow any\nparticular order while learning.\nWhereas Volta follows\na two-phase approach\nand creates an optimal\ndata mixture from the data\nthat's available to her.\nAnd if you do a\nhead-to-head comparison,\nthen Volta is on average\n17% better compared\nto Pascal and 3.4% better\ncompared to a random ordering.\nBut you have an\noptimal data mixture.\nSo the next part of the talk\nis front-loading reasoning.\nAnd here we talk\nabout the synergy\nbetween pre-training\nand post-training data.\nSo the idea of\nphilosophy behind this\nis that today's LLMs follow\nthis particular pipeline.\nYou have pre-training\nwhere you try\nto learn about world\nknowledge and facts.\nSupervised Fine\nTuning, SFT, where\nyou are learning to mimic\nreasoning like answers or you're\nbasically learning\nreasoning formatting.\nAnd in RL finally, you\nactually learn about reasoning.\nAnd this in our\nopinion where you're\ndoing only general knowledge\nduring pre-training\nand in post-training is\nwhere you add reasoning skill\nas a post hoc thing.\nThat creates an unreasoning\nfoundation or a weak foundation.\nSo what we propose is\nto front-load reasoning,\nwhere in pre-training\nyou not only learn\nabout general knowledge, but you\nalso learn about reasoning skill\nitself.\nAnd then in post-training,\nyou can amplify and refine\nthis skill.\nAnd this, we believe, would\nlead to stronger foundation\nfor reasoning\nmodels specifically.\nSo what is the study\nthat we have done\nin front-loading reasoning?\nWe basically systematically\ninject reasoning style data\nat different phases of\nthe tree of the training,\nlike pre-training SFT and so on.\nAnd we try to study, what is\nthe impact of adding reasoning\ndata at these different phases?\nSo this is the general\npipeline, that you have data,\npre-training SFT, and then RL.\nAnd now you have access\nto this reasoning data.\nAnd we categorize\nthis reasoning data\nalong three axes, which\nis diversity, quality,\nand the quantity of\nthe reasoning data.\nAnd, in this study,\nwhat we do is\nwe try to understand the\ndiversity, quality, and quantity\nof this reasoning\ndata to be added\nin pre-training versus in SFT.\nAnd what is the impact of it?\nSo in the next few slides, what\nI'm going to be talking about\nis that you have\nthis reasoning data.\nAnd there are two conditions.\nYou either add it\nin pre-training\nor you don't add\nit in pre-training.\nIf you don't add\nit in pre-training,\nthen I'm going to call it\na no reason base, which\nis that in your base model\nwhen you're pre-training it,\nyou didn't see any\nreasoning data.\nAnd the second is\nthe reason base,\nwhere in the\npre-training itself,\nyou've seen some amount of this\nreasoning data, some quantity,\nsome quality, or some diversity\nof this reasoning data\nis added in pre-training.\nAnd here I just wanted\nto show this slide\non what evaluation\nmetrics we use\nto evaluate pre-trained\nmodels or post-trained models.\nAnd the reason I'm\nshowing you this\nis because there are\ndifferent benchmarks that\nare used to evaluate base models\nthat is only pre-trained models.\nAnd there are\ndifferent benchmarks\nthat are used to\nevaluate models that have\nundergone SFT, RL, and so on.\nSo when you see the numbers\nin the next few slides,\nthey may be different for\npre-training and post-training.\nSo, what did we learn\nfrom this study?\nSo first lesson is that\nincluding reasoning data\nin pre-training is beneficial.\nSo this is the comparison\nbetween Volta and Ampere\nright after you finish\nyour pre-training.\nAnd so if you see, then\nAmpere is doing 16%\non average better\ncompared to Volta.\nThat is the reasoning\nbase, that is\nadding Ampere saw this reasoning\ndata during pre-training,\nVolta did not.\nAnd ampere got\n16% gain right out\nafter the pre-training phase.\nAnd that shows us that\nadding this reasoning data\nand pre-training\nleads to improvement\nin downstream accuracy.\nBut now it's not\nenough that you just\nsee gains after pre-training.\nWhat happens after SFT\nand after post-training?\nDo these gains just\nget washed away\nbecause you used reasoning\ndata and pre-training\nand you also used reasoning\ndata in your SFT and so on?\nSo this is the comparison\nfor both of these cases.\nNo reason base and reason\nbase after doing SFT.\nAnd after doing\nSFT, as well Ampere\nis still doing 9.3%\nbetter compared to Volta.\nAnd this tells us that the\nadvantage of adding reasoning\ndata to pre-training,\nit doesn't get\nwashed away after you do\nSFT, but it just grows.\nThe third lesson.\nSo for the third lesson,\nI want you to again come\nback to this axis\npart that we had\nthree different axes for\ncategorizing reasoning data.\nAnd based on this, we\nhave three datasets.\nSo one is SHQ, which is small\nin quantity and diversity,\nbut it is high in quality.\nThe second is LDQ, which is\nlarge in diversity and quantity\nbut low in quality.\nAnd LMQ, which is a\nconcatenation of SHQ and LDQ.\nYou just combine them.\nAnd so what we observe here\nis that if you look at the bar\ncharts on the left side,\nthen the LMQ and LDQ,\nthey perform the\nsame on average.\nThat is adding this high quality\nSHQ data to LDQ and forming LMQ,\nit actually showed\nas if there is\nno benefit of adding this\nhigh-quality data to LDQ right\nafter pre-training.\nBut if we post-train\nthe same models,\nthen we see that LMQ has a\n4.25% boost compared to LDQ.\nSo what this tells us is\nthat high-quality data\nin pre-training, it can\nunlock these hidden gains\nafter doing SFT and you don't\nnecessarily lead to overfitting.\nThe fourth lesson is about\nhow early reasoning builds\na very strong foundation.\nSo now one can argue that hey,\nyou have this no reason base,\nbut what if you do\ntwice the amount of SFT?\nWould that catch up?\nOr what if you use\nmore data during SFT?\nWould then you catch up?\nAnd so on.\nSo there are these two cases\nthat we have discussed.\nOne where you use more\ncompute during SFT,\nyou use 2x amount number of\nepochs in SFT for the no reason\nbase.\nAnd for the reason base, you\njust do one epoch of SFT data.\nAnd you still see that you get\n3% gains even after doing 2x\nnumber of epochs\nin the SFT phase.\nSo this is basically\nusing more compute in SFT.\nAnd in the second case is where,\nif your total data budget is\nfixed, so you come and\nsay I have these fixed\nnumber of documents.\nAnd should I use all of them\nin pre-training or should I\nuse all of them in SFT?\nOr should I divide them?\nSo the graph on the right is\ntalking about this experiment\nwhere it's data matched, that if\nyou keep all of your reasoning\ndata for SFT versus if\nyou split it and you use\nsome of it during\npre-training and some of it\nduring post-training, and you're\nusing the most highest quality\nof data in the SFT phase here.\nSo even when you do\nthat, the reason base\nbasically performs\n12% on average better\nthan the no reason base.\nAnd what this tells us is that\nthis no reason pre-training\nor basically pre-training\nwithout using this reasoning\ndata, it cannot catch up by\ngetting more SFT compute.\nAnd even when you have\nfixed reasoning data budget,\nit's better to always\nuse some amount\nof that data in pre-training.\nSo the final lesson here is\nthat front-loading reasoning\ncreates a durable advantage.\nAnd again, this\nis the comparison\nbetween final and\nlast comparison\nbetween Ampere and Volta.\nAnd this is after it has\ngone through all the stages--\npre-training, SFT, and\nRL, RLVR in this case.\nSo we see that after\ndoing all of these stages,\nAmpere is still 19% on average\nbetter compared to Volta.\nAnd what, interestingly, we see\nis that the gain has actually\nballooned for these very complex\nmath benchmarks like AIME, where\nit's 39% better\ncompared to Volta.\nSo if we don't have any\nquestions on this part,\nthen I'll move to the last part\nof the talk, which is RLP--\nusing reinforcement as a\npre-training objective.\nYeah.\nSo when we say small high\nquality data [INAUDIBLE].\nWhen we say small high\nquality data and we say\nmedium high quality data, but\nhow to train this from a code\nperspective when you\ntry to do pre-training,\nhow do you guys differentiate\nbetween both of them?\nHow do we categorize\nthem into quality?\nSo we have used all\nopen-source datasets.\nSo there's OpenThoughts and\nthere is Nemotron SFT dataset\nwhich is released.\nSo Nemotron SFT dataset has a\nlot of data set mixed in it.\nSo it's diverse and it is\nnot very heavily filtered\nlike OpenThoughts.\nSo that's why it is lower\nin quality in some sense.\nAnd it has diversity\nbecause it has many domains.\nIt's not just math and\nnot just code, and so on.\nAnd yeah, it didn't go\nthrough heavy filtering.\nSo it's lower in\nquality compared\nto at least OpenThoughts.\nYeah, it has far more\ntokens than it's larger.\nSo that's how we categorized it.\nBut you can also\nuse we have also\ndone filtering in terms\nof complexity, what\nis more difficult\nquestions and so on based\non either the length, or if we\nalready have difficulty labels\nand things like that.\nSo you can use these different\nmetrics to define quality.\nThank you.\nSame question for classifying\ndata as reasoning data\nis a methodology for deciding\nthat this kind of data,\nbecause that might be\northogonal to quality, or maybe\nnot completely orthogonal.\nAnd then is the notion of\nreasoning in the experiments\nyou've done domain independent?\nYou have legal\nreasoning for the way\na lawyer reasons which\nmight be different from\nhow a mathematician or\nhow an empirical scientist\nor an accountant or a\ndomain specific things.\nRight.\nSo we have used like--\nfor reasoning data, we\nuse whatever definition\nthe community is using.\nAnd as I said, we\nhave used datasets\nthat are already released in the\ncommunity as reasoning datasets.\nBut actually, from\nmy understanding,\ntypically, a lot of that data\nlooks like you have questions\nand then you have\nlong reasoning traces\nand then you have\na final solution.\nSo like Math Olympiad\nis a very good example.\nA lot of that data looks\nsomething like that.\nAnd yeah, for domain\nas well, yeah.\nFor the Nemotron SFT data, we\ndidn't do any domain filtering.\nBut I don't think we have\nnecessarily legal domain\nand things like that.\nA lot of it is STEM-focused--\nmath code, and other STEM areas\nthat are relevant to MMLU,\nwhich is a benchmark,\nand so on and so forth.\nSo yeah, that's the\ncomposition of the data.\nI'm wondering, do\nyou do automated data\nmixtures/recipe optimization or\nare these recipes handcrafted?\nIt's a mixture of both.\nSo all of the quality\nestimation and Epoch\nestimation that's automated.\nAnd then we build a data\nmixture based on those.\nSo that part is not completely\nautomated, I must say.\nSo by epoch\nestimation, do you mean\nhow much of the total token\nbudget for each dataset?\nOr do you mean--\nHow many repeats\nof that data source\ndo you want to see before\nyou get diminishing returns.\nSo there are datasets where\nif you see more than just two\nrepeats it, it will give\ndiminishing returns.\nWhereas for some datasets,\nyou can do four repeats\nor six repeats and so on.\nOh, that sounds amazing.\nHow do you estimate that?\nSo you can design an ablation\nstudy where you have a base data\nmixture, where you are just\nusing one repeat of that data,\nand then you keep increasing\nit like to two repeats, four\nrepeats, and so on.\nAnd as you increase it, the wait\nthat, that data source gets,\nthat increases.\nBut then you have to take\naway that much weight\nfrom some other data source,\nwhich is typically a low quality\ncrawl or something like that.\nSo you'll take\nweight away from that\nand give it to this\ndata source and try\nto see if you do two repeats of\nthis, then what's the impact?\nFour repeats of this,\nthen what's the impact?\nAnd so on.\nI see.\nAnd you do this for each\ndomain in your corpus?\nYeah, we try to do it for\ndomain categories rather than\nindividual data sources.\nLike so, for\nexample math, you'll\njust do it for all of\nmath rather than there are\nmany data sources within math.\nI see.\nThank you so much.\nOut of curiosity, have you\ntried the opposite approach\nof quality first and\ndiversity afterwards\nto see if-- because\nyou said first,\nwe go for Monte-Carlo\nMarkov chain.\nYou're doing exploration and\nexploitation kind of thing.\nAnd you got better\nresults by doing diversity\nfirst and quality after?\nYeah.\nSo in the two-phase\napproach, yeah, we first\nwant to do diversity\nand then quality.\nAnd then we did have an\nablation where we swapped that\nand it didn't give\nas good results.\nYeah.\nSo it's the opposite\nof human beings, where\nif you train a child\nwell, after that,\nthey can deal with rogue\nbehavior, whereas--\nin that sense,\nexploration first seems\nto be doing the better job.\nYeah.\nAwesome.\nThen we can move\nto the last part,\nwhich is using reinforcement\nas a pre-training objective.\nSo before I get started, I\njust wanted to talk about,\nwhat was the motivation for\nthis particular approach?\nAnd I'd like to tell a story\nof the tale of two learners.\nOne is Leo who learned\nby doing things.\nAnd second is Bolt who\nlearned by observing things.\nNow one day there was a\ntask to build a bridge,\nand you need to make\nsure that this toy car is\nable to pass across the bridge.\nSo Leo quickly grabs\na few stacks of blocks\nand puts them\ntogether and creates\nthis very simple bridge,\nwhich is not at all fancy,\nbut it works because this\ncar is actually able to pass.\nBolt, on the other\nhand, analyzes\nevery bridge that\nhas ever been made\nand builds a\nmagnificent suspension\nbridge, which is very fancy\ndesign, flawless precision,\nand so on.\nBut it was so tiny that the toy\ncar could not pass through it.\nAnd so the lesson\nhere is about learning\nby doing and not just watching.\nAnd today's models, they learn\nby watching text, that is just\npredicting the next token.\nWhereas the\nmotivation behind RLP\nis to teach models to reason\nthrough their own thoughts\nand not just by observing text.\nSo the problem with the\nstandard pre-training.\nSo I've shown this\npipeline earlier\nthat you have pre-training where\nyou're gathering world knowledge\nand you have SFT where you're\nmimicking the reasoning format.\nAnd you're essentially\ndoing imitation learning,\nwhere if you predict\nthe next token, then\nyou get some kind of a reward.\nNot RL reward, but yeah,\nyou get a yes or a no.\nAnd you're doing this\npattern matching thing.\nAnd only later during\nthe RLHF and RLVR phase,\nthat's when you're\nactually doing reasoning\nand you're giving the\nability to the model\nto do any kind of exploration.\nAnd that comes much later.\nAnd so reasoning is\nused as an afterthought\nand added as a post hoc thing.\nAnd the questions we\nwant to answer is that,\ncan reasoning be baked earlier\nduring pre-training itself?\nAnd then of course, do these\ngains actually last or are they\nwashed away after you\ndo the post-training?\nThis is also very important\nbecause earlier, I\nhad shown this slide on\nhow the models today they\nare consuming trillions\nand trillions of tokens.\nAnd so we have hit a wall\nwhere we are using the most\nnumber of tokens that we can.\nAnd so now the question\nis, how do you use them\neffectively or efficiently?\nAnd so RLP is one\nof the solutions\nfor that as well where\nmaybe you need to learn to--\nor develop data-efficient\nalgorithms.\nAnd so what is the difference\nbetween Vanilla pre-training\nand RLP pre-training?\nSo you have this context\nabout photosynthesis\nwhich is the process\nplants, algae,\nand some bacteria use to\nmake their own food using,\nand what's the next token?\nSo in the standard\npre-training, you\nwould just predict the next\ntoken given this context.\nAnd you would say it's sunlight.\nAnd that's just the\nVanilla pre-training way.\nBut in RLP, you give it\nan opportunity to think,\nan opportunity to explore.\nAnd it thinks that,\nyou know what?\nPhotosynthesis actually\nrelies on solar energy.\nAnd so the next token\nmust be sunlight.\nSo here you're basing\nthe probability\nof the next token given\nnot only the context,\nbut the thought that was\ngenerated by the model itself.\nAnd this is\nreasoning-driven prediction.\nAnd this is RLP training.\nSo the key difference\nis that RLP\nproduces an explicit reasoning\ntrace before predicting\nthe next token.\nAnd this makes the why of it\nvery visible and trainable\nand not just the final answer.\nSo this is a brief\noverview of RLP.\nAnd I'm going to go through each\nof the components step-by-step.\nBut before that, I wanted to\nshow you the prompt that we\nused to generate the thoughts.\nSo where we ask the model to\nspecifically focus on next steps\nrather than jumping to this\nfinal boxed answer and so on.\nAnd we also ask the model not to\nrestate any question or metadata\ncommentary and so on.\nSo first is, what is\nour thought policy?\nWhat do I mean by that?\nAnd so you have the prompt that\nI showed on the previous slide.\nYou have the input,\nwhich is the context.\nAnd this goes into\nthe thought policy.\nThe thought policy\nthen does rollouts.\nIt gets the opportunity to\nexplore different thoughts\nbefore it can predict\nthe next token.\nSo the thought policy does both.\nIt generates a thought and\nthen it generates a next token.\nNow this same input\ncontext without the prompt\nis passed to the\nno think baseline.\nThis is our standard next\ntoken prediction model.\nAnd given this input, it\ncalculates a probability\ndistribution on your\nvocabulary and predicts\nthe next token sunlight.\nSo from the thought\npolicy, we get p theta,\nwhich is probability of this\nnext token given the context, as\nwell as the reasoning trace\nor the thought tokens that\nwere generated by the model.\nAnd from the no\nthink baseline, we\nget p phi which is the\nprobability of next token given\nthe context.\nThis is standard.\nSo based on these two--\np theta and p phi,\nwe calculate this information\ngain-based reward.\nSo this is the information\ngain-based reward\nwhich is log of p theta\nminus log of p phi.\nAnd what's\ninteresting about this\nis that if you\nlook at that term,\nthen it's positive only\nwhen your thoughts actually\nmeaningfully\ncontribute to improving\nthe next token prediction.\nSo if the thought actually was\ngarbage or it didn't contribute,\nthen your reward can\nbe negative or even 0.\nAnd as you can see, because\nthis is not your standard RLVR\nkind of framing, where it's\nnot a 0 or one that you\nget at the end, that\nthis reward is dense.\nIt can have any value.\nAnd it can also be applied to\nevery position in the document\nwithout needing any\nexternal selection process.\nSo based on this\ninformation gain,\nyou get rewards for each of your\nrollouts, which I mentioned.\nThey are not binary,\nthey are dense.\nAnd finally, the last\ncomponent of this pipeline\nis exponential moving average.\nSo what is this\nNo-Think baseline?\nThis No-Think\nbaseline is basically\nupdated but with a delay.\nIt is the same as\nthought policy,\nbut with a delay of\nexponential moving average.\nAnd the reason we choose this\nis because we want the No-Think\nbaseline to be\ncurrent enough to be\nable to provide\ninformative comparisons\nduring your training,\nand it is also\nintentionally lagged so that\nwe can mitigate reward hacking.\nSo that's the whole\npipeline of RLP.\nAnd now to our experiments.\nSo the question is, can you\nimprove the reasoning ability\nof a base model without\nany task-specific tuning?\nSo over here we use the\nQwen 1.7B-Base model,\nthe final checkpoint.\nAnd we do RLP training\nfor one billion tokens.\nAnd we use general\npretraining corpora.\nSo now over here, we don't use\nany reasoning-specific data\nor anything.\nYou can use your web crawl.\nYou can use books,\npapers, whatever you want.\nAnd we show comparisons with\nthe baseline, of course.\nWe also show comparisons\nafter doing post-training\nwhich is SFT and RLVR.\nAnd we also show an\nadditional baseline,\nwhich is that if you use 1\nbillion tokens to do RLP,\nthen what if you use the\nsame 1 billion tokens,\nbut do the next token\nprediction loss?\nThat is, you just continue the\npre-training of the base model.\nSo we also show\ncomparisons with that.\nAnd so here are the results.\nRLP does show significant\nimprovement on the Qwen\n31.7B-Base model.\nAnd this is actually\nthe final comparison\nbetween Ampere and Hopper.\nAnd so when you do the base\nmodel comparison, which\nis the bar charts\non the left, RLP\ndoes outperform the\nbase model by 19%.\nAnd if you use those same tokens\nto do next-token prediction,\nthen it still does better\nthan that by 17% on average.\nAnd then when you do\nidentical post-training\nwhich is SFT and RL, the\ngains by RLP, the compound.\nAnd Hopper does 8% better\nrelatively compared to Ampere.\nSo here the lesson\nis that RLP is\nable to establish robust\nreasoning foundations\nduring pre-training\nthat are not washed away\nby downstream alignment.\nAfter doing SFT and RL,\nthey are not washed away.\nSo in the previous slide, I\nshowed token-matched comparison,\nthat if you do 1\nbillion tokens on RLP\nLP versus 1 billion tokens on\nnext token prediction, then\nyou see improvements with RLP.\nBut the question is,\nwould these gains\nsustain when you do compute\nequivalent baselines?\nWhat I mean by that is RL\ntypically takes more compute\ncompared to\nnext-token prediction\nbecause you need to do\nrollouts and you have\nto do n number of rollouts.\nYou need to do completions to\ngenerate this thought and so on.\nSo we calculate the\nnumber of flops needed\nusing this equation here.\nAnd now if I train RLP\nwith 170 million tokens,\nthen the flop-matched\nequivalent tokens\nthere is 6 billion tokens.\nThat is I will use\n6 billion tokens\nto do next-token\nprediction loss,\nbut I will use only 170\nmillion tokens to do RLP.\nSo that's the comparison here.\nSo here are the results.\nFor TM is Token-Matched,\ncontinuous pre-training\nor next-token prediction\nloss, basically.\nAnd FM is Flop-Matched.\nAnd so even for the\nflop-matched case,\nRLP outperforms next-token\nprediction by 14% on average,\neven though in this case,\nnext-token prediction loss is\nexposed to 35x more data.\nAnd so those were the results.\nIf you took the final\npre-trained checkpoint\nand then did RLP.\nNow the question is, what if you\ntake an intermediate checkpoint\nof your pre-training run and\nuse limited data for RLP,\nbut compare it with the\nfinal pre-trained checkpoint,\nthen would these gains sustain\nand how would that work?\nSo we have intermediate\ncheckpoints for the Nemotron 12B\nmodel v2, which is.\nAnd so we take a\ncheckpoint that is trained\ntill 19.8 trillion tokens.\nAnd we use RLP with\nonly 250 million tokens.\nAgain, we use general\npre-training corpora here.\nAnd then we compare\nit with the base model\nthat was trained till\n20 trillion tokens.\nSo RLP in this case sees almost\n$200 billion less tokens.\nAnd then here are the results.\nSo RLP is scaling in\nthis case with LLM size\nbecause this is much larger\ncompared to the Qwen results\nthat I showed earlier.\nAnd also we have\nscaled frameworks\nbecause nano V2 is a hybrid\nMamba2-based model whereas Qwen\nwas a transformer model.\nSo again, here base has\nseen 20 trillion tokens.\nBase plus RLP has only\nseen 19.8 trillion tokens\nplus 250 million tokens.\nSo in this case, in\nspite of being trained\non $200 billion\nfewer tokens, Hopper\nis still able to get a 35%\naverage gain over Ampere.\nAnd as you can see,\nyou see largest\nboost in domains like science.\nAnd after doing\nidentical post training,\nRLP still outperforms Base\nby 3% absolute margin.\nSo the benefits of RLP\npersist and maybe even\namplify when scaling to larger\nmodels and across architectures.\nSo here is a little\nbit of background\non the relevant\nliterature in this space.\nThe rise of early reasoning.\nHow early can we introduce\nexplicit reasoning the way\nwe have in RLP?\nAnd so there are three\npapers, at least at the time\nour paper came out\nin this space--\nQuiet-STaR reinforcement\npre-training,\nwhich is called RPT,\nand reinforcement\nlearning on pre-training\ndata, which is called RLPT.\nAnd then our method\nis called RLP.\nSo here is a\nqualitative comparison\nbetween our technique,\nRLP, and RPT and RLP.\nSo the source of reward.\nSo in next token prediction,\nyou have no reward.\nWhereas in RPT and in RLPT,\nyou have an external verifier.\nYou will need different model\nto calculate the rewards.\nWhereas RLP is verifier-free\nand it's intrinsic reward.\nThe granularity of\nthe reward, it's\nsparse and binary\nfor RPT and RLPT\nbecause they use\nRLVR style rewards.\nWhereas for RLP, as I\nshowed, it's a dense reward.\nAnd finally, reasoning\nemergence is explicit and weak\nin case of RPT and RLPT,\nbut it's explicit and strong\nfor RLP.\nAnd here is a\nquantitative comparison\nwith the RPT technique.\nSo we have used a setting that\nis similar to the RPT paper.\nWe use the Qwen31.7B-Base model\nand we use the OmniMath dataset.\nAnd we train using RPT\ntechnique and RLP technique\non 170 million tokens.\nAnd as you can see, RLP\nis on average 4% better\ncompared to the RPT technique.\nAnd the reason behind\nthis is that RPT actually\nuses an external filter.\nSo it's using a\ncompletely different model\nto first go through\nthe pre-training data\nand select the tokens on which\nthis RPT reward can be applied.\nWe do no such selection.\nYou can apply RLT reward on\nany token in your document.\nAnd RPT uses a\nsparse binary reward.\nIt's just a yes or no, 0 or 1.\nAnd reinforcing that\nonly select tokens\nand it ignores the\nreasoning steps itself.\nWhereas in RLP, we apply\nthis dense per token reward\nbased on information\ngain, as I showed earlier.\nAnd that captures the\nfull reasoning signal\nbecause we are taking the\nreasoning trace into account\nwhen we are\ncalculating the reward,\nand that we believe\nis the reason why\nwe get better results.\nSo the key ablations\nand insights\nthat we discussed\nfor RLP is that first\nis that we enable\nthinking for itself,\nexploring and thinking for\nitself during pre-training\nitself.\nSo you get an\nincentive or a reward\nfor exploring and thinking.\nSo there's info gain reward\non intermediate thoughts.\nAnd that outperforms simple\nnext-token prediction.\nThe reward in RLP is\ndense and not sparse,\nand it can be applied\nat any position\nor at all positions\nin your document.\nAnd there is token\nefficiency because RLP\non 250 million tokens boosts\nthis Nemotron-12B by 35%,\nwhereas the comparison is with\n20 trillion token baseline.\nSo the key takeaways\nare that finally,\nwhat is the comparison\nbetween Pascal, Volta, ampere,\nand Hopper?\nSo this is a very rough\npercentage relative improvement\nthat you will see\nbetween these four kids.\nAnd as I said, they use\ndifferent learning strategies.\nThey have the same data, but\nthey use different strategies.\nAnd so if you see\nhere, then for Hopper,\nwhich she uses all\nthree strategies--\ncurriculum,\nfront-loading, reasoning,\nand learning through\nthinking, then you\ncan get as high as 60% relative\nimprovement over Pascal.\nAnd finally, some\ntangible takeaways here\nare that your\ntwo-phase approach is\nvery effective for\npre-training, where\nphase 1 focuses on\ndiversity, phase 2\nfocuses on high quality data,\nfront-loading reasoning,\nit does create durable\nand compounding advantage.\nAnd sometimes the gain\ncan be unlocked later\nafter the SFT phase.\nRLP, on the other hand,\nreframes RL for reasoning\nas a pre-training objective.\nAnd the goal there\nwas bridging this gap\nbetween next-token\nprediction and this emergence\nof useful chain of\nthought reasoning.\nAnd it suggests that even\nusing unannotated text streams.\nSo in our paper, we\nalso show ablations\nwhere, what happens if you\nonly use web crawl data?\nWhat happens if you\nuse only academic data?\nAnd so on.\nAnd typically, we\ndo see a 7% to 9%\ngain no matter what kind\nof data you're using.\nSo even if you use unannotated\ntext streams like web crawl,\nyou can still teach\nreasoning like behavior\nwhile strengthening\nthe foundation.\nAnd the post-training can\nthen build deeper expertise\nor amplify that reasoning skill.\nAnd finally, RLP brings\nexploration and reasoning\nincentives into pre-training,\nallowing a model\nto think through problems while\nstill building its knowledge\nand understanding of the world.\nSo in pre-training,\nyou not only want\nto do knowledge gathering and\nunderstanding of the world,\nbut you also want the model to\nexplore and understand reasoning\nduring pre-training itself.\nAnd this, we believe,\nopens a new axis\nfor scaling in terms of\nhow models learn to reason.\nAnd so finally, I\nwould like to leave you\nwith these four key components\nof pre-training-- smart data,\nsmart architecture,\nsmart algorithms,\nand smart collaborations.\nAnd I'm happy to take\nany more questions.\n[APPLAUSE]\nDo you have any questions?\nHi.\nSo I'm wondering about RLP.\nSo as you know, GRP\nwas a popular framework\nfor post-training.\nSo I'm wondering\nif RLP, like when\nyou said it was generating\nmultiple different samples\nand then you would calculate\nan information gain,\nwhich you could say analogously\nis like the advantage in GRPO?\nSo I'm wondering if\nthere's any similarities\nand what kind of contrast there\nare to the post-training GRPO\ntechnique with RPO?\nOh, yeah, we did use the GRPO\ntechnique itself actually.\nSo in GRPO, you get a\nreward, which is 0/1.\nBut now the way you're\ncalculating reward\nis this information\ngain-based reward.\nAnd then the rest of the\nadvantage calculation\nis very similar to how you\nuse GRPO in post-training,\nwhere you are\ncalculating advantages\nbased on the probabilities\nof the reasoning tokens\nas well, and so on.\nSo all that remains the same.\nThe way you are\ncalculating reward\nis the thing that has changed.\nJust a quick question\nis that, have you\ntried doing RPL or any\nof the other techniques,\nlike the first two\ntechniques you mentioned,\non vision language alignment?\nNo, not yet.\nYeah.\nOK.\nSounds good.\nThank you.\nQuick question on the RLHF.\nIs RLHF still a preferred\nway of using for LLMs\nbecause with RLHF, there\nis some kind of bias\nof making humans feel better?\nSo is it still used for our\nlatest models in general?\nSo this is independent\nof the RLP work.\nFrom my understanding,\nyes, a little bit\nof the data and like RLHF\ndata is still used and mixed\ninto the RLVR and so on.\nDifferent model families\nuse it in different ways.\nBut I would think\nthat it is still--\na part of it is still there\nin the RL stage, basically.\nSo, is there a way we can\nreduce this hallucination\nof the bias from models\nwhich are trained on RLHF\nnot to be too nice\nwith humans and more\nbe able to disclose the\ninformation in a way\nnot to please the\nhumans or something?\nThe question is that, can we use\nRLHF to reduce hallucinations?\nOr t will RLHF increase\nhallucinations?\nOh, I want to say in future,\nwhen we have more models coming\nup, how can we reduce this\nbias which gets introduced\nby RLHF into the models?\nIs there a better\nway to eliminate that\nwhen interacting with users?\nInstead of pleasing\nthe users, is\nthere a way we can have\nbetter responses but still--\nwhich helps the users instead\njust making them feel better?\nI see.\nSo in future, how do we\nmitigate the hallucinations?\nSo I think that's an ongoing\nwork, from my understanding.\nI don't work in that\nspace where people\nare trying to build classifiers\nof how helpful this thing is,\nhow also from the point of\nview of safety and so on.\nSo yeah, I am not following\nthat work completely,\nbut my understanding is\nyou need to always keep\non updating those classifiers\nbecause you can always\nget adversarial data and so on.\nAnd also like RLHF,\nas I said, it's still\na part of the\npost-training pipeline,\nbut it has become a\nmuch smaller part.\nMakes sense.\nThank you.\nYeah, I think that\nhas a lot to do\nwith alignment research,\nwhich like folks at Anthropic\nand so forth are focusing on.\nYeah, I think yeah,\nRLHF is definitely\nprone to things reward\nhacking, but there's\na lot of ongoing work\non how to reduce that.\nI can't think of\nanything immediately\noff the top of my head.\nI there's things\nlike RLAIF, which\nuses like AI instead\nof humans, which\nmight be less subjective\nand biased to some extent.\nBut yeah, I would check out some\nof the work around alignment\nand reducing reward hacking.\nHello.\nThank you for the talk.\nCould you speak a\nlittle more on how\nyou quantify quality of data\nin say, mathematical context?\nThat's quite clear, but\nyou also spoke a lot\nabout using a web crawler\nor other more general bodies\nof data?\nAnd how could you possibly\ngo quantifying quality\nin that context?\nRight.\nSo there are many\napproaches here.\nThe most popular being fine\nweb EDU-based classification.\nSo Hugging Face released this\nwhere they've built classifiers\nto tell how educational is\nthis content, given a web crawl\ndocument, it scores it\non a scale of 1 to 5.\nSo even at NVIDIA, we\nhave adapted that scaling.\nSo that's one way.\nThere's also essential\nweb that also did\nmore types of classifications\nin terms of not just\neducational quality or\neducational score, but domains,\nwhether it belongs\nto science or math.\nAnd also even within\neducation, whether it's\nlike intermediate or high\ncollege level education\nand so on and so forth.\nSo it depends on yeah, what\ndo you want to extract?\nAnd you can build a classifier--\nLLM-based classification\non rubric for that.\nAnd you can classify\nyour documents that way.\nBut fine web EDU is\nthe most popular one.\nAnd that's at least basic one\nthat is needed in some sense.\nAny more in-person questions?\nWhen doing RLP, what do you\nchoose for your prefixes\nto start with?\nDo you do it by--\nI'm assuming you do it on\nthe highest quality data,\nbut do you choose\nspecific tokens\nor just uniformly\nacross that data set?\nThat's a good question.\nSo theoretically,\nRLP can be applied\non any token in a document.\nIn practice, when we\nrun the experiments,\nwe take a document, we just\nrandomly choose a token.\nWe don't really select it\nusing some fancy techniques\nbased on entropy and so on.\nSo we randomly select a token,\nwe apply our RLP technique\non it.\nWe backprop the reward, and\nthen we throw away that document\nand we just get a new document.\nYeah.\nSo that's how.\nAnd also to correct\nyou, we are actually\nnot doing RLP on the\nhighest quality data,\nas I've been saying it's been\ndone on the pre-training data\nmixture.\nSo there is a lot\nof web crawl in it,\nand there's a lot of\nother stuff in it.\nIt's not done only\non reasoning data.\nWe have an online\nquestion that asks,\nhow far back can we likely go\nin the RLP experiments and still\nbeat the CPT baseline, given\nthat the 19.8 trillion token\ncheckpoint is already over 1,000\ntimes data to parameter ratio?\nThat's a great question.\nSo yeah, in the\npaper, we present\nresults with the 19.8\ntrillion checkpoint.\nBut we did do experiments\non just 20% of pre-training.\nSo if 20 trillion is like\n100% of pre-training,\nthen we do RLP on four\ntrillion token checkpoint?\nAnd we still see gains\nusing RLP compared\nto the baseline in some sense.\nOK, great.\nAny other questions?\nSo let's give another round\nof applause to our speaker.\nThank you.\n[APPLAUSE]",
+  "segments": [
+    {
+      "text": "I'd like to introduce our speaker for today. So Shrimai is an AI Scientist at Mistral AI, as well as an Adjunct Professor at Boston University. And her research focuses on advancing large language models or LLMs, particularly improving",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "their reasoning capabilities. So prior to this, she was lead contributor to NVIDIA's Nemo Tron family of models, working on data curation, pre-training, and scaling. Her work emphasizes optimizing pre-training pipelines, including data selection, blending,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "and ordering strategies to maximize downstream model performance. So without further ado, I'll hand it off to Shrimai. [APPLAUSE] Hello, everyone. Yeah, thank you for that introduction. Yeah, I joined Mistral this Monday. But today, I'll be talking",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "about a lot of my work I've done during my time at NVIDIA. And if any of you are interested to know about Mistral AI or opportunities at Mistral AI, please feel free to email me at my email address. And I'm also here after the class to answer any questions.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "So let's get started. So today, I'll be talking about from next-token prediction to next-generation of intelligence. And what's the future of pre-training in general? Before I get started, this according to me, is the recipe to build a SOTA LLM.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "And it has four key components. You need smart data. You need a lot of high-quality data which is diverse. You need to be able to do good filtering, de-duplication, and so on. You need smart architecture. So as you know, architectures are evolving.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "From transformers, we now have Mamba2 hybrid architectures and so on. You need smart algorithms. How can you build advanced training recipes? And you, obviously, need smart collaboration between pre-training, post-training teams, research, and",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "engineering and so on. So, what is the work that we have done in building smart data for LLMs? I just want to give a brief overview of that. So during my time at NVIDIA, I was able to contribute towards MIND, which is a synthetic dialogues. But they are all",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "related to math. Nemotron-CC-Math, which is common math that is passed from Common Crawl documents. And all of this data, including the Nemotron Nano 2 dataset, it's available in an open-source manner on Hugging Face. We also developed prismatic synthesis,",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "which encourages diversity in synthetic data generation. And Nemotron-CrossThink, which was a dataset more geared towards reasoning beyond math and code. And this particular Nemotron-CrossThink dataset became one of the most trending datasets",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "from NVIDIA on Hugging Face the week that it was released. But today, I'll be talking about building smart algorithms for LLMs. And in particular, I want to talk about three of our works-- maximizing your data's potential, front-loading",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "reasoning, and RLP, which is using reinforcement as a pre-training objective. So before I get started, I want to give you an overview of what I'm going to be talking about, and what are the key components of what I'm going to be talking about?",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "So let's say there are these four kids-- Pascal, Volta, Ampere, and Hopper. They all have access to the exact same data, the exact amount of data, quality of data. Everything is same. But what is different for these four kids is how they learn from this data.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "And there are three key components there. One is curriculum which is the order in which you see the data. Second is front-loading reasoning. What I mean by that is all four of them have access to high-quality reasoning data. But, how do they use it?",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "Do they use it early on? Or do they wait later on in life to use it? And I like to give an analogy over here with the American education system, where there is this concept of taking AP classes, which is college level classes during your schooling years.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "And the idea behind that is that you will do well if you do-- if you take those classes during school, then you'll not only do well in school, but you'll also do well in college. So that basically captures the idea behind front-loading reasoning.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And then finally, learning through thinking, not just observing. So these are the three key strategies. And let's see how these four kids learn using these three strategies. So Pascal, unfortunately, does not follow a curriculum. The data that's",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "available to him, he is just reading it randomly. He may read one text from history, one very advanced math document, and then a very basic math document. He does not utilize the reasoning high-quality data that is available to him. He just never reads it.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And finally, he does not learn through thinking. Volta, on the other hand, follows a curriculum that is, she reads the documents in a certain order and finds out that it's beneficial, but she decides not to read the high-quality documents available to her,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "and she also doesn't learn through thinking. Ampere follows a curriculum and uses the reasoning documents that are available to him, but he also doesn't learn through thinking. And finally, Hopper learns through a curriculum. She also makes good use of",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the high quality documents that she has, and she also learns through thinking and engaging with the material. She's not just reading the material. So this is what we will go over throughout the whole talk. I'm going to be showing comparisons between Pascal,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Volta, Ampere, and Hopper. So first, let's cover maximize your data's potential and enhancing LLM accuracy with two-phase pre-training. So as you all know, LLMs today are trained on trillions and trillions of tokens. And they come from vast",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "sources, like all kinds of diverse sources that are legal documents, books, papers, web crawl, which is everything and anything. And you have math documents. And this is an analysis done by Epoch AI, where it shows how much data is consumed by the LLMs today.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "And it projects that by somewhere around 2030, LLMs would consume more than 95% of human generated data. And the blue curve here is what I want you to follow and see that in somewhere 2021, when GPT-3 was trained, it was trained on hundreds",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "of billions of tokens. But Llama 3, which was in late 2024, was trained on tens of trillions of tokens. And that's where we are today. And soon we will consume all of the human-generated data. So now that you have all these different data sources, now",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "there are two important questions to answer. First is that, how do you weigh these different data sources? Which is that, how do you decide which document is a better quality document and which document is not? And, how do you order these",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "different data sources? So again, like curriculum, how do you know which document to read first and which document to read later on in life? So to create an optimal blend or data mixture, we follow this simple pipeline where you have all this data",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "and you do quality estimations. So you build quality classifiers and you try to estimate what's the quality of each of your data source. And the idea then, when you're creating your optimal data mixture, is that data sources that have the same quality,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "they should be weighed similarly in your data mixture. And higher quality datasets must be weighed higher than medium and low quality data sources. Next, you want to do epoch estimation. This is basically estimating how many repeats of a data source",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "you want to see. So to get the most juice out of your high quality data source especially, you want to estimate, what is the maximum number of repeats you want to see of this particular data source before it starts giving diminishing gains",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "on your downstream tasks? So you'll estimate the quality. You'll estimate the number of repeats. And based on this, you create your blend, optimal blend or your optimal data mixture. And then for curriculum, we follow a two-phase pre-training",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "approach, where in phase 1, the idea is to encourage diversity in data. So you want to be able to expose the model to as much data as you can and as diverse data as you can, where this is also mostly the data mixture looks like it has a lot of web",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "crawl, including both medium and low quality crawl. You also show lower number of epochs of high quality data sources at this time. And then in phase 2, the emphasis is only on high quality data, that is, only on higher number of epochs of high quality data",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "sources like math, Wikipedia, code, and so on. So this is the two-phase approach. And this is what we follow in our pre-training. And what are the baselines for this approach? So first is natural distribution. So you have three axes-- quality, epochs,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "and order of the data. So in natural distribution, it's basically you don't care what is the quality of the data or, how many repeats should I see of a particular data? In natural distribution, the way you create the blend is that you",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "just draw samples from a data source, and they are equivalent to how many tokens are available in that data source. So if you have a data source, which is low in quality, but it is a huge data source, it is very large in number of tokens, then",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "you will see more of that data source just because it has more tokens available in it. And in this baseline, you also don't show any ordering of the data. The second is where you create an optimal blend, that is now you have figured out, what",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is a higher quality data source? And what is a low quality data source? And you've created a nice data mixture using this information about the quality and information about how many repeats you should see. But you're not really showing",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "it in any particular order to the model during pre-training. You're just showing it in a random order. And finally, our two-phase approach where you create the optimal blend, but you also make sure that you show it in a particular order, where in phase 2,",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "you show more of the high quality data source. So you take care of quality epochs and order in this. And so this is the difference between Pascal and Volta that I was talking about earlier, where Pascal neither did he estimate quality or epochs.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "And he didn't follow any particular order while learning. Whereas Volta follows a two-phase approach and creates an optimal data mixture from the data that's available to her. And if you do a head-to-head comparison, then Volta is on average",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "17% better compared to Pascal and 3.4% better compared to a random ordering. But you have an optimal data mixture. So the next part of the talk is front-loading reasoning. And here we talk about the synergy between pre-training and post-training data.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "So the idea of philosophy behind this is that today's LLMs follow this particular pipeline. You have pre-training where you try to learn about world knowledge and facts. Supervised Fine Tuning, SFT, where you are learning to mimic",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "reasoning like answers or you're basically learning reasoning formatting. And in RL finally, you actually learn about reasoning. And this in our opinion where you're doing only general knowledge during pre-training and in post-training is",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "where you add reasoning skill as a post hoc thing. That creates an unreasoning foundation or a weak foundation. So what we propose is to front-load reasoning, where in pre-training you not only learn about general knowledge, but you",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "also learn about reasoning skill itself. And then in post-training, you can amplify and refine this skill. And this, we believe, would lead to stronger foundation for reasoning models specifically. So what is the study that we have done",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "in front-loading reasoning? We basically systematically inject reasoning style data at different phases of the tree of the training, like pre-training SFT and so on. And we try to study, what is the impact of adding reasoning data at these different phases?",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "So this is the general pipeline, that you have data, pre-training SFT, and then RL. And now you have access to this reasoning data. And we categorize this reasoning data along three axes, which is diversity, quality, and the quantity of the reasoning data.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "And, in this study, what we do is we try to understand the diversity, quality, and quantity of this reasoning data to be added in pre-training versus in SFT. And what is the impact of it? So in the next few slides, what I'm going to be talking about",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "is that you have this reasoning data. And there are two conditions. You either add it in pre-training or you don't add it in pre-training. If you don't add it in pre-training, then I'm going to call it a no reason base, which is that in your base model",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "when you're pre-training it, you didn't see any reasoning data. And the second is the reason base, where in the pre-training itself, you've seen some amount of this reasoning data, some quantity, some quality, or some diversity of this reasoning data",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "is added in pre-training. And here I just wanted to show this slide on what evaluation metrics we use to evaluate pre-trained models or post-trained models. And the reason I'm showing you this is because there are different benchmarks that",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "are used to evaluate base models that is only pre-trained models. And there are different benchmarks that are used to evaluate models that have undergone SFT, RL, and so on. So when you see the numbers in the next few slides, they may be different for",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "pre-training and post-training. So, what did we learn from this study? So first lesson is that including reasoning data in pre-training is beneficial. So this is the comparison between Volta and Ampere right after you finish your pre-training.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "And so if you see, then Ampere is doing 16% on average better compared to Volta. That is the reasoning base, that is adding Ampere saw this reasoning data during pre-training, Volta did not. And ampere got 16% gain right out after the pre-training phase.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "And that shows us that adding this reasoning data and pre-training leads to improvement in downstream accuracy. But now it's not enough that you just see gains after pre-training. What happens after SFT and after post-training? Do these gains just",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "get washed away because you used reasoning data and pre-training and you also used reasoning data in your SFT and so on? So this is the comparison for both of these cases. No reason base and reason base after doing SFT. And after doing SFT, as well Ampere",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "is still doing 9.3% better compared to Volta. And this tells us that the advantage of adding reasoning data to pre-training, it doesn't get washed away after you do SFT, but it just grows. The third lesson. So for the third lesson, I want you to again come",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "back to this axis part that we had three different axes for categorizing reasoning data. And based on this, we have three datasets. So one is SHQ, which is small in quantity and diversity, but it is high in quality. The second is LDQ, which is",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "large in diversity and quantity but low in quality. And LMQ, which is a concatenation of SHQ and LDQ. You just combine them. And so what we observe here is that if you look at the bar charts on the left side, then the LMQ and LDQ, they perform the",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "same on average. That is adding this high quality SHQ data to LDQ and forming LMQ, it actually showed as if there is no benefit of adding this high-quality data to LDQ right after pre-training. But if we post-train the same models, then we see that LMQ has a",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "4.25% boost compared to LDQ. So what this tells us is that high-quality data in pre-training, it can unlock these hidden gains after doing SFT and you don't necessarily lead to overfitting. The fourth lesson is about how early reasoning builds",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "a very strong foundation. So now one can argue that hey, you have this no reason base, but what if you do twice the amount of SFT? Would that catch up? Or what if you use more data during SFT? Would then you catch up? And so on. So there are these two cases",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "that we have discussed. One where you use more compute during SFT, you use 2x amount number of epochs in SFT for the no reason base. And for the reason base, you just do one epoch of SFT data. And you still see that you get 3% gains even after doing 2x",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "number of epochs in the SFT phase. So this is basically using more compute in SFT. And in the second case is where, if your total data budget is fixed, so you come and say I have these fixed number of documents. And should I use all of them",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "in pre-training or should I use all of them in SFT? Or should I divide them? So the graph on the right is talking about this experiment where it's data matched, that if you keep all of your reasoning data for SFT versus if you split it and you use",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "some of it during pre-training and some of it during post-training, and you're using the most highest quality of data in the SFT phase here. So even when you do that, the reason base basically performs 12% on average better than the no reason base.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "And what this tells us is that this no reason pre-training or basically pre-training without using this reasoning data, it cannot catch up by getting more SFT compute. And even when you have fixed reasoning data budget, it's better to always use some amount",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "of that data in pre-training. So the final lesson here is that front-loading reasoning creates a durable advantage. And again, this is the comparison between final and last comparison between Ampere and Volta. And this is after it has",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "gone through all the stages-- pre-training, SFT, and RL, RLVR in this case. So we see that after doing all of these stages, Ampere is still 19% on average better compared to Volta. And what, interestingly, we see is that the gain has actually",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "ballooned for these very complex math benchmarks like AIME, where it's 39% better compared to Volta. So if we don't have any questions on this part, then I'll move to the last part of the talk, which is RLP-- using reinforcement as a pre-training objective.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. So when we say small high quality data [INAUDIBLE]. When we say small high quality data and we say medium high quality data, but how to train this from a code perspective when you try to do pre-training, how do you guys differentiate",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "between both of them? How do we categorize them into quality? So we have used all open-source datasets. So there's OpenThoughts and there is Nemotron SFT dataset which is released. So Nemotron SFT dataset has a lot of data set mixed in it.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So it's diverse and it is not very heavily filtered like OpenThoughts. So that's why it is lower in quality in some sense. And it has diversity because it has many domains. It's not just math and not just code, and so on. And yeah, it didn't go",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "through heavy filtering. So it's lower in quality compared to at least OpenThoughts. Yeah, it has far more tokens than it's larger. So that's how we categorized it. But you can also use we have also done filtering in terms of complexity, what is more difficult",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "questions and so on based on either the length, or if we already have difficulty labels and things like that. So you can use these different metrics to define quality. Thank you. Same question for classifying data as reasoning data",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "is a methodology for deciding that this kind of data, because that might be orthogonal to quality, or maybe not completely orthogonal. And then is the notion of reasoning in the experiments you've done domain independent? You have legal reasoning for the way",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "a lawyer reasons which might be different from how a mathematician or how an empirical scientist or an accountant or a domain specific things. Right. So we have used like-- for reasoning data, we use whatever definition the community is using.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "And as I said, we have used datasets that are already released in the community as reasoning datasets. But actually, from my understanding, typically, a lot of that data looks like you have questions and then you have long reasoning traces and then you have",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "a final solution. So like Math Olympiad is a very good example. A lot of that data looks something like that. And yeah, for domain as well, yeah. For the Nemotron SFT data, we didn't do any domain filtering. But I don't think we have necessarily legal domain",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "and things like that. A lot of it is STEM-focused-- math code, and other STEM areas that are relevant to MMLU, which is a benchmark, and so on and so forth. So yeah, that's the composition of the data. I'm wondering, do you do automated data",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "mixtures/recipe optimization or are these recipes handcrafted? It's a mixture of both. So all of the quality estimation and Epoch estimation that's automated. And then we build a data mixture based on those. So that part is not completely",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "automated, I must say. So by epoch estimation, do you mean how much of the total token budget for each dataset? Or do you mean-- How many repeats of that data source do you want to see before you get diminishing returns. So there are datasets where",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "if you see more than just two repeats it, it will give diminishing returns. Whereas for some datasets, you can do four repeats or six repeats and so on. Oh, that sounds amazing. How do you estimate that? So you can design an ablation",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "study where you have a base data mixture, where you are just using one repeat of that data, and then you keep increasing it like to two repeats, four repeats, and so on. And as you increase it, the wait that, that data source gets, that increases.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "But then you have to take away that much weight from some other data source, which is typically a low quality crawl or something like that. So you'll take weight away from that and give it to this data source and try to see if you do two repeats of",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "this, then what's the impact? Four repeats of this, then what's the impact? And so on. I see. And you do this for each domain in your corpus? Yeah, we try to do it for domain categories rather than individual data sources. Like so, for example math, you'll",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "just do it for all of math rather than there are many data sources within math. I see. Thank you so much. Out of curiosity, have you tried the opposite approach of quality first and diversity afterwards to see if-- because you said first, we go for Monte-Carlo",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "Markov chain. You're doing exploration and exploitation kind of thing. And you got better results by doing diversity first and quality after? Yeah. So in the two-phase approach, yeah, we first want to do diversity and then quality. And then we did have an",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "ablation where we swapped that and it didn't give as good results. Yeah. So it's the opposite of human beings, where if you train a child well, after that, they can deal with rogue behavior, whereas-- in that sense, exploration first seems",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "to be doing the better job. Yeah. Awesome. Then we can move to the last part, which is using reinforcement as a pre-training objective. So before I get started, I just wanted to talk about, what was the motivation for this particular approach?",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "And I'd like to tell a story of the tale of two learners. One is Leo who learned by doing things. And second is Bolt who learned by observing things. Now one day there was a task to build a bridge, and you need to make sure that this toy car is",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "able to pass across the bridge. So Leo quickly grabs a few stacks of blocks and puts them together and creates this very simple bridge, which is not at all fancy, but it works because this car is actually able to pass. Bolt, on the other hand, analyzes",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "every bridge that has ever been made and builds a magnificent suspension bridge, which is very fancy design, flawless precision, and so on. But it was so tiny that the toy car could not pass through it. And so the lesson here is about learning",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "by doing and not just watching. And today's models, they learn by watching text, that is just predicting the next token. Whereas the motivation behind RLP is to teach models to reason through their own thoughts and not just by observing text.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "So the problem with the standard pre-training. So I've shown this pipeline earlier that you have pre-training where you're gathering world knowledge and you have SFT where you're mimicking the reasoning format. And you're essentially doing imitation learning,",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "where if you predict the next token, then you get some kind of a reward. Not RL reward, but yeah, you get a yes or a no. And you're doing this pattern matching thing. And only later during the RLHF and RLVR phase, that's when you're actually doing reasoning",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "and you're giving the ability to the model to do any kind of exploration. And that comes much later. And so reasoning is used as an afterthought and added as a post hoc thing. And the questions we want to answer is that, can reasoning be baked earlier",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "during pre-training itself? And then of course, do these gains actually last or are they washed away after you do the post-training? This is also very important because earlier, I had shown this slide on how the models today they are consuming trillions",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "and trillions of tokens. And so we have hit a wall where we are using the most number of tokens that we can. And so now the question is, how do you use them effectively or efficiently? And so RLP is one of the solutions for that as well where",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "maybe you need to learn to-- or develop data-efficient algorithms. And so what is the difference between Vanilla pre-training and RLP pre-training? So you have this context about photosynthesis which is the process plants, algae, and some bacteria use to",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "make their own food using, and what's the next token? So in the standard pre-training, you would just predict the next token given this context. And you would say it's sunlight. And that's just the Vanilla pre-training way. But in RLP, you give it",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "an opportunity to think, an opportunity to explore. And it thinks that, you know what? Photosynthesis actually relies on solar energy. And so the next token must be sunlight. So here you're basing the probability of the next token given not only the context,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "but the thought that was generated by the model itself. And this is reasoning-driven prediction. And this is RLP training. So the key difference is that RLP produces an explicit reasoning trace before predicting the next token. And this makes the why of it",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "very visible and trainable and not just the final answer. So this is a brief overview of RLP. And I'm going to go through each of the components step-by-step. But before that, I wanted to show you the prompt that we used to generate the thoughts.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So where we ask the model to specifically focus on next steps rather than jumping to this final boxed answer and so on. And we also ask the model not to restate any question or metadata commentary and so on. So first is, what is our thought policy?",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "What do I mean by that? And so you have the prompt that I showed on the previous slide. You have the input, which is the context. And this goes into the thought policy. The thought policy then does rollouts. It gets the opportunity to",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "explore different thoughts before it can predict the next token. So the thought policy does both. It generates a thought and then it generates a next token. Now this same input context without the prompt is passed to the no think baseline.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "This is our standard next token prediction model. And given this input, it calculates a probability distribution on your vocabulary and predicts the next token sunlight. So from the thought policy, we get p theta, which is probability of this",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "next token given the context, as well as the reasoning trace or the thought tokens that were generated by the model. And from the no think baseline, we get p phi which is the probability of next token given the context. This is standard.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "So based on these two-- p theta and p phi, we calculate this information gain-based reward. So this is the information gain-based reward which is log of p theta minus log of p phi. And what's interesting about this is that if you look at that term,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "then it's positive only when your thoughts actually meaningfully contribute to improving the next token prediction. So if the thought actually was garbage or it didn't contribute, then your reward can be negative or even 0. And as you can see, because",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "this is not your standard RLVR kind of framing, where it's not a 0 or one that you get at the end, that this reward is dense. It can have any value. And it can also be applied to every position in the document without needing any external selection process.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "So based on this information gain, you get rewards for each of your rollouts, which I mentioned. They are not binary, they are dense. And finally, the last component of this pipeline is exponential moving average. So what is this No-Think baseline?",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "This No-Think baseline is basically updated but with a delay. It is the same as thought policy, but with a delay of exponential moving average. And the reason we choose this is because we want the No-Think baseline to be current enough to be able to provide",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "informative comparisons during your training, and it is also intentionally lagged so that we can mitigate reward hacking. So that's the whole pipeline of RLP. And now to our experiments. So the question is, can you improve the reasoning ability",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "of a base model without any task-specific tuning? So over here we use the Qwen 1.7B-Base model, the final checkpoint. And we do RLP training for one billion tokens. And we use general pretraining corpora. So now over here, we don't use",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "any reasoning-specific data or anything. You can use your web crawl. You can use books, papers, whatever you want. And we show comparisons with the baseline, of course. We also show comparisons after doing post-training which is SFT and RLVR.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "And we also show an additional baseline, which is that if you use 1 billion tokens to do RLP, then what if you use the same 1 billion tokens, but do the next token prediction loss? That is, you just continue the pre-training of the base model. So we also show",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "comparisons with that. And so here are the results. RLP does show significant improvement on the Qwen 31.7B-Base model. And this is actually the final comparison between Ampere and Hopper. And so when you do the base model comparison, which is the bar charts",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "on the left, RLP does outperform the base model by 19%. And if you use those same tokens to do next-token prediction, then it still does better than that by 17% on average. And then when you do identical post-training which is SFT and RL, the",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "gains by RLP, the compound. And Hopper does 8% better relatively compared to Ampere. So here the lesson is that RLP is able to establish robust reasoning foundations during pre-training that are not washed away by downstream alignment. After doing SFT and RL,",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "they are not washed away. So in the previous slide, I showed token-matched comparison, that if you do 1 billion tokens on RLP LP versus 1 billion tokens on next token prediction, then you see improvements with RLP. But the question is, would these gains",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "sustain when you do compute equivalent baselines? What I mean by that is RL typically takes more compute compared to next-token prediction because you need to do rollouts and you have to do n number of rollouts. You need to do completions to",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "generate this thought and so on. So we calculate the number of flops needed using this equation here. And now if I train RLP with 170 million tokens, then the flop-matched equivalent tokens there is 6 billion tokens. That is I will use 6 billion tokens",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "to do next-token prediction loss, but I will use only 170 million tokens to do RLP. So that's the comparison here. So here are the results. For TM is Token-Matched, continuous pre-training or next-token prediction loss, basically. And FM is Flop-Matched.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "And so even for the flop-matched case, RLP outperforms next-token prediction by 14% on average, even though in this case, next-token prediction loss is exposed to 35x more data. And so those were the results. If you took the final pre-trained checkpoint",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "and then did RLP. Now the question is, what if you take an intermediate checkpoint of your pre-training run and use limited data for RLP, but compare it with the final pre-trained checkpoint, then would these gains sustain and how would that work?",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "So we have intermediate checkpoints for the Nemotron 12B model v2, which is. And so we take a checkpoint that is trained till 19.8 trillion tokens. And we use RLP with only 250 million tokens. Again, we use general pre-training corpora here.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "And then we compare it with the base model that was trained till 20 trillion tokens. So RLP in this case sees almost $200 billion less tokens. And then here are the results. So RLP is scaling in this case with LLM size because this is much larger",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "compared to the Qwen results that I showed earlier. And also we have scaled frameworks because nano V2 is a hybrid Mamba2-based model whereas Qwen was a transformer model. So again, here base has seen 20 trillion tokens. Base plus RLP has only",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "seen 19.8 trillion tokens plus 250 million tokens. So in this case, in spite of being trained on $200 billion fewer tokens, Hopper is still able to get a 35% average gain over Ampere. And as you can see, you see largest boost in domains like science.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "And after doing identical post training, RLP still outperforms Base by 3% absolute margin. So the benefits of RLP persist and maybe even amplify when scaling to larger models and across architectures. So here is a little bit of background on the relevant",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "literature in this space. The rise of early reasoning. How early can we introduce explicit reasoning the way we have in RLP? And so there are three papers, at least at the time our paper came out in this space-- Quiet-STaR reinforcement pre-training,",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "which is called RPT, and reinforcement learning on pre-training data, which is called RLPT. And then our method is called RLP. So here is a qualitative comparison between our technique, RLP, and RPT and RLP. So the source of reward.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "So in next token prediction, you have no reward. Whereas in RPT and in RLPT, you have an external verifier. You will need different model to calculate the rewards. Whereas RLP is verifier-free and it's intrinsic reward. The granularity of the reward, it's",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "sparse and binary for RPT and RLPT because they use RLVR style rewards. Whereas for RLP, as I showed, it's a dense reward. And finally, reasoning emergence is explicit and weak in case of RPT and RLPT, but it's explicit and strong for RLP. And here is a",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "quantitative comparison with the RPT technique. So we have used a setting that is similar to the RPT paper. We use the Qwen31.7B-Base model and we use the OmniMath dataset. And we train using RPT technique and RLP technique on 170 million tokens.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "And as you can see, RLP is on average 4% better compared to the RPT technique. And the reason behind this is that RPT actually uses an external filter. So it's using a completely different model to first go through the pre-training data",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "and select the tokens on which this RPT reward can be applied. We do no such selection. You can apply RLT reward on any token in your document. And RPT uses a sparse binary reward. It's just a yes or no, 0 or 1. And reinforcing that only select tokens",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "and it ignores the reasoning steps itself. Whereas in RLP, we apply this dense per token reward based on information gain, as I showed earlier. And that captures the full reasoning signal because we are taking the reasoning trace into account when we are",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "calculating the reward, and that we believe is the reason why we get better results. So the key ablations and insights that we discussed for RLP is that first is that we enable thinking for itself, exploring and thinking for itself during pre-training itself.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "So you get an incentive or a reward for exploring and thinking. So there's info gain reward on intermediate thoughts. And that outperforms simple next-token prediction. The reward in RLP is dense and not sparse, and it can be applied at any position",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "or at all positions in your document. And there is token efficiency because RLP on 250 million tokens boosts this Nemotron-12B by 35%, whereas the comparison is with 20 trillion token baseline. So the key takeaways are that finally, what is the comparison",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "between Pascal, Volta, ampere, and Hopper? So this is a very rough percentage relative improvement that you will see between these four kids. And as I said, they use different learning strategies. They have the same data, but they use different strategies.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "And so if you see here, then for Hopper, which she uses all three strategies-- curriculum, front-loading, reasoning, and learning through thinking, then you can get as high as 60% relative improvement over Pascal. And finally, some tangible takeaways here",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "are that your two-phase approach is very effective for pre-training, where phase 1 focuses on diversity, phase 2 focuses on high quality data, front-loading reasoning, it does create durable and compounding advantage. And sometimes the gain",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "can be unlocked later after the SFT phase. RLP, on the other hand, reframes RL for reasoning as a pre-training objective. And the goal there was bridging this gap between next-token prediction and this emergence of useful chain of thought reasoning.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "And it suggests that even using unannotated text streams. So in our paper, we also show ablations where, what happens if you only use web crawl data? What happens if you use only academic data? And so on. And typically, we do see a 7% to 9%",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "gain no matter what kind of data you're using. So even if you use unannotated text streams like web crawl, you can still teach reasoning like behavior while strengthening the foundation. And the post-training can then build deeper expertise",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "or amplify that reasoning skill. And finally, RLP brings exploration and reasoning incentives into pre-training, allowing a model to think through problems while still building its knowledge and understanding of the world. So in pre-training, you not only want",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "to do knowledge gathering and understanding of the world, but you also want the model to explore and understand reasoning during pre-training itself. And this, we believe, opens a new axis for scaling in terms of how models learn to reason. And so finally, I",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "would like to leave you with these four key components of pre-training-- smart data, smart architecture, smart algorithms, and smart collaborations. And I'm happy to take any more questions. [APPLAUSE] Do you have any questions? Hi. So I'm wondering about RLP.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "So as you know, GRP was a popular framework for post-training. So I'm wondering if RLP, like when you said it was generating multiple different samples and then you would calculate an information gain, which you could say analogously",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "is like the advantage in GRPO? So I'm wondering if there's any similarities and what kind of contrast there are to the post-training GRPO technique with RPO? Oh, yeah, we did use the GRPO technique itself actually. So in GRPO, you get a reward, which is 0/1.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "But now the way you're calculating reward is this information gain-based reward. And then the rest of the advantage calculation is very similar to how you use GRPO in post-training, where you are calculating advantages based on the probabilities",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "of the reasoning tokens as well, and so on. So all that remains the same. The way you are calculating reward is the thing that has changed. Just a quick question is that, have you tried doing RPL or any of the other techniques, like the first two",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "techniques you mentioned, on vision language alignment? No, not yet. Yeah. OK. Sounds good. Thank you. Quick question on the RLHF. Is RLHF still a preferred way of using for LLMs because with RLHF, there is some kind of bias of making humans feel better?",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So is it still used for our latest models in general? So this is independent of the RLP work. From my understanding, yes, a little bit of the data and like RLHF data is still used and mixed into the RLVR and so on. Different model families",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "use it in different ways. But I would think that it is still-- a part of it is still there in the RL stage, basically. So, is there a way we can reduce this hallucination of the bias from models which are trained on RLHF not to be too nice with humans and more",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "be able to disclose the information in a way not to please the humans or something? The question is that, can we use RLHF to reduce hallucinations? Or t will RLHF increase hallucinations? Oh, I want to say in future, when we have more models coming",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "up, how can we reduce this bias which gets introduced by RLHF into the models? Is there a better way to eliminate that when interacting with users? Instead of pleasing the users, is there a way we can have better responses but still--",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "which helps the users instead just making them feel better? I see. So in future, how do we mitigate the hallucinations? So I think that's an ongoing work, from my understanding. I don't work in that space where people are trying to build classifiers",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "of how helpful this thing is, how also from the point of view of safety and so on. So yeah, I am not following that work completely, but my understanding is you need to always keep on updating those classifiers because you can always",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "get adversarial data and so on. And also like RLHF, as I said, it's still a part of the post-training pipeline, but it has become a much smaller part. Makes sense. Thank you. Yeah, I think that has a lot to do with alignment research,",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "which like folks at Anthropic and so forth are focusing on. Yeah, I think yeah, RLHF is definitely prone to things reward hacking, but there's a lot of ongoing work on how to reduce that. I can't think of anything immediately off the top of my head.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "I there's things like RLAIF, which uses like AI instead of humans, which might be less subjective and biased to some extent. But yeah, I would check out some of the work around alignment and reducing reward hacking. Hello. Thank you for the talk.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "Could you speak a little more on how you quantify quality of data in say, mathematical context? That's quite clear, but you also spoke a lot about using a web crawler or other more general bodies of data? And how could you possibly go quantifying quality",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "in that context? Right. So there are many approaches here. The most popular being fine web EDU-based classification. So Hugging Face released this where they've built classifiers to tell how educational is this content, given a web crawl document, it scores it",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "on a scale of 1 to 5. So even at NVIDIA, we have adapted that scaling. So that's one way. There's also essential web that also did more types of classifications in terms of not just educational quality or educational score, but domains, whether it belongs",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "to science or math. And also even within education, whether it's like intermediate or high college level education and so on and so forth. So it depends on yeah, what do you want to extract? And you can build a classifier-- LLM-based classification",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "on rubric for that. And you can classify your documents that way. But fine web EDU is the most popular one. And that's at least basic one that is needed in some sense. Any more in-person questions? When doing RLP, what do you choose for your prefixes",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "to start with? Do you do it by-- I'm assuming you do it on the highest quality data, but do you choose specific tokens or just uniformly across that data set? That's a good question. So theoretically, RLP can be applied on any token in a document.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "In practice, when we run the experiments, we take a document, we just randomly choose a token. We don't really select it using some fancy techniques based on entropy and so on. So we randomly select a token, we apply our RLP technique on it.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "We backprop the reward, and then we throw away that document and we just get a new document. Yeah. So that's how. And also to correct you, we are actually not doing RLP on the highest quality data, as I've been saying it's been done on the pre-training data",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "mixture. So there is a lot of web crawl in it, and there's a lot of other stuff in it. It's not done only on reasoning data. We have an online question that asks, how far back can we likely go in the RLP experiments and still beat the CPT baseline, given",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "that the 19.8 trillion token checkpoint is already over 1,000 times data to parameter ratio? That's a great question. So yeah, in the paper, we present results with the 19.8 trillion checkpoint. But we did do experiments on just 20% of pre-training.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So if 20 trillion is like 100% of pre-training, then we do RLP on four trillion token checkpoint? And we still see gains using RLP compared to the baseline in some sense. OK, great. Any other questions? So let's give another round of applause to our speaker.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "Thank you. [APPLAUSE]",
+      "start": 1068,
+      "duration": 6
+    }
+  ]
+}

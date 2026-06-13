@@ -1,0 +1,574 @@
+{
+  "videoId": "e0_TSfDM2XY",
+  "title": "SREcon26 Americas - The Case of the Misnamed Cities: CAST Analysis of a Google Maps Incident",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 28079,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So hi everyone. My name is Ruben. I'm an\nSRE working in Google Maps and based in\nNew York. And today I'm presenting the\ncase of the Misnamed Series, a CAST\nanalysis of Google Maps\nuh a Google Maps incident. At the end of\nthis talk, you will have learned how\nCAST, which stands for Causal Analysis\nbased on systems theory, produced deeper\ninsights and better recommendations than\nthe postmortem that was conducted for\nthis incident, which was based on root\ncause analysis or RCA. Um\nSo I will talk about in in this talk\nabout I will describe the incident at a\nhigh level, how our users were affected,\nwhat the root cause analysis found, um\nwhat things it recommended, a brief\nhigh-level introduction to accident\nmodels,\nwhat the CAST analysis found, and what\nthings it recommended,\nand a comparison between the two methods\nuh showing that CAST was more impactful\nthan the RCA for this particular\nincident. And I will end the\npresentation with my key takeaways and a\nfew additional resources.\nSo let me start describing the incident\nand what our users saw experienced.\nSo in the summer of 2024, we started to\nreceive user reports about incorrect uh\nUS city names, and these cities had the\nword balance in parentheses added to the\nend of the city name.\nSo imagine this year I'm going to the\nKentucky Derby Festival happening at\nLouisville, Kentucky. I get in the car,\nsearch for Louisville in in Google Maps,\nand I'm shown shown Louisville Jefferson\nCounty Metro Government balance. Now I'm\nalready confused. Is this the real\nLouisville? What if I arrive there and\nit's not? So I'm really frustrated. So\nonce we knew on our end, we reverted\nthose bad city names back to their\ncorrect names.\nAnd this is the high-level order of\nevents of the incident.\nThe US Census Bureau published a data\nset containing information of cities in\nthe US like their names, their\ngeographical areas. This data set\nincluded the balanced names for some\ncities instead of their official names.\nWhy balance? So when a city grows, like\nin the case of Indianapolis for example,\nsometimes it surrounds other smaller\nplaces and all these places together are\nstill called Indianapolis. This is what\nyou see in the green boundary. And for\nstatistical purposes, the US Census\nBureau maintains the geographical area\nof the original city, which they call\nbalances.\nThis is highlighted in orange. And there\nare a total of nine of these balances in\nthe US and the US Census Bureau included\nall these nine balances in their data\nset instead of the official names.\nNow, an internal team looked at the at\nthis data set trying to find problems\nwith the data. They did not find any\nproblems with the data set.\nSo we published the data set to Google\nMaps.\nThe impact on our users started.\nThe users started to report the misnamed\ncities in several states.\nAnd And part of the response to the\nincident, we started to manually fix the\ncity names in the database.\nIn parallel, we initiated an automated\nrollback of the data set.\nAnd eventually, all the misnamed cities\nwere fixed, and the impact on our users\nended.\nFinally, a postmortem based on root\ncause analysis was written.\nNow, I'll show you what the RCA, the\nroot cause analysis, uh found and what\nimprovements it proposed. And my goal\nwith this is to show you later what CAST\nfound so that we can compare both\nmethods\nboth methods as they were applied to\nthis particular incident.\nSo, I want to pause for a moment to\nmention that when we consider an\nexternal data set to be important to the\nmap, a team of geospatial data\nspecialists evaluates the data set\nlooking searching for incorrect data.\nThey use an internal specialized\nevaluation tool,\nand they also follow a policy that is\nset by a separate team team called the\ndata import team that defines the\nprocedure to follow during their\nevaluation.\nAnd if the geospatialists\nfind any problem with the data set, then\nthey flag those problems, and a decision\nis made whether to move forward with the\nimport the data set import or not.\nNow, as I mentioned earlier, the US\nCensus Bureau published a data set\ncontaining city names and their\ngeographical areas for all 50 states.\nThe team of geospatialists selected and\nevaluated four states, those that you\ncan see here in dark green. California,\nWashington, Texas, and New York.\nThey didn't find any problems in any of\nthose four states.\nThe RCA also found that six\nstates, those that you can see here in\nred, contain the misnamed cities, of\nwhich here you can see three examples.\nAnd it turns out that the geodata\nspecialists did not evaluate the data\nfor any of those six states. I'll tell\nyou in a bit what explanation the RCA,\nthe postmortem, gave for that.\nThe RCA came up with two root causes.\nThe first was a limited evaluation tool.\nThe RCA found that the tool used by the\ngeo specialists did not support the\ndetection of incorrect city names.\nThe RCA proposed action items,\nrecommendations to address this\nlimitation of the evaluation tool.\nThe first one was to automate the\ndetection of naming issues in cities.\nThe second one was to write instructions\non how to enable specific checks in the\ntool.\nAnd the third one was to flag special\ncharacters such as double quotes,\nparentheses, et cetera.\nAnd lastly,\nto implement programmatic checks to\nblock the publication of large datasets\nthat have naming issues.\nThe second root cause was ad hoc\nsampling of states. They chose\nWashington, California, Texas, and New\nYork for the evaluation, as we\nmentioned. But why not evaluate the data\nfor the 50 states?\nWell, three reasons. First, the dataset\nfor the entire country was too large for\nthe geospatial team to evaluate.\nSecond, the dataset import policy they\nhad to follow did not provide guidance\nfor sampling states.\nAnd the third one, the people in the\nteam lived in those four states, so they\nhad local expertise\nto evaluate the data for their home\nstates.\nBut as we saw earlier, these four states\ndid not include any of the any of the\nstates that that contain misnamed\ncities, those in red.\nHistorically, the team had followed a\nthorough evaluation process, so this\nsecond set of action items or\nrecommendations\nwas meant to increase the effectiveness\nof the existing evaluation process.\nThe first recommendation was to evaluate\nprominent cities like Indianapolis,\nNashville, etc.\nThe second was The second one was to\ncodify a process for flagging\nsubstantial differences in city names\nand send those for manual review.\nThe third one was to assemble a virtual\nteam to review high-impact data sets\nthat can affect the search functionality\nin Google Maps.\nThis was the root uh summary of the root\ncause analysis.\nNow, before showing you the cost\nanalysis, let me introduce the concept\nof accident model.\nSo, an accident model explains why\nincidents happen.\nLike any model, an accident model is an\nabstraction in which we consider some\naspects of an incident more relevant\nthan others.\nThe traditional and most common accident\nmodel is linear causality. So, you place\na series of events into a chain\nwith each event causing the next one.\nMany methods like the Swiss cheese model\nor the five whys are based on these\naccident model. And all these methods\nuse different visual representations for\nan event chain,\nbut they share the same focus, which is\nto identify the causal relationships\nbetween events that ultimately lead to\nan incident.\nThere is another accident model that is\nbased on systems theory. CAST is based\non this accident model. Instead of a\nchain of events, it focuses on modeling\nthe adaptive behavior happening in the\nsystem.\nIn this model, the cause of an incident\nis a system that allows, enables, and\nsafe decisions to happen.\nInstead of a chain of events or a series\nof Swiss cheese slices,\nthis accident model uses control\nfeedback loops to model behavior\nhappening in the system. And I will\ndescribe in a bit what a control\nfeedback loop is.\nSo, if our accident model explains why\nincidents happen, then it follows that\nthe model will also inform our approach\nto preventing incidents.\nThe biggest problem with linear\ncausality is that it finds simple\nexplanations to complex incidents.\nOne can always place events into a\ntimeline because events happen at some\npoint in time,\nbut that does not necessarily mean that\nif an event if an event happens before\nanother, the first causes the second.\nAnd as an example, let's focus on the\nevent data set with misnamed cities\npasses evaluation, which causes the data\nset published event.\nOne cause found in the RCA, as I\nmentioned, was that the geospatialists\nmissed the states containing misnamed\ncities.\nLinear causality assumes that if the\nfirst event cannot happen, then the\nfollowing event cannot happen either.\nTherefore, if the geospatialists\nidentify the states containing misnamed\ncities, then the data set won't pass the\nevaluation.\nIn other words, the assumption in the\nRCA is that if we ensure that the geo\nspecialist identify the states\ncontaining misnamed cities, then the\nchain of events is stopped and the\nincident cannot happen.\nSo, and then no data set containing\nmisnamed cities will pass the\nevaluation. That is the reason the RCA\nproposed action items around increasing\nthe effectiveness of the evaluation\nprocess.\nBut, will detecting misnamed cities more\neffectively\nprevent this incident from ever\nhappening again?\nMaybe not. What if the results of the\nfailed evaluation are overridden by\nleadership? Maybe intentionally, maybe\nunintentionally.\nSo, this is a game of whack-a-mole, but\ninstead of moles, you have the events in\na chain.\nAnother problem with a chain of events\nis how the events are selected. So, this\nis subjective.\nWhy is the event geo specialist miss\nstates containing misnamed cities the\nroot cause and not a previous event?\nWhat about geo specialist in New York\nlacks expertise to evaluate Washington?\nAnd so on. You can always add previous\nevents and extend the chain\nindefinitely.\nThat is until you arrive at the original\nBig Bang event. So, I challenge you all\nto backtrack through that and come up\nwith events.\nSo, jokes aside, my my point is that the\nchoice of events from the incident is\nsubjective.\nAnd this raises an important question.\nWhat is the stopping rule?\nHow do we decide what the first event\nis?\nIn other words, why is this particular\nevent the root cause of an incident?\nMaybe the event is familiar to us.\nMaybe the event explains the incident in\na simple way.\nMaybe we can think of action items that\nprevent this event.\nOr maybe we cannot backtrack through\nhumans.\nOr we don't have information to go\nbeyond a particular event.\nMaybe the event is convenient or\npolitically acceptable.\nMaybe a previous event is embarrassing\nto the organization.\nAgain,\nthe selection of the events in the chain\nis subjective, including the root cause.\nAnother major limitation of chains of\nevents is that there exist causal\nfactors that cannot be represented as\nevents.\nThese include systemic factors like\nmanagement's decision-making,\nthe safety culture of the organization,\nthe management of chain management of\nchange procedures.\nInadequate feedback and communication\nchannels.\nChanges in the environment outside the\nsystem. On one hand, these systemic\nfactors cannot be included as events in\na chain.\nAnd at the same time, the systemic\nfactors have the most profound impact on\nthe occurrence of incidents. And I will\nshow you an example of that in a bit.\nBear in mind that these systemic factors\ncan crush all your Swiss cheese slices\nsimultaneously.\nNow, let me change gears and show you\nwhat I meant earlier by an accident\nmodel based on systems theory. So, here\nwe are modeling adaptive behavior\nhappening in the system in the form of\ncontrol feedback loops. Our goal is to\nanalyze how the system enabled unsafe\ndecisions to happen.\nIn a control feedback loop, the the\nbottom box is the controlled process and\nits behavior or state must be\nconstrained. The controlled process\ncould be hardware, could be software,\neven human components.\nThe top box is the controller and its\ngoal is to constrain the behavior of the\ncontrolled process underneath.\nLike the controlled process, a\ncontroller is often either software or\nhumans.\nThe mental model of the controller is\nits worldview. It's a set of beliefs\nabout the state of the controlled\nprocess.\nAnd the mental model of the controller\nis updated with the actual state of the\ncontrolled process via feedback, which\nwe represent here via an upward arrow.\nAnd each controller makes decisions that\naffect the state of the controlled\nprocess when the mental model says that\nthe controlled process is in an\nundesired state.\nThis is its decision-making process.\nAnd the visible effect of the this\ndecision-making process are the control\nactions, which change the state of the\ncontrolled process and are represented\nby downward arrows.\nAnd sometimes these control actions can\nbe unsafe, meaning that they result in\nan undesired state of the controlled\nprocess.\nAnd after the control actions update the\nstate of the controlled process, the\ncycle starts again.\nAnd this loop models the adaptive\nbehavior of the controller.\nNow, what are the causal factors that\ncan lead to unsafe decisions? Well,\nthere there can be several of those, but\nthe most common category of causal\nfactor is an inconsistent mental model.\nWhat if the controller has the incorrect\nbelief about the state of the control\nprocess?\nSo, this can lead the controller to make\nan unsafe decision.\nThe inconsistent mental model can be\ncaused by problems with the feedback.\nFor example, there could be no feedback\navailable, or the feedback might be\nincorrect, or the feedback might arrive\nlate.\nWe can analyze this loop to identify the\ncontroller's contributions\nto an incident that happened.\nAnd this is what we did with CAST on the\nmisnamed series incident.\nSo, to summarize this section, lots of\nterminology, using an accident model\nbased on systems theory, we move from a\nfocus on preventing events that should\nhave not happened\nto a focus on changing the system, so\nbehavior of decision makers is\nconstrained to safe decisions.\nFor example, if a particular feedback is\nrequired to make\nsafe decisions, but we find that the\nfeedback does not exist in the system,\nthen we can design and implement that\nfeedback.\nYou can prevent all the events in the\nchain from happening, but there will\nalways be new unforeseen events that\nhappen in the future.\nPostmortems based on root cause analysis\nhave been part of Google's culture for a\nlong time. Done after every major\nincident for over two decades.\nAnd cultural changes are slow. The\nadoption of CAST is\ngoing to be slow.\nLet me show you the CAST analysis now.\nSo, the incident was not major,\nbut it definitely had lots of\nlearning potential. And as I showed you,\na postmortem was done for this incident.\nLeadership had heard at the time about\nthe CAST analysis that we run on\nprevious unrelated incidents,\nwhere we showed CAST found more issues\nthan the postmortem root cause analysis.\nSo, I was asked to run a CAST for this\nparticular incident. And I will show you\nnow what I found with CAST so we can\ncompare it with compare it with the RCA\nresults.\nSo, remember the control feedback loop I\nshowed you earlier? So, this is a bunch\nof control feedback loops organized into\na hierarchy.\nAnd we call this a control structure.\nAnd drawing the control structure is one\nof the initial steps of CAST.\nAnd this is the control structure of the\nsystem at the time of the incident.\nAt the bottom, we have the maps\ndatabase, which contains information\nabout geographical entities, in this\ncase information about cities.\nThe system must prevent this database\nfrom entering undesired states. For\nexample,\nstoring cities with incorrect names.\nAnd as I mentioned earlier, the\ngeospatial team uses an evaluation tool\nand follows an import policy to identify\nto try to identify and report problems\nin candidate data set before importing\nthem\nto the maps database.\nThe data set import team applies\nindividual fixes to entities in the map\nduring incident response and also\nestablishes the import policy that the\ngeospatial data specialists at the\nbottom must follow when they are\nevaluating data sets.\nAnd lastly, engineering responds to\nincidents by rolling back bad data set\nand coordinating response with the data\nset import team.\nSo, after modeling the system at the\ntime of the incident with a control\nstructure, the next step in CAST is to\nanalyze the contributions to the\nincident of each individual controller.\nLet's see an example for the data set\nimport team.\nSo, remember that the data set import\nteam defines the import policy that the\ngeospatial team must follow while\nevaluating a data set.\nSo, what was the contribution of the\ndata set import team to this incident?\nSo, the data set import team did not\nupdate the policy to enable detection of\nlocalized problems in the US Census data\nset.\nHow can we explain\nthis decision? Let's look at the mental\nmodels.\nDuring the analysis, we asked this team\ninvolved in the in the incident, \"So,\nyou knew that the geospatial team would\nevaluate the US Census data set. What\ndid you believe about your import policy\nexisting at the time?\"\nThey told us that they they believed at\nthe time that the existing policy would\ndetect any problem in the US Census data\nset.\nThis belief explained their decisions to\nnot update such policy. Now, our goal as\nCAST facilitators\nwas to explain how the data set import\nteam created that belief.\nSo, we found two factors. The first one\nwas that the data sets that were\nevaluated and imported in the past were\nuniformly generated.\nThis meant that if the data sets\ncontained problems, those problems\ntended to be evenly distributed across\nall geographical areas.\nThe default assumption was that the US\nCensus data set was also uniform. So, if\nthe four states they evaluated did not\ncontain bad data,\nthen the whole country would not contain\nbad\ndata either.\nAnd the second factor, contextual\nfactor, was that in the past, the team\nhad imported other US Census data sets,\nbut this was the first time\nthat the US Census data set included\ninformation for cities.\nSo, the team had low familiarity with\nthis particular type of data.\nNow, do you look at the control loop, uh\ncounter-clockwise, these two contextual\nfactors influenced the mental model that\nthe data set importing had about their\nown import policy, which explained their\ncontribution to the incident.\nNow, let's look at one contribution by\nthe engine by engineering in the context\nof incident response.\nSo, engineering took a long time to roll\nback the US Census data set.\nNow, some of you might have gotten a gut\nreaction like, \"Isn't that blaming the\nengineer?\"\nSo, if we stop here, then yeah. I mean,\nwe would conclude that it was the\nengineering's fault, and that would be\nit. But, there are two very very serious\nproblems with this. The first, we don't\nuncover the factors that influenced this\ndecision.\nThis is somewhat irresponsible because\nwe don't change the system to address\nthose factors.\nAnd it's likely that a different person,\na different engineer,\nworking in the same system\nand the same situation will make the\nsame unsafe decisions. And second, as\nas an incident analyst, we've we\nprobably damaged the psychological\nsafety of the team.\nNow, the good news is that we all here\nin this room, I'm sure, know better.\nSo, we assume that the engineers did\ntheir best to try to fix the problem as\nsoon as possible with the information\nthey had at the time. That's why we\nlooked at their mental models and the\ncontextual factors that influence their\ndecision.\nInitially, the engineering's mental\nmodel was that the US Census data set\ndid not need to be rolled back. Why that\nbelief?\nFor once, engineering didn't know the\nscale of the problem while the incident\nwas ongoing. Were there a lot of\nmisnamed cities or just a handful of\nthem?\nEngineering knew that the data set\nimport team had started to apply manual\nfixes to the misnamed cities.\nWould these manual fixes be applied\nquickly to all misnamed cities?\nAfter a while, the data set import team\nwas still applying manual fixes, so the\nnumber of misnamed cities was still\ninconclusive. So, engineering decided to\ninitiate the parallel rollback of the\ndata set.\nAnd this caused database conflicts with\nthe manual fixes, which introduced\ndelays.\nThe other contextual factor was that it\nwas not clear when manual fixes or\nautomated roll backs should be applied\nduring incident response. And this\nresulted in This resulted from a\na diffusion of responsibilities during\nincident response. Remember, at the time\nof the incident, engineering didn't have\nthe information we have today.\nSo, we now know that there were only\nnine misnamed cities, but it was not\npossible for the engineer to to quickly\nfind out about that\nduring the incident.\nAnd hindsight is a luxury of our future\nselves.\nSo, again, if you look at the control\nloop counterclockwise, these two\ncontextual factors influenced the mental\nmodel that engineering had about whether\nthe data set required a rollback, which\nexplained their contribution to the\nincident.\nSo, but what about the systemic factors?\nThose that have the potential to affect\nthe entire control structure\nsimultaneously.\nSo, after analyzing each controller\nindividually, the next step in CAST is\nto analyze the control structure as a\nwhole.\nThe main systemic factor we found was\nchanges over time in the environment,\neverything that was outside our system.\nAs you can see in this picture, the size\nof the data sets the team received from\ndifferent data providers had been\nincreasing over the past years.\nAnd this had ripple effects across the\nwhole system, weakening the existing\ncontrols.\nLet me show you this visually.\nFrom a control structure that initially\nhandled small and medium-scale data sets\neffectively,\nin recent years, the data sets we\nreceived became larger and larger, and\nthe control structure migrated to a\nstate of higher risk,\nin which the existing controls gradually\nbecame weak at handling larger and\nlarger data sets. All of the controllers\nin this control structure and the\ncontrol actions were made ineffective.\nAnd you cannot generate insights about\nsystemic factors when looking at the\ndecisions of individual controllers. You\nmust look at the entire control\nstructure. That's why we have an an\nadditional step in CAST.\nNow, let's go on a brief tour of the\nareas impacted by the environmental\nsystemic factor. The first was\nevaluation.\nThe data set import policies did not\ncontain clear sampling rules\nfor the evaluation because they were\noriginally designed to evaluate entire\ndata sets, which were manageable by the\nteam in the past.\nAnd as we learned earlier in this\nincident, the team selected in an ad hoc\nfashion only for states that contained\ngood data and didn't evaluate the data\nfor the state with containing misnamed\ncities.\nThe second was the evaluation tool.\nThe tool requirements were never\nreassessed over the years to address the\ndetection of localized problems\nas the size of the data sets grew.\nAnd lastly, the incident response. The\nresponsibilities during incident\nresponse protocols were not clearly\nallocated in situations where large data\nsets contain localized problems.\nSo, our objective with CAST is to\nformulate recommendations to enforce the\nsafe behavior at both the component and\nthe control structure levels. And for\nthis incident, CAST found 22\nrecommendations. And here are just three\nexamples of those.\nThe first one was to redesign\nfrom scratch the data import policy to\nmanage increasing volumes using a\nstructured sampling rather than random\nsampling. To complement this, also\nestablish a leading indicator of risk to\nmonitor the effectiveness of the import\npolicy so that we can identify when the\nimport policy weakens and moves the\nsystem to a state of higher risk.\nThe second was Second example was to\ncreate individual probe alerts for\nfrequently rendered map entities, not\njust cities,\nto provide rapid notifications of\nchanges in otherwise stable data.\nThe third example is to implement a\npolicy to notify data set providers, for\nexample, the US Census Bureau,\nof incorrect data and to recommend fixes\nto them.\nAnd despite the initial cost, in the\nlong run, this improves the data quality\nand coverage for recurring imports,\nbenefiting all consu- consumers of\npublic data sets.\nNow, let's quickly compare RCA and CAST,\nexamining both methods and the results\nas they were applied to this particular\nincident. This is not a general\ncomparison between RCA and CAST as\naccident analysis methods.\nSo, for the underlying accident model,\nso the RCA found two root causes for\nthis incident.\nCAST demonstrated that there were no\nroot causes for this incident, only\nmental models, contextual factors, and\nsystemic factors that influenced the\ndecisions that contributed to the\nincident.\nThe improvement plans reflected the\nnature of those findings. The RCA action\nitems treated the incident symptoms,\nlike fixing limitations of the\nevaluation tool or increasing people's\ndiligence on top of the existing\nevaluation process.\nThe CAST recommendations addressed the\ncausal factors of the incident,\nacknowledging the need to make the\ncontrol structure as a whole resilient\nto a changing environment.\nThe frame of analysis was different,\ntoo. The RCA focused on proximal events\naround the incident time,\nevaluation of the US Census data set,\nthe use of the evaluation tool, the\nimport of data, the rollback of the data\nset.\nCAST, also on top of that, focused on\ndistal events. For example, we analyzed\npast incidents, which allowed us to\nidentify the trend in the increasing\nvolume of data over the years.\nLastly, the organizational factors. So,\nRCA focused almost exclusively on the\ntechnical aspects of this incident, with\nemphasis on the support of the\nevaluation tool.\nCAST went beyond the technical aspects\nand analyzed the interactions between\nthe humans like the Google internal\nteams and the US sensor bro, and between\nthe humans and the software components.\nNow, let me tell you my final takeaways.\nSo, at Google\nwe found that CAST is a powerful way to\nlook at our incidents.\nWe found that the insights from CAST go\nfar beyond those of post of the\npostmortems that are based on root cause\nanalysis. For example, while the RCA in\nthis case focused on the symptoms like\npreventing recurrences of misnamed\nseries,\nCAST looked at the effects of the\nenvironment in the system over the\nyears, revealing systemic factors such\nas the impact of growing data sets.\nThese deeper insights allow us to make\nmore impactful recommendations. For\nexample, redesigning processes like the\nevaluation and the incident response,\nrather than just patching the existing\nones.\nAnd at Google, CAST is getting us to\nwhere the postmortems based on root\ncause analysis can't.\nJust to wrap this up, a few resources.\nSo, from left to right,\nhere is an exam Here is an article that\nwe published in USENIX\nuh describing how we are applying uh\nsystem safety engineering methods at\nGoogle.\nIn the center, you can find the original\nCAST handbook published by Dr. Leveson\nfrom MIT.\nAnd lastly, in the upcoming second\nedition of the Google SRE book, we cover\nCAST in the safety engineering for\nsoftware chapter.\nAnd with that, thank you so much.",
+  "segments": [
+    {
+      "text": "So hi everyone. My name is Ruben. I'm an SRE working in Google Maps and based in New York. And today I'm presenting the case of the Misnamed Series, a CAST analysis of Google Maps uh a Google Maps incident. At the end of this talk, you will have learned how",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "CAST, which stands for Causal Analysis based on systems theory, produced deeper insights and better recommendations than the postmortem that was conducted for this incident, which was based on root cause analysis or RCA. Um So I will talk about in in this talk",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "about I will describe the incident at a high level, how our users were affected, what the root cause analysis found, um what things it recommended, a brief high-level introduction to accident models, what the CAST analysis found, and what",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "things it recommended, and a comparison between the two methods uh showing that CAST was more impactful than the RCA for this particular incident. And I will end the presentation with my key takeaways and a few additional resources.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "So let me start describing the incident and what our users saw experienced. So in the summer of 2024, we started to receive user reports about incorrect uh US city names, and these cities had the word balance in parentheses added to the end of the city name.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So imagine this year I'm going to the Kentucky Derby Festival happening at Louisville, Kentucky. I get in the car, search for Louisville in in Google Maps, and I'm shown shown Louisville Jefferson County Metro Government balance. Now I'm",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "already confused. Is this the real Louisville? What if I arrive there and it's not? So I'm really frustrated. So once we knew on our end, we reverted those bad city names back to their correct names. And this is the high-level order of events of the incident.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "The US Census Bureau published a data set containing information of cities in the US like their names, their geographical areas. This data set included the balanced names for some cities instead of their official names. Why balance? So when a city grows, like",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "in the case of Indianapolis for example, sometimes it surrounds other smaller places and all these places together are still called Indianapolis. This is what you see in the green boundary. And for statistical purposes, the US Census",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "Bureau maintains the geographical area of the original city, which they call balances. This is highlighted in orange. And there are a total of nine of these balances in the US and the US Census Bureau included all these nine balances in their data",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "set instead of the official names. Now, an internal team looked at the at this data set trying to find problems with the data. They did not find any problems with the data set. So we published the data set to Google Maps. The impact on our users started.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "The users started to report the misnamed cities in several states. And And part of the response to the incident, we started to manually fix the city names in the database. In parallel, we initiated an automated rollback of the data set.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And eventually, all the misnamed cities were fixed, and the impact on our users ended. Finally, a postmortem based on root cause analysis was written. Now, I'll show you what the RCA, the root cause analysis, uh found and what",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "improvements it proposed. And my goal with this is to show you later what CAST found so that we can compare both methods both methods as they were applied to this particular incident. So, I want to pause for a moment to mention that when we consider an",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "external data set to be important to the map, a team of geospatial data specialists evaluates the data set looking searching for incorrect data. They use an internal specialized evaluation tool, and they also follow a policy that is",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "set by a separate team team called the data import team that defines the procedure to follow during their evaluation. And if the geospatialists find any problem with the data set, then they flag those problems, and a decision",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "is made whether to move forward with the import the data set import or not. Now, as I mentioned earlier, the US Census Bureau published a data set containing city names and their geographical areas for all 50 states. The team of geospatialists selected and",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "evaluated four states, those that you can see here in dark green. California, Washington, Texas, and New York. They didn't find any problems in any of those four states. The RCA also found that six states, those that you can see here in",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "red, contain the misnamed cities, of which here you can see three examples. And it turns out that the geodata specialists did not evaluate the data for any of those six states. I'll tell you in a bit what explanation the RCA, the postmortem, gave for that.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "The RCA came up with two root causes. The first was a limited evaluation tool. The RCA found that the tool used by the geo specialists did not support the detection of incorrect city names. The RCA proposed action items, recommendations to address this",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "limitation of the evaluation tool. The first one was to automate the detection of naming issues in cities. The second one was to write instructions on how to enable specific checks in the tool. And the third one was to flag special",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "characters such as double quotes, parentheses, et cetera. And lastly, to implement programmatic checks to block the publication of large datasets that have naming issues. The second root cause was ad hoc sampling of states. They chose",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "Washington, California, Texas, and New York for the evaluation, as we mentioned. But why not evaluate the data for the 50 states? Well, three reasons. First, the dataset for the entire country was too large for the geospatial team to evaluate.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Second, the dataset import policy they had to follow did not provide guidance for sampling states. And the third one, the people in the team lived in those four states, so they had local expertise to evaluate the data for their home states.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "But as we saw earlier, these four states did not include any of the any of the states that that contain misnamed cities, those in red. Historically, the team had followed a thorough evaluation process, so this second set of action items or recommendations",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "was meant to increase the effectiveness of the existing evaluation process. The first recommendation was to evaluate prominent cities like Indianapolis, Nashville, etc. The second was The second one was to codify a process for flagging",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "substantial differences in city names and send those for manual review. The third one was to assemble a virtual team to review high-impact data sets that can affect the search functionality in Google Maps. This was the root uh summary of the root",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "cause analysis. Now, before showing you the cost analysis, let me introduce the concept of accident model. So, an accident model explains why incidents happen. Like any model, an accident model is an abstraction in which we consider some",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "aspects of an incident more relevant than others. The traditional and most common accident model is linear causality. So, you place a series of events into a chain with each event causing the next one. Many methods like the Swiss cheese model",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "or the five whys are based on these accident model. And all these methods use different visual representations for an event chain, but they share the same focus, which is to identify the causal relationships between events that ultimately lead to an incident.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "There is another accident model that is based on systems theory. CAST is based on this accident model. Instead of a chain of events, it focuses on modeling the adaptive behavior happening in the system. In this model, the cause of an incident",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "is a system that allows, enables, and safe decisions to happen. Instead of a chain of events or a series of Swiss cheese slices, this accident model uses control feedback loops to model behavior happening in the system. And I will",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "describe in a bit what a control feedback loop is. So, if our accident model explains why incidents happen, then it follows that the model will also inform our approach to preventing incidents. The biggest problem with linear causality is that it finds simple",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "explanations to complex incidents. One can always place events into a timeline because events happen at some point in time, but that does not necessarily mean that if an event if an event happens before another, the first causes the second.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "And as an example, let's focus on the event data set with misnamed cities passes evaluation, which causes the data set published event. One cause found in the RCA, as I mentioned, was that the geospatialists missed the states containing misnamed cities.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Linear causality assumes that if the first event cannot happen, then the following event cannot happen either. Therefore, if the geospatialists identify the states containing misnamed cities, then the data set won't pass the evaluation.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "In other words, the assumption in the RCA is that if we ensure that the geo specialist identify the states containing misnamed cities, then the chain of events is stopped and the incident cannot happen. So, and then no data set containing",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "misnamed cities will pass the evaluation. That is the reason the RCA proposed action items around increasing the effectiveness of the evaluation process. But, will detecting misnamed cities more effectively prevent this incident from ever happening again?",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Maybe not. What if the results of the failed evaluation are overridden by leadership? Maybe intentionally, maybe unintentionally. So, this is a game of whack-a-mole, but instead of moles, you have the events in a chain. Another problem with a chain of events",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "is how the events are selected. So, this is subjective. Why is the event geo specialist miss states containing misnamed cities the root cause and not a previous event? What about geo specialist in New York lacks expertise to evaluate Washington?",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "And so on. You can always add previous events and extend the chain indefinitely. That is until you arrive at the original Big Bang event. So, I challenge you all to backtrack through that and come up with events. So, jokes aside, my my point is that the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "choice of events from the incident is subjective. And this raises an important question. What is the stopping rule? How do we decide what the first event is? In other words, why is this particular event the root cause of an incident?",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "Maybe the event is familiar to us. Maybe the event explains the incident in a simple way. Maybe we can think of action items that prevent this event. Or maybe we cannot backtrack through humans. Or we don't have information to go beyond a particular event.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Maybe the event is convenient or politically acceptable. Maybe a previous event is embarrassing to the organization. Again, the selection of the events in the chain is subjective, including the root cause. Another major limitation of chains of",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "events is that there exist causal factors that cannot be represented as events. These include systemic factors like management's decision-making, the safety culture of the organization, the management of chain management of change procedures.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "Inadequate feedback and communication channels. Changes in the environment outside the system. On one hand, these systemic factors cannot be included as events in a chain. And at the same time, the systemic factors have the most profound impact on",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "the occurrence of incidents. And I will show you an example of that in a bit. Bear in mind that these systemic factors can crush all your Swiss cheese slices simultaneously. Now, let me change gears and show you what I meant earlier by an accident",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "model based on systems theory. So, here we are modeling adaptive behavior happening in the system in the form of control feedback loops. Our goal is to analyze how the system enabled unsafe decisions to happen. In a control feedback loop, the the",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "bottom box is the controlled process and its behavior or state must be constrained. The controlled process could be hardware, could be software, even human components. The top box is the controller and its goal is to constrain the behavior of the",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "controlled process underneath. Like the controlled process, a controller is often either software or humans. The mental model of the controller is its worldview. It's a set of beliefs about the state of the controlled process.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "And the mental model of the controller is updated with the actual state of the controlled process via feedback, which we represent here via an upward arrow. And each controller makes decisions that affect the state of the controlled",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "process when the mental model says that the controlled process is in an undesired state. This is its decision-making process. And the visible effect of the this decision-making process are the control actions, which change the state of the",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "controlled process and are represented by downward arrows. And sometimes these control actions can be unsafe, meaning that they result in an undesired state of the controlled process. And after the control actions update the",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "state of the controlled process, the cycle starts again. And this loop models the adaptive behavior of the controller. Now, what are the causal factors that can lead to unsafe decisions? Well, there there can be several of those, but",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "the most common category of causal factor is an inconsistent mental model. What if the controller has the incorrect belief about the state of the control process? So, this can lead the controller to make an unsafe decision. The inconsistent mental model can be",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "caused by problems with the feedback. For example, there could be no feedback available, or the feedback might be incorrect, or the feedback might arrive late. We can analyze this loop to identify the controller's contributions to an incident that happened.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "And this is what we did with CAST on the misnamed series incident. So, to summarize this section, lots of terminology, using an accident model based on systems theory, we move from a focus on preventing events that should have not happened",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "to a focus on changing the system, so behavior of decision makers is constrained to safe decisions. For example, if a particular feedback is required to make safe decisions, but we find that the feedback does not exist in the system,",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "then we can design and implement that feedback. You can prevent all the events in the chain from happening, but there will always be new unforeseen events that happen in the future. Postmortems based on root cause analysis",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "have been part of Google's culture for a long time. Done after every major incident for over two decades. And cultural changes are slow. The adoption of CAST is going to be slow. Let me show you the CAST analysis now. So, the incident was not major,",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "but it definitely had lots of learning potential. And as I showed you, a postmortem was done for this incident. Leadership had heard at the time about the CAST analysis that we run on previous unrelated incidents, where we showed CAST found more issues",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "than the postmortem root cause analysis. So, I was asked to run a CAST for this particular incident. And I will show you now what I found with CAST so we can compare it with compare it with the RCA results. So, remember the control feedback loop I",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "showed you earlier? So, this is a bunch of control feedback loops organized into a hierarchy. And we call this a control structure. And drawing the control structure is one of the initial steps of CAST. And this is the control structure of the",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "system at the time of the incident. At the bottom, we have the maps database, which contains information about geographical entities, in this case information about cities. The system must prevent this database from entering undesired states. For example,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "storing cities with incorrect names. And as I mentioned earlier, the geospatial team uses an evaluation tool and follows an import policy to identify to try to identify and report problems in candidate data set before importing them to the maps database.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "The data set import team applies individual fixes to entities in the map during incident response and also establishes the import policy that the geospatial data specialists at the bottom must follow when they are evaluating data sets.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "And lastly, engineering responds to incidents by rolling back bad data set and coordinating response with the data set import team. So, after modeling the system at the time of the incident with a control structure, the next step in CAST is to",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "analyze the contributions to the incident of each individual controller. Let's see an example for the data set import team. So, remember that the data set import team defines the import policy that the geospatial team must follow while evaluating a data set.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So, what was the contribution of the data set import team to this incident? So, the data set import team did not update the policy to enable detection of localized problems in the US Census data set. How can we explain this decision? Let's look at the mental",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "models. During the analysis, we asked this team involved in the in the incident, \"So, you knew that the geospatial team would evaluate the US Census data set. What did you believe about your import policy existing at the time?\"",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "They told us that they they believed at the time that the existing policy would detect any problem in the US Census data set. This belief explained their decisions to not update such policy. Now, our goal as CAST facilitators",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "was to explain how the data set import team created that belief. So, we found two factors. The first one was that the data sets that were evaluated and imported in the past were uniformly generated. This meant that if the data sets",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "contained problems, those problems tended to be evenly distributed across all geographical areas. The default assumption was that the US Census data set was also uniform. So, if the four states they evaluated did not contain bad data,",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "then the whole country would not contain bad data either. And the second factor, contextual factor, was that in the past, the team had imported other US Census data sets, but this was the first time that the US Census data set included information for cities.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So, the team had low familiarity with this particular type of data. Now, do you look at the control loop, uh counter-clockwise, these two contextual factors influenced the mental model that the data set importing had about their",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "own import policy, which explained their contribution to the incident. Now, let's look at one contribution by the engine by engineering in the context of incident response. So, engineering took a long time to roll back the US Census data set.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "Now, some of you might have gotten a gut reaction like, \"Isn't that blaming the engineer?\" So, if we stop here, then yeah. I mean, we would conclude that it was the engineering's fault, and that would be it. But, there are two very very serious",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "problems with this. The first, we don't uncover the factors that influenced this decision. This is somewhat irresponsible because we don't change the system to address those factors. And it's likely that a different person, a different engineer,",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "working in the same system and the same situation will make the same unsafe decisions. And second, as as an incident analyst, we've we probably damaged the psychological safety of the team. Now, the good news is that we all here",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "in this room, I'm sure, know better. So, we assume that the engineers did their best to try to fix the problem as soon as possible with the information they had at the time. That's why we looked at their mental models and the",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "contextual factors that influence their decision. Initially, the engineering's mental model was that the US Census data set did not need to be rolled back. Why that belief? For once, engineering didn't know the scale of the problem while the incident",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "was ongoing. Were there a lot of misnamed cities or just a handful of them? Engineering knew that the data set import team had started to apply manual fixes to the misnamed cities. Would these manual fixes be applied quickly to all misnamed cities?",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "After a while, the data set import team was still applying manual fixes, so the number of misnamed cities was still inconclusive. So, engineering decided to initiate the parallel rollback of the data set. And this caused database conflicts with",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "the manual fixes, which introduced delays. The other contextual factor was that it was not clear when manual fixes or automated roll backs should be applied during incident response. And this resulted in This resulted from a",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "a diffusion of responsibilities during incident response. Remember, at the time of the incident, engineering didn't have the information we have today. So, we now know that there were only nine misnamed cities, but it was not",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "possible for the engineer to to quickly find out about that during the incident. And hindsight is a luxury of our future selves. So, again, if you look at the control loop counterclockwise, these two contextual factors influenced the mental",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "model that engineering had about whether the data set required a rollback, which explained their contribution to the incident. So, but what about the systemic factors? Those that have the potential to affect the entire control structure simultaneously.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "So, after analyzing each controller individually, the next step in CAST is to analyze the control structure as a whole. The main systemic factor we found was changes over time in the environment, everything that was outside our system.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "As you can see in this picture, the size of the data sets the team received from different data providers had been increasing over the past years. And this had ripple effects across the whole system, weakening the existing controls.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "Let me show you this visually. From a control structure that initially handled small and medium-scale data sets effectively, in recent years, the data sets we received became larger and larger, and the control structure migrated to a state of higher risk,",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "in which the existing controls gradually became weak at handling larger and larger data sets. All of the controllers in this control structure and the control actions were made ineffective. And you cannot generate insights about",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "systemic factors when looking at the decisions of individual controllers. You must look at the entire control structure. That's why we have an an additional step in CAST. Now, let's go on a brief tour of the areas impacted by the environmental",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "systemic factor. The first was evaluation. The data set import policies did not contain clear sampling rules for the evaluation because they were originally designed to evaluate entire data sets, which were manageable by the team in the past.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "And as we learned earlier in this incident, the team selected in an ad hoc fashion only for states that contained good data and didn't evaluate the data for the state with containing misnamed cities. The second was the evaluation tool.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "The tool requirements were never reassessed over the years to address the detection of localized problems as the size of the data sets grew. And lastly, the incident response. The responsibilities during incident response protocols were not clearly",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "allocated in situations where large data sets contain localized problems. So, our objective with CAST is to formulate recommendations to enforce the safe behavior at both the component and the control structure levels. And for this incident, CAST found 22",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "recommendations. And here are just three examples of those. The first one was to redesign from scratch the data import policy to manage increasing volumes using a structured sampling rather than random sampling. To complement this, also",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "establish a leading indicator of risk to monitor the effectiveness of the import policy so that we can identify when the import policy weakens and moves the system to a state of higher risk. The second was Second example was to",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "create individual probe alerts for frequently rendered map entities, not just cities, to provide rapid notifications of changes in otherwise stable data. The third example is to implement a policy to notify data set providers, for",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "example, the US Census Bureau, of incorrect data and to recommend fixes to them. And despite the initial cost, in the long run, this improves the data quality and coverage for recurring imports, benefiting all consu- consumers of public data sets.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "Now, let's quickly compare RCA and CAST, examining both methods and the results as they were applied to this particular incident. This is not a general comparison between RCA and CAST as accident analysis methods. So, for the underlying accident model,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "so the RCA found two root causes for this incident. CAST demonstrated that there were no root causes for this incident, only mental models, contextual factors, and systemic factors that influenced the decisions that contributed to the incident.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "The improvement plans reflected the nature of those findings. The RCA action items treated the incident symptoms, like fixing limitations of the evaluation tool or increasing people's diligence on top of the existing evaluation process.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "The CAST recommendations addressed the causal factors of the incident, acknowledging the need to make the control structure as a whole resilient to a changing environment. The frame of analysis was different, too. The RCA focused on proximal events",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "around the incident time, evaluation of the US Census data set, the use of the evaluation tool, the import of data, the rollback of the data set. CAST, also on top of that, focused on distal events. For example, we analyzed past incidents, which allowed us to",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "identify the trend in the increasing volume of data over the years. Lastly, the organizational factors. So, RCA focused almost exclusively on the technical aspects of this incident, with emphasis on the support of the evaluation tool.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "CAST went beyond the technical aspects and analyzed the interactions between the humans like the Google internal teams and the US sensor bro, and between the humans and the software components. Now, let me tell you my final takeaways. So, at Google",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "we found that CAST is a powerful way to look at our incidents. We found that the insights from CAST go far beyond those of post of the postmortems that are based on root cause analysis. For example, while the RCA in this case focused on the symptoms like",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "preventing recurrences of misnamed series, CAST looked at the effects of the environment in the system over the years, revealing systemic factors such as the impact of growing data sets. These deeper insights allow us to make",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "more impactful recommendations. For example, redesigning processes like the evaluation and the incident response, rather than just patching the existing ones. And at Google, CAST is getting us to where the postmortems based on root cause analysis can't.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "Just to wrap this up, a few resources. So, from left to right, here is an exam Here is an article that we published in USENIX uh describing how we are applying uh system safety engineering methods at Google. In the center, you can find the original",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "CAST handbook published by Dr. Leveson from MIT. And lastly, in the upcoming second edition of the Google SRE book, we cover CAST in the safety engineering for software chapter. And with that, thank you so much.",
+      "start": 666,
+      "duration": 6
+    }
+  ]
+}

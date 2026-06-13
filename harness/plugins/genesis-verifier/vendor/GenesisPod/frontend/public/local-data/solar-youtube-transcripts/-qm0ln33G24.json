@@ -1,0 +1,1224 @@
+{
+  "videoId": "-qm0ln33G24",
+  "title": "Stanford CS336 Language Modeling from Scratch | Spring 2026 | Lecture 13: Data (Sources, Datasets)",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 62734,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So today we're going\nto talk about data.\nAnd where we are is\nthat you know how\nto train a model, given data.\nLast time we saw evaluations,\nso we know what a good model is.\nAnd for the next two\nlectures, this week\nwe're going to focus on what\ndata should we train on.\nAnd I want to argue that data\nis the most important thing\nto get right in language models.\nAnd one justification\nfor this is\nif you look at what\ncompanies actually disclose--\nso here is the Llama 3 paper.\nThey have full transparency\ninto the architecture--\nwell of course, because\nit's open-weight model--\nthey even tell you about\ntheir training procedures,\nbut they don't say\nanything about their data.\nSo they just say, we train\nfor a variety of data sources\nand do some stuff.\nAnd there's good reasons\nfor this secrecy.\nOne is that data is your\ncompetitive secret sauce.\nCompetitive dynamics.\nYou don't want your competitors\nto know what you're doing.\nAnd the second\nthing, which we'll\ntalk a little bit more about,\nis copyright liability.\nYou don't want to get sued if\nyou tell people you're training\non certain types of data.\nSo data is a long topic\nin machine learning.\nAnd before foundation\nmodels, data work\nmeant you annotate-- label\ndata for supervised learning.\nNowadays there's less\nmanual annotation--\nat least in pre-training--\nbut there's still\na lot of curation and cleaning\nwork that needs to be done.\nAnd so fundamentally, this\nhasn't really changed.\nData has always\nbeen a bottleneck,\nand always will be a\nbottleneck because it's\nin some sense a\nlong-tail problem,\nand that scales\nwith human effort.\nSo if you have a lot of people\ntrying to work on the problem,\nwell, there's only\nso many people\nthat can work on\narchitectures and systems.\nBut data, well, that's--\nespecially if you're training\na foundation model that's\ntrying to do all these things,\nyou can [? paralyze ?]\nthat effort easily.\nSo that's why these data teams\nand these model developers\nare actually quite big.\nSo data comes in at different\nstages of the pipeline.\nToday we're focusing\nmostly on pre-training.\nSo pre-training,\nyou take raw data--\nthese are documents\nfrom the web.\nThen you move into\nmid-training where\nyou train on more\nhigh quality data\nto enhance certain capabilities,\nand give long context, things\nlike that.\nAnd then finally\npost training, where\nyou're training on things\nlike chat transcripts,\nor if you're doing\nreinforcement learning,\nyou get some environments\nthat you're training on.\nThis becomes more task specific.\nIn practice the lines\nare a bit blurry,\nand there could be\nmore than three stages.\nBut this is a basic template.\nThe trend is that\nwe go from training\non large amounts\nof low quality data\nto smaller amounts\nof high quality data.\nSo as a result of this process--\nyou'll see in the literature\nwhen we talk about the base\nmodel, This usually means after\npre-training and mid training,\ninstruct models or chat\nmodels, or post-training.\nBut of course, the\nlines are becoming\nblurry enough that what\nis the base model anymore\nis really unclear.\nAnd more recently, the largest\nmodels, there's no base model.\nThere's just Qwen3.5-397B-A17B,\nand that's it.\nYou don't see the\nintermediate checkpoints.\nSo for models that are open\nsource like OLMo from AI2,\nyou can see everything\nthat's happening.\nAnd so, we'll study\nsome of these models.\nSo for example, in pre-training,\nthere's a bunch of sources which\nwe'll talk about what\nthese mean, but--\nweb pages, academic papers,\nmath pages, proofs, and so on.\nThere's mid-training--\nhigher quality web data,\ninstruction data, bunch of\nsynthetic data often goes here.\nAnd then finally post-training,\nthere is a bunch of chat logs.\nThere are more\nmath and reasoning,\nand coding, you do safety\nat this point as well.\nSo what are all these datasets?\nHow do you choose them, and\nhow do you process them?\nSo that's the main question.\nSo in the spirit of the class,\nwe're going to talk about data.\nI'm going to go\nstart from scratch.\nSo where does data come from?\nSo one might hear\nin the hallway,\noh, language models are\ntrained on the entire internet.\nSo first of all, this doesn't\nreally quite type-check.\nBecause for that to\nbe true, it would\nhave to be an agent that--\nlike an RL agent that goes\non the internet and does stuff.\nBut that's not actually\nhow pre-training works.\nSlightly more accurately, it's\ntrained on the public world\nwide web, but this is not\nquite accurate for reasons\nI'll explain.\nOK, so first of all, the web is\nactually a bunch of live servers\nthat just exist in the world,\nand you can connect to.\nSo take any website-- you\ncan go and download the page.\nOr, you can basically send a\nrequest and get back a response.\nSo you can't actually\ntrain on these live servers\nunless you're\ntraining an RL agent.\nSo typically what you do\nis you have a crawler,\nor someone builds a crawler,\nnot necessarily you.\nThe crawler needs to discover\nwhat web pages are out there,\nstarting with the seed set, and\nit downloads the discovered web\npages as it is crawling.\nBut still, can't\njust run a crawl\nand download all the web\npages on the internet,\nand there's a few\nreasons for this.\nOne is that a lot of the web\ncontent is actually dynamic.\nSo especially these days,\na lot of sites are apps.\nThe URL isn't even as full\n[? of ?] specification\nof the content, it's just an\napp that you interact with,\nand you need to often click\nbuttons or submit forms\nto access content.\nFor example, if you're\non Discord or something,\nit's not like you can just crawl\nDiscord and get all the content\non Discord.\nSo that's one kind of\nthing, and a lot of content\nis actually known as in the\ndeep web, which is not just\ndoing web page\ncrawling and following\nhyperlinks, which is a very\nof traditional model of web\ncrawling.\nThe second thing is\nthat authentication.\nSo some pages need a login,\nan account, and generally\nyou have to pay.\nFor example, there's Facebook,\nX, LinkedIn, New York Times.\nThere's actually huge\namounts of content\nthat are actually locked up\nbehind these walled gardens.\nSo these are technically on\nthe internet or on the web,\nbut you can't just build a\ncrawler and go crawl Facebook.\nI guess if you're\nFacebook, you can crawl--\nyou don't need to crawl\nFacebook, you have the data,\nand you can train a model.\nOr if you're X AI, you can train\non X. But if you're anyone else,\nyou can't actually\naccess this content.\nOK, suppose you don't have\nthe authentication issue.\nThere's still potential\nrestrictions here.\nSo there's something\ncalled robots.txt,\nand this is a file\nthat is usually\nplaced at the root level of a\ndirectory, such as nytimes.com,\nand it basically\ntells you what you're\nallowed to crawl and whatnot.\nSo these things are-- a lot\nof things are disallowed,\nsuch as OAI-SearchBot, or\nPerplexityBot, QuoraBot.\nI think basically, ChatGPT-User,\nClaudeBot, and all these things.\nOK, so this is not a tech--\nthis is not a legal\nrestriction, this\nis just like, you're\nsupposed to be a good citizen\nand look at robots.txt.\nAnd if your name\nis on that list,\nthen you should not crawl it.\nThat's basically the--\nnot even a contract,\nthat is the thing\nyou're supposed to do.\nA lot of websites now use\nsomething like Cloudflare\nto detect and\nblock bot activity.\nSo sometimes you've\ngone to a website,\nand it gives you a CAPTCHA.\nThat's because\nsomehow, some algorithm\nhas detected that\nyou might be a bot,\nand then it's making\nsure you're human.\nAnd if you're actually a\nbot, then, well, you can't--\nI mean, you could try\nto get around this,\nbut generally this is\nan obstacle in your way.\nA website might block certain\nIP addresses or countries,\nand they might have rate limits.\nSo there's technical\nrestrictions\non what you can actually\ncrawl, and then there's\nalso legal restrictions.\nSo websites have\nterms of service\nthat say, if you\ngo to a website,\nyou have to obey this\ncontract to use the website.\nAnd the terms of service often\nwill say, if you're a bot,\ngo away.\nYou cannot use this, the content\nof the site for AI training,\nor whatever it might be.\nAnd also, even if terms of\nservice don't say anything,\nthe content of the website\nmight have a license,\nor you might not have\na license to train.\nAnd we'll talk more\nabout this in a bit.\nSo there's legal\nrestrictions on what\nyou are allowed to train on.\nThese things are also\nevolving over time.\nSo there's a nice\npaper by Shane Longpre\ncalled Consent in\nCrisis, and what\nthey did is they examined\nthe restrictions--\nboth the technical\nrestrictions, robots.txt,\nand the legal restrictions,\nthe term of service,\nfor various URLs\nin common datasets,\nwhich we'll talk about later.\nAnd the conclusion was\nthat the restrictions\nhave increased over time.\nSo here's a graphic that shows--\nthe top one shows robots.txt.\nAnd if you just\nlook at this red,\nthat's the full restrictions.\nAnd up until 2023, everything\nwas fairly constant.\nAnd then up until mid\n2023, all of a sudden\nyou see the amount of\nthe fraction of websites\nthat have full restrictions on\nit has grown to almost 50% here.\nAnd for terms, there's a similar\ntrend where I guess in 2016,\nno one really put any\nterms on their pages.\nAnd now most pages put some\nterms, and most of the terms\nsay you can't use this for AI.\nSo even though it was possible\nto crawl the internet back in,\nlet's say 2020, the\ninternet actually,\nat least what you can legally\ncrawl, is actually much smaller.\nSo of course, these\nare guidelines.\nAnd sometimes,\neither intentionally\nor not intentionally, you\ncould violate these things.\nSo this is-- sometimes you get\ninto these situations where\nthere's this guy who--\nwhat was this?\nI forget the name of this site--\nwas complaining about\nAnthropic crawling them,\nhitting their servers\na million times\nin 24 hours, which was not good.\nAnd then Read the Docs\nwas also getting hammered.\nSo there was a period where,\nwhich I think probably\nhas hopefully been corrected\nby now, that crawlers\nwere hammering websites.\nAnd there the-- here,\nthis is interesting,\nis like even before talking\nabout copyright issues,\nthere's, I think, problems\nwith crawling either violating\nterms of service, or\nrobots.txt, or just low up-down,\ngenerating a lot of server\nload, which this costs money\nfor the person hosting it\nand also degrades service\nfor everyone else\ntrying to use it.\nSo there are issues\nwith crawling.\nAnd then, of course,\nthere's copyright,\nwhich we'll talk about soon.\nThat's a whole other\ncomplex can of worms.\nAnd then finally, there's these\nthings called shadow libraries,\nwhich are also part of the web.\nSo examples are LibGen,\nor Anna's Archive.\nAnd these completely disregard\ncopyright and bypass paywalls.\nSo someone has collected\na ton of data-- usually\nbooks and articles that\nare all copyrighted,\nand people have\nto pay for these--\nand have made them\navailable for free.\nAnd there have been a lot of\ntakedown orders, lawsuits,\nand these are blocked,\nbut usually these\nare circumvented\nbecause they just make\nservers in other countries.\nAnd the people doing this\nargue that this is making free\nwhat's freely available,\nwhat should have been freed,\nbut generally from\na legal perspective,\nthis is piracy and\ncopyright infringement.\nAnd we'll come back\nto this point later.\nSo there are a lot of books\nand papers on these shadow\nlibraries.\nSo the summary so\nfar, the internet\nis a huge and messy\nand scary place,\nand you can't actually\nget all of it.\nThere are technical\nrestrictions,\nthere's legal restrictions\non what data one can access.\nSo now next time someone says,\nI trained on the internet,\nyou can tell them all\nthese things you learned.\nSo now let's go to the second\npart of what data can we use,\nand this has to\ndo with copyright.\nSo suppose you were able to\nobey the terms of service,\nand you are really\na good citizen,\nand you obey the rate limits.\nNow, there's still a\nquestion of are you\nallowed to train on this data?\nAnd this is a\nongoing question that\nhas not been fully\nresolved, but there\nhas been a bunch of\ndevelopments in the last year.\nSo the legal context for\nthinking about this question\nfalls into intellectual\nproperty law,\nand this is a system\nthat is trying\nto incentivize the creation\nof intellectual goods.\nSo I think it's--\nremember, the\nspirit of the law is\nto not just technically\nsay no to everything,\nbut to incentivize the\ncreation of intellectual goods.\nAnd there's many forms\nof intellectual property\nthat are covered.\nThere's copyrights, patents,\ntrademarks and secrets-- sorry,\ntrademarks, and trade secrets.\nThe thing that is most relevant\nfor language model data\nis copyright law.\nSo copyright law has a fairly\nlong history going back\nto the 1700s in England.\nAnd so 1709 was the first time\nthat governments and courts\nstarted actually\nregulating copyright\nfor this goal of incentivizing\ninnovation and creation.\nAnd in the US, more recently,\nthe Copyright Act of 1976\nis what I think defines a\nlot of modern copyright.\nSo copyright protection\napplies to original works\nof authorship fixed in any\ntangible medium of expression,\nyada, yada, yada.\nSo a few notes.\nSo not everything\nis copyrightable.\nIn particular, collections\nare not copyrightable.\nSo for example, if you\nhave a telephone directory,\nunless there is some creativity\nin how you arrange things,\nthis is not really\ncopyrightable.\nAnd furthermore, copyright\napplies to the expression, not\nthe idea.\nSo you can't copyright an\nidea, like you can't copyright\nthe quick-sort algorithm.\nYou can copyright\nthe implementation\nof a quick-sort algorithm, but\nnot the quicksort algorithm.\nSo one thing that\nhappened in 1976\nis that the barrier to getting\na copyright was relaxed a lot.\nSo more things are copyright.\nSo it used to be that you\nhad to publish something\nto have something copyright.\nNow things just\nhave to be fixed.\nAnd what that means is that\nregistration of any sort\nis not required for\ncopyright protection.\nThis is in contrast to patents.\nPatents you have to go pay a\nlot of money to get a patent,\nand you have to file a patent.\nBut the threshold for\ncopyright is very low.\nFor example, you put\nsomething on your website,\nit's copyrighted.\nThat's it.\nNow if you want to\nsue someone, you\nhave to go get it registered,\nbut it only costs $65.\nWhich is much smaller\nthan the lawyer fees\nthat you'll probably\npay, so it's really\nstill a very low bar.\nSo one thing to\nknow about copyright\nis that it lasts 75 years, and\nthen the copyright expires.\nAnd whatever that content gets\nreleased into the public domain,\nand this is now--\neveryone can use it freely.\nSo a lot of people who\nhave lived in the past,\nall their great works\nare in the public domain,\nwhich is great for everyone.\nSo the rationale here is that\nyou're incentivizing innovation.\nSo when an artist or a\ncreator creates something,\nyou want to protect their--\nyou don't want someone\nelse to just take it,\nso you protect them for a while.\nBut after 75 years, presumably,\nit's not worth protecting,\nor they're passed\naway, or something.\nSo it doesn't make sense to\nkeep things copyright anymore.\nSo basically, everything on\nthe internet is copyrighted.\nSo you're saying, wait a minute.\nSo that means is everything--\nif I train on anything,\nthat's a copyright violation?\nWell, not necessarily.\nSo everything is\ncopyrighted, but you\ncan use copyrighted works.\nAnd the way you do it is A, you\neither get a license for it,\nor B, you appeal to\nthe fair use clause.\nSo a license from\ncontract law is something\nthat a licensor\ngrants to a licensee.\nIt basically says, don't sue me.\nYou can use this work in the\nways that the license permits.\nSo there's a really nice\nlicense called Creative Commons,\nwhich allows something\nto act like it\nwas in the public domain.\nIt enables free distribution\nof copyrighted work.\nSo examples include Wikipedia,\nOpen CourseWare, Khan Academy,\nall these things.\nIt was created in 2001\nto essentially bridge\npublic domain and\nexisting copyright,\nbecause otherwise you\nhave to wait 75 years.\nBut what if the creator says, I\nactually want people to use it.\nThey can now have a means,\na legal means of saying,\nI put a Creative\nCommons license on it.\nIt's going to act like\nit's in the public domain,\nand everyone can use it.\nSo, so far, things\nin the public domain\nand things that have Creative\nCommons licenses are permissive.\nYou can use it.\nBut there are many\nother times where\nyou don't have-- it's not\na Creative Commons license,\nit's not in the public domain,\nyou have to get a license.\nSo if you have money,\nyou can pay someone\nto give you a license.\nSo there's a bunch of deals\nbetween model developers\nand content, I guess,\nplatforms, that\nallow the model developers to\nlicense the data for training\nfoundation models.\nOK, so that's the first thing.\nYou can get a license--\neither Creative Commons,\nor you can pay\nsomeone for a license.\nNow if you don't\nwant to pay, you\ncan appeal to fair use, which\nis a more complicated matter.\nSo this is section 107\nof the Copyright Act.\nAnd there are-- basically fair\nuse says, I can use this anyway,\neven if I don't have a license,\nand these four factors determine\nwhether fair use applies.\nSo the first one is the purpose\nor character of the use.\nWhat are you trying\nto do with it?\nAnd none of these\nare hard rules.\nThey're just\ntendencies which have\nto be weighed in court\nif it comes to that.\nSo, for example, if you're\ntrying to do something\nfor education, it\nis more likely to be\nfair use than if you're\ntrying to sell and make\nmoney off of it.\nIf you're trying to-- if\nyou transform something,\nthen that's going\nto be more favored\nthan if you just literally\nhost the identical copy.\nThe nature of the\nactual copyrighted work\nis also important.\nSo things that are\nmore factual are\nmore likely to be fair\nuse than fictional works.\nBecause if you write a\nsummary of World War--\na page about facts\nabout World War II,\nthere's less protection over\nmy really creative poem.\nAnd then the amount of\nportion of the original work.\nSo using a snippet is\nfavored over the whole work.\nSo if you just\ntake a little bit,\nthat's not as bad as\ntaking everything.\nSo that's fairly\nstraightforward.\nAnd the final thing is related\nto original motivation.\nIt was like, why are you--\nwhy copyright at all\nis to protect and align\nthe economic incentives.\nSo the effect that\nwhat the use has\non the market for\nthe original work.\nSo if you take an author's work\nand you provide an alternative,\nand that decreases the amount\nthat the original author could\nmonetize their work, that\nis seen as potentially bad.\nBut if you're transforming it in\na way and going to a new market,\nor doing something else\nwith it, then that's\ngoing to be treated\nmore favorably.\nSo here are some\nexamples of fair use.\nYou can watch a movie and\nwrite a summary of it.\nYou can re-implement an\nidea, like an algorithm--\nnot copy the code.\nAnd then there was this famous\nlawsuit between Authors Guild\nand Google.\nSo if you go to\nGoogle Books, you\ncan see snippets of various\nbooks which are copyrighted.\nSo there was a huge\ndeal about whether this\nwas deemed fair use, because\nyou are redistributing\nother copyrighted\nwork, and eventually--\neventually meaning\nafter 11 years--\nthis lawsuit was settled\nin favor of Google,\nwhich is why this thing exists.\nAnd this has set some\nprecedent for thinking about\nwhether language model\ntraining is fair use.\nOne thing to note is\nthat copyright is not\nabout verbatim memorization.\nSo this might be, I\nthink, for an ML audience,\nthis might be a little bit\nnew because a lot of papers\nare focused on\nverbatim memorization.\nThat's one way you can violate\ncopyright, but not the only one.\nSo for example, plots and\ncharacters can be copyrightable.\nSo you can copyright\nHarry Potter\nthe character, not any\nparticular book, or anything.\nBut there are some exceptions.\nFor example, if you're\nparodying something--\nand so you're creating something\nthat looks like a derivative,\nbut as long as you're\nmaking fun of it,\nit's actually more\nlikely to be fair use.\nSo, yeah.\nSo a lot of copyright\nis about semantics.\nIt's definitely not\nabout N-gram overlap,\nand also about the economics.\nSo what is the implication\nfor language models?\nSo first off, copying data.\nEven if you're not training,\neven the mere fact of copying--\nwhich is in the word copyright--\nis potentially a\nviolation already,\neven if you don't\ndo anything with it.\nTraining a model--\nI guess this is not really a--\nlet's see, how do I take that?\nThis is not necessarily\na fact, but intuitively\nhas a transformative flavor.\nBecause it's certainly not--\nit certainly seems\ndifferent than just\nrehosting another work.\nIt's doing something\ntransformative.\nAnd in some sense,\nthe models are really\ntrained on this data\nas a means to an end.\nYou are trying to\nextract the general idea,\nlearn about the world\nand how it works,\nrather than only just\nthe concrete expression.\nAnd the other thing is that\nregardless of copyright,\nlanguage models can\ndefinitely affect the market.\nSo I think this is\nalso-- remember, that's\nthe fourth item for fair use.\nSo by negatively\naffecting the market,\nyou are more likely to\nbe ruled not fair use.\nSo fair use is a\nlittle bit slippery.\nSuppose you have fair use,\nor you have a license.\nRemember that there's still\nterms of service that allow\nor prevent you from actually\njust getting a piece of work.\nFor example, YouTube has all\nthese videos which are licensed,\nbut the terms of\nservice prohibits\njust downloading the videos\nusing a bot, like scraping,\nwhich is another layer.\nSo there's multiple layers\nof restrictions here.\nSo let me talk a little\nbit about where things\nare on the legal landscape.\nSo back in 2023, New York Times\nfiled suit against OpenAI,\nsaying you train on our\nnews articles, and look,\nhere's evidence.\nWe were able to actually prompt\nChatGPT to generate a news\narticle almost verbatim.\nI don't think this\nis still pending.\nThere's a case against Anthropic\nwhere the allegation was\nyou pirated millions of books,\nand you trained on these books\nto make Claude.\nJust last year, this\nwas a landmark ruling\nthat said, actually, this\nparticular instance of training\nis fair use.\nHowever, Anthropic,\nyou're still in trouble\nbecause you pirated all these\nbooks, and that is a no-no.\nSo notice that this has nothing\nto do with training, just\nthe mere fact of pirating--\nI mean, which is\nnot a new thing--\nis illegal.\nAnthropic actually,\ninterestingly,\nhad bought and\nscanned all the books,\nwhich is actually fair use.\nThe Court said you're\nallowed to scan.\nYou buy a bunch of books,\nrip off the bindings,\nscan it, and digitize\nit for your own use.\nThat's fair use.\nBut that doesn't absolve\nyou of your sin of pirating.\nSo you can't pirate and then\nbuy it and say, actually, never\nmind what I just did first.\nSo the outcome is that\nAnthropic paid 1.5 billion\nto settle the authors.\nSo this is about $3,000 a book.\nSo there's also a\nlawsuit against Meta.\nThe allegation was that\nyou trained on our books--\nsorry-- and this was,\nas we'll see later,\nactually revealed\nin the Llama paper.\nAnd the judgment which came\nright after Anthropic was, yes,\ntraining is fair use.\nAnd then they also\ntorrented some books,\nso that's still pending.\nSo that's probably--\nif precedent holds,\nthis is also not going\nto be good for Meta.\nSo the summary so far is\ntraining, so to speak,\nhas been deemed of\nfair use, or at least\nhas been not deemed\nnot fair use.\nThe rulings have\nso far been narrow.\nIt's not to say that any\ntraining on any copyrighted\ncontent is fair use, but\nin these cases, it's fine.\nPirating books is\nclearly illegal.\nI guess we already knew that.\nBut this is still a very\nactive and evolving area.\nAny questions about\nthe sources of data?\nI think, before we get\ninto the actual datasets,\nI just want to set the\nstage with this more\ngeneral social context.\nYeah?\n[INAUDIBLE]\nThe question is, what do I think\nof voice data and ElevenLabs?\nI don't know too much about\nthat, so we can talk offline.\nYeah?\n[INAUDIBLE]\n--because I guess if I own some\nasset, it's reasonable for me\nto be like [INAUDIBLE].\nAm I allowed to-- usually\nit's Creative Commons,\nbut can I update my license\nlater on to block certain usage?\nAnd so, what is the\nrole of time playing\nin this, like I then train on\nthe older version with more\na more permissive license\nif the creator copied it\nto a more restrictive?\nYeah, so the question is,\nwhat happens with time?\nIf you have one license and then\nit gets changed, what happens?\nSo first, I'm not a lawyer.\nBut second, so this--\nso the first license\nI believe you're still\nallowed to train on it.\nBut what happens is\nthat the license usually\napplies to not just, let's\nsay, a fixed set of documents--\nfor example, Reddit.\nThere's constantly new\ncontent being created,\nand the license\nbeing changed means\nthat you wouldn't be able to\ntrain on the later things.\nOK, so let's look at\nvarious sources of data.\nSo let's go back to crawling.\nSo most model developers\nhave their own crawler,\nbecause they want to have full\ncontrol over what the data is.\nFortunately for the\nrest of us, if you\ndon't want to build\nyour own crawler,\nthere's something called Common\nCrawl, which has been around\nfor quite some time since 2007.\nAnd every month they run a\nweb crawl, gets about three\nto five billion web pages.\nEach crawl has some overlap\nwith the previous crawl,\nbut they try to diversify\nand get new pages.\nSo there's 300 billion\npages so far, which seems--\nthis was from their website.\nIt seems a little bit\nbig, because if you\nmultiply this number by 20, you\ndon't quite get 300 billion.\nBut that's what they say.\nSo how many URLs are out there?\nThat's really hard to estimate.\nSo the Google search index\nis at least 100 petabytes,\naccording to them.\nAnd, each Common Crawl dump\nhas about 2 billion web pages.\nSo that's about 372tb.\nAnd this is not\nincluding images,\nthis is just mostly\nfocused on the text.\nSo crawling is conceptually\nstraightforward,\nbut all the gory details\nare in the implementation.\nYou start with a bunch of\nURLs, and then you iterate.\nIt's basically graph traversal.\nYou pop a URL from a\nqueue, you download it,\nand then you look at all\nthe hyperlinks in that page,\nand then you add\nthem to the queue.\nAnd generally this is done in\nparallel over many machines.\nAnd there's many\ndecisions here--\nwhich pages to download, you\nhave to respect robots.txt,\ndon't overload the server.\nSometimes the websites\nchange, and so you\nwant a policy that will download\nfrequently changed pages,\nbut not spend time downloading\npages that don't change.\nSo there's some\npolicy around that.\nAnd I mentioned before,\nURLs are dynamic,\nso sometimes the same URL\nleads to different content\ndepending on some\nstate of the browser.\nBut also, many URLs might\nlead to the same content,\nso there's a lot\nof duplication that\nhappens if you're not careful.\nIn particular, mirror sites\nexplicitly is about duplication.\nSo Common Crawl releases\ntheir dumps in two formats.\nOne is a WARC file.\nSo this is the\nraw HTTP response.\nSo remember, HTTP\nprotocol is that you\nsend a get, here's a URL, and\nthen out comes a HTTP response,\nand the WARC file\nis that response.\nThey also do some processing.\nThey convert to a WET\nfile, which is necessarily\na loss-y process.\nIt turns out that this is\nnot necessarily the best way\nto use the web.\nThe HTML to text,\nthere's many tools\nfor this, including\ntrafilatura and resiliparse,\nand the way you convert\nactually does matter.\nSo this is from the\nDataComp LLM paper, which\nwe'll talk a little bit about.\nData is an ablation, where\nyou look at the web files\nthat Common Crawl releases\nversus these other tools,\nand it seems like trafilatura\nand resiliparse are better.\nSo one thing you can do is just\nrely on general web crawls.\nBut often, the web is\nnot a uniform place.\nIt's not like there's\na bunch of websites,\nand you just get some\nrandom fraction of them,\nand that's your dataset.\nThere are specific pockets of\nreally interesting, high quality\ncontent, and I'll talk\nabout three of those--\nWikipedia, GitHub, and arXiv.\nSo Wikipedia, all\nof you know about.\nIt's been around since\n2001, and now there's\n67 million articles around\nall these different languages.\nAnd Wikipedia is not all\ncontent by any means.\nYou can't have\noriginal thought in it,\nbecause everything has to\nbe referenced and cited.\nSo in some sense you\ncould argue that Wikipedia\ndoesn't contain anything\nthat's not already on the web.\nWell actually, that's not\ntrue, because they can also\ncite books, which are--\nobviously you can't easily get\nthem, so, Wikipedia is so good.\nAnd also, there's articles\nbased on notability,\nso not everyone can get a\nWikipedia article about them.\nSo anyone on the internet\ncan write this content.\nThis was the radical thing about\nwikis, and it's still a miracle,\nI think, to me that\nthis actually works.\nIt just happens\nthat any vandalism\ngets reverted by administrators,\nor bots, I guess, these days.\nThere's a small number of\nWikipedians-- as any peer\nproduction system,\nthere's a small set\nof people who do\nmost of the work.\nAnd for example, this\nguy has 5 million edits.\nAnd one thing about Wikipedia\nis that every few weeks,\nthey do a periodic dump.\nSo basically they\ntake all of Wikipedia\npackaged into a nice\nTAR file, and then you\ncan just download that.\nSo this is important because you\ndon't need to crawl Wikipedia.\nIn fact, they don't want\nyou to crawl Wikipedia.\nThey just want you to download\nthis if you're going to crawl,\nand this is much\nbetter than crawling.\nJust a fun aside,\nor good to know,\nis that there's this paper\nthat says you can actually\npoison Wikipedia.\nSo you might think that this\nvandalism gets reverted.\nSo if you do-- attacker\ntries to do something fishy,\nyou'll just get it rolled back.\nBut what Carlini realized\nis that these periodic dumps\nhappen at a regular cadence.\nAnd so, what you can\ndo is you can go in\nand you can just edit it\nright before the dump happens.\nAnd then the dump happens, and\nthen the edits get rolled back,\nbut the dump still has\nthe malicious content.\nIf you're able to inject\nthings into web pages,\nthat means you can cause--\nthere's works that show that you\ncan cause the model to, let's\nsay, ascribe negative sentiment\nto any trigger phrase,\nlike the iPhone.\nSo one takeaway here is that\nif you consider adversaries,\neven so-called high\nquality contents might\ncontain bad things in them.\nI think this has been\nfixed since then.\nOK, so GitHub is a\ngood place for code,\nand code is important\nnot just for\nif you want coding capabilities\nfor your language model,\nbut if you want\ngeneral reasoning.\nSo GitHub all of you know.\nAgain, it's a live service\nfor hosting code repositories.\nBeen around since 2008, about\nthe same age as Common Crawl.\nIt has 420 million repositories,\n28 million are public.\nEach repository contains--\nit's not a file, as you know,\nit's a directory with commit\nhistory, issues, pull requests,\nand comments.\nCode has generally\na lot of duplicates,\nand it's just because either\ncopying code, or forking code.\nAnd GitHub has\ndeemed it-- you're\nallowed to train on\nany public repository\nwith a permissive license.\nSo MIT or Apache\nlicenses are fine.\nSo remember, there's\ntwo types of data\nwhen you talk about GitHub.\nThere's the\nrepository data, which\nyou can just go and download\nthrough the GitHub Git protocol.\nAnd again, you\nshouldn't scrape GitHub,\nyou should just\ndownload the repository.\nAnd then the metadata associated\nwith each repository-- issues\nand pull requests, and so on.\nThese are made actually via the\nGitHub Archive, which gives you\nhourly snapshots of this\nevent stream, which I think\nis really interesting data.\nIt's basically every single\ncomment, or star, or action\non GitHub that gets recorded.\nThere's this software\nheritage foundation\nthat is focused on the\nrepository, not the metadata,\nand they aggregate GitHub.\nGitHub is not the only\nplace where code shows up.\nThere's also smaller entities\nlike GitLab, Bitbucket,\nand so on.\nAnd they aggregate all\nthat, those repositories\nSo arXiv, just very briefly--\neveryone knows arXiv.\nThis has been around as\na site that allows people\nto share papers since 1991.\nStarted with physics, and now\nhas a lot of other areas in it.\nEach of the three\nmillion submissions\nhas the metadata, a PDF,\nand optional LaTeX source.\nSo already you should\nbe thinking, well,\nwhat does it mean\nto train on arXiv?\nIt's not clear,\nbecause this is, well,\nyou have to convert\nthe PDF into text,\nor you can use the LaTeX source,\nwhich is a bunch of files.\nIt's not peer-reviewed, but\nthere is some approval process,\nand authors can choose\nto maintain the rights,\nor put in the Creative\nCommons, which--\nso everything is actually\nvery clearly licensed.\nAll the metadata is\nunder permissive license\nso you can use that\nregardless, and then you can go\nand you look at\nall the papers that\nare Creative Commons license.\nYou download those,\nand you can use them.\nAnd I think most arXiv\npapers are Creative Commons.\nAnd then again,\nthis is available.\nYou don't crawl arXiv,\nyou just go down to bulk\ndownload it from some website.\nSo any questions\nabout sources of data?\nYeah?\nAre there any restrictions\non usage of data,\nwhich is generated by models?\nAre there restrictions on data?\nGenerated by models.\nYeah.\nI mean, [? synthetic ?]\n[? data ?] models.\nOh, I see.\nWe'll talk about that\na little bit later.\nSo the question is, what\nabout model-generated,\nlike synthetic data?\nAre you allowed to use it?\nThe short answer\nis probably yes.\nYeah?\nWhen using crawlers\nlike [INAUDIBLE] Crawl\nand stuff like that, I guess--\nbecause you mentioned earlier\nthat there are\nwebsites that have\na lot of pirated books on it.\nHow do you ensure that\nthose types of websites\ndon't show up in your crawl?\nYeah.\nSo the question\nis, there's a lot\nof websites with pirated books.\nSo if you're just\ndoing a web crawl,\nyou can't look at\nall the websites.\nSo how do you make sure\nthat everything is kosher?\nAnd that's part of the\ndifficulty is, you can't.\nAnd so, there's-- most\nlikely in Common Crawl,\nthere are copyrighted books\nand content that you are not\nsupposed to train\non, and you can--\nwill appeal to fair use.\nRemember, everything\nis copyright.\nBooks are not remarkably\ndifferent from your website,\nfor example. both\nare copyrighted.\nProbably, a book\nauthor has more of a--\nif they want to go\ninto court, they'll\nprobably be able to protect that\nbetter because it's published\nthan your website, but still.\nAnd I'll talk a little\nbit about later.\nIf you really, really\nwant to be careful,\nyou cam do something\nI'll show later.\nSo what I'm going to\ndo now is to now talk\nabout the various\ndatasets that are actually\nused in building models,\nstarting all the way back\nto 2019.\nSo we've talked about the origin\nof data and source of data,\nso you have a feeling for just\nthe general data landscape.\nAnd so, let's start with BERT.\nSo BERT was from 2018, and\nthey trained-- back in the day,\nthey just trained on\nWikipedia and books.\nSo what is this books?\nSo there's this website\ncalled Smashwords.\nIt was created that allow\nanyone to just put an ebook up\nto publish, and they had about\nhalf a million books in 2024.\nSo in 2015, there was this paper\nwho just scraped Smashwords--\nsorry, took the books that were\nfree, and just made a corpus.\nThis was back in\nthe innocent days\nwhen no one was paying\nattention to any of this.\nSo this books corpus was\naround for many years\nin the academic community.\nSince then, it has\nbeen taken down\nbecause it violated\nthe terms of service.\nJust because it was free and\nyou can get it, doesn't mean it\nwas legally allowed.\nSo one thing to\nnote about Bert is\nthat the sequences were\ndocuments rather than sentences.\nAll the language\nmodeling research\nbefore that was\nfocused on sentences.\nSo in 2019, GPT-2 came around.\nAnd so what did they do?\nSo they wanted to get\nhigh quality web content.\nAnd at that time, people\nknew about Common Crawl,\nbut somehow the Common\nCrawl data was too messy.\nSo what they did was came\nup with this clever idea\nwhere you can take--\nyou look at pages that are\noutgoing links from Reddit posts\nwith greater than three karma.\nSo a good post must\nlink to good websites.\nSo you grab those pages,\nand you get a 40 gigabytes\nof text, 8 million pages.\nThey never released\nthis data, but there\nwas an open\nreplication of webtext,\nwhich people used quite a bit.\nSo that's GPT-2.\nSo as you're going through\nthis, I guess think about both--\nthere's many methods of\nfiltering and collecting data,\nand it's interesting to look\nat these design choices, and.\nSo CCNET was developed by,\nat that time, Facebook.\nSo the goal was to create\nlarge high quality data\nsets for pre-training.\nAnd they were\nespecially interested\nin low resource languages.\nSo they didn't want\nsome very manual process\nthat only worked for English.\nSo they did a bunch of things.\nThey did deduplication,\nand language identification\nto train a classifier\nto detect a language,\nand keep only the language\nthat you're looking for.\nAnd for quality filtering,\nthe idea that they had was\nthey wanted to keep documents\nthat look like Wikipedia.\nSo Wikipedia at the time was\ndeemed good, high quality\ncontent, and they used\na language model that\nwas trained on\nWikipedia, and you\nscore a probability of a new\ndocument under that language\nmodel to gauge how\nWikipedia-like it was.\nSo rather than outgoing\nlinks to Reddit,\nthey use a language\nmodel on Wikipedia.\nAnd they show that because\nyou can get much more data,\nyou can actually outperform\njust training on Wikipedia.\nAnd this was a tool\nthat will later\nappear in some other papers.\nSo here is another work.\nThis is from Google in 2019.\nSo this is called C4.\nSo this paper as actually\nmore famous for the T5 model,\nwhich pushes the idea\nthat you should just\ntreat all the NLP tasks in\na world as text-to-text.\nBut actually, a big\ncontribution of this paper,\nwhich is a very long\nreport, was the C4 dataset.\nAnd the observation, which was\nvery clear at that time, which\nis that Common Crawl is mostly\nnot useful for natural language.\nThere was this idea that you\nhave these small datasets,\nand they were high\nquality, or you had\nCommon Crawl, which was a mess.\nAnd any attempt to train\non Common Crawl just led\nto junk results.\nSo people were\nthinking like, how\ndo I get a larger but high\nquality subset of Common Crawl?\nSo we saw the Reddit idea, we\nsaw the Wikipedia-like language\nmodel idea.\nC4 used a different\nidea, and this\nis saying, let's just define a\nbunch of rules, which turned out\nto be fairly effective.\nSo basically, they\nkeep lines that\nend in punctuation, that\nhave more than five words,\nremove pages with fewer\nthan three sentences,\nremove pages that\ncontain any bad words.\nRemove things like terms\nof use, boilerplate.\nInterestingly, remove\nthe curly brace,\nwhich filters out a lot of\ncode-- so clearly at that time,\nthey weren't thinking\nabout code models--\nand they filtered out\nanything that was not English.\nThe end result is that you\nhave 156 billion tokens,\nso 800 gigabytes of text.\nSo this is much larger than\nthe GPT-2 dataset, which\nwas only 40 gigabytes of text.\nA bit later there was\nsome analysis done in C4\nwhich showed--\nhere's the websites\nthat were represented.\nSo you have a\nbunch of Wikipedia,\npatents was a very common thing.\nThey also released a\nWebText-like document.\nThey also use this idea\nof links in Reddit posts--\nfrom Reddit posts with\ngreater than three karma,\nand filtered to those pages.\nSo they were able to\nget, using this method,\n17gb of text using 12\nCommon Crawl dumps.\nRemember, webtext\nwas 40 gigabytes,\nwhich means that Common Crawl\nis maybe incomplete, or doesn't\nhave everything, because\nif it had everything,\nyou should be able to hit 40.\nAnd they showed\nthat at that time,\nyou could use this\ndata to improve\non a bunch of NLP benchmarks.\nSo we've seen\nusing rules, things\nthat look like Wikipedia,\nReddit links, and now let's\ntalk about GPT-3.\nSo GPT-3, the dataset was--\nthey used Common Crawl, they\ndid their own processing.\nThere is this WebText, which was\nessentially the GPT-2 dataset,\nbut expanded.\nNotice that there's\nsome overlap.\nCommon Crawl does\noverlap with this,\nbut this is, in some sense,\na more targeted distribution.\nThere is this--\nin the paper, it's\ndescribed as Books1 and Books2,\nwhich is internet-based books\ncorpora, so this remains a\nmystery exactly what it is,\nand Wikipedia.\nSo the result was\nabout 500 gigabytes\nof text, 400 billion tokens.\nAnd to do the Common\nCrawl processing,\nthey trained a quality\nclassifier to distinguish things\nthey deemed to be high\nquality from the rest,\nand they did some\nfuzzy deduplication\nbecause WebText and\nCommon Crawl had dupes.\nSo this paper followed the\nidea of using a classifier\nto do quality classification.\nSo after GPT-3 came out, this\nwas, I think, a big event.\nAnd there were a\nnumber of efforts\nto try to do things in the open.\nSo one of the\ninitial efforts was\nThe Pile, which is a grassroots\neffort from EleutherAI, where\nthey had a bunch of people\nin this Discord just jamming\nand figuring out\nhigh quality sources.\nAnd they came up with\nthis list in the end.\nAnd today, this is still\npretty interesting and diverse.\nIt has Common Crawl,\nit has PubMed.\nThis has this thing called\nBooks3, which we'll talk about.\nArXiv, GitHub, which\nwe talked about.\nWikipedia, IRC, another\nBooksCorpus, Philosophy Papers,\nand so on.\nThey included this\nEnron Emails dataset.\nSo Enron went bust in 2002 and\nall the emails were released,\nand this is one of the few\nemail datasets we have,\nwhich is a weird distribution,\nI think, for email.\nBut that's what you get.\nSo Project Gutenberg was--\nso let's talk about\nbooks a little bit.\nSo project Gutenberg\nwas started in 1971,\nand it only includes books that\nreceived copyright clearance.\nSo mostly books in\nthe public domain.\nThere's this packaging\nof Gutenberg into PG-19,\nwhich is Gutenberg before 2019.\nWhich is, I guess most\nof them, because for them\nto be in public domain,\nyou have to wait 75 years.\nSo Books3, which is this\ninteresting dataset that\nappeared in The Pile.\nSo this is described actually as\n200k books from a shadow library\ncalled Bibliotik that concludes\nall books from your favorite\nauthors.\nAnd at that time-- again, 2020,\nno one was paying attention.\nPeople used it to train\nmodels, and since then, it\nhas been taken down.\nSo you cannot use, or should\nnot use Books3 anymore.\nWe'll come back to Books3 again.\nSo Stack Exchange you've\nprobably used quite a bit,\nalthough I guess these days\nmaybe less so because of AI.\nThere's a bunch of\nuser-contributed questions\nand answers, started in 2008.\nAnd one thing that is\ninteresting about this dataset\nis that it's a Q&A\nformat, and this is quite\nclose to a real application.\nSo normally, you think about\npre-training data as here's\nWikipedia articles,\njust like raw text.\nBut some parts of the\nweb are actually--\nlook supervised, like\nwhat you would want\nto ask your language model.\nWhich I think, maybe,\nhelps the model\nlearn certain types of\nquestion answering behaviors.\nSo not everything is\nsuper magically emergent.\nIt's like, well, this type of\ndata does exist on the web.\nSo there's also-- this\ndata has metadata,\nwhich is like the\nnumber of votes\nwhich are useful for filtering.\nAnd again, this data is\nreleased in data dumps\nthat allows you to just\ndownload without crawling it.\nSo now we're in 2021.\nThere was another\npaper from DeepMind.\nThey trained a\nmodel called Gopher,\nwhich was never\nreleased, and actually\nwas subsumed by Chinchilla.\nBut the description\nof the data, I think,\nis actually really good.\nYou should read this\npaper, because I\nthink it's very\nthorough in the way\nthat they describe\nthe data processing.\nWell, except for the parts\nwhere they don't tell you\nwhat's in the data.\nSo they created\nthis massive web,\nand they had C4, which\nremember, was the dataset\nthat we looked at\nbefore from Google.\nThey train on books, news,\nGitHub, and Wikipedia.\nThey don't say anything\nabout how they got that.\nSo for the MassiveWeb,\nthey kept English, deduped,\nand their quality filtering\nwas also based on manual rules.\nAnd part of the reason\nfor this is that they\nhad more control over that.\nSo I think, as\nyou can see, there\nis this division between\npeople who wanted to use rules,\nand people who wanted\nto use classifiers.\nSo they got, as\nthe name suggests,\na massive amount of\ntext, but their model\nwas only trained on a very\nsmall fraction of this dataset.\nSo in 2022 Llama 1 came out,\nand the dataset here-- this\nwas actually a very nice paper\nin that it detailed their data\nprocessing.\nSo this is probably one\nof the last non-open,\nfully open models that\nactually talk about their data\nprocessing.\nSo they have Common Crawl\nprocessed with CCNET,\nwhich you know about.\nThe classification, though,\nwas whether the page\nwas a reference of Wikipedia,\nnot whether it is actually\na Wikipedia article.\nSo the idea is that well,\nmaybe Wikipedia articles\nare too stylized.\nAnd we know that Wikipedia\narticles references\na bunch of other articles\nwhich are presumably good,\nso let's call those\nthe good websites.\nThey had C4, they did\na bunch of processing\non GitHub to keep permissive\nlicenses, Wikipedia.\nThey trained on Books3\nand project Gutenberg.\nSo Books3 really got\nthem in a lot of trouble\nbecause they're just\nannouncing to the world that\nhey, I trained on this dataset.\nAnd if you look\nback, oh, this came\nfrom-- where did it come from?\nIt came from The Pile.\nOh, it came from\na shadow library.\nSo that's why people don't\nwant to talk about their data\nanymore.\nSo they looked at\narXiv, and actually used\nthe LaTeX to do the\nprocessing, Stack Exchange,\nand they got 1.2\ntrillion tokens.\nThey didn't actually\nrelease this dataset,\nbut they had enough of a\ndescription in their processing\nthat this was reproduced\nby Together's RedPajama V1\ndataset, which was then\nused in other sources.\nSo as you can see\nhere, RedPajama V1\ninitially also contained Books3,\nwhich has now been stripped out.\nSo various decisions made early\non about copyright actually\ninfluence-- have a\nfairly big watershed.\nSo let's talk about RefinedWeb.\nSo this is a paper that tried\nto make a point that web data is\nall you need.\nSo the web, in some\nsense, is everything.\nAnd then we talked about\nall these specialized\nsources, like there's GitHub\nand arXiv, and Stack Exchange.\nAnd they said,\nwell, what happens\nif we just stick with the web?\nSo they did a good job of doing\nthe transformation from HTML\nto text.\nThey filtered using the Gopher\nrules, which is basically keep\nthings that look like English.\nThey explicitly,\nat that time, still\nsaid avoid ML-based\nfiltering to avoid biases.\nI don't want to find an overly\nnarrow subset of the web.\nThey did some deduplication, and\nthey had five trillion tokens.\nThey released about\n600 billion of them.\nSo FineWeb from Hugging Face\nwas a replication of RefinedWeb,\nbut improved it.\nSo they took all the Common\nCrawl dumps at that time,\ndid some filtering--\nagain, using manual rules\nto not inject biases--\ndeduped, did PII removal,\nand got 15 trillion tokens.\nSo you can see that the\nsize of these datasets\nis growing quite a bit.\nSo then there is this\nDolma dataset from AI2,\nand this is a dataset that\nincludes their own processing\nof Common Crawl, The Stack,\nwhich we'll talk about,\nbefore C4, which you know about,\nand a bunch of other things.\nAnd the Reddit dataset was from\nthis project called PushShift.\nAnd at that time, you\ncould still get this data,\nand you can train on it\nbefore things got locked down.\nAI2 has their own crawl\nof academic papers called\nSemantic Scholar, so they\nderived a dataset based on that.\nSo let's look at their\nCommon Crawl processing.\nSo they use language\nidentification.\nSo this was model-based,\nbut quality filtering still\navoid model-based filtering.\nAnd then they removed toxicity\nusing rules and a classifier.\nAnd they got three trillion\ntokens out of that.\nSo DCLM, I think,\nwas maybe a point\nwhere this idea of\nmodel-based quality filtering\nstarted to really\nbecome the norm here.\nSo DataComp, the\ninitial motivation\nwas to define some\nsort of pipeline\nso that people can try different\ndata methods in a standard way,\nand show results.\nBut I think the main\nway that I think\npeople use this is just using\ntheir dataset that they released\nto train models and\ndo other things.\nSo they processed Common\nCrawl to produce DCLM-pool.\nSo this is completely\nunfiltered.\nAnd if you look at this\ndataset, this is massive.\n240 trillion tokens.\nThis is probably more\nthan the number of tokens\nthat anyone really trains on.\nBut a lot of this is\nfairly low quality,\nso then they had a pipeline\nwhere all that gets filtered.\nIf you only keep\nEnglish, you have\nsome of rules to\nreally narrow it down.\nYou do dedupe, and then you\ndo this model-based filtering,\nand you end up with\nsomething that's 1.4%.\nAnd this is the data set\nthat we'll see actually works\npretty well.\nSo the model-based filtering--\nand this was strangely good.\nSo to train a classifier,\nthey took OpenHermes,\nwhich is essentially\ninstruction data that\nwas generated by\nGPT-4, and ELI5,\nwhich is a subreddit with\nvarious questions and answers.\nSo this is-- let's see.\nThese are the type of\nquestions that are in ELI5.\nSo anyway, you get the idea.\nSo it's kind of weird,\nbut somehow this works.\nSo the negative examples are\nanything from RefinedWeb, which\nis, remember, it's just a\nvery loosely filtered version\nof the web.\nIt's basically the web, and\nit got 3.8 trillion tokens.\nThey train a fastText\nclassifier-- think about it just\nas a linear classifier.\nAnd then they show that this\nmagical classifier, quality\nclassifier, outperforms a bunch\nof other things that they tried.\nSo, DCLM.\nThis became, for a while, at\nleast in the open community,\na bit of a gold standard\nfor quality filtering.\nLet's move on to Nemotron.\nSo Nemotron-- this\nis from NVIDIA--\nthey said that well, DCLM\nfilters too aggressively.\nIt's removing most of the data.\nAnd remember, they only got--\nhow many-- 3.8 trillion tokens.\nSo we need more tokens.\nSo what do we do?\nWe are going to do something\nmore, I guess, elaborate.\nWe're going to\nprompt our existing\nmodel to score FineWeb documents\nbased on educational value.\nSo we're going to prompt\na language model and say,\nis this educational or not?\nGo add a bunch of labels,\ntrain a fastText model.\nSo that's one classifier.\nAnother classifier is just\nusing the DCLM classifier.\nSo we're going to use\nthose classifiers.\nWe're also going to\nuse synthetic data.\nSo this is probably one of the--\nI don't know if-- it's\nprobably not the first,\nbut, one of the main\ndatasets that really\nlean into synthetic\ndata for pre-training.\nSo they had, for\nlow quality data,\nas deemed by these\nclassifiers, you\nuse a language model to\nrephrase it to make it more--\nlook like Wikipedia.\nFor high quality data,\nwe use a language model\nto generate various tasks.\nFor example, given\na Wikipedia article,\nI can generate\nquestion answers, or I\ncan generate like, please\nsummarize this document,\nextract key information\nfrom it, and so on.\nSo they resulted in a dataset\nthat was 6 trillion tokens.\nSo this is substantially\nlarger than DCLM.\nAnd just for reference,\nthis is still kind of\nsmall by some consideration.\nSo Llama 3 was trained\non 15 trillion tokens,\nQwen3 was trained\non 36 trillion.\nAlthough there is this--\nit's not clear how big\nthese unique tokens are,\nbecause when you look at\n[INAUDIBLE] counts in language\nmodeling papers, some\nof it is repeated.\nLike if you do\ntwo epochs, that's\ntwice the number of tokens,\nso you have to be careful\nwhen you look at those numbers.\nAnd they show that\nthe dataset is better.\nTheir high quality subset\nbeats the previous datasets\nSo up until now, we've seen\na bunch of different methods\nfor filtering.\nI think all of these look\nvery similar at some level.\nYou take a web crawl,\nyou either decide\nI'm going to use\nrules to filter,\nor I'm going to use a model.\nIf I'm going to\nuse a model, then I\nhave to decide what\nlooks like good data,\nand then try to\ntrain a classifier,\nand classify all my\ndocuments, and select.\nAnd there seems\nto be a trade-off\nbetween you can take a\nlot of Common Crawl--\nyou can get 240 trillion\ntokens if you want,\nbut that's probably going\nto be really low quality.\nOr you can get one\ntrillion tokens,\nand there's some\nsweet spot in-between.\nLet me talk about\ntwo final things.\nSo code, and going back to\nthis question of licensing.\nSo The Stack is a\nvery nice project\nthat was trying to make a really\ngood coding data set, since it\nwas clear by 2022\nthat coding was\ngoing to be really important.\nSo what they did in\nthe initial version\nis that they clone 137 repos.\nThey kept the ones that\nwere permissively licensed,\nremove near-duplicates, and\nresulted in one-- sorry,\nthree terabytes of code.\nAnd then in 2024,\nthey had an update.\nAnd here they took\nmore the metadata,\nlike the issues, comments,\nand PRs from GitHub,\nthe repositories from\nthe Software Heritage,\nwhich we talked about.\nThey also scraped documentation\nfrom various websites\nby crawling them.\nThey did a bunch of processing.\nSo in GitHub repos, you have\nbinary files which you probably\ndon't want to train on.\nThey have malware,\nyou get rid of that.\nA lot of GitHub, especially\nthese PRs, are bots,\nso you have to filter that.\nDedupe, do PII redaction.\nThere's a lot pull\nrequests and stuff,\nand they basically subsample\nto keep it representative\nand the dataset manageable.\nThey also did this thing,\nwhich was I thought was nice,\nwhich is that there's many\nprogramming languages out there.\nThere's a lot of\nPython, a lot of C,\nbut low resource languages like\nNim-- which I hadn't even heard\nof-- they're not that common.\nSo what they do is\nthey compile this code\ninto a low-level\nintermediate language,\nLLVM, which everything, like C\nCompiler, can compile into this,\nand they have juxtaposed\nthe low resource\nlanguage and the\nintermediate representation.\nSo then the language\nmodel can actually\nlearn the mapping between the\nshared low level representation,\nwhich has a lot of data on,\nand the thing that it does\nhas less data on.\nAnd just for fun, you add\nin all the other good stuff\nthat you can.\nSo Stack V2 is\nmostly code, and then\nplus other things that were used\nto train their coding models.\nAnd one thing\nabout pull requests\nis that pull requests and\nall the metadata is not,\nby its nature, a\nlinearized sequence.\nSo there has to be some\nsteps taken to linearize it.\nSo one important thing\nyou have to decide\nis how much context to provide.\nSo for example, an\nevent might just be,\nI change one line of code.\nAnd that could just be\none line, but presumably\nto learn that, you want to\nprovide some context, maybe\na few lines around it, or maybe\nthe entire file surrounding\nthat diff.\nAnd these are some\ndesign decisions\nthat you have to make\nfor linearization.\nAnd so at the end of the day,\nthe tokens that they train on\nlook something like\nthis, where it's\nthis XML-like structured\ndata, where you have the PR,\nand then you have\na bunch of diffs.\nAnd then for comments, you\nhave basically the events\nof a comment was posted, what\nthe review state of that PR was\nand so on and so forth.\nSo it's not just\nlearning how to generate\ncode, but also the software\ndevelopment process around code.\nSo finally, I'll talk\nabout the common pile.\nSo recall that almost all\nthe data on the internet\nis copyrighted.\nSome of it is permissively\nlicensed, some of it\nis even in the public domain.\nAnd while you can appeal\nto fair use and say,\nI'm going to train on it anyway,\nthis is not quite settled.\nSo if you're very,\nvery risk-averse,\nthen you say, well, if I\ndon't know whether it is OK,\nthat's a no.\nIf you take that attitude, then\nthat's what common pile did.\nSo can you train a good model\nwith only permissively licensed\ndata?\nOr rather, how far can you get?\nSo this was a project that\nwent and scoured the internet\nfor all the different\ntypes of data\nthat they could possibly find\nthat was worth training on,\nthat was permissively licensed.\nIt includes Stack V2 in code.\nIt turns out that a lot\nof government proceedings\nare actually\npermissively licensed,\nwikis, some things on the web--\nsome new sites are actually\npermissively licensed,\nacademic papers, online forums,\nthings that are in the public\ndomain, educational resources,\nand so on.\nSo in the end, there\nwere 8 terabytes\nof data, which is\nactually pretty\ngood for permissively\nlicensed data.\nDoing this project is\nactually much harder\nthan maybe it sounds\nat first glance.\nIt's not just as simple\noh, you look at the license\nand it's like, oh yep,\nApache, or CC, good.\nThere's some subtleties,\nversus license laundering.\nSo people are sloppy\nwith licenses.\nSo people might take\nsome copyright work\nand just slap a CC BY on it.\nAnyone can write\nthis on the internet,\nand it's hard to tell\nwhether this is real or not.\nThere's also this common\npractice where, for example,\nDolma is permissively licensed.\nRemember, Dolma is\nthe AI2 collection.\nBut collection licenses don't\nextend to the individual works.\nSo the collection is--\nI mean, first of all,\nthere's a question\nof whether collections--\nI think collections\ncan be copyrighted,\nbut I guess you can put\na license on anything.\nBut the individual works\nare not necessarily good.\nSo you can't just look at\ndata sets on Hugging Face,\nand you-- many data sets\non Hugging Face you see,\nthey have a permissive license.\nBut if you dig\ndeeper, it's actually\nnot permissively licensed\nat the individual level.\nAnd they also made a\ndecision to forego training\non any synthetic data, because\ntraining language models\non unlicensed data is unclear.\nSo probably it's fine\nbecause technically, these\nare open weight models\nwith MIT license.\nYou can do whatever.\nYou can use them\nhowever you want,\nbut these language models\nwere presumably also trained\non unlicensed data.\nSo it's a little bit\nof data laundering\nif you are really honest here.\nSo with this data,\nthey compare it\nwith a bunch of other models\nlike the first Llama, MPT,\nand Qwen.\nAnd on a bunch of benchmarks,\nthey show that this is not bad.\nI would say it's not as good\nas the Qwen models for sure,\nbut it's certainly\noutperforming the very old--\nthis is from 2023, I guess.\nSo quite old models.\nSo I would say,\nthe conclusion here\nis that you can do\nreasonably, but I\nthink it's still\npretty tough to compete\nwithout doing more tokens.\nBut I don't think this\nis the final word on it,\nand I think you can probably\neke more out of publicly\npermissive licenses if you try.\nOK, so to summarize\nthis lecture here.\nSo maybe hopefully now I've\ngiven you some appreciation\nthat data is a very rich topic.\nIt's not that data just\nfalls from the sky,\nor you just go on Hugging Face\nand you download a dataset.\nData has to come from somewhere.\nAnd there's also a technical\nbut also social context\nin which data comes,\nbecause at the top,\nthe internet is a\nbunch of live services.\nSomeone has to do the work\nof producing raw data,\nwhether it be the website\nthat gives you dumps,\nor someone has to build\na crawler, or something.\nAnd then, someone has to make\nthe decision of how to process\nit into usable form--\nfiltering, transformation,\ndeduplication, all these things\nhave an impact on the quality\nof your final language model.\nAnd notice that\nfiltering is probably one\nof the most important things.\nHow do you go from\n200 trillion tokens\nto less than three\ntrillion tokens?\nI think that obviously is a\nhuge reduction, which I think\nmerits a lot of attention.\nData is, in some sense,\na key ingredient that\ndifferentiates language models.\nA lot of language models\nare roughly the same kind\nof transformer architecture,\nbut data is depending\non how you process it.\nIt can make a pretty\nbig difference.\nThere's plenty of legal\nand ethical issues\naround data, more than I\ncan get into this lecture.\nAnd also, this\nprocess is very messy.\nUnlike some of the other parts\nof this class where things\nare maybe more based\non first principles,\ndata processing is, right\nnow at least, a lot just\nbased on vibes you set up.\nYou define this classifier,\nyou define this rule,\nyou set some threshold.\nSo there are many\nopportunities to improve.\nSo as you do your\nassignment four,\nmaybe think about whether\nthere's better ways to do this,\nand this could be maybe\na research direction.\nOK, so that's it for today.\nSo next time I'll continue\ntalking about data.\nI'll talk a bit about\npost-training data,\nand a bit more about filtering.",
+  "segments": [
+    {
+      "text": "So today we're going to talk about data. And where we are is that you know how to train a model, given data. Last time we saw evaluations, so we know what a good model is. And for the next two lectures, this week we're going to focus on what",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "data should we train on. And I want to argue that data is the most important thing to get right in language models. And one justification for this is if you look at what companies actually disclose-- so here is the Llama 3 paper. They have full transparency",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "into the architecture-- well of course, because it's open-weight model-- they even tell you about their training procedures, but they don't say anything about their data. So they just say, we train for a variety of data sources and do some stuff.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "And there's good reasons for this secrecy. One is that data is your competitive secret sauce. Competitive dynamics. You don't want your competitors to know what you're doing. And the second thing, which we'll talk a little bit more about,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "is copyright liability. You don't want to get sued if you tell people you're training on certain types of data. So data is a long topic in machine learning. And before foundation models, data work meant you annotate-- label data for supervised learning.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Nowadays there's less manual annotation-- at least in pre-training-- but there's still a lot of curation and cleaning work that needs to be done. And so fundamentally, this hasn't really changed. Data has always been a bottleneck, and always will be a",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "bottleneck because it's in some sense a long-tail problem, and that scales with human effort. So if you have a lot of people trying to work on the problem, well, there's only so many people that can work on architectures and systems. But data, well, that's--",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "especially if you're training a foundation model that's trying to do all these things, you can [? paralyze ?] that effort easily. So that's why these data teams and these model developers are actually quite big. So data comes in at different",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "stages of the pipeline. Today we're focusing mostly on pre-training. So pre-training, you take raw data-- these are documents from the web. Then you move into mid-training where you train on more high quality data to enhance certain capabilities,",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and give long context, things like that. And then finally post training, where you're training on things like chat transcripts, or if you're doing reinforcement learning, you get some environments that you're training on. This becomes more task specific.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "In practice the lines are a bit blurry, and there could be more than three stages. But this is a basic template. The trend is that we go from training on large amounts of low quality data to smaller amounts of high quality data.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "So as a result of this process-- you'll see in the literature when we talk about the base model, This usually means after pre-training and mid training, instruct models or chat models, or post-training. But of course, the lines are becoming",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "blurry enough that what is the base model anymore is really unclear. And more recently, the largest models, there's no base model. There's just Qwen3.5-397B-A17B, and that's it. You don't see the intermediate checkpoints. So for models that are open",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "source like OLMo from AI2, you can see everything that's happening. And so, we'll study some of these models. So for example, in pre-training, there's a bunch of sources which we'll talk about what these mean, but-- web pages, academic papers,",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "math pages, proofs, and so on. There's mid-training-- higher quality web data, instruction data, bunch of synthetic data often goes here. And then finally post-training, there is a bunch of chat logs. There are more math and reasoning,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "and coding, you do safety at this point as well. So what are all these datasets? How do you choose them, and how do you process them? So that's the main question. So in the spirit of the class, we're going to talk about data. I'm going to go",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "start from scratch. So where does data come from? So one might hear in the hallway, oh, language models are trained on the entire internet. So first of all, this doesn't really quite type-check. Because for that to be true, it would have to be an agent that--",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "like an RL agent that goes on the internet and does stuff. But that's not actually how pre-training works. Slightly more accurately, it's trained on the public world wide web, but this is not quite accurate for reasons I'll explain.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "OK, so first of all, the web is actually a bunch of live servers that just exist in the world, and you can connect to. So take any website-- you can go and download the page. Or, you can basically send a request and get back a response. So you can't actually",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "train on these live servers unless you're training an RL agent. So typically what you do is you have a crawler, or someone builds a crawler, not necessarily you. The crawler needs to discover what web pages are out there, starting with the seed set, and",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "it downloads the discovered web pages as it is crawling. But still, can't just run a crawl and download all the web pages on the internet, and there's a few reasons for this. One is that a lot of the web content is actually dynamic. So especially these days,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "a lot of sites are apps. The URL isn't even as full [? of ?] specification of the content, it's just an app that you interact with, and you need to often click buttons or submit forms to access content. For example, if you're on Discord or something,",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "it's not like you can just crawl Discord and get all the content on Discord. So that's one kind of thing, and a lot of content is actually known as in the deep web, which is not just doing web page crawling and following hyperlinks, which is a very",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "of traditional model of web crawling. The second thing is that authentication. So some pages need a login, an account, and generally you have to pay. For example, there's Facebook, X, LinkedIn, New York Times. There's actually huge amounts of content",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "that are actually locked up behind these walled gardens. So these are technically on the internet or on the web, but you can't just build a crawler and go crawl Facebook. I guess if you're Facebook, you can crawl-- you don't need to crawl",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Facebook, you have the data, and you can train a model. Or if you're X AI, you can train on X. But if you're anyone else, you can't actually access this content. OK, suppose you don't have the authentication issue. There's still potential restrictions here.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So there's something called robots.txt, and this is a file that is usually placed at the root level of a directory, such as nytimes.com, and it basically tells you what you're allowed to crawl and whatnot. So these things are-- a lot of things are disallowed,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "such as OAI-SearchBot, or PerplexityBot, QuoraBot. I think basically, ChatGPT-User, ClaudeBot, and all these things. OK, so this is not a tech-- this is not a legal restriction, this is just like, you're supposed to be a good citizen and look at robots.txt.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "And if your name is on that list, then you should not crawl it. That's basically the-- not even a contract, that is the thing you're supposed to do. A lot of websites now use something like Cloudflare to detect and block bot activity. So sometimes you've",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "gone to a website, and it gives you a CAPTCHA. That's because somehow, some algorithm has detected that you might be a bot, and then it's making sure you're human. And if you're actually a bot, then, well, you can't-- I mean, you could try to get around this,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "but generally this is an obstacle in your way. A website might block certain IP addresses or countries, and they might have rate limits. So there's technical restrictions on what you can actually crawl, and then there's also legal restrictions.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "So websites have terms of service that say, if you go to a website, you have to obey this contract to use the website. And the terms of service often will say, if you're a bot, go away. You cannot use this, the content of the site for AI training,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "or whatever it might be. And also, even if terms of service don't say anything, the content of the website might have a license, or you might not have a license to train. And we'll talk more about this in a bit. So there's legal restrictions on what",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "you are allowed to train on. These things are also evolving over time. So there's a nice paper by Shane Longpre called Consent in Crisis, and what they did is they examined the restrictions-- both the technical restrictions, robots.txt,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "and the legal restrictions, the term of service, for various URLs in common datasets, which we'll talk about later. And the conclusion was that the restrictions have increased over time. So here's a graphic that shows-- the top one shows robots.txt.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And if you just look at this red, that's the full restrictions. And up until 2023, everything was fairly constant. And then up until mid 2023, all of a sudden you see the amount of the fraction of websites that have full restrictions on",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "it has grown to almost 50% here. And for terms, there's a similar trend where I guess in 2016, no one really put any terms on their pages. And now most pages put some terms, and most of the terms say you can't use this for AI. So even though it was possible",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "to crawl the internet back in, let's say 2020, the internet actually, at least what you can legally crawl, is actually much smaller. So of course, these are guidelines. And sometimes, either intentionally or not intentionally, you could violate these things.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So this is-- sometimes you get into these situations where there's this guy who-- what was this? I forget the name of this site-- was complaining about Anthropic crawling them, hitting their servers a million times in 24 hours, which was not good.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "And then Read the Docs was also getting hammered. So there was a period where, which I think probably has hopefully been corrected by now, that crawlers were hammering websites. And there the-- here, this is interesting, is like even before talking",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "about copyright issues, there's, I think, problems with crawling either violating terms of service, or robots.txt, or just low up-down, generating a lot of server load, which this costs money for the person hosting it and also degrades service",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "for everyone else trying to use it. So there are issues with crawling. And then, of course, there's copyright, which we'll talk about soon. That's a whole other complex can of worms. And then finally, there's these things called shadow libraries,",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "which are also part of the web. So examples are LibGen, or Anna's Archive. And these completely disregard copyright and bypass paywalls. So someone has collected a ton of data-- usually books and articles that are all copyrighted, and people have",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "to pay for these-- and have made them available for free. And there have been a lot of takedown orders, lawsuits, and these are blocked, but usually these are circumvented because they just make servers in other countries. And the people doing this",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "argue that this is making free what's freely available, what should have been freed, but generally from a legal perspective, this is piracy and copyright infringement. And we'll come back to this point later. So there are a lot of books",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "and papers on these shadow libraries. So the summary so far, the internet is a huge and messy and scary place, and you can't actually get all of it. There are technical restrictions, there's legal restrictions on what data one can access.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "So now next time someone says, I trained on the internet, you can tell them all these things you learned. So now let's go to the second part of what data can we use, and this has to do with copyright. So suppose you were able to obey the terms of service,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "and you are really a good citizen, and you obey the rate limits. Now, there's still a question of are you allowed to train on this data? And this is a ongoing question that has not been fully resolved, but there has been a bunch of",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "developments in the last year. So the legal context for thinking about this question falls into intellectual property law, and this is a system that is trying to incentivize the creation of intellectual goods. So I think it's-- remember, the",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "spirit of the law is to not just technically say no to everything, but to incentivize the creation of intellectual goods. And there's many forms of intellectual property that are covered. There's copyrights, patents, trademarks and secrets-- sorry,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "trademarks, and trade secrets. The thing that is most relevant for language model data is copyright law. So copyright law has a fairly long history going back to the 1700s in England. And so 1709 was the first time that governments and courts started actually",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "regulating copyright for this goal of incentivizing innovation and creation. And in the US, more recently, the Copyright Act of 1976 is what I think defines a lot of modern copyright. So copyright protection applies to original works of authorship fixed in any",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "tangible medium of expression, yada, yada, yada. So a few notes. So not everything is copyrightable. In particular, collections are not copyrightable. So for example, if you have a telephone directory, unless there is some creativity in how you arrange things,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "this is not really copyrightable. And furthermore, copyright applies to the expression, not the idea. So you can't copyright an idea, like you can't copyright the quick-sort algorithm. You can copyright the implementation of a quick-sort algorithm, but",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "not the quicksort algorithm. So one thing that happened in 1976 is that the barrier to getting a copyright was relaxed a lot. So more things are copyright. So it used to be that you had to publish something to have something copyright. Now things just",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "have to be fixed. And what that means is that registration of any sort is not required for copyright protection. This is in contrast to patents. Patents you have to go pay a lot of money to get a patent, and you have to file a patent. But the threshold for",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "copyright is very low. For example, you put something on your website, it's copyrighted. That's it. Now if you want to sue someone, you have to go get it registered, but it only costs $65. Which is much smaller than the lawyer fees that you'll probably",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "pay, so it's really still a very low bar. So one thing to know about copyright is that it lasts 75 years, and then the copyright expires. And whatever that content gets released into the public domain, and this is now-- everyone can use it freely.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "So a lot of people who have lived in the past, all their great works are in the public domain, which is great for everyone. So the rationale here is that you're incentivizing innovation. So when an artist or a creator creates something,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "you want to protect their-- you don't want someone else to just take it, so you protect them for a while. But after 75 years, presumably, it's not worth protecting, or they're passed away, or something. So it doesn't make sense to",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "keep things copyright anymore. So basically, everything on the internet is copyrighted. So you're saying, wait a minute. So that means is everything-- if I train on anything, that's a copyright violation? Well, not necessarily. So everything is",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "copyrighted, but you can use copyrighted works. And the way you do it is A, you either get a license for it, or B, you appeal to the fair use clause. So a license from contract law is something that a licensor grants to a licensee.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "It basically says, don't sue me. You can use this work in the ways that the license permits. So there's a really nice license called Creative Commons, which allows something to act like it was in the public domain. It enables free distribution",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "of copyrighted work. So examples include Wikipedia, Open CourseWare, Khan Academy, all these things. It was created in 2001 to essentially bridge public domain and existing copyright, because otherwise you have to wait 75 years. But what if the creator says, I",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "actually want people to use it. They can now have a means, a legal means of saying, I put a Creative Commons license on it. It's going to act like it's in the public domain, and everyone can use it. So, so far, things in the public domain",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "and things that have Creative Commons licenses are permissive. You can use it. But there are many other times where you don't have-- it's not a Creative Commons license, it's not in the public domain, you have to get a license. So if you have money,",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "you can pay someone to give you a license. So there's a bunch of deals between model developers and content, I guess, platforms, that allow the model developers to license the data for training foundation models. OK, so that's the first thing.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "You can get a license-- either Creative Commons, or you can pay someone for a license. Now if you don't want to pay, you can appeal to fair use, which is a more complicated matter. So this is section 107 of the Copyright Act. And there are-- basically fair",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "use says, I can use this anyway, even if I don't have a license, and these four factors determine whether fair use applies. So the first one is the purpose or character of the use. What are you trying to do with it? And none of these are hard rules.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "They're just tendencies which have to be weighed in court if it comes to that. So, for example, if you're trying to do something for education, it is more likely to be fair use than if you're trying to sell and make money off of it. If you're trying to-- if",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "you transform something, then that's going to be more favored than if you just literally host the identical copy. The nature of the actual copyrighted work is also important. So things that are more factual are more likely to be fair use than fictional works.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Because if you write a summary of World War-- a page about facts about World War II, there's less protection over my really creative poem. And then the amount of portion of the original work. So using a snippet is favored over the whole work. So if you just",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "take a little bit, that's not as bad as taking everything. So that's fairly straightforward. And the final thing is related to original motivation. It was like, why are you-- why copyright at all is to protect and align the economic incentives.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So the effect that what the use has on the market for the original work. So if you take an author's work and you provide an alternative, and that decreases the amount that the original author could monetize their work, that is seen as potentially bad.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "But if you're transforming it in a way and going to a new market, or doing something else with it, then that's going to be treated more favorably. So here are some examples of fair use. You can watch a movie and write a summary of it. You can re-implement an",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "idea, like an algorithm-- not copy the code. And then there was this famous lawsuit between Authors Guild and Google. So if you go to Google Books, you can see snippets of various books which are copyrighted. So there was a huge deal about whether this",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "was deemed fair use, because you are redistributing other copyrighted work, and eventually-- eventually meaning after 11 years-- this lawsuit was settled in favor of Google, which is why this thing exists. And this has set some precedent for thinking about",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "whether language model training is fair use. One thing to note is that copyright is not about verbatim memorization. So this might be, I think, for an ML audience, this might be a little bit new because a lot of papers are focused on verbatim memorization.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "That's one way you can violate copyright, but not the only one. So for example, plots and characters can be copyrightable. So you can copyright Harry Potter the character, not any particular book, or anything. But there are some exceptions.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "For example, if you're parodying something-- and so you're creating something that looks like a derivative, but as long as you're making fun of it, it's actually more likely to be fair use. So, yeah. So a lot of copyright is about semantics.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "It's definitely not about N-gram overlap, and also about the economics. So what is the implication for language models? So first off, copying data. Even if you're not training, even the mere fact of copying-- which is in the word copyright-- is potentially a",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "violation already, even if you don't do anything with it. Training a model-- I guess this is not really a-- let's see, how do I take that? This is not necessarily a fact, but intuitively has a transformative flavor. Because it's certainly not--",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "it certainly seems different than just rehosting another work. It's doing something transformative. And in some sense, the models are really trained on this data as a means to an end. You are trying to extract the general idea, learn about the world",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "and how it works, rather than only just the concrete expression. And the other thing is that regardless of copyright, language models can definitely affect the market. So I think this is also-- remember, that's the fourth item for fair use. So by negatively",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "affecting the market, you are more likely to be ruled not fair use. So fair use is a little bit slippery. Suppose you have fair use, or you have a license. Remember that there's still terms of service that allow or prevent you from actually",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "just getting a piece of work. For example, YouTube has all these videos which are licensed, but the terms of service prohibits just downloading the videos using a bot, like scraping, which is another layer. So there's multiple layers of restrictions here.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "So let me talk a little bit about where things are on the legal landscape. So back in 2023, New York Times filed suit against OpenAI, saying you train on our news articles, and look, here's evidence. We were able to actually prompt ChatGPT to generate a news",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "article almost verbatim. I don't think this is still pending. There's a case against Anthropic where the allegation was you pirated millions of books, and you trained on these books to make Claude. Just last year, this was a landmark ruling",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "that said, actually, this particular instance of training is fair use. However, Anthropic, you're still in trouble because you pirated all these books, and that is a no-no. So notice that this has nothing to do with training, just the mere fact of pirating--",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "I mean, which is not a new thing-- is illegal. Anthropic actually, interestingly, had bought and scanned all the books, which is actually fair use. The Court said you're allowed to scan. You buy a bunch of books, rip off the bindings, scan it, and digitize",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "it for your own use. That's fair use. But that doesn't absolve you of your sin of pirating. So you can't pirate and then buy it and say, actually, never mind what I just did first. So the outcome is that Anthropic paid 1.5 billion to settle the authors.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "So this is about $3,000 a book. So there's also a lawsuit against Meta. The allegation was that you trained on our books-- sorry-- and this was, as we'll see later, actually revealed in the Llama paper. And the judgment which came",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "right after Anthropic was, yes, training is fair use. And then they also torrented some books, so that's still pending. So that's probably-- if precedent holds, this is also not going to be good for Meta. So the summary so far is training, so to speak,",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "has been deemed of fair use, or at least has been not deemed not fair use. The rulings have so far been narrow. It's not to say that any training on any copyrighted content is fair use, but in these cases, it's fine. Pirating books is clearly illegal.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "I guess we already knew that. But this is still a very active and evolving area. Any questions about the sources of data? I think, before we get into the actual datasets, I just want to set the stage with this more general social context. Yeah? [INAUDIBLE]",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "The question is, what do I think of voice data and ElevenLabs? I don't know too much about that, so we can talk offline. Yeah? [INAUDIBLE] --because I guess if I own some asset, it's reasonable for me to be like [INAUDIBLE]. Am I allowed to-- usually",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "it's Creative Commons, but can I update my license later on to block certain usage? And so, what is the role of time playing in this, like I then train on the older version with more a more permissive license if the creator copied it to a more restrictive?",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so the question is, what happens with time? If you have one license and then it gets changed, what happens? So first, I'm not a lawyer. But second, so this-- so the first license I believe you're still allowed to train on it. But what happens is",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "that the license usually applies to not just, let's say, a fixed set of documents-- for example, Reddit. There's constantly new content being created, and the license being changed means that you wouldn't be able to train on the later things.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "OK, so let's look at various sources of data. So let's go back to crawling. So most model developers have their own crawler, because they want to have full control over what the data is. Fortunately for the rest of us, if you don't want to build",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "your own crawler, there's something called Common Crawl, which has been around for quite some time since 2007. And every month they run a web crawl, gets about three to five billion web pages. Each crawl has some overlap with the previous crawl,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "but they try to diversify and get new pages. So there's 300 billion pages so far, which seems-- this was from their website. It seems a little bit big, because if you multiply this number by 20, you don't quite get 300 billion. But that's what they say.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So how many URLs are out there? That's really hard to estimate. So the Google search index is at least 100 petabytes, according to them. And, each Common Crawl dump has about 2 billion web pages. So that's about 372tb. And this is not including images,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "this is just mostly focused on the text. So crawling is conceptually straightforward, but all the gory details are in the implementation. You start with a bunch of URLs, and then you iterate. It's basically graph traversal. You pop a URL from a",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "queue, you download it, and then you look at all the hyperlinks in that page, and then you add them to the queue. And generally this is done in parallel over many machines. And there's many decisions here-- which pages to download, you",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "have to respect robots.txt, don't overload the server. Sometimes the websites change, and so you want a policy that will download frequently changed pages, but not spend time downloading pages that don't change. So there's some policy around that.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "And I mentioned before, URLs are dynamic, so sometimes the same URL leads to different content depending on some state of the browser. But also, many URLs might lead to the same content, so there's a lot of duplication that happens if you're not careful.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "In particular, mirror sites explicitly is about duplication. So Common Crawl releases their dumps in two formats. One is a WARC file. So this is the raw HTTP response. So remember, HTTP protocol is that you send a get, here's a URL, and",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "then out comes a HTTP response, and the WARC file is that response. They also do some processing. They convert to a WET file, which is necessarily a loss-y process. It turns out that this is not necessarily the best way to use the web. The HTML to text,",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "there's many tools for this, including trafilatura and resiliparse, and the way you convert actually does matter. So this is from the DataComp LLM paper, which we'll talk a little bit about. Data is an ablation, where you look at the web files",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "that Common Crawl releases versus these other tools, and it seems like trafilatura and resiliparse are better. So one thing you can do is just rely on general web crawls. But often, the web is not a uniform place. It's not like there's a bunch of websites,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "and you just get some random fraction of them, and that's your dataset. There are specific pockets of really interesting, high quality content, and I'll talk about three of those-- Wikipedia, GitHub, and arXiv. So Wikipedia, all of you know about.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "It's been around since 2001, and now there's 67 million articles around all these different languages. And Wikipedia is not all content by any means. You can't have original thought in it, because everything has to be referenced and cited. So in some sense you",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "could argue that Wikipedia doesn't contain anything that's not already on the web. Well actually, that's not true, because they can also cite books, which are-- obviously you can't easily get them, so, Wikipedia is so good. And also, there's articles",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "based on notability, so not everyone can get a Wikipedia article about them. So anyone on the internet can write this content. This was the radical thing about wikis, and it's still a miracle, I think, to me that this actually works. It just happens",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "that any vandalism gets reverted by administrators, or bots, I guess, these days. There's a small number of Wikipedians-- as any peer production system, there's a small set of people who do most of the work. And for example, this guy has 5 million edits.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "And one thing about Wikipedia is that every few weeks, they do a periodic dump. So basically they take all of Wikipedia packaged into a nice TAR file, and then you can just download that. So this is important because you don't need to crawl Wikipedia.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "In fact, they don't want you to crawl Wikipedia. They just want you to download this if you're going to crawl, and this is much better than crawling. Just a fun aside, or good to know, is that there's this paper that says you can actually poison Wikipedia.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "So you might think that this vandalism gets reverted. So if you do-- attacker tries to do something fishy, you'll just get it rolled back. But what Carlini realized is that these periodic dumps happen at a regular cadence. And so, what you can",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "do is you can go in and you can just edit it right before the dump happens. And then the dump happens, and then the edits get rolled back, but the dump still has the malicious content. If you're able to inject things into web pages, that means you can cause--",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "there's works that show that you can cause the model to, let's say, ascribe negative sentiment to any trigger phrase, like the iPhone. So one takeaway here is that if you consider adversaries, even so-called high quality contents might",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "contain bad things in them. I think this has been fixed since then. OK, so GitHub is a good place for code, and code is important not just for if you want coding capabilities for your language model, but if you want general reasoning.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "So GitHub all of you know. Again, it's a live service for hosting code repositories. Been around since 2008, about the same age as Common Crawl. It has 420 million repositories, 28 million are public. Each repository contains-- it's not a file, as you know,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "it's a directory with commit history, issues, pull requests, and comments. Code has generally a lot of duplicates, and it's just because either copying code, or forking code. And GitHub has deemed it-- you're allowed to train on any public repository",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "with a permissive license. So MIT or Apache licenses are fine. So remember, there's two types of data when you talk about GitHub. There's the repository data, which you can just go and download through the GitHub Git protocol. And again, you",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "shouldn't scrape GitHub, you should just download the repository. And then the metadata associated with each repository-- issues and pull requests, and so on. These are made actually via the GitHub Archive, which gives you hourly snapshots of this",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "event stream, which I think is really interesting data. It's basically every single comment, or star, or action on GitHub that gets recorded. There's this software heritage foundation that is focused on the repository, not the metadata,",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "and they aggregate GitHub. GitHub is not the only place where code shows up. There's also smaller entities like GitLab, Bitbucket, and so on. And they aggregate all that, those repositories So arXiv, just very briefly-- everyone knows arXiv.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "This has been around as a site that allows people to share papers since 1991. Started with physics, and now has a lot of other areas in it. Each of the three million submissions has the metadata, a PDF, and optional LaTeX source. So already you should",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "be thinking, well, what does it mean to train on arXiv? It's not clear, because this is, well, you have to convert the PDF into text, or you can use the LaTeX source, which is a bunch of files. It's not peer-reviewed, but there is some approval process,",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "and authors can choose to maintain the rights, or put in the Creative Commons, which-- so everything is actually very clearly licensed. All the metadata is under permissive license so you can use that regardless, and then you can go and you look at",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "all the papers that are Creative Commons license. You download those, and you can use them. And I think most arXiv papers are Creative Commons. And then again, this is available. You don't crawl arXiv, you just go down to bulk download it from some website.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "So any questions about sources of data? Yeah? Are there any restrictions on usage of data, which is generated by models? Are there restrictions on data? Generated by models. Yeah. I mean, [? synthetic ?] [? data ?] models. Oh, I see. We'll talk about that",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "a little bit later. So the question is, what about model-generated, like synthetic data? Are you allowed to use it? The short answer is probably yes. Yeah? When using crawlers like [INAUDIBLE] Crawl and stuff like that, I guess-- because you mentioned earlier",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "that there are websites that have a lot of pirated books on it. How do you ensure that those types of websites don't show up in your crawl? Yeah. So the question is, there's a lot of websites with pirated books. So if you're just doing a web crawl,",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "you can't look at all the websites. So how do you make sure that everything is kosher? And that's part of the difficulty is, you can't. And so, there's-- most likely in Common Crawl, there are copyrighted books and content that you are not supposed to train",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "on, and you can-- will appeal to fair use. Remember, everything is copyright. Books are not remarkably different from your website, for example. both are copyrighted. Probably, a book author has more of a-- if they want to go into court, they'll",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "probably be able to protect that better because it's published than your website, but still. And I'll talk a little bit about later. If you really, really want to be careful, you cam do something I'll show later. So what I'm going to do now is to now talk",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "about the various datasets that are actually used in building models, starting all the way back to 2019. So we've talked about the origin of data and source of data, so you have a feeling for just the general data landscape. And so, let's start with BERT.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "So BERT was from 2018, and they trained-- back in the day, they just trained on Wikipedia and books. So what is this books? So there's this website called Smashwords. It was created that allow anyone to just put an ebook up to publish, and they had about",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "half a million books in 2024. So in 2015, there was this paper who just scraped Smashwords-- sorry, took the books that were free, and just made a corpus. This was back in the innocent days when no one was paying attention to any of this.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "So this books corpus was around for many years in the academic community. Since then, it has been taken down because it violated the terms of service. Just because it was free and you can get it, doesn't mean it was legally allowed. So one thing to",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "note about Bert is that the sequences were documents rather than sentences. All the language modeling research before that was focused on sentences. So in 2019, GPT-2 came around. And so what did they do? So they wanted to get high quality web content.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "And at that time, people knew about Common Crawl, but somehow the Common Crawl data was too messy. So what they did was came up with this clever idea where you can take-- you look at pages that are outgoing links from Reddit posts",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "with greater than three karma. So a good post must link to good websites. So you grab those pages, and you get a 40 gigabytes of text, 8 million pages. They never released this data, but there was an open replication of webtext, which people used quite a bit.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "So that's GPT-2. So as you're going through this, I guess think about both-- there's many methods of filtering and collecting data, and it's interesting to look at these design choices, and. So CCNET was developed by, at that time, Facebook.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "So the goal was to create large high quality data sets for pre-training. And they were especially interested in low resource languages. So they didn't want some very manual process that only worked for English. So they did a bunch of things.",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "They did deduplication, and language identification to train a classifier to detect a language, and keep only the language that you're looking for. And for quality filtering, the idea that they had was they wanted to keep documents that look like Wikipedia.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So Wikipedia at the time was deemed good, high quality content, and they used a language model that was trained on Wikipedia, and you score a probability of a new document under that language model to gauge how Wikipedia-like it was. So rather than outgoing",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "links to Reddit, they use a language model on Wikipedia. And they show that because you can get much more data, you can actually outperform just training on Wikipedia. And this was a tool that will later appear in some other papers. So here is another work.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "This is from Google in 2019. So this is called C4. So this paper as actually more famous for the T5 model, which pushes the idea that you should just treat all the NLP tasks in a world as text-to-text. But actually, a big contribution of this paper,",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "which is a very long report, was the C4 dataset. And the observation, which was very clear at that time, which is that Common Crawl is mostly not useful for natural language. There was this idea that you have these small datasets, and they were high",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "quality, or you had Common Crawl, which was a mess. And any attempt to train on Common Crawl just led to junk results. So people were thinking like, how do I get a larger but high quality subset of Common Crawl? So we saw the Reddit idea, we",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "saw the Wikipedia-like language model idea. C4 used a different idea, and this is saying, let's just define a bunch of rules, which turned out to be fairly effective. So basically, they keep lines that end in punctuation, that have more than five words,",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "remove pages with fewer than three sentences, remove pages that contain any bad words. Remove things like terms of use, boilerplate. Interestingly, remove the curly brace, which filters out a lot of code-- so clearly at that time, they weren't thinking",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "about code models-- and they filtered out anything that was not English. The end result is that you have 156 billion tokens, so 800 gigabytes of text. So this is much larger than the GPT-2 dataset, which was only 40 gigabytes of text. A bit later there was",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "some analysis done in C4 which showed-- here's the websites that were represented. So you have a bunch of Wikipedia, patents was a very common thing. They also released a WebText-like document. They also use this idea of links in Reddit posts--",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "from Reddit posts with greater than three karma, and filtered to those pages. So they were able to get, using this method, 17gb of text using 12 Common Crawl dumps. Remember, webtext was 40 gigabytes, which means that Common Crawl",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "is maybe incomplete, or doesn't have everything, because if it had everything, you should be able to hit 40. And they showed that at that time, you could use this data to improve on a bunch of NLP benchmarks. So we've seen using rules, things",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "that look like Wikipedia, Reddit links, and now let's talk about GPT-3. So GPT-3, the dataset was-- they used Common Crawl, they did their own processing. There is this WebText, which was essentially the GPT-2 dataset, but expanded. Notice that there's",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "some overlap. Common Crawl does overlap with this, but this is, in some sense, a more targeted distribution. There is this-- in the paper, it's described as Books1 and Books2, which is internet-based books corpora, so this remains a mystery exactly what it is,",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "and Wikipedia. So the result was about 500 gigabytes of text, 400 billion tokens. And to do the Common Crawl processing, they trained a quality classifier to distinguish things they deemed to be high quality from the rest, and they did some fuzzy deduplication",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "because WebText and Common Crawl had dupes. So this paper followed the idea of using a classifier to do quality classification. So after GPT-3 came out, this was, I think, a big event. And there were a number of efforts to try to do things in the open.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "So one of the initial efforts was The Pile, which is a grassroots effort from EleutherAI, where they had a bunch of people in this Discord just jamming and figuring out high quality sources. And they came up with this list in the end. And today, this is still",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "pretty interesting and diverse. It has Common Crawl, it has PubMed. This has this thing called Books3, which we'll talk about. ArXiv, GitHub, which we talked about. Wikipedia, IRC, another BooksCorpus, Philosophy Papers, and so on. They included this",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "Enron Emails dataset. So Enron went bust in 2002 and all the emails were released, and this is one of the few email datasets we have, which is a weird distribution, I think, for email. But that's what you get. So Project Gutenberg was-- so let's talk about",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "books a little bit. So project Gutenberg was started in 1971, and it only includes books that received copyright clearance. So mostly books in the public domain. There's this packaging of Gutenberg into PG-19, which is Gutenberg before 2019.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "Which is, I guess most of them, because for them to be in public domain, you have to wait 75 years. So Books3, which is this interesting dataset that appeared in The Pile. So this is described actually as 200k books from a shadow library",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "called Bibliotik that concludes all books from your favorite authors. And at that time-- again, 2020, no one was paying attention. People used it to train models, and since then, it has been taken down. So you cannot use, or should not use Books3 anymore.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "We'll come back to Books3 again. So Stack Exchange you've probably used quite a bit, although I guess these days maybe less so because of AI. There's a bunch of user-contributed questions and answers, started in 2008. And one thing that is",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "interesting about this dataset is that it's a Q&A format, and this is quite close to a real application. So normally, you think about pre-training data as here's Wikipedia articles, just like raw text. But some parts of the web are actually--",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "look supervised, like what you would want to ask your language model. Which I think, maybe, helps the model learn certain types of question answering behaviors. So not everything is super magically emergent. It's like, well, this type of",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "data does exist on the web. So there's also-- this data has metadata, which is like the number of votes which are useful for filtering. And again, this data is released in data dumps that allows you to just download without crawling it. So now we're in 2021.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "There was another paper from DeepMind. They trained a model called Gopher, which was never released, and actually was subsumed by Chinchilla. But the description of the data, I think, is actually really good. You should read this paper, because I",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "think it's very thorough in the way that they describe the data processing. Well, except for the parts where they don't tell you what's in the data. So they created this massive web, and they had C4, which remember, was the dataset that we looked at",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "before from Google. They train on books, news, GitHub, and Wikipedia. They don't say anything about how they got that. So for the MassiveWeb, they kept English, deduped, and their quality filtering was also based on manual rules. And part of the reason",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "for this is that they had more control over that. So I think, as you can see, there is this division between people who wanted to use rules, and people who wanted to use classifiers. So they got, as the name suggests, a massive amount of text, but their model",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "was only trained on a very small fraction of this dataset. So in 2022 Llama 1 came out, and the dataset here-- this was actually a very nice paper in that it detailed their data processing. So this is probably one of the last non-open, fully open models that",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "actually talk about their data processing. So they have Common Crawl processed with CCNET, which you know about. The classification, though, was whether the page was a reference of Wikipedia, not whether it is actually a Wikipedia article.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "So the idea is that well, maybe Wikipedia articles are too stylized. And we know that Wikipedia articles references a bunch of other articles which are presumably good, so let's call those the good websites. They had C4, they did a bunch of processing",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "on GitHub to keep permissive licenses, Wikipedia. They trained on Books3 and project Gutenberg. So Books3 really got them in a lot of trouble because they're just announcing to the world that hey, I trained on this dataset. And if you look back, oh, this came",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "from-- where did it come from? It came from The Pile. Oh, it came from a shadow library. So that's why people don't want to talk about their data anymore. So they looked at arXiv, and actually used the LaTeX to do the processing, Stack Exchange,",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "and they got 1.2 trillion tokens. They didn't actually release this dataset, but they had enough of a description in their processing that this was reproduced by Together's RedPajama V1 dataset, which was then used in other sources. So as you can see",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "here, RedPajama V1 initially also contained Books3, which has now been stripped out. So various decisions made early on about copyright actually influence-- have a fairly big watershed. So let's talk about RefinedWeb. So this is a paper that tried",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "to make a point that web data is all you need. So the web, in some sense, is everything. And then we talked about all these specialized sources, like there's GitHub and arXiv, and Stack Exchange. And they said, well, what happens if we just stick with the web?",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "So they did a good job of doing the transformation from HTML to text. They filtered using the Gopher rules, which is basically keep things that look like English. They explicitly, at that time, still said avoid ML-based filtering to avoid biases.",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "I don't want to find an overly narrow subset of the web. They did some deduplication, and they had five trillion tokens. They released about 600 billion of them. So FineWeb from Hugging Face was a replication of RefinedWeb, but improved it.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "So they took all the Common Crawl dumps at that time, did some filtering-- again, using manual rules to not inject biases-- deduped, did PII removal, and got 15 trillion tokens. So you can see that the size of these datasets is growing quite a bit.",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "So then there is this Dolma dataset from AI2, and this is a dataset that includes their own processing of Common Crawl, The Stack, which we'll talk about, before C4, which you know about, and a bunch of other things. And the Reddit dataset was from",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "this project called PushShift. And at that time, you could still get this data, and you can train on it before things got locked down. AI2 has their own crawl of academic papers called Semantic Scholar, so they derived a dataset based on that.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "So let's look at their Common Crawl processing. So they use language identification. So this was model-based, but quality filtering still avoid model-based filtering. And then they removed toxicity using rules and a classifier. And they got three trillion",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "tokens out of that. So DCLM, I think, was maybe a point where this idea of model-based quality filtering started to really become the norm here. So DataComp, the initial motivation was to define some sort of pipeline so that people can try different",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "data methods in a standard way, and show results. But I think the main way that I think people use this is just using their dataset that they released to train models and do other things. So they processed Common Crawl to produce DCLM-pool.",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "So this is completely unfiltered. And if you look at this dataset, this is massive. 240 trillion tokens. This is probably more than the number of tokens that anyone really trains on. But a lot of this is fairly low quality, so then they had a pipeline",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "where all that gets filtered. If you only keep English, you have some of rules to really narrow it down. You do dedupe, and then you do this model-based filtering, and you end up with something that's 1.4%. And this is the data set",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "that we'll see actually works pretty well. So the model-based filtering-- and this was strangely good. So to train a classifier, they took OpenHermes, which is essentially instruction data that was generated by GPT-4, and ELI5, which is a subreddit with",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "various questions and answers. So this is-- let's see. These are the type of questions that are in ELI5. So anyway, you get the idea. So it's kind of weird, but somehow this works. So the negative examples are anything from RefinedWeb, which",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "is, remember, it's just a very loosely filtered version of the web. It's basically the web, and it got 3.8 trillion tokens. They train a fastText classifier-- think about it just as a linear classifier. And then they show that this magical classifier, quality",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "classifier, outperforms a bunch of other things that they tried. So, DCLM. This became, for a while, at least in the open community, a bit of a gold standard for quality filtering. Let's move on to Nemotron. So Nemotron-- this is from NVIDIA--",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "they said that well, DCLM filters too aggressively. It's removing most of the data. And remember, they only got-- how many-- 3.8 trillion tokens. So we need more tokens. So what do we do? We are going to do something more, I guess, elaborate. We're going to",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "prompt our existing model to score FineWeb documents based on educational value. So we're going to prompt a language model and say, is this educational or not? Go add a bunch of labels, train a fastText model. So that's one classifier.",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "Another classifier is just using the DCLM classifier. So we're going to use those classifiers. We're also going to use synthetic data. So this is probably one of the-- I don't know if-- it's probably not the first, but, one of the main datasets that really",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "lean into synthetic data for pre-training. So they had, for low quality data, as deemed by these classifiers, you use a language model to rephrase it to make it more-- look like Wikipedia. For high quality data, we use a language model",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "to generate various tasks. For example, given a Wikipedia article, I can generate question answers, or I can generate like, please summarize this document, extract key information from it, and so on. So they resulted in a dataset that was 6 trillion tokens.",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "So this is substantially larger than DCLM. And just for reference, this is still kind of small by some consideration. So Llama 3 was trained on 15 trillion tokens, Qwen3 was trained on 36 trillion. Although there is this-- it's not clear how big",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "these unique tokens are, because when you look at [INAUDIBLE] counts in language modeling papers, some of it is repeated. Like if you do two epochs, that's twice the number of tokens, so you have to be careful when you look at those numbers. And they show that",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "the dataset is better. Their high quality subset beats the previous datasets So up until now, we've seen a bunch of different methods for filtering. I think all of these look very similar at some level. You take a web crawl, you either decide I'm going to use",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "rules to filter, or I'm going to use a model. If I'm going to use a model, then I have to decide what looks like good data, and then try to train a classifier, and classify all my documents, and select. And there seems to be a trade-off between you can take a",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "lot of Common Crawl-- you can get 240 trillion tokens if you want, but that's probably going to be really low quality. Or you can get one trillion tokens, and there's some sweet spot in-between. Let me talk about two final things. So code, and going back to",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "this question of licensing. So The Stack is a very nice project that was trying to make a really good coding data set, since it was clear by 2022 that coding was going to be really important. So what they did in the initial version",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "is that they clone 137 repos. They kept the ones that were permissively licensed, remove near-duplicates, and resulted in one-- sorry, three terabytes of code. And then in 2024, they had an update. And here they took more the metadata,",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "like the issues, comments, and PRs from GitHub, the repositories from the Software Heritage, which we talked about. They also scraped documentation from various websites by crawling them. They did a bunch of processing. So in GitHub repos, you have",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "binary files which you probably don't want to train on. They have malware, you get rid of that. A lot of GitHub, especially these PRs, are bots, so you have to filter that. Dedupe, do PII redaction. There's a lot pull requests and stuff,",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "and they basically subsample to keep it representative and the dataset manageable. They also did this thing, which was I thought was nice, which is that there's many programming languages out there. There's a lot of Python, a lot of C,",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "but low resource languages like Nim-- which I hadn't even heard of-- they're not that common. So what they do is they compile this code into a low-level intermediate language, LLVM, which everything, like C Compiler, can compile into this,",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "and they have juxtaposed the low resource language and the intermediate representation. So then the language model can actually learn the mapping between the shared low level representation, which has a lot of data on, and the thing that it does",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "has less data on. And just for fun, you add in all the other good stuff that you can. So Stack V2 is mostly code, and then plus other things that were used to train their coding models. And one thing about pull requests is that pull requests and",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "all the metadata is not, by its nature, a linearized sequence. So there has to be some steps taken to linearize it. So one important thing you have to decide is how much context to provide. So for example, an event might just be, I change one line of code.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "And that could just be one line, but presumably to learn that, you want to provide some context, maybe a few lines around it, or maybe the entire file surrounding that diff. And these are some design decisions that you have to make for linearization.",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "And so at the end of the day, the tokens that they train on look something like this, where it's this XML-like structured data, where you have the PR, and then you have a bunch of diffs. And then for comments, you have basically the events",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "of a comment was posted, what the review state of that PR was and so on and so forth. So it's not just learning how to generate code, but also the software development process around code. So finally, I'll talk about the common pile. So recall that almost all",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "the data on the internet is copyrighted. Some of it is permissively licensed, some of it is even in the public domain. And while you can appeal to fair use and say, I'm going to train on it anyway, this is not quite settled. So if you're very,",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "very risk-averse, then you say, well, if I don't know whether it is OK, that's a no. If you take that attitude, then that's what common pile did. So can you train a good model with only permissively licensed data? Or rather, how far can you get?",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "So this was a project that went and scoured the internet for all the different types of data that they could possibly find that was worth training on, that was permissively licensed. It includes Stack V2 in code. It turns out that a lot",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "of government proceedings are actually permissively licensed, wikis, some things on the web-- some new sites are actually permissively licensed, academic papers, online forums, things that are in the public domain, educational resources, and so on.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "So in the end, there were 8 terabytes of data, which is actually pretty good for permissively licensed data. Doing this project is actually much harder than maybe it sounds at first glance. It's not just as simple oh, you look at the license",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "and it's like, oh yep, Apache, or CC, good. There's some subtleties, versus license laundering. So people are sloppy with licenses. So people might take some copyright work and just slap a CC BY on it. Anyone can write this on the internet,",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "and it's hard to tell whether this is real or not. There's also this common practice where, for example, Dolma is permissively licensed. Remember, Dolma is the AI2 collection. But collection licenses don't extend to the individual works. So the collection is--",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "I mean, first of all, there's a question of whether collections-- I think collections can be copyrighted, but I guess you can put a license on anything. But the individual works are not necessarily good. So you can't just look at data sets on Hugging Face,",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "and you-- many data sets on Hugging Face you see, they have a permissive license. But if you dig deeper, it's actually not permissively licensed at the individual level. And they also made a decision to forego training on any synthetic data, because",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "training language models on unlicensed data is unclear. So probably it's fine because technically, these are open weight models with MIT license. You can do whatever. You can use them however you want, but these language models were presumably also trained",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "on unlicensed data. So it's a little bit of data laundering if you are really honest here. So with this data, they compare it with a bunch of other models like the first Llama, MPT, and Qwen. And on a bunch of benchmarks, they show that this is not bad.",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "I would say it's not as good as the Qwen models for sure, but it's certainly outperforming the very old-- this is from 2023, I guess. So quite old models. So I would say, the conclusion here is that you can do reasonably, but I think it's still",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "pretty tough to compete without doing more tokens. But I don't think this is the final word on it, and I think you can probably eke more out of publicly permissive licenses if you try. OK, so to summarize this lecture here. So maybe hopefully now I've",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "given you some appreciation that data is a very rich topic. It's not that data just falls from the sky, or you just go on Hugging Face and you download a dataset. Data has to come from somewhere. And there's also a technical but also social context",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "in which data comes, because at the top, the internet is a bunch of live services. Someone has to do the work of producing raw data, whether it be the website that gives you dumps, or someone has to build a crawler, or something. And then, someone has to make",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "the decision of how to process it into usable form-- filtering, transformation, deduplication, all these things have an impact on the quality of your final language model. And notice that filtering is probably one of the most important things.",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "How do you go from 200 trillion tokens to less than three trillion tokens? I think that obviously is a huge reduction, which I think merits a lot of attention. Data is, in some sense, a key ingredient that differentiates language models.",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "A lot of language models are roughly the same kind of transformer architecture, but data is depending on how you process it. It can make a pretty big difference. There's plenty of legal and ethical issues around data, more than I can get into this lecture.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "And also, this process is very messy. Unlike some of the other parts of this class where things are maybe more based on first principles, data processing is, right now at least, a lot just based on vibes you set up. You define this classifier,",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "you define this rule, you set some threshold. So there are many opportunities to improve. So as you do your assignment four, maybe think about whether there's better ways to do this, and this could be maybe a research direction. OK, so that's it for today.",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "So next time I'll continue talking about data. I'll talk a bit about post-training data, and a bit more about filtering.",
+      "start": 1446,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,424 @@
+{
+  "videoId": "vz4tvqjEJUM",
+  "title": "OSDI '20 - AGAMOTTO: How Persistent is your Persistent Memory Application?",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 20268,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. My name is Ian Neil and\nI'm a PhD student from the University of\nMichigan advised by Professor Baris\nCoskun Cetin. And in today's talk, I'm\ngoing to talk about our system Agamoto,\nwhich we designed to automatically\ndetect bugs in persistent memory storage\nsystems.\nSo at last, Intel has made persistent\nmain memory commercially available. This\nis a higher capacity main memory\ntechnology which resides in the memory\nbus alongside traditional DRAM,\nproviding a large pool of memory at only\ntwo to three times higher latency.\nThis new technology has two main\npotential uses. First of all, it can be\nused to simply increase the size of all\nthe main memory, or it can be used as\ndurable storage due to the non-volatile\nnature of the underlying medium.\nFurthermore, as persistent memory is\nmain memory, it can be mapped directly\ninto a processor's address space,\nallowing an application to directly\nmanage persistent data structures\nwithout file system overhead.\nToday, I'll be talking about persistent\nmemory as it is used as a persistent\nstorage device through direct access.\nSo using persistent memory as durable\nstorage requires using special\npersistence mechanisms or durability\nmechanisms to ensure updates to\npersistent memory become durable. Let me\ndemonstrate. Let's say we want to make X\na persistent value. First, we issue a\nstore to X. This creates an update that\nbecomes cached in the CPU cache.\nHowever, we don't want to leave this\nupdate in the CPU cache since it is\nvolatile and a crash would cause the\nupdate to be lost. Therefore, we need to\nissue a flush instruction which tells\nthe CPU to write the update back to the\nbacking storage device, which in this\ncase is persistent memory.\nHowever, this flush instruction can be\ndelayed by the CPU as it is weakly\nordered with respect to other\ninstructions. Therefore, we also need to\nissue a memory fence which will force\nthis flush instruction to finish writing\nthe update all the way back to\npersistent memory.\nNow so far, writing updates to\npersistent memory hasn't seemed that\ndifficult. Add a flush and a fence to a\nstore, seems like a piece of cake.\nHowever, we encounter There are issues\nas we begin to write more complex\napplications.\nWe can continue to write flushes and\nfences after every store, which makes it\neasy to reason about the ordering of\nupdates in the application, but it\nbecomes slow as you essentially have no\nmemory parallelism in the system\nanymore. So, instead, application\ndevelopers write more clever code trying\nto consolidate expensive memory fences\nand group flushes together.\nThis can give better performance, but it\nbecomes harder to reason about the\nordering of our updates, and this can\nquickly and easily lead to persistency\nbugs.\nThese persistency bugs can have dire\nconsequences, such as permanent data\nloss. For example, if either the flush\nor the memory fence instruction are\nmissing, the update to X can be lost on\na power failure, resulting in possible\ndata corruption.\nThese bugs can also be difficult to find\ndue to non-deterministic factors. For\nexample, if the flush and the fence are\nboth missing, the update to X can still\nbe persisted due to a cache line\neviction.\nFurthermore,\nthe cache state and the state of\npersistent memory are opaque to\ndevelopers, and so traditional debugging\ntools like GDB cannot be used to check\nwhether or not an update has been\nproperly persisted or if it only resides\nin the volatile CPU cache.\nWe therefore need persistent memory\nspecific debugging tools to help us\nreason about these bugs if we have any\nhope of finding them.\nOf course, we are not the first group to\nthink of this problem, and others have\nbuilt persistent memory specific tools\nin the past. However, they suffer from a\nrange of shortcomings from acquiring\nextensive, manually created test suites\nto avoid low testing coverage, to\nrequire sort to requiring source code\nmodifications, or being too specific to\na particular persistent memory system or\nAPI.\nOverall, we find that prior work\nrequires too much effort to use and has\ntoo little testing coverage. We would\nmuch prefer a tool which didn't require\nus to modify applications, and which had\nfewer false negatives or missing bugs\ndue to a lack of testing coverage.\nThis examination of prior work led to\nour work. We first performed a study of\npersistent memory bugs to determine what\nreal bugs look like in practice.\nWe examined a number of bugs across\ndifferent applications and found two\npredominant patterns of persistent\nmemory bugs.\nImportantly, we discovered that these\npatterns are independent of program\nsemantics and they can be detected\nautomatically with no source code\nchanges.\nWe then use these patterns to inform the\ndesign of our tool, Agamoto. Agamoto is\na symbolic execution tool and we\nleverage symbolic execution to eliminate\nthe need for large curated testing\nsuites by testing many program paths\nsymbolically.\nWe build Agamoto on KLEE and augment it\nwith three persistent memory components,\nwhich allow Agamoto to support\nsymbolically executing persistent memory\napplications and rapidly detect any\npersistent memory bugs they may have.\nFinally, we demonstrate the usefulness\nof Agamoto. We use Agamoto to find 84\nnew bugs across a variety of persistent\nmemory applications. To compare, some\nrelated work, PMTest and XFDetector,\nfind three and four new bugs,\nrespectively.\nWe were also able to confirm many of\nthese bugs with the developers,\nvalidating our results and helping\ndevelopers produce more reliable\nsystems.\nFinally, we perform a novel study of\nperformance bugs and show that by fixing\nperformance bugs, we can improve\nperformance by up to 47%.\nThis demonstrates the importance of\nfinding both persistent memory bugs,\nwhich affect correctness, and persistent\nmemory issues, which impact the\nperformance of programs.\nFirst, I'll discuss the results of our\nbug study.\nIn this survey, we surveyed 63\npreviously documented bugs. Most of\nthese bugs were from PMDK's issues\ntracker, as that is the most mature open\nsource persistent memory system\navailable, but we also analyzed some\nfrom prior work. As I previewed earlier,\nwe discovered two predominant patterns,\nwhich we used to create application\nindependent bug detectors in Agamoto.\nThe first pattern we codify is the\nmissing flush and fence pattern. Here's\nan example of what this bug looks like.\nIn this example, a modification is made\nto OID, which points to persistent\nmemory, but it is not made properly\ndurable, as there are no associated\nflushes and fences. This pattern is\ntherefore defined as a persistent memory\nupdate not being made properly and\nexplicitly durable. Furthermore, we find\nthis pattern across a variety of\napplications and it is not dependent on\nany specific API.\nWe also find that this\npattern\naccounts for the majority of bugs in our\nsurvey accounting for almost 80% of our\nsurveyed bugs.\nWe do note that there are ways of\nwriting persistent memory applications\nwhich would violate this pattern, but we\ndon't discover any in our testing.\nThe second pattern we codify is the\nredundant flusher fence pattern.\nHere we look at a similar example. In\nthis example, OID is properly made\ndurable, but then redundant durability\nmechanisms are issued after the update\nhas already been made durable.\nThese redundant mechanisms are therefore\nunnecessary and serve no purpose.\nFurthermore, these redundant\ninstructions are a potential performance\nissue regardless of application\nsemantics\nand can occur in a variety of\napplications. We note that this pattern\nis the second largest class of bugs in\nour survey comprising 11% of the bugs we\nsurveyed.\nTo summarize, we find that 90% of the\nbugs have one or two application\nindependent patterns of persistent\nmemory bugs. This allows us to create\nautomatic detection mechanisms which\ndon't have to be tailored to specific\napplications. However, there are still\nsome application specific bugs in our\nsurvey about 10% that we don't want to\nignore. However, rather than have\ndevelopers modify their source code, we\nbelieve that they should instead supply\ntheir own bug patterns. This pattern\nbased bug methodology allows us to avoid\nhaving to require any source code\nmodifications. This makes it much easier\nto adopt a new testing tool and easy and\nmuch easier to find bugs in a variety of\nsystems.\nNow, I want to discuss how we built\nArgus Monitor to find new persistent\nmemory bugs using the bug patterns we\nfound during our survey of real\npersistent memory bugs. First, however,\nI need to give some background about how\ngeneral symbolic execution works before\nI get into how we extended to support\npersistent memory bug finding.\nSo, in symbolic execution, we're\nessentially executing a program. We\nstart out by picking a symbolic state\nwhich represents the state of the\nprogram execution at particular program\ncounter, and includes the values of\nlocal variables in memory.\nWe then execute the current instruction\nand increment the program counter. We\nthen update the state based on the\nresult of this instruction.\nIn this case, we update the value of\ndo_read to be a symbol, which represents\nany value rather than a concrete value\nlike one or zero.\nThis is the main difference of symbolic\nexecution over real program execution,\nand we can see that how the program runs\nwhen do_read is any value rather than a\nspecific value for a unit test case.\nNow we can see how symbolic execution\ngets such great testing coverage. We'll\nexecute the next instruction. So again,\nwe select our state.\nWe then execute the conditional branch.\nWe then update the state, and this\ncauses the state to fork, meaning that\nthe state splits on the conditional\nstatement so that the symbolic values\ncan be consistent with the control flow\nof the program.\nIn the if block, the statement is only\nreachable if do_read is not equal to\nzero. Otherwise, the statement would\nhave evaluated to false.\nSo now the state contains the symbol,\nwhere the symbol has been constrained to\nbe any value not equal to zero.\nLikewise, the only value of do_read that\nwould allow the program to reach the\nelse block is if the value of do_read\nwas equal to zero.\nTherefore, in this state, the value of\ndo_read is simply zero.\nThis thorough path exploration is why we\nbuilt Argemone as a symbolic execution\ntool. We can use symbolic values to\neasily explore many program paths,\nunlike our related work, which relies on\nconcrete unit test cases to explore one\npath at a time. This easily gives us\nhigh code coverage when finding\npersistent memory bugs.\nAll right. Now that we have the symbolic\nexecution background out of the way,\nlet's talk about how we implement\nArgemone.\nSo the first issue we need to address is\nhow we allocate persistent memory, for\nexample, through mmap, and how\noperations are performed on persistent\nmemory, for example, through the store\nto persistent memory in P buff.\nTo do this, we augment KLEE with a\npersistent memory memory model.\nThis model adds functionality to KLEE by\nextending the symbolic memory model to\ninclude persistent memory state.\nWe also allow\napplications under test in\nAgamoto to allocate persistent memory\nthrough the MMap interface. High-level\nAPIs ultimately make low-level calls to\nMMap, and so we can still test systems\nlike PMDK this way.\nThe way that persistent memory state\nworks is as a state machine. Every\nregion of persistent memory has one of\nthree associated states. It is either\nclean,\ndirty, or flushed.\nThe persistent memory memory model then\nfunctions as a state machine using the\ndifferent persistency mechanisms as\nstate transitions. For example, stores\nwill make any state dirty, which\nindicates that it needs to be flushed. A\nflush then moves persistent memory to\nbeing flushed, and then a fence on a\nflush state will finally make it clean\nagain. This reflects the example\ndiscussed at the beginning of the talk,\nwhere we needed to flush and fence an\nupdate in order for it to become clean\nagain, or made durable.\nNow that we've modeled persistent\nmemory, the next thing we need to do is\nactually find bugs in persistent memory\napplications. In this updated example,\nthe highlighted state is about to\nterminate since it's about to execute\nthis exit call. However, there's a\npersistent memory bug as PBuff effects\nis flushed but not clean. So, we detect\nthis bug by augmenting Agamoto or\naugmenting KLEE with a set of persistent\nmemory bug oracles, which run after\nupdating the state after every\ninstruction.\nSo, we implement our application\nindependent bug finders as bug signals\non our state transition diagram of\npersistent memory. For example, to\ndetect missing flush and fence bugs, we\nlook for an exit condition off of dirty\nor flushed states.\nThis is a bug because the states had not\nbeen properly made durable.\nLikewise, for the redundant flush and\nfence pattern, we look for when a flush\nor a fence occurs from a clean state or\nin a flush occurs from an already\nflushed state.\nAs I hinted at earlier, there are still\napplication specific bugs that we would\nlike to detect. To enable this, we'll\nhave developers to easily encode custom\nsignals and states into the state\nmachine model of persistent memory. I'll\ngive an example of application specific\nbug ordering.\nSo, let's say that we have two data\nstructures and A must be made durable\nbefore B.\nSo, modifying A works as before. A\nbecomes either clean, dirty, or flushed.\nHowever, the we have new state\ntransition signals when\nB is modified while A is not clean. In\nthis case, where A is dirty or A is\nflushed, this indicates an ordering\nviolation because A has not been\nproperly made durable before B.\nHowever, if B is modified when A is\nclean, everything functions as normal\nand no bug is detected.\nWe ultimately use this API provided by\nAgamotto to accurately detect all of the\nuser space persistency bugs reported by\nPMD test PM test and XFI detector by\nbuilding two such custom bug articles.\nSo, the persistent memory model and the\npersistent memory bug articles require\neverything that Agamotto needs to find\npersistent memory bugs.\nHowever, we also want to build a\npersistent memory state selection method\nto mitigate one major issue of symbolic\nexecution, state space explosion.\nSo, what is this problem? Well, in our\nexamples, we've been using fairly small\nprograms. However, for real programs,\nthere are many repeated conditional\nbranches which can continually fork and\nfork and fork the state.\nFurthermore, loops exacerbate this issue\nas the process of forking can be\nrepeated many times, leading to this\nexponential explosion of states.\nHowever, we're only interested in\nexploring states which have persistent\nmemory bugs because we only want to look\nat these persistent memory bugs. So, we\nask ourselves, can we accelerate bug\nfinding by driving exploration towards\nstates which are likely to contain\npersistency bugs? And we are. Our\ninsight is to drive symbolic execution\ntowards states with more persistent\nmemory modifying instructions, as these\nstates have a greater chance of having\npersistent memory bugs. As persistent\nmemory bugs originate from bad\nmodifications to persistent memory.\nSo, what we did was we created a method\nfor identifying stage which are more\nlikely to modify persistent memory.\nThe first thing we do is we fall find\nall instructions which may modify\npersistent memory using a static\nanalysis, which tells us which\ninstructions may modify memory, which\nmay point to a persistent memory\nallocation site.\nTo be application independent, we\nconsider mmap sites to be these\npersistent memory allocation sites.\nWe then assign all of these instructions\na unit weight of one.\nAnd then we back propagate these weights\nto form a\nper instruction priority,\nwhich represents the number of reachable\npersistent memory modifying instructions\nfrom that point in the program.\nFor example, the instructions in the\nelse block have a positive priority.\nAnd the instructions in the if block\nhave a priority of zero, since there are\nno reachable NVM modifying instructions\nfrom these point.\nThen, during state selection, Agamoto\nselects the state with the highest\npriority.\nAnd it turns out in practice, even\nmemory\npersistent memory intense applications,\nless than 10% of all instructions have a\nnon-zero priority, meaning that we're\nactually able to select high priority\nstates over low priority states even in\nreal systems.\nSo, in summary, to build Agamoto, we\naugment KLEE with three main things.\nWe add a model for allocating and\nmodifying persistent memory, and also\nfor tracking the status of persistent\nmemory in symbolic states.\nWe also add bug oracles which use\npersistent memory state transitions to\ndetect our patterns of\napplication-independent bugs.\nThis also supports custom bug patterns\nso developers can detect\napplication-specific bugs. We also\ndevelop a state selection algorithm\nwhich drives symbolic execution to\nprioritize execution of states which are\nmore likely to contain persistent memory\nbugs.\nFinally, I want to briefly discuss how\nwe were able to use Agamoto and the\nresults we were found from using it.\nMost importantly, we found bugs. We\nfound 84 new bugs in a total across the\nfive systems we test. Of these bugs, 14\nbugs are correctness bugs and 70 are\nperformance bugs.\nWe also um We also note that our closest\nrelated work, PM test and X test\ndetector, were able to find three and\nfour new bugs respectively.\nWe also evaluate the effectiveness of\nAgamoto's search strategy. We compare\nAgamoto's PM-aware strategy to KLEE's\ndefault search strategy. After an hour\nof run time, KLEE's search strategy only\nfound 30% of the bugs that we found in\ntotal. In contrast, Agamoto's strategy\nwas able to find all bugs in under 40\nminutes.\nFinally, since we found so many\nperformance bugs, we wanted to know\nwhether or not any of them were majorly\nimpactful to the overall performance of\nthe system. So, we performed a case\nstudy on Recipe, an academic research\nprototype which provides a persistent\nindexing structure. We found that by\nfixing all of the performance bugs in\nRecipe, we were able to increase the\nperformance of the structure by between\n23 and 47%.\nThis demonstrates that these performance\nbugs should not be ignored.\nWe were also able to report some of\nthese findings to developers, not only\nto help validate our bug findings, but\nalso to help them develop more reliable\nsystems. Importantly, we got some very\npositive responses from these\ndevelopers.\nOverall, none of these developers\nreported any false positives, and so all\nof our bugs were real bugs.\nFurthermore, developers noted the\nbenefits of Agamoto and appreciated its\nthoroughness and ease of use.\nNotably, we had several comments about\nthe lack of good testing tools, which we\nwere able to address successfully in\nAgamoto's design.\nIn conclusion,\nwe performed a study of persistent\nmemory bugs and discovered two\napplication-independent patterns of\nbugs.\nThis insight allowed us to build\nAgamoto, which leverages the power of\nsymbolic execution in combination with\napplication-independent bug patterns to\naccurately and automatically detect\npersistent memory bugs.\nWe then use Agamoto to find 84 new bugs\nin a variety of persistent memory\napplications. We also demonstrate the\nthe performance impact of persistent\nmemory performance issues, showing a\nthroughput increase of up to 47% in our\nperformance case study.\nAgamoto has gone through the OSDI 2020\nartifact evaluation process and has\nearned all three badges.\nYou can find Agamoto's source code and\nother documentation relating to its\nusage at the link provided in this\nslide.\nThank you for listening to my talk. Feel\nfree to reach out to me about any\nquestions that you may have on our paper\nor about using Agamoto. Thank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. My name is Ian Neil and I'm a PhD student from the University of Michigan advised by Professor Baris Coskun Cetin. And in today's talk, I'm going to talk about our system Agamoto, which we designed to automatically",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "detect bugs in persistent memory storage systems. So at last, Intel has made persistent main memory commercially available. This is a higher capacity main memory technology which resides in the memory bus alongside traditional DRAM,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "providing a large pool of memory at only two to three times higher latency. This new technology has two main potential uses. First of all, it can be used to simply increase the size of all the main memory, or it can be used as",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "durable storage due to the non-volatile nature of the underlying medium. Furthermore, as persistent memory is main memory, it can be mapped directly into a processor's address space, allowing an application to directly manage persistent data structures",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "without file system overhead. Today, I'll be talking about persistent memory as it is used as a persistent storage device through direct access. So using persistent memory as durable storage requires using special persistence mechanisms or durability",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "mechanisms to ensure updates to persistent memory become durable. Let me demonstrate. Let's say we want to make X a persistent value. First, we issue a store to X. This creates an update that becomes cached in the CPU cache.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "However, we don't want to leave this update in the CPU cache since it is volatile and a crash would cause the update to be lost. Therefore, we need to issue a flush instruction which tells the CPU to write the update back to the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "backing storage device, which in this case is persistent memory. However, this flush instruction can be delayed by the CPU as it is weakly ordered with respect to other instructions. Therefore, we also need to issue a memory fence which will force",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "this flush instruction to finish writing the update all the way back to persistent memory. Now so far, writing updates to persistent memory hasn't seemed that difficult. Add a flush and a fence to a store, seems like a piece of cake.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "However, we encounter There are issues as we begin to write more complex applications. We can continue to write flushes and fences after every store, which makes it easy to reason about the ordering of updates in the application, but it",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "becomes slow as you essentially have no memory parallelism in the system anymore. So, instead, application developers write more clever code trying to consolidate expensive memory fences and group flushes together. This can give better performance, but it",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "becomes harder to reason about the ordering of our updates, and this can quickly and easily lead to persistency bugs. These persistency bugs can have dire consequences, such as permanent data loss. For example, if either the flush",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "or the memory fence instruction are missing, the update to X can be lost on a power failure, resulting in possible data corruption. These bugs can also be difficult to find due to non-deterministic factors. For example, if the flush and the fence are",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "both missing, the update to X can still be persisted due to a cache line eviction. Furthermore, the cache state and the state of persistent memory are opaque to developers, and so traditional debugging tools like GDB cannot be used to check",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "whether or not an update has been properly persisted or if it only resides in the volatile CPU cache. We therefore need persistent memory specific debugging tools to help us reason about these bugs if we have any hope of finding them.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Of course, we are not the first group to think of this problem, and others have built persistent memory specific tools in the past. However, they suffer from a range of shortcomings from acquiring extensive, manually created test suites",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "to avoid low testing coverage, to require sort to requiring source code modifications, or being too specific to a particular persistent memory system or API. Overall, we find that prior work requires too much effort to use and has",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "too little testing coverage. We would much prefer a tool which didn't require us to modify applications, and which had fewer false negatives or missing bugs due to a lack of testing coverage. This examination of prior work led to",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "our work. We first performed a study of persistent memory bugs to determine what real bugs look like in practice. We examined a number of bugs across different applications and found two predominant patterns of persistent memory bugs.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Importantly, we discovered that these patterns are independent of program semantics and they can be detected automatically with no source code changes. We then use these patterns to inform the design of our tool, Agamoto. Agamoto is",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "a symbolic execution tool and we leverage symbolic execution to eliminate the need for large curated testing suites by testing many program paths symbolically. We build Agamoto on KLEE and augment it with three persistent memory components,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "which allow Agamoto to support symbolically executing persistent memory applications and rapidly detect any persistent memory bugs they may have. Finally, we demonstrate the usefulness of Agamoto. We use Agamoto to find 84",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "new bugs across a variety of persistent memory applications. To compare, some related work, PMTest and XFDetector, find three and four new bugs, respectively. We were also able to confirm many of these bugs with the developers,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "validating our results and helping developers produce more reliable systems. Finally, we perform a novel study of performance bugs and show that by fixing performance bugs, we can improve performance by up to 47%. This demonstrates the importance of",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "finding both persistent memory bugs, which affect correctness, and persistent memory issues, which impact the performance of programs. First, I'll discuss the results of our bug study. In this survey, we surveyed 63 previously documented bugs. Most of",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "these bugs were from PMDK's issues tracker, as that is the most mature open source persistent memory system available, but we also analyzed some from prior work. As I previewed earlier, we discovered two predominant patterns,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "which we used to create application independent bug detectors in Agamoto. The first pattern we codify is the missing flush and fence pattern. Here's an example of what this bug looks like. In this example, a modification is made",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "to OID, which points to persistent memory, but it is not made properly durable, as there are no associated flushes and fences. This pattern is therefore defined as a persistent memory update not being made properly and explicitly durable. Furthermore, we find",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "this pattern across a variety of applications and it is not dependent on any specific API. We also find that this pattern accounts for the majority of bugs in our survey accounting for almost 80% of our surveyed bugs. We do note that there are ways of",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "writing persistent memory applications which would violate this pattern, but we don't discover any in our testing. The second pattern we codify is the redundant flusher fence pattern. Here we look at a similar example. In this example, OID is properly made",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "durable, but then redundant durability mechanisms are issued after the update has already been made durable. These redundant mechanisms are therefore unnecessary and serve no purpose. Furthermore, these redundant instructions are a potential performance",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "issue regardless of application semantics and can occur in a variety of applications. We note that this pattern is the second largest class of bugs in our survey comprising 11% of the bugs we surveyed. To summarize, we find that 90% of the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "bugs have one or two application independent patterns of persistent memory bugs. This allows us to create automatic detection mechanisms which don't have to be tailored to specific applications. However, there are still some application specific bugs in our",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "survey about 10% that we don't want to ignore. However, rather than have developers modify their source code, we believe that they should instead supply their own bug patterns. This pattern based bug methodology allows us to avoid",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "having to require any source code modifications. This makes it much easier to adopt a new testing tool and easy and much easier to find bugs in a variety of systems. Now, I want to discuss how we built Argus Monitor to find new persistent",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "memory bugs using the bug patterns we found during our survey of real persistent memory bugs. First, however, I need to give some background about how general symbolic execution works before I get into how we extended to support persistent memory bug finding.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So, in symbolic execution, we're essentially executing a program. We start out by picking a symbolic state which represents the state of the program execution at particular program counter, and includes the values of local variables in memory.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "We then execute the current instruction and increment the program counter. We then update the state based on the result of this instruction. In this case, we update the value of do_read to be a symbol, which represents any value rather than a concrete value",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "like one or zero. This is the main difference of symbolic execution over real program execution, and we can see that how the program runs when do_read is any value rather than a specific value for a unit test case. Now we can see how symbolic execution",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "gets such great testing coverage. We'll execute the next instruction. So again, we select our state. We then execute the conditional branch. We then update the state, and this causes the state to fork, meaning that the state splits on the conditional",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "statement so that the symbolic values can be consistent with the control flow of the program. In the if block, the statement is only reachable if do_read is not equal to zero. Otherwise, the statement would have evaluated to false.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "So now the state contains the symbol, where the symbol has been constrained to be any value not equal to zero. Likewise, the only value of do_read that would allow the program to reach the else block is if the value of do_read was equal to zero.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "Therefore, in this state, the value of do_read is simply zero. This thorough path exploration is why we built Argemone as a symbolic execution tool. We can use symbolic values to easily explore many program paths, unlike our related work, which relies on",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "concrete unit test cases to explore one path at a time. This easily gives us high code coverage when finding persistent memory bugs. All right. Now that we have the symbolic execution background out of the way, let's talk about how we implement Argemone.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So the first issue we need to address is how we allocate persistent memory, for example, through mmap, and how operations are performed on persistent memory, for example, through the store to persistent memory in P buff. To do this, we augment KLEE with a",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "persistent memory memory model. This model adds functionality to KLEE by extending the symbolic memory model to include persistent memory state. We also allow applications under test in Agamoto to allocate persistent memory",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "through the MMap interface. High-level APIs ultimately make low-level calls to MMap, and so we can still test systems like PMDK this way. The way that persistent memory state works is as a state machine. Every region of persistent memory has one of",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "three associated states. It is either clean, dirty, or flushed. The persistent memory memory model then functions as a state machine using the different persistency mechanisms as state transitions. For example, stores will make any state dirty, which",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "indicates that it needs to be flushed. A flush then moves persistent memory to being flushed, and then a fence on a flush state will finally make it clean again. This reflects the example discussed at the beginning of the talk,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "where we needed to flush and fence an update in order for it to become clean again, or made durable. Now that we've modeled persistent memory, the next thing we need to do is actually find bugs in persistent memory applications. In this updated example,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "the highlighted state is about to terminate since it's about to execute this exit call. However, there's a persistent memory bug as PBuff effects is flushed but not clean. So, we detect this bug by augmenting Agamoto or augmenting KLEE with a set of persistent",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "memory bug oracles, which run after updating the state after every instruction. So, we implement our application independent bug finders as bug signals on our state transition diagram of persistent memory. For example, to",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "detect missing flush and fence bugs, we look for an exit condition off of dirty or flushed states. This is a bug because the states had not been properly made durable. Likewise, for the redundant flush and fence pattern, we look for when a flush",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "or a fence occurs from a clean state or in a flush occurs from an already flushed state. As I hinted at earlier, there are still application specific bugs that we would like to detect. To enable this, we'll have developers to easily encode custom",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "signals and states into the state machine model of persistent memory. I'll give an example of application specific bug ordering. So, let's say that we have two data structures and A must be made durable before B. So, modifying A works as before. A",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "becomes either clean, dirty, or flushed. However, the we have new state transition signals when B is modified while A is not clean. In this case, where A is dirty or A is flushed, this indicates an ordering violation because A has not been",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "properly made durable before B. However, if B is modified when A is clean, everything functions as normal and no bug is detected. We ultimately use this API provided by Agamotto to accurately detect all of the user space persistency bugs reported by",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "PMD test PM test and XFI detector by building two such custom bug articles. So, the persistent memory model and the persistent memory bug articles require everything that Agamotto needs to find persistent memory bugs. However, we also want to build a",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "persistent memory state selection method to mitigate one major issue of symbolic execution, state space explosion. So, what is this problem? Well, in our examples, we've been using fairly small programs. However, for real programs,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "there are many repeated conditional branches which can continually fork and fork and fork the state. Furthermore, loops exacerbate this issue as the process of forking can be repeated many times, leading to this exponential explosion of states.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "However, we're only interested in exploring states which have persistent memory bugs because we only want to look at these persistent memory bugs. So, we ask ourselves, can we accelerate bug finding by driving exploration towards",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "states which are likely to contain persistency bugs? And we are. Our insight is to drive symbolic execution towards states with more persistent memory modifying instructions, as these states have a greater chance of having persistent memory bugs. As persistent",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "memory bugs originate from bad modifications to persistent memory. So, what we did was we created a method for identifying stage which are more likely to modify persistent memory. The first thing we do is we fall find all instructions which may modify",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "persistent memory using a static analysis, which tells us which instructions may modify memory, which may point to a persistent memory allocation site. To be application independent, we consider mmap sites to be these persistent memory allocation sites.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "We then assign all of these instructions a unit weight of one. And then we back propagate these weights to form a per instruction priority, which represents the number of reachable persistent memory modifying instructions from that point in the program.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "For example, the instructions in the else block have a positive priority. And the instructions in the if block have a priority of zero, since there are no reachable NVM modifying instructions from these point. Then, during state selection, Agamoto",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "selects the state with the highest priority. And it turns out in practice, even memory persistent memory intense applications, less than 10% of all instructions have a non-zero priority, meaning that we're actually able to select high priority",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "states over low priority states even in real systems. So, in summary, to build Agamoto, we augment KLEE with three main things. We add a model for allocating and modifying persistent memory, and also for tracking the status of persistent",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "memory in symbolic states. We also add bug oracles which use persistent memory state transitions to detect our patterns of application-independent bugs. This also supports custom bug patterns so developers can detect application-specific bugs. We also",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "develop a state selection algorithm which drives symbolic execution to prioritize execution of states which are more likely to contain persistent memory bugs. Finally, I want to briefly discuss how we were able to use Agamoto and the",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "results we were found from using it. Most importantly, we found bugs. We found 84 new bugs in a total across the five systems we test. Of these bugs, 14 bugs are correctness bugs and 70 are performance bugs. We also um We also note that our closest",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "related work, PM test and X test detector, were able to find three and four new bugs respectively. We also evaluate the effectiveness of Agamoto's search strategy. We compare Agamoto's PM-aware strategy to KLEE's default search strategy. After an hour",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "of run time, KLEE's search strategy only found 30% of the bugs that we found in total. In contrast, Agamoto's strategy was able to find all bugs in under 40 minutes. Finally, since we found so many performance bugs, we wanted to know",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "whether or not any of them were majorly impactful to the overall performance of the system. So, we performed a case study on Recipe, an academic research prototype which provides a persistent indexing structure. We found that by",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "fixing all of the performance bugs in Recipe, we were able to increase the performance of the structure by between 23 and 47%. This demonstrates that these performance bugs should not be ignored. We were also able to report some of",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "these findings to developers, not only to help validate our bug findings, but also to help them develop more reliable systems. Importantly, we got some very positive responses from these developers. Overall, none of these developers",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "reported any false positives, and so all of our bugs were real bugs. Furthermore, developers noted the benefits of Agamoto and appreciated its thoroughness and ease of use. Notably, we had several comments about the lack of good testing tools, which we",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "were able to address successfully in Agamoto's design. In conclusion, we performed a study of persistent memory bugs and discovered two application-independent patterns of bugs. This insight allowed us to build Agamoto, which leverages the power of",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "symbolic execution in combination with application-independent bug patterns to accurately and automatically detect persistent memory bugs. We then use Agamoto to find 84 new bugs in a variety of persistent memory applications. We also demonstrate the",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "the performance impact of persistent memory performance issues, showing a throughput increase of up to 47% in our performance case study. Agamoto has gone through the OSDI 2020 artifact evaluation process and has earned all three badges.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "You can find Agamoto's source code and other documentation relating to its usage at the link provided in this slide. Thank you for listening to my talk. Feel free to reach out to me about any questions that you may have on our paper",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "or about using Agamoto. Thank you.",
+      "start": 486,
+      "duration": 6
+    }
+  ]
+}

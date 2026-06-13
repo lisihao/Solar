@@ -1,0 +1,199 @@
+{
+  "videoId": "cBqBt3K80to",
+  "title": "FAST '26 - RosenBridge: A Framework for Enabling Express I/O Paths Across the Virtualization...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 9041,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Okay, hello everyone. My name is\nShichao.\nI'm now a PhD candidate on Xiamen\nUniversity. Uh today I'm very pleased to\npresent our work, Rosenbridge. It is a\nframework for enabling express IO pass\ncross the virtualization boundary.\nUh let's start with the motivation.\nVirtualization is the backbone of cloud\ncomputing. It's isolated against and the\nhost to ensure cloud security.\nUh today CPU and memory virtualization\nare highly optimized with hardware\nassistance such as Intel VT-x and EPT.\nThey provide near bare metal uh\nperformance.\nUh however, for storage, cloud vendors\nusually rely on software\nuh para virtualization like VirtIO. It\nuse a ring buffer for communication. It\ncan provide essential but important\ncloud-native features such as over\nprovision, uh live live migration, and a\nsnapshot.\nUh but there is a\nheavy virtualization tax.\nUh modern NVMe SSD such as Intel Optane\nor Enterprise PCIe 5 SSD\nuh offer an extremely microsecond\nlatency.\nIn such setting, uh\nthe software stack overhead is huge. It\nmay account for about 87% of\nuh read latency and uh consume massive\nCPU resources.\nUh to solve this, the industry\nintroduced SPDK to use user space deep\nand a pulling to reduce latency.\nHowever, beauty busy pulling wastes few\ncycles\nwhen I load is low and worse when the\nconcurs\nis is high. It's called several resource\ncontention and a performance\ndegradation.\nAnother solution is hardware assistance\nsuch as SR-IOV. It provides bare metal\nlike performance but only a small number\nof specific hardware device supports\nsupports it. Furthermore, exclusive\ndevice assignment breaks critical\nfeatures\nlike live migration and over\nprovision.\nSo, is there any other solutions in a\nbare metal\nin a bare metal environment? Researchers\nfound a highly effective way\ncalled a near data\nnear data processing or so-called NDP.\nNDP pushes the computational logic down\nto the low-level driver such as a mini\ndriver. And some cutting edge works even\noffloads the logic directly inside the\nSSD such as\nLambdaIO.\nBy processing data near the device, NDP\ncompletely avoids moving massive data\nthrough the kernel stack.\nSince NDP is so powerful, let's look at\nthe core challenges of bringing to the\ncloud.\nSo, can we simply adopt this NDP\nparadigm\ninside a virtual machine?\nThe answer is the benefit is very\nlimited because of the strict\nvirtualization wall. The NDP logic can\nonly be pushed to the\ncase the virtual virtual driver. The\ndata still has to travel through the\nheavy and a complex host the storage\nstack.\nAnd the some NDP use usually rely on\nreal device driver such as\nGPU direct storage need to the\nraw PCI bar memory to perform\npeer-to-peer\nmemory DMA.\nBut the PCI address in the virtual\nmachine is remapped by the hypervisor.\nTo break this wall,\nwe design the Rosen Bridge. It allows\nguest to offload BPF based NDP programs\nto to the host side.\nWe have three goals. First,\nit it maximize the NDP performance.\nSecond, make it a transparent and easy\nto use. Third,\nguarantee host security and maintain\nQoS.\nAnd I choose BPF because it provides\ncross program from execution runtime and\nthen some basic basic some basic\nsecurity insurance\nsuch as limited instruction runtime and\nmemory access.\nTo achieve this goal, we face four\nchallenges. First, how do we cross the\nstrict execution boundary? The guest and\nthe host are completely isolated.\nAnd the second, how do how do we support\nthe complex NDP workloads patterns?\nStandard BPF is event driven. It's very\nhard to support complete to support\ncomplex\ndata independent IO resource\nresubmission tasks.\nAnd third, how do we program how to for\nexample, how to map address when program\nrun both sides? The VM has an isolated\nview of memory and a storage. This is\ncreating a huge semantic gap.\nAnd finally,\nhow do we ensure the security? In a\ncloud environment, relying solely on the\nnative BPF verifier is not enough to\nstop\nmalicious attack.\nAnd the next, let's us see the system\ndesign of Rosenbridge.\nOur system has three key components.\nFirst, a volatile\nFirst First one is called volatile NDP.\nIt's a new type of volatile device for\ncrossing the boundary. A second I/O ring\nbased scheduling engine to meet\ndifferent NDP patterns. Third, a set of\nBPF functions for address mapping.\nUh to bridge the to bridge the execution\nboundary, we extend the volatile\nprotocol and introduce\nvolatile NDP. It allows guest\napplication to safely offload user space\nBPF code into host QEMU user space\nsandbox. We achieve this\nin two main steps. First is a loading\nphase.\nWhen a guest VM wants to offload a a\nprogram, the front driver copies a BPF\ncode into memory and constructs a custom\nvolatile request.\nIt specifically sets the type field and\nsends it to the host. The QEMU backend\nreceives this and\nloads the code into a sandbox using the\nUBPF interface and then returns a file\ndescriptor or\nBPF\nFD back to the guest.\nOn the\ninvocation phase, uh when the\napplication actually wants to perform\nI/O, it calls our newly provided read\ninterface. The request uh carries\nuh carries the BPF\nprogram\ndescriptor along with the guest\nuh metadata pointer once\nuh to the QEMU backend. Once the QEMU\nprocesses the\nrequest, it routes it to a dedicated\nwork thread. This thread is then\nactually triggers a corresponding UBPF\nusing a specific file descriptor.\nUh through these two steps, uh we\nsuccessfully turn standard virtual prop\ndevice into a small uh computational\nstorage device.\nAnd to satisfy uh and to meet a complex\nscheduling required by NDP workload, we\nintegrated this uh the host IO ring\nframework.\nWe add hook points at the both the\nsubmit and complete uh stage and provide\nuh through UBPF function for BPF\noperates IO ring.\nAnd uh through\nsimple combinations, we can realize two\nusage models defined by SNI uh CSD\nspecifications.\nUh it supports uh both direct usages\nlike uh data database retrieval or\nfilter and indirect usage. We call it\nand we call it the own pass processing\nuh such as\nGPU direct storage and\ndata compression.\nAnd to bridge the uh semantic gap\nbetween the guest and host, we provide a\nspecific special BPF functions\nuh when the program run on the host.\nThis function securely translates the\ntranslated the guest virtual address\ninto a host physical address and uh this\nis and this is totally transparent to\nthe Windows\n>> H choose Rose IO and ensure and ensure\nfairness.\nAnd the more details refer to this\npaper.\nAnd uh let us to look at two showcases.\nThe first one is RosenBridge.\nthe first one is Rosen XRP. XRP is a\ngreat work from OSDI '22. That's resume\nmeans IO in the NVMe driver. But it's\nbut it's\nif you use the driver in a virtual\nmachine, it's only bypass the guest\nkernel. You still suffer from the host\nsoftware\noverhead and NVMe seats.\nWith With RosenBridge, we can offload\nthe B tree OS and free search logical\ndown to the host\nhost low-level driver. And then we use a\nvolatile NVMe bar memory to pass the\nvirtual machine file system metadata to\nXRP on the host.\nUh thus, the program can check results\nand resume into the next IO directly on\nin the QEMU. Complete Completely reduce\nthe most of\nNVMe exist and virtualization overhead.\nUh this slide shows the\nevaluation results. Compared to the\nstandard volatile block and SPDK, our\nread throughput increased by over\n400%\nand 100%.\nMore importantly, the CPU consumption\nper operation dropped to less than 15%.\nThis saved massive computing cost for\ncloud vendors.\nAnd our second showcase is RosenGDS.\nGPU direct storage is\nIt's\nenabled peer-to-peer data transfer\nbetween storage and GPU. Implementing\nGDS in a V in\nin a virtual machine is difficult.\nBecause existing native solutions have\nto rely on\nmechanism called pony buffer and it's a\nmemory map address to real PCI bar\naddress on a memory driver.\nWhile memory address are remapped in the\nVM, the GPU driver in\nin virtual machine cannot get the real\nmemory address.\nRosan Bridge solve this problem. Rosan\nGDS\noffer\nthe logical that find the mapping and\nre-map address on the host and the real\nQEMU to get the real GPU PCI bar memory.\nThis established a peer-to-peer\nDMA pass for\nvirtualization IO and VGPU.\nAt the best of the knowledge, we are the\nfirst work to successfully enable GDS\nbetween a\nvirtual device and a virtual GPU in a in\na virtual machine.\nAnd finally, GDS reduce the end-to-end\nlatency by 27 to 56%\nbecause it completely bypass the CPU\nmemory copy on virtual machine and the\nCPU utilization is reduced by at least\n35%.\nTo conclude, IO virtualization\ntaxes are too high. Rosan Bridge solve\nthis by allowing VM\nvirtual machines to safely push down NDP\nprograms to QEMU.\nWe achieve We achieve the massive\nperformance gains for database and AI\napplications.\nIn the future, we plan to integrate this\nframework with DPU's.\nThank you so much for listening.",
+  "segments": [
+    {
+      "text": "Okay, hello everyone. My name is Shichao. I'm now a PhD candidate on Xiamen University. Uh today I'm very pleased to present our work, Rosenbridge. It is a framework for enabling express IO pass cross the virtualization boundary.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Uh let's start with the motivation. Virtualization is the backbone of cloud computing. It's isolated against and the host to ensure cloud security. Uh today CPU and memory virtualization are highly optimized with hardware assistance such as Intel VT-x and EPT.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "They provide near bare metal uh performance. Uh however, for storage, cloud vendors usually rely on software uh para virtualization like VirtIO. It use a ring buffer for communication. It can provide essential but important cloud-native features such as over",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "provision, uh live live migration, and a snapshot. Uh but there is a heavy virtualization tax. Uh modern NVMe SSD such as Intel Optane or Enterprise PCIe 5 SSD uh offer an extremely microsecond latency. In such setting, uh",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "the software stack overhead is huge. It may account for about 87% of uh read latency and uh consume massive CPU resources. Uh to solve this, the industry introduced SPDK to use user space deep and a pulling to reduce latency.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "However, beauty busy pulling wastes few cycles when I load is low and worse when the concurs is is high. It's called several resource contention and a performance degradation. Another solution is hardware assistance such as SR-IOV. It provides bare metal",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "like performance but only a small number of specific hardware device supports supports it. Furthermore, exclusive device assignment breaks critical features like live migration and over provision. So, is there any other solutions in a bare metal",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "in a bare metal environment? Researchers found a highly effective way called a near data near data processing or so-called NDP. NDP pushes the computational logic down to the low-level driver such as a mini driver. And some cutting edge works even",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "offloads the logic directly inside the SSD such as LambdaIO. By processing data near the device, NDP completely avoids moving massive data through the kernel stack. Since NDP is so powerful, let's look at the core challenges of bringing to the cloud.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "So, can we simply adopt this NDP paradigm inside a virtual machine? The answer is the benefit is very limited because of the strict virtualization wall. The NDP logic can only be pushed to the case the virtual virtual driver. The",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "data still has to travel through the heavy and a complex host the storage stack. And the some NDP use usually rely on real device driver such as GPU direct storage need to the raw PCI bar memory to perform peer-to-peer memory DMA.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "But the PCI address in the virtual machine is remapped by the hypervisor. To break this wall, we design the Rosen Bridge. It allows guest to offload BPF based NDP programs to to the host side. We have three goals. First, it it maximize the NDP performance.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Second, make it a transparent and easy to use. Third, guarantee host security and maintain QoS. And I choose BPF because it provides cross program from execution runtime and then some basic basic some basic security insurance",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "such as limited instruction runtime and memory access. To achieve this goal, we face four challenges. First, how do we cross the strict execution boundary? The guest and the host are completely isolated. And the second, how do how do we support",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the complex NDP workloads patterns? Standard BPF is event driven. It's very hard to support complete to support complex data independent IO resource resubmission tasks. And third, how do we program how to for example, how to map address when program",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "run both sides? The VM has an isolated view of memory and a storage. This is creating a huge semantic gap. And finally, how do we ensure the security? In a cloud environment, relying solely on the native BPF verifier is not enough to stop malicious attack.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And the next, let's us see the system design of Rosenbridge. Our system has three key components. First, a volatile First First one is called volatile NDP. It's a new type of volatile device for crossing the boundary. A second I/O ring",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "based scheduling engine to meet different NDP patterns. Third, a set of BPF functions for address mapping. Uh to bridge the to bridge the execution boundary, we extend the volatile protocol and introduce volatile NDP. It allows guest",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "application to safely offload user space BPF code into host QEMU user space sandbox. We achieve this in two main steps. First is a loading phase. When a guest VM wants to offload a a program, the front driver copies a BPF",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "code into memory and constructs a custom volatile request. It specifically sets the type field and sends it to the host. The QEMU backend receives this and loads the code into a sandbox using the UBPF interface and then returns a file descriptor or BPF",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "FD back to the guest. On the invocation phase, uh when the application actually wants to perform I/O, it calls our newly provided read interface. The request uh carries uh carries the BPF program descriptor along with the guest uh metadata pointer once",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "uh to the QEMU backend. Once the QEMU processes the request, it routes it to a dedicated work thread. This thread is then actually triggers a corresponding UBPF using a specific file descriptor. Uh through these two steps, uh we",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "successfully turn standard virtual prop device into a small uh computational storage device. And to satisfy uh and to meet a complex scheduling required by NDP workload, we integrated this uh the host IO ring framework. We add hook points at the both the",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "submit and complete uh stage and provide uh through UBPF function for BPF operates IO ring. And uh through simple combinations, we can realize two usage models defined by SNI uh CSD specifications. Uh it supports uh both direct usages",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "like uh data database retrieval or filter and indirect usage. We call it and we call it the own pass processing uh such as GPU direct storage and data compression. And to bridge the uh semantic gap between the guest and host, we provide a",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "specific special BPF functions uh when the program run on the host. This function securely translates the translated the guest virtual address into a host physical address and uh this is and this is totally transparent to the Windows",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": ">> H choose Rose IO and ensure and ensure fairness. And the more details refer to this paper. And uh let us to look at two showcases. The first one is RosenBridge. the first one is Rosen XRP. XRP is a great work from OSDI '22. That's resume",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "means IO in the NVMe driver. But it's but it's if you use the driver in a virtual machine, it's only bypass the guest kernel. You still suffer from the host software overhead and NVMe seats. With With RosenBridge, we can offload",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the B tree OS and free search logical down to the host host low-level driver. And then we use a volatile NVMe bar memory to pass the virtual machine file system metadata to XRP on the host. Uh thus, the program can check results",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "and resume into the next IO directly on in the QEMU. Complete Completely reduce the most of NVMe exist and virtualization overhead. Uh this slide shows the evaluation results. Compared to the standard volatile block and SPDK, our",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "read throughput increased by over 400% and 100%. More importantly, the CPU consumption per operation dropped to less than 15%. This saved massive computing cost for cloud vendors. And our second showcase is RosenGDS. GPU direct storage is It's",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "enabled peer-to-peer data transfer between storage and GPU. Implementing GDS in a V in in a virtual machine is difficult. Because existing native solutions have to rely on mechanism called pony buffer and it's a memory map address to real PCI bar",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "address on a memory driver. While memory address are remapped in the VM, the GPU driver in in virtual machine cannot get the real memory address. Rosan Bridge solve this problem. Rosan GDS offer the logical that find the mapping and",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "re-map address on the host and the real QEMU to get the real GPU PCI bar memory. This established a peer-to-peer DMA pass for virtualization IO and VGPU. At the best of the knowledge, we are the first work to successfully enable GDS between a",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "virtual device and a virtual GPU in a in a virtual machine. And finally, GDS reduce the end-to-end latency by 27 to 56% because it completely bypass the CPU memory copy on virtual machine and the CPU utilization is reduced by at least 35%.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "To conclude, IO virtualization taxes are too high. Rosan Bridge solve this by allowing VM virtual machines to safely push down NDP programs to QEMU. We achieve We achieve the massive performance gains for database and AI applications.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "In the future, we plan to integrate this framework with DPU's. Thank you so much for listening.",
+      "start": 216,
+      "duration": 6
+    }
+  ]
+}

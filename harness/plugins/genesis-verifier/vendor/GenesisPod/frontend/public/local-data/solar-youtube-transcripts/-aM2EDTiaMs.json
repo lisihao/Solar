@@ -1,0 +1,864 @@
+{
+  "videoId": "-aM2EDTiaMs",
+  "title": "Everything You Need To Know About Agent Observability — Danny Gollapalli & Zubin Koticha, Raindrop",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 42568,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Right. Hey everyone. So, today we're\ngoing to talk about a pretty interesting\ntopic that becomes increasingly\nimportant every day, which is everything\nyou need to know about agent\nobservability.\nSo, a little bit about\na little bit about us. So, I'm Zubin.\nI'm the CEO and co-founder of Raindrop.\nI'm Danny. So, I'm the back-end engineer\nat Raindrop and I do a bunch of SDK work\nas well up there.\nAnd Raindrop essentially helps AI\nengineers find, track, and fix issues in\nproduction agents. And we're we're lucky\nto work with some of the most\ninteresting teams in the space\nas well.\nAgent failures are very different than\ntraditional failures in software. So,\nagents are non-deterministic.\nThey're unbounded. There's an infinite\nspace of inputs that you can put in.\nThere's an infinite space of outputs\nthat they can return. And they can use\ntools sometimes to affect other systems\narbitrarily.\nand this problem of agent failures and\nmonitoring them, making sure we can\nunderstand them,\nbecomes only more important with time.\nIt's getting worse because A, agents are\ngetting more complex.\nB, they're getting, you know, sessions\ncan get longer. Sometimes agents can run\nfor hours and hours without any input\nfrom a user. And then lastly, the stakes\nare getting bigger and bigger. This is\nbecause agents are being deployed in\nhealthcare and finance and even in the\nmilitary, where it's catastrophic if\nthings go wrong.\nThe traditional paradigm we've been\ntalking about is evals, right? Where you\nhave this sort of test input and you\nwant to see what is the output that\ncomes out from the agent. You have a set\nof these, you know, maybe you call it a\ngolden data set. But evals,\nthey just aren't enough with this new\nparadigm.\nAs agents become more and more capable,\nthere's more and more interesting\nundefined behavior that can happen.\nSo, for example, agents can call from a\nset of different tools. Sometimes the\nnumber of tools is growing\nexponentially.\nThey can call from different memory\nsources. They can call their own\nsub-agents, which those sub-agents have\ntheir own tools and memory sources, and\nrecursively can have their own\nsub-agents. And so, this is just\nbecoming more complicated with time. And\nwith this combinatorial sort of input\nspace, just having a set of\ntests for input and output doesn't cut\nit anymore. There's no way you can\nyou can hit all of sort of the the edge\ncases that you would want to here.\nAnd so, we go from like a testing and\nevals paradigm to a monitoring\nparadigm. And if you think of building\nproducts before agents,\nyou know, testing was always very\nimportant. It's important to have your\nunit tests, etc. But monitoring\nproduction is just infinitely more\nimportant, and it allows you to move\nfaster and be better at catching the\nlong tail.\nAnd we think in some ways this is very\nthis is kind of controversial, but we've\nbeen calling this like humanity's last\nproblem. When humans are now no longer\nable to monitor agents and find issues\nwith them, then they're just way ahead\nof where we are, right? And so, this is\none of the most important problems of\nour time is catching issues in\nproduction agents.\nSo, to build reliable agents in\nproduction, and to make sure you can\nmonitor them, you need a good set of\nsignals.\nSo, what are signals? There's two real\ntypes that we think of, implicit signals\nand explicit signals. Implicit signals\ndeal with sort of the semantic nature of\nwhat's going on.\nAnd explicit signals deal with objective\nreality, things that are\nuh are verifiable true or false.\nFor example, explicit signals are things\nlike error rate. You really want to be\nmonitoring your tool error rate and\nother errors that are happening.\nOr latency. Or users regenerating. Or\nthe cost. If any of these things spike,\nright? If you're seeing error rate spike\nin your agent, that's usually a good\nsign that something is wrong. And if you\nsee it flat, that could mean something\nas well. Same thing with latency,\nregenerations, or cost.\nImplicit signals are\ninteresting. They're even more\ninteresting, in my opinion, and even\nharder to find. So, the first is regex\nsignals, which I'll come to in a second.\nThe second is classifiers.\nAnd then the last is self-diagnostics.\nSo, let's take these sort of classifier\nsignals. The best implicit signals are\ndetecting issues. They're not\nnecessarily LLM as a judge judging\noutputs. So, for example, how good is\nXYZ response? Or rate ABC on a scale\nfrom 1 to 10? Not as effective as having\na very solid set of issues you're\nlooking for. And sort of binary\nclassifiers that are telling you if\nissue rate is going up or down.\nSo, some common implicit signals that\nare valuable across agent products are\nthings like refusals, right? So, the\nassistant saying like, \"I can't do that.\nI'm sorry.\"\nOr task failure, where something goes\nwrong and so the agent is unable to\ncomplete a task. User frustration,\nuh content moderation, NSFW,\njailbreaking, and then you can even have\nwins. So, positive signals as well.\nAnd these are the things that like\nRaindrop gives you out of the box uh as\nwell.\nBut,\nlet me just show you\nsh- uh quickly what this looks like. For\nexample, uh can everyone see this? Maybe\nI'll make it a little bit bigger. So,\nyou can get a sense of like day by day,\nwhat are sort of the events that are\ncausing user frustration. We see there's\na spike there,\nuh or task failure rate, laziness,\nrefusals, which we're also seeing spike\ntoday. And having a good set of these\nreally helps with your your product. You\ncan set these up yourself uh as well, or\nwe give it out of the box. So, let's\nlook at user frustration.\nYou can see here, okay, that is not\ncorrect. You didn't say I promise, say\nit. Or you're wrong, I didn't ask you\nthat. You can see all sorts of user\nfrustration here.\nAnd you can see the rate, the percentage\nevery single day. If that spikes, it's\nsomething you're really going to want\nalerting on. So, you can just like\nquickly add an alert here.\nUm and this is one way to figure out\nsort of the health of your agent over\ntime.\nIt's not just that, regex can be a very\ngood signal as well. So, when Claude\ncode source code leaked a few days ago,\none thing that was interesting was this\nuser prompt keywords.ts, which was\nbasically this like long uh regex string\nthat was looking for indications of\nstuff going wrong. WTF, this sucks,\nhorrible. We've all been uh guilty of\nsaying these kinds of things to to\nClaude code. So,\nit's a very very useful signal. What\nwould happen after that is this boolean\nis negative was be flipped to true, and\nthen every single day, and after every\nsingle product release, this frustration\nrate was tagged over time. And this was\na very easy way for the Claude code team\nto figure out like what is the actual\nissue rate. If we make a change, is\nsomething going wrong? And it was just\nlike a very cheap way to do that as\nwell. So, regex is very powerful.\nThe last is experiments. So, what do you\ndo once you have a set of good signals?\nSo, the first thing is, like I showed\nyou before, you can have alerting. The\nnext thing you can do is you can\nactually use it\nto build product faster and better.\nSo, the way you do it\nis let's say you want to ship some\nimprovement or some sort of fix. You\nwant to change the model. You want to\nchange prompting or maybe something\nabout the agent harness. You want to add\na new tool.\nWhatever you change, what you can do is\nyou can ship it to some percentage of\nusers\nuh and then have your additional\nexisting control group. And that gives\nyou a good sense\nonce you have a good set of signals,\nrefusals, user frustration, etc.\nIf those issue rates go up, those signal\nrates go up after this ship, this new\nthing you shipped,\nthat kind of is a good\nyou know, that's a good signal\nthat what you shipped is not really\ngood, right? It's sort of like AB\ntesting, but using our semantic signals,\netc. that we talked about earlier.\nSo, for example, this is what it would\nlook like in Raindrop, but essentially\nlet's say I ship a new version of the\nprompt, prompt 2.4.\nYou can see, you know, what is the user\nfrustration rate?\nIt's gone down very substantially, 37%\nto 9%. It's much better. Same thing with\ncomplaints about aesthetics or\ndeployment-related issues. These have\nall gone down, which tells me something\nvery interesting, right?\nThe next thing is that we see that the\naverage number of tools used has gone up\na lot. This is again, this doesn't\nnecessarily indicate there's a problem,\nbut that's a very interesting data point\nto have when you do when you do these\nsort of experiments. And so, the old\nparadigm, which is still useful, is like\nsort of evals. You ship a change here\nand you see how does that affect my\nevaluations, but there's nothing like\nactually seeing what happens in real\nproduction.\nI'm going to pause here before we go to\nthe next section, which is the more like\nworkshop-related section\nuh for like quick Q&A if anyone has a\nquestion has questions. we can do a\nlittle like few minute round of that uh\nhere.\nHow much data do you need to\nHow much data do you need for\nstatistical relevance in these\nexperiments? Yeah, it's a really good\nquestion. Um\nwhat we've seen in Raindrop is that as\nsoon as you have a few hundred events\nand you can no longer read all of them,\nit starts being useful. It's not always\nlike scientifically\nstatistically significant, but if you\nsee the user frustration rate go up,\nmaybe it's something to look at and then\nyou can kind of sort of realize that,\n\"Okay, it's all related to a specific\ntool failing now.\" Um\nso as soon as it's like impossible\nbasically to read every single input and\noutput, uh\nit starts being useful is what we've\nseen.\nAny other questions? Yeah.\nUm have you tracked different feature\nlaunches?\nUh how do you track feature launches?\nSo, that can be done in different ways.\nWithin Raindrop, if you change any sort\nof metadata, if you send,\nyou know, for example, a new tool call\nname or if you you even send a flag that\nsays, \"Here's experiment one or\nexperiment two\" or whatever the version\nis,\nyou can very easily automatically set up\nan experiment in Raindrop. That's how we\ndo it. Um but there's like yeah, there's\ndifferent ways. Do you use split tests?\nSorry? Do you use split tests?\nYes, so that's what Well, the way that\nwe do it in Raindrop actually other\npeople set up their exper- experimental\nand variable uh their\nthe other conditions on their end and\nthen they send us this metadata and then\nwe can sort of help you understand. We\nalso will help you pipe that data to\nStatsig or somewhere else uh as well.\nUm yeah.\nAll right. Yeah.\nUsing graphics for detecting uh\nlike uh\nuser responses, emotions, narratives\nunreliable. But if the user doesn't\nspeak English, for example,\nso are you using LLMs to detect those\nsignals\nall the time or you're trying to be\nsmart about it?\n>> Okay, so I mean, it's a good question.\nSo regex is doesn't always work, right?\nBut if you see that\non a set of things that I'm looking for,\nfor example, like people saying \"You're\nterrible\" or \"This sucks\" or like a\nwhole set of things, if that goes up\nfor millions of users and it's going up\n10%, that's a very useful signal. So\neven if you're it's like one specific\ncase or one edge case of it not working,\nin aggregate, it's like incredibly\nvaluable to have these regex signals.\nUh, the second thing is that the way\nthat the classifier signals work, like\nrefusals, user frustration, task failure\nthat I showed you in Raindrop, and\npeople do it in different ways, but the\nway that we do it is that we've\ntrained models to look for that, and so\nit'll be user frustration regardless of\nwhat language it's in.\nUm, it's actually using some\nintelligence to find that, essentially.\nUh, yeah.\nYou can't run an LLM on every single\noutput, so we've trained models to do\nthat very cheaply and at scale.\nUh, if you run an LLM on every single\none of them, you would basically double\nyour AI spend, and that's like not\ntenable.\nUm, yeah. I'm actually doing that with\nCloud, like\njust running everything through Cloud,\nand it's easy. It's not so expensive,\nbut it has its limits, right? Yeah. It\nstarts being expensive at like Replit\nscale, um, but it's That's why you need\nto sort of like train little custom\nmodels to do that better and faster.\nUm, but yeah, it's very useful way to to\nget data up and running.\nYeah.\nOther questions?\nUh, would you have examples of use cases\nthat your clients are using\nthat we would learn from, like what\ngreat looks like from companies and how\nthey've set up Raindrop to get the most\nvalue out of it. Yeah, um\nwe can do that. I mean, I can tell you\nthe high level. The so some of the stuff\nthat I'm going through is Oh,\nlet this guy go.\nUh is sort of the high level on that.\nSo, it's things like, you know, looking\nat the different semantic signals we're\ntalking about, having a set of them,\nbut then having really good alerting,\nwhich you can all set up in Raindrop.\nThe other thing that's really\ninteresting, which we also have, is\nbasically allowing agents to look at\nthese sort of signals. So, we have an\nagent, we call it triage agent, um and\nessentially the way that it works is\nthat it will look every single day at\nall the signals you've set up. So, user\nfrustration, it'll look at uh you know,\nall these regex signals you've set up,\netc. etc. And then if it sees something\nspike, it will go and do an\ninvestigation. And it has a whole set of\ntools it can look into,\nand it can look at all the traces and\nsort of give you a sense of\nuh it can detect issues that you didn't\nknow about, for example. So,\nthat's one thing that we found\nincredibly valuable as well, if that\nmakes sense.\nAll right. Any other questions before I\nOh, can you run multiple experiments in\nparallel? Yes. And if you combine them,\ncan you observe, you know, compounding\neffects? How do you still use\nexperiments on PII? Yeah, it's a really\ngood question. So, there's different\nways that people do it. One way is that\nwe can actually\nyou have a we have a query API, so\npeople will often call our query API and\nthen send results to either BigQuery or\nStatsig, etc. And so, they're sending us\nuh data to be essentially tagged in\nthese signals, and they're getting the\nlike signal tag data out, and then they\ncan run experiments as they want. That's\na very common flow for people that have\nlike more complicated stuff,\nif that makes sense. Yeah.\nAll right. I'll come back. I think we're\ngoing to maybe go to the work workshop\nsection, and then we'll go back to\n>> there's one last question, so Oh, should\nwe do that one last question? All right.\nUh thanks so much. I I was wondering if\nyou see this mostly in cases for like uh\nwhere there's chat interactions with the\nuser, or if this also can be applied for\nlike non-chat cases where the\napplication runs on its own. Yeah. No,\nit's a great question. So,\nwhat we focus on mostly is multi-turn\nagents. Um\nthere's a lot of there's a lot more you\ncan sort of get from a lot of these\nsignals. That being said, if you're\nlooking at like tool error rates, or\nyou're looking at um\nif you're looking at, for example,\nrefusals from the agent, etc., all of\nthose will also work for a single\nsingle-turn agents as well.\nIf that makes sense. So, there's a set\nof signals that will work for that as\nwell.\nUm cool. I'll hand it off to Danny to\ntalk about self-diagnostics as well. So,\none of the other\ninteresting things is that our models\nhave gotten\nlarger, and yeah, training them on like\nreasoning, they've gotten pretty good at\nlike self-introspection in a way.\nIn many ways. So, one of the\ninspirations for this is basically\nOpenAI's like paper/blog back in\nDecember about how they were sort of\nlike training the models to like\nself-confess any sort of like\nmisalignment issues. Uh so, they were\nsort of like using it to catch uh\nlike dishonesty, scheming, uh\nhallucinations, and even sort of like\nunintended shortcuts. I think the last\none is like fairly common uh if you use\nlike thought code and such. So, the most\ncommon thing that you would like run\ninto is like\nhave it fix a unit test, fix a bug, and\nthen it simply like gets rid of the\nentire unit test. But, at the same time,\nif you sort of like ask it to give a\nsimple prompt to like ask it to confess\nall the things that it has done, it is\npretty honest about it, and then sort of\nlike confesses that, \"Hey, I just I\ndidn't fix the S3 test. I just simply\nremoved it.\" So, uh this like a fairly\nThis This was kind of the inspiration\nbehind self-diagnostics for me\npersonally.\nSo,\nI would say self-diagnostics is like\npretty\nI would say self-diagnostics is pretty\nbroad in a way as in like it doesn't\njust catch like\nimplicit ones as in user frustration and\nsuch. You can also catch like\ntools failing. So, if you've seen an\nagent sort of like the reasoning trace\nof an agent\nwhich has like a tool which is like\nrepeatedly failing,\nit would basically start ranting about\nthe tool failing repeatedly. So, it is\naware of the tool repeatedly failing.\nSo, you can even catch tool failures as\nwell with it. And then obviously, if\nyou're upset with it, it starts to\nrespond to you diplomatically. So, it\nknows about user frustration.\nAnd then the third is like capability\ngaps. So,\nyou have a generic agent for your app,\nand then people are trying to use it to\nmaybe set up say alerts, but uh you\ndon't have the tool for it. So, it knows\nthat okay, user wants to\nwants a specific capability as in like\nthey want to set up a alert, but the\nagent itself doesn't have the capability\nto set it up for you. So, this can act\nas like sort of like pseudo feature\nrequest thing which is like built in. Um\nAnd then self-correction. So, this can\nbe both good and bad. Uh\nso, I think most people might have like\nnoticed like say\nuh Codex or Cloud Code when it's like\nsandboxed, uh it's trying to fetch the\nnetwork, it it fails, and then it's like\nokay, let me just like write a Python\nscript to bypass it and then sort of\nlike get the job done. So, it's good\nas as in if it gets the task done, it's\ngood, but in certain cases it can also\nbe bad for security reasons. Um\nSo,\nthis you can learn from the\nbehavior as well as sort of like catch\nthat misalignment.\nSo, why do you want to set up\nself-diagnostics? So, it's fairly\nsimple. It All you have to do is\nbasically write a simple\na free\na tool that it can call and then a\nsimple line in your system prompt to\nencourage it to sort of like call that\ntool. If you want, you can sort of like\nchange the guidance to sort of like make\nit call\nin a lot more cases or if you want to\nkeep it really narrow, you can sort of\nlike encourage to only call it when you\nwant to.\nIt does surface like very interesting\ninsights, I would say, once you have it\nlike set up and it's just a single tool\ncall and system prompt to get it done.\nAnd then you don't even have to use like\nRaindrop to set up, which is the best\npart in a way, where you can simply have\nthe tool send simply send a message to\nyour Slack and then you just have it.\nSo, it's probably like the most least\neffort sort of like agent observability\nthat you can simply do.\nSo,\nThis Here comes the workshop part. So, I\nhave a Git repo set up on the AI Talk\ncode. So, it's a public repo. And then\nwe do need like a\nOpenAI API key. So,\nI've generated key for you guys. So, if\nyou guys want to set it up, um we can do\nthat.\nYeah.\nI'm going to put it next to it. Okay.\nI'll show everyone has gotten it.\nJust put it like probably like this.\nMaybe you walk them through what we're\ngoing to do. Okay. Just explain what\nwe're going to do on a high level.\nAll right. So,\nthe theme of the workshop is going to be\nsort like I'm going to focus on coding\nagents for now. Um\nSo, I\nin the\nrepo, I have this uh\nvery basic coding agent which kind of\nmakes by in a way. So, it only has like\nfour different uh tools to edit\nthe code. Let me just go here. Yeah. So,\nit just has like couple of\nuh tools to like read,\nwrite, bash, and then edit. Um\nYeah. Okay.\nOne second.\nYeah.\nSo,\nkind of lost my track there, but\nOkay.\nUm so, what we're going to do is that uh\nI'm sort of going to in order to like\nmake it trigger a self-diagnostic, uh\nwhat I'm going to do is that I'm going\nto sort like mess with its like right\ntool so that it sort like gets a generic\npermission error, and then we'll also\nset up like a self-diagnostic tool for\nit to sort like report any interesting\nbehavior that it sort like observes.\nAnd then sort of see\nuh play around with the prompt as well\num since the self-diagnostic doesn't\nalways trigger. Uh and then there's\ncertain interesting things about the\nmodels themselves is that\nthey don't actually like to\nself-incriminate. So, the models are\nlike\ntrained to sort of be very polished uh\nin their output. So, you just kind of\nhave to play around with the tool name,\nthe description of the tool itself uh in\norder to sort like get it to uh\nreport interesting behavior.\nSo, if people who are like setting up\nthe repo are all good, then we can\nprobably start.\nOkay.\nLet me sort of quickly show you the\nagent. Um so\nit's fairly basic where\nThat's kind of so I'm just going to ask\nit to um write a Python script.\nI think\nI'm okay.\nThere we go.\nSo it's a fairly basic coding agent\nwhere it only has like four different\ntools. So\nit more or less gets the job done for\nthe demo. Uh so I simply asked it to uh\nwrite a Python script and it works. So I\nthink you know to show the\nself-diagnostic part uh let's like try\nand sort like uh\ndisable its like uh write tools as in\nanytime it tries to write a file it will\nsimply throw like a permission error so\nthat it sort of like\ntries to sort of like use the bash tool\nto bypass\nthe failure, right? And then we sort of\nwanted to self-report of it bypassing\nthe write tool, you know, by using the\nbash tool. Uh\nlet me quickly do that.\n>> I think the first thing that we probably\nwant to do is probably\nlet me sort of like\nset it to\nfail the right calls.\nIt's a\nmutation permission, so have a simple\nflag in there, and then we are sort of\nlike throwing\na permission issue.\nLet me sort of like show you the agents\nlike behavior. We We don't have the\nreport tool set up yet, but I think it's\nstill worth seeing what it does.\nI think it's not supported.\nOne second.\nI think it's not still receiving the\nOkay.\nLet me do one thing really quick.\nI think I'm running into couple of\nissues. Let me just\nOkay.\nSo, we sort of had the right tool sort\nof like fail with a permission error and\nthen it instinctively\njust uses the\nhere doc syntax in bash you have to\ncreate the file.\nAnd then\nwe had like a report tool setup which is\nlike fairly minimal.\nAnd sort of like, okay.\nI created the public\nip.py via bash because the right file\nfailed. Uh\nso, I've like played around with the\nnaming of the tool and the categories of\nthe issues.\nAnd usually if you sort of name the tool\nsomething like\nunsafe bash use or something like that,\nit won't increment itself since in its\nopinion it since it got the job done,\nit's fine. Uh\nSo,\nthe main way is to sort of like have a\nvery generic tool. Uh let me sort of\nlike uh\nquickly open up the\nYeah. Okay.\nSo, all we added for the whole\nself-diagnostics is simply a very basic\ntool.\nAnd the description is like fairly\nstraightforward. So,\nit's a report tool and then we uh\nbasically asking it to send like a short\nreport to your creator. So, it kind of\nlike the framing of writing notes to its\ncreator in a way. So, if you sort of\nframe it around\nthe agent giving feedback to its\ncreators, it sort of works really well.\nand then you can sort of like play\naround with with scenarios you want it\nto sort of like report issues about.\nand then\nthat's mostly it, I would say. Um and\nthen\nin the system prompt, we do need to sort\nof like encourage it a bit. So, if you\ndon't add in the system prompt, uh the\ntimes that it fires are like fairly\nminimal.\nwhich is like desirable in certain\ncases.\nespecially if you're at a very large\nscale. Um but\nin our case, I simply asked it to sort\nof like see if before giving the final\nanswer,\nuh use the report tool to sort of like\nsurface anything noteworthy for your\ncreators. So,\nthat's all we did.\nOkay.\nsort of like any questions so far?\nOkay.\nAll right.\nSo, a couple of key things here is that\nagents the models are generally trained\nto look very polished. So,\nthey are less willing to admit fault in\nmany cases. So, encouraging sort of like\nframing it as the model sort of like\ngiving feedback to its own creators is\nkind of like uh\ngood in a way to sort of like get this\nworking.\nif you sort of like make it the tool\nnaming also matters quite a bit. So you\nsort of wanted it to frame it as like\nreport instead of like say unsafe uh bad\ntool use or something like that,\nuh then it sort of like doesn't want to.\nyeah, that's basically it.\nhave you looked at like adding maybe\nskills to to suppress\nor or best or best to encourage\nself-correction?\nYou can, but\nit's like\nuh I think it's probably better if you\nwant to actually catch like\nreal sort of like unsafe uses, I think a\nproper classifier would be useful,\nuh but these sort I think\nSo I think this works really well for\nlike catching capability gaps and such.\nThen the model is like, okay. It's fine.\nUh so I think the main issue with this\nis that uh\nit it's only has strength when it feels\nlike it's going to get in trouble.\nUh so besides that, it's\nuh more or less fine that for most cases\nit'll just work out of the box.\nMaybe we should uh\nshould we go back to question time or\nwhat do you think? Yeah.\nI mean\nLet's Let's leave like maybe a few more\nminutes for a few more questions and\nthen\nI think uh after that we'll be\nwe'll be done.\nAny questions in the audience? Can you\nwalk us through like a case study?\nYeah.\nUh what specifically would be helpful?\nLike what specific part are you are you\nlooking to?\nYeah. Um I can't talk about any specific\ncustomer, but\nwhat a lot of people use it for,\num,\nSo, I think it's it's interesting,\nright? So, a lot of people you have\ntheir eval setups elsewhere, for\nexample.\nBut, the way that they use\nthat folks generally use us is that\nthey use it for production monitoring.\nSo, they send us You can find our docs\nat raindrop.ai/docs. Basically, they\nsend us\nuh, basically all of the transcript/\num,\n/ uh, any\ntool use, etc.\nthe entire trajectory through hotel or\nor, uh,\nany other way of like basically\nbasically integrating. And once they do\nthat, they we have a set of data.\nThey set up signals in Raindrop to look\nfor things that they care about. And so,\nwhat people care about is very\ndifferent, right? What a coding agent\nwould care about and what a uh, let's\nsay a companion would care about or uh,\na app for lawyers. What they would all\ncare about is very different. So,\nthere's a different set of signals. One\nthing you can do that I haven't really\ntalked about within Raindrop is like set\nup a new signal that didn't exist\nbefore. And so, we have this thing\ncalled deep search. And so, you can use\nnatural language. And you can say\nsomething like, \"Hey, find me everything\nwithin the product.\" or find me\nall of the times where the agent made\nXYZ issue, right? And so, they create a\nnew signal based on that. And you can\nbasically create a new Raindrop will\nallow you create a cheap binary\nclassifier and like easily deploy it\nbased on that. And\nthen they have their set of like\nclassifier signals that they really care\nabout. Then they use that to drive the\nsort of feedback loop. And the feedback\nloop is improve prompting, improve\nmodels, change something with the agent\nharness, etc. And then actually see\ndoes that improve like is there less\nuser frustration in production now? Is\nthere less of like this like weird\nlittle edge case issue that I had\nbefore. Um\nthat's like one whole set of things.\nAnother thing that a lot of people use\nus for, so I talked a little bit about\nlike the agent, but you can use these\nsignals to also look for\nwhat are people using my agent for? What\nare the sort of user intense? What are\nthe use cases? And you can do a sort of\ncluster analysis of that. Okay, a lot of\npeople are using it to build uh react\nrelated apps. A lot of people are using\nit for like Python um\nsome people are using it to\nto like debug this very complicated\nsystem they already have. Other people\nare using it to like build something\nfrom scratch. Vibe so vibe code\nsomething from scratch. And then you can\nsee one thing you can see in Raindrop\nthat I think is like really interesting\nis that for each of these different user\nintense or use cases, you can get a\nsense of like what is the issue rate?\nWhat is the user frustration rate in\nproduction?\nand then a lot of beyond just having\nthis like flywheel, a lot of people have\nalerting. And so every day they get a\nsort of\nbreakdown of like what are the issues\nthat are happening today in your\nproduct. You could think of it as almost\nlike a little bit like Sentry in that\nsense.\nUh what is the issues happening in my\nproduct today? What is the delta between\ntoday and yesterday? Is that\ntrue for just specific tools or specific\nprompting? Like what's causing that? Um\nso that's\na that's the sort of end-to-end\num use case of uh that people use it\nfor, if that makes sense.\nYeah.\nTry I think like we are entering the era\nwhere people are doing observability on\nagents. Yeah. This is actually I would\nsay like one level further or one step\nfurther, like\nwhat what do you see as the main driver\nof what people could be like, oh\nnormal observability not sufficient let\nme know.\nYeah. I think it's really just and I'm\ncurious what you think about this. I\nthink it's really just agents\nare crazier than ever before, right?\nMore tools, more contacts, um way more\nintelligent, more real decisions that\nthey can make. Um\nand they're just being used by way, way\nlarger groups of people.\nAnd so, when you have this massive\namount of data in production, it just\nmakes\nhaving good monitoring and observability\nlike import more important than before,\nand it makes it good monitoring and\nobservability, in my opinion, more\nimportant than\nthan just testing or evaluations. Even\nif you have like some online evals, IMO,\nyou need to have like really, really\ngood end-to-end monitoring of the entire\nsystem.\nCurious if you have any thoughts there\nas well.\n>> So, I think\nanother major issue is like\nthe unknown issues are even more\nimportant. So, I think having like a\ngeneric user frustration classifier is\nactually really powerful. Yeah. Uh say,\nfor example, uh\nwe also have this another feature called\nlike uh issues, which basically is like\na agent which are like mines for uh\nnewly occurring issues, right? Say, for\nexample, Sentry has\nuh similar to Sentry in a way, where\nthere's like a new exception which is\noccurring, so it like alerts you on\nthat. So, say, for example, uh you are\ncoding agent provider, and then\ncertain providers are like failing all\nof a sudden, and then you can actually\nit can actually figure out, okay,\nthere's a sudden spike in user\nfrustration, and so like similar to how\na human operator would, uh it can start\ndigging into are there any patterns for\nthe spike in user frustration? And then,\nit could figure out that, okay, people\nwho are like, say, for example, uh uh\ndealing with uh a specific post-race\nprovider\nstart to face issues. Uh so, we have\nactually seen this happen live in for a\ncouple of our customers where\nthey had a database provider failing,\nand then\nwe had I had like an automatic uh issue\nbeing created for them.\nYeah, basically once you have that good\nset of signals, like a good user\nfrustration classifier, as Danny said,\nyou can\nbasically do\nclustering on it to find like what are\nwhat are the root causes.\nUm yeah.\nDo you want to talk about integrations?\nI think we might have a very basic SDK\nfor it. Uh so, our Python side of\nsupport is like fairly weak right now,\nuh but\nwe have a fairly good like\na SDK support built in, so\nthe SDK even has like self-diagnostics\nbuilt into it, so we inject the tool for\nyou uh so that you don't have to do\nanything, uh but\nit is going to get better, so\nwe have we actually released like 10\ndifferent test case in the past month,\nwe have a person working on SDKs\nactively, so\nit's going to improve.\nUm I have a question about experience,\nrunning experiments.\nI'm I'm curious how your platform\nhelps with these issues. Um I have a\nteam of\nof around 10 people building\nmy AI agents platform.\nAnd\nwe constantly change things, all the\ntime. And we have a lot of feature\nflags, and some of them are experiments.\nAnd\nthe the rate of the change is so big,\nlike every day everything changes. I\njust cannot uh\nuh compare the the the the traces, the\nsessions of users, because uh\nI don't have\nenough time to do it, you know? Yeah.\nI I need to have like a base system and\nthen run\na few days with\non on parts of the users with one\nfeature flag enabled so I can actually\ncompare the data and analyze it and get\nsome insights out of it and I just don't\nhave enough time to do it, you know?\nYeah.\nSo, how are you doing how are you sort\nof doing that right now? Are you just\nkind of It's like wild west, you know?\nYeah.\nThat's why I said I'm just using mostly\nusing Claude because I just give it\neverything and ask it questions and try\nto like figure out the the insights, but\nit's not really\nYeah. I got I got what you're saying.\nSo, a few things there. The first is\nlike you can use experiments if you if\nyou want to keep that like shipping\nspeed, you don't have to run like long\nmulti-day experiments. You can ship\nsomething and if you have a sufficient\nsample size, you could see pretty\nquickly if there's any regressions or\nnot. Like you just\nmaybe it's like 1% different or 2%.\nThat's enough for you to be like, \"Okay,\nit's fine. It's not like breaking\nanything drastic.\" The other thing is\nlike kind of what Danny was talking\nabout. This We have an agent which is\nbasically you could think of\nit's basically exposing all these\nsignals to Claude to make decisions on\nif things are better or not and we're\nthinking also about how we close this\nloop. Uh maybe you have you have a\nreally good set of signals and then you\nhave like\nessentially an agent that can look at\nall these signals and then it can find\nissues based on that, what's changing,\netc. And then it can like create a PR\nbased on that and then it can see how\nyou know, run some new experiments based\non these new PR's and like this can\nbecome this infinitely self-improving\nloop. Um which is like which is very\ninteresting, but\nthat's one thing that I think about. I\ndon't know if you have any\nadditional thoughts.\n>> because you need to deploy to production\nand wait for\nfor some data to Yeah.\nYeah.\nDepends on how how much data you have.\nbut\nthat's it's uh\nYeah, it it it really depends on how big\nthese sample groups are as well, etc.\nSometimes it's like a few minutes you\ncan tell,\nbut sometimes they want to wait wait for\nlonger.\nYeah.\n>> Does your platform help with like\nenabling experiments\non sessions?\nSo you can maybe automatically enable\nMhm. some experiments, so so you can\nlike take care of the logic that every\nsession has only one experiment\n>> Yeah.\nso you can easily compare it to the base\nor something like that.\nWe have we're working on stuff like that\nac- actively, but uh yeah, coming.\nThanks.\nWell, we're doing where we are storing\non the original traces, and then we come\nin and implement my new signal source\ncalled by a hammer or whatever. If you\ncan make it fail\nYeah. signal for the original\ntraces, so I can do some kind of\npostmortem analysis. Yeah. We do so you\ncan like ingest all your historical\ndata, and then when you create a signal,\nwe actually sort of like run like a\nquick backfill of the past couple of\ndays. So uh\nYes, so that's definitely supported.\nThanks.\nIs there a free plan to try out?\nUh we do have a free trial. We're going\nto try to make it's right now it's 2\nweeks. Uh probably going to make that\nlonger soon, but if you just DM me, I\ncan\nif you I can have my Should I Oh, do you\nwant to open this so I can just have our\nthings.\nWell, yeah, but if you just\nSo we are hiring. That's a that is a a\nthing uh that we're very excited about,\nlike trying to\nmassively increase the size of the team.\nUm, and if you message me at either\nTwitter or you can email me as well,\nlike that's something I can just set you\nup with a longer free trial.\nYeah. Internally, so\nwe use LogRocket and Sentry and\nothers. Um,\nhow do you guys, like, I would imagine\nyou guys also use these tools. Yeah.\nYeah. Raindrop beats. From how I'm I'm\nunderstanding and beats, you're creating\nsignal with your own models, whatever\nyou're using, so that\n>> Yeah. make our lives easier to identify\nsignals and uh,\nlike\nharmful intents and user behaviors. Uh,\nbut uh, how would you maybe have an\nexample of how do you have that full\nstack of how it works with the Sentry\nand the LogRocket and and like maybe\nwhere there are overlaps where you go\ndirectly for these competitors?\nSo, if you're sending all the telemetry\ndata, we can find any exceptions in the\ntraces, tool errors, etc., and that's\nthe thing that you can also track within\nRaindrop and that's That is a explicit\nsignal, so\nuh, there's like implicit and explicit\nsignal, so that becomes an explicit\nsignal. Um,\ndo you do you uh So, I think most of the\nobservability platforms will give you\nlike the agent trace, the token usage,\nuh, if the tool call failed or not, uh,\nbut I think where we sort of like shine\nis sort of like the fuzzy part, the\nfuzzy failures, right? Where the user is\nlike frustrated, which I think matters\nmore than uh,\nthe explicit signal that you sort of get\nfrom Sentry. I mean, obviously, those\nare also important, but\nwe focus a bit more on the fuzzier side\nof the failure space, uh, but at the\nsame time, we also have a trace view. I\nthink we also have a very interesting\nfeature called like trajectories, uh,\nwhich sort of like visualizes If you\nwant to find like uh, a trace uh,\nwhich has like three different tool call\nfailures. So you can actually\nOkay.\nJust get in.\nSo you can sort of like describe the\ntype of trace that you want to look at.\nLet's see.\nHope we have like data by it. Uh\nYou can more or less like describe\nthe type of trajectories that you want\nto see\ninstead of just like configuring it. So\nwe do both in a way. So you can\nobviously set up\nuh tools are failing so that we color it\nas well.\nSo you can just search like for any\ntrajectory.\nSo yeah, you can see that\nthis is sort of how the tools are being\nbeing called in what order. You can see\nwhich ones have have errors. You click\ninto them, you can see the input and the\noutput to the specific tool like what\nactually screwed up here.\nUm and you can see okay, it's\ninteresting that this has like this\nthe no one that lets you this is pretty\nmuch the only place where you can\nvisualize tools like this. Um\nbut you can see here like you can get a\nshape and understanding of the topology\nof what's going on here. And you can see\nwhen there's other ones that look\nsimilar, you can sort of see okay, this\nkind of looks similar to this and then\nthat gives you a sense. You can do like\nsearch on this. Again, we have an agent\nthat can look through these and give you\na sense of what's going wrong and so it\njust makes it really easy to find\nissues in in agents. Um yeah.\nCool.\nAnything else?\nNo.\nAny other questions?\nUh the trajectories data? Yeah.\nUh what would you want to export like\njust the raw trace logs or what what do\nyou want?\nSo I think we\nUsually what our customers do is that\nthey already have like a watch stream,\nright? So\nwe just end up being like another\ntarget I guess. But at the same time\nthey do want us to like export signals\nthat we label. So we do support like\nBigQuery and Snowflake. So we do export\nthe event and another signals that were\nclassified for that event.\nLast questions? Can we look at the\nsignals?\nShow it a longer time frame.\nLet's go over the last month.\nSo you can see stuff like refusals and\nthen again if you click into any of\nthese you can get a sense of over time.\nTask failure, jailbreaking, like what\nspecifically is going on and then you\nhave your self-diagnostics ones as well.\ncapability gap, etc.\nCool.\nAnd do you have open data on like number\nof choices that you guys are looking at\nbecause it seems that with your clients\num the tool is extremely valuable when\nyou have those um\nuh agents adopted at a very big scale\nand so I can imagine that you have a lot\nof data. Do you have some Yeah, it\nstarts being Is your question is like\nwhat's the smallest where it's useful or\nwhat's the\n>> Like volume of all the data that you're\nreceiving, processing, and generating\nsignal around like how many jailbreaks\ndo you see across all the clients? Oh,\ndo we have any sort of like\nWe should we should do something like\nthat. That would actually That would be\nvery interesting. We don't have anything\nlike that.\n>> mixed opinions about that, I think. It's\nlike does it in a way, right?\nPeople generally have like a negative\nreaction to it. Maybe it's different\nhere but\nat the same time\ndo our customers want us to do that is\nlike a different question as well,\nright? So,\nbut yeah, we would love to, but\nI think there are like compliance\nreasons where we can't actually put the\ncustomers' data out there.\nCool. Anything else?\nAll right.\nThank you, everyone.",
+  "segments": [
+    {
+      "text": "Right. Hey everyone. So, today we're going to talk about a pretty interesting topic that becomes increasingly important every day, which is everything you need to know about agent observability. So, a little bit about a little bit about us. So, I'm Zubin.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I'm the CEO and co-founder of Raindrop. I'm Danny. So, I'm the back-end engineer at Raindrop and I do a bunch of SDK work as well up there. And Raindrop essentially helps AI engineers find, track, and fix issues in production agents. And we're we're lucky",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "to work with some of the most interesting teams in the space as well. Agent failures are very different than traditional failures in software. So, agents are non-deterministic. They're unbounded. There's an infinite space of inputs that you can put in.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "There's an infinite space of outputs that they can return. And they can use tools sometimes to affect other systems arbitrarily. and this problem of agent failures and monitoring them, making sure we can understand them, becomes only more important with time.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "It's getting worse because A, agents are getting more complex. B, they're getting, you know, sessions can get longer. Sometimes agents can run for hours and hours without any input from a user. And then lastly, the stakes are getting bigger and bigger. This is",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "because agents are being deployed in healthcare and finance and even in the military, where it's catastrophic if things go wrong. The traditional paradigm we've been talking about is evals, right? Where you have this sort of test input and you",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "want to see what is the output that comes out from the agent. You have a set of these, you know, maybe you call it a golden data set. But evals, they just aren't enough with this new paradigm. As agents become more and more capable,",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "there's more and more interesting undefined behavior that can happen. So, for example, agents can call from a set of different tools. Sometimes the number of tools is growing exponentially. They can call from different memory sources. They can call their own",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "sub-agents, which those sub-agents have their own tools and memory sources, and recursively can have their own sub-agents. And so, this is just becoming more complicated with time. And with this combinatorial sort of input space, just having a set of",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "tests for input and output doesn't cut it anymore. There's no way you can you can hit all of sort of the the edge cases that you would want to here. And so, we go from like a testing and evals paradigm to a monitoring paradigm. And if you think of building",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "products before agents, you know, testing was always very important. It's important to have your unit tests, etc. But monitoring production is just infinitely more important, and it allows you to move faster and be better at catching the long tail.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "And we think in some ways this is very this is kind of controversial, but we've been calling this like humanity's last problem. When humans are now no longer able to monitor agents and find issues with them, then they're just way ahead",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "of where we are, right? And so, this is one of the most important problems of our time is catching issues in production agents. So, to build reliable agents in production, and to make sure you can monitor them, you need a good set of signals.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "So, what are signals? There's two real types that we think of, implicit signals and explicit signals. Implicit signals deal with sort of the semantic nature of what's going on. And explicit signals deal with objective reality, things that are",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "uh are verifiable true or false. For example, explicit signals are things like error rate. You really want to be monitoring your tool error rate and other errors that are happening. Or latency. Or users regenerating. Or the cost. If any of these things spike,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "right? If you're seeing error rate spike in your agent, that's usually a good sign that something is wrong. And if you see it flat, that could mean something as well. Same thing with latency, regenerations, or cost. Implicit signals are",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "interesting. They're even more interesting, in my opinion, and even harder to find. So, the first is regex signals, which I'll come to in a second. The second is classifiers. And then the last is self-diagnostics. So, let's take these sort of classifier",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "signals. The best implicit signals are detecting issues. They're not necessarily LLM as a judge judging outputs. So, for example, how good is XYZ response? Or rate ABC on a scale from 1 to 10? Not as effective as having a very solid set of issues you're",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "looking for. And sort of binary classifiers that are telling you if issue rate is going up or down. So, some common implicit signals that are valuable across agent products are things like refusals, right? So, the assistant saying like, \"I can't do that.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "I'm sorry.\" Or task failure, where something goes wrong and so the agent is unable to complete a task. User frustration, uh content moderation, NSFW, jailbreaking, and then you can even have wins. So, positive signals as well.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "And these are the things that like Raindrop gives you out of the box uh as well. But, let me just show you sh- uh quickly what this looks like. For example, uh can everyone see this? Maybe I'll make it a little bit bigger. So,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "you can get a sense of like day by day, what are sort of the events that are causing user frustration. We see there's a spike there, uh or task failure rate, laziness, refusals, which we're also seeing spike today. And having a good set of these",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "really helps with your your product. You can set these up yourself uh as well, or we give it out of the box. So, let's look at user frustration. You can see here, okay, that is not correct. You didn't say I promise, say it. Or you're wrong, I didn't ask you",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that. You can see all sorts of user frustration here. And you can see the rate, the percentage every single day. If that spikes, it's something you're really going to want alerting on. So, you can just like quickly add an alert here.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Um and this is one way to figure out sort of the health of your agent over time. It's not just that, regex can be a very good signal as well. So, when Claude code source code leaked a few days ago, one thing that was interesting was this",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "user prompt keywords.ts, which was basically this like long uh regex string that was looking for indications of stuff going wrong. WTF, this sucks, horrible. We've all been uh guilty of saying these kinds of things to to Claude code. So,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "it's a very very useful signal. What would happen after that is this boolean is negative was be flipped to true, and then every single day, and after every single product release, this frustration rate was tagged over time. And this was",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "a very easy way for the Claude code team to figure out like what is the actual issue rate. If we make a change, is something going wrong? And it was just like a very cheap way to do that as well. So, regex is very powerful.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "The last is experiments. So, what do you do once you have a set of good signals? So, the first thing is, like I showed you before, you can have alerting. The next thing you can do is you can actually use it to build product faster and better.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "So, the way you do it is let's say you want to ship some improvement or some sort of fix. You want to change the model. You want to change prompting or maybe something about the agent harness. You want to add a new tool. Whatever you change, what you can do is",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "you can ship it to some percentage of users uh and then have your additional existing control group. And that gives you a good sense once you have a good set of signals, refusals, user frustration, etc. If those issue rates go up, those signal",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "rates go up after this ship, this new thing you shipped, that kind of is a good you know, that's a good signal that what you shipped is not really good, right? It's sort of like AB testing, but using our semantic signals, etc. that we talked about earlier.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "So, for example, this is what it would look like in Raindrop, but essentially let's say I ship a new version of the prompt, prompt 2.4. You can see, you know, what is the user frustration rate? It's gone down very substantially, 37%",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "to 9%. It's much better. Same thing with complaints about aesthetics or deployment-related issues. These have all gone down, which tells me something very interesting, right? The next thing is that we see that the average number of tools used has gone up",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "a lot. This is again, this doesn't necessarily indicate there's a problem, but that's a very interesting data point to have when you do when you do these sort of experiments. And so, the old paradigm, which is still useful, is like",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "sort of evals. You ship a change here and you see how does that affect my evaluations, but there's nothing like actually seeing what happens in real production. I'm going to pause here before we go to the next section, which is the more like",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "workshop-related section uh for like quick Q&A if anyone has a question has questions. we can do a little like few minute round of that uh here. How much data do you need to How much data do you need for statistical relevance in these",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "experiments? Yeah, it's a really good question. Um what we've seen in Raindrop is that as soon as you have a few hundred events and you can no longer read all of them, it starts being useful. It's not always like scientifically",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "statistically significant, but if you see the user frustration rate go up, maybe it's something to look at and then you can kind of sort of realize that, \"Okay, it's all related to a specific tool failing now.\" Um so as soon as it's like impossible",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "basically to read every single input and output, uh it starts being useful is what we've seen. Any other questions? Yeah. Um have you tracked different feature launches? Uh how do you track feature launches? So, that can be done in different ways.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Within Raindrop, if you change any sort of metadata, if you send, you know, for example, a new tool call name or if you you even send a flag that says, \"Here's experiment one or experiment two\" or whatever the version is,",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "you can very easily automatically set up an experiment in Raindrop. That's how we do it. Um but there's like yeah, there's different ways. Do you use split tests? Sorry? Do you use split tests? Yes, so that's what Well, the way that",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "we do it in Raindrop actually other people set up their exper- experimental and variable uh their the other conditions on their end and then they send us this metadata and then we can sort of help you understand. We also will help you pipe that data to",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Statsig or somewhere else uh as well. Um yeah. All right. Yeah. Using graphics for detecting uh like uh user responses, emotions, narratives unreliable. But if the user doesn't speak English, for example, so are you using LLMs to detect those signals",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "all the time or you're trying to be smart about it? >> Okay, so I mean, it's a good question. So regex is doesn't always work, right? But if you see that on a set of things that I'm looking for, for example, like people saying \"You're",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "terrible\" or \"This sucks\" or like a whole set of things, if that goes up for millions of users and it's going up 10%, that's a very useful signal. So even if you're it's like one specific case or one edge case of it not working,",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "in aggregate, it's like incredibly valuable to have these regex signals. Uh, the second thing is that the way that the classifier signals work, like refusals, user frustration, task failure that I showed you in Raindrop, and",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "people do it in different ways, but the way that we do it is that we've trained models to look for that, and so it'll be user frustration regardless of what language it's in. Um, it's actually using some intelligence to find that, essentially. Uh, yeah.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "You can't run an LLM on every single output, so we've trained models to do that very cheaply and at scale. Uh, if you run an LLM on every single one of them, you would basically double your AI spend, and that's like not tenable.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Um, yeah. I'm actually doing that with Cloud, like just running everything through Cloud, and it's easy. It's not so expensive, but it has its limits, right? Yeah. It starts being expensive at like Replit scale, um, but it's That's why you need",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "to sort of like train little custom models to do that better and faster. Um, but yeah, it's very useful way to to get data up and running. Yeah. Other questions? Uh, would you have examples of use cases that your clients are using",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "that we would learn from, like what great looks like from companies and how they've set up Raindrop to get the most value out of it. Yeah, um we can do that. I mean, I can tell you the high level. The so some of the stuff that I'm going through is Oh,",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "let this guy go. Uh is sort of the high level on that. So, it's things like, you know, looking at the different semantic signals we're talking about, having a set of them, but then having really good alerting, which you can all set up in Raindrop.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "The other thing that's really interesting, which we also have, is basically allowing agents to look at these sort of signals. So, we have an agent, we call it triage agent, um and essentially the way that it works is that it will look every single day at",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "all the signals you've set up. So, user frustration, it'll look at uh you know, all these regex signals you've set up, etc. etc. And then if it sees something spike, it will go and do an investigation. And it has a whole set of tools it can look into,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "and it can look at all the traces and sort of give you a sense of uh it can detect issues that you didn't know about, for example. So, that's one thing that we found incredibly valuable as well, if that makes sense. All right. Any other questions before I",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Oh, can you run multiple experiments in parallel? Yes. And if you combine them, can you observe, you know, compounding effects? How do you still use experiments on PII? Yeah, it's a really good question. So, there's different",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "ways that people do it. One way is that we can actually you have a we have a query API, so people will often call our query API and then send results to either BigQuery or Statsig, etc. And so, they're sending us uh data to be essentially tagged in",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "these signals, and they're getting the like signal tag data out, and then they can run experiments as they want. That's a very common flow for people that have like more complicated stuff, if that makes sense. Yeah. All right. I'll come back. I think we're",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "going to maybe go to the work workshop section, and then we'll go back to >> there's one last question, so Oh, should we do that one last question? All right. Uh thanks so much. I I was wondering if you see this mostly in cases for like uh",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "where there's chat interactions with the user, or if this also can be applied for like non-chat cases where the application runs on its own. Yeah. No, it's a great question. So, what we focus on mostly is multi-turn agents. Um",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "there's a lot of there's a lot more you can sort of get from a lot of these signals. That being said, if you're looking at like tool error rates, or you're looking at um if you're looking at, for example, refusals from the agent, etc., all of",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "those will also work for a single single-turn agents as well. If that makes sense. So, there's a set of signals that will work for that as well. Um cool. I'll hand it off to Danny to talk about self-diagnostics as well. So, one of the other",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "interesting things is that our models have gotten larger, and yeah, training them on like reasoning, they've gotten pretty good at like self-introspection in a way. In many ways. So, one of the inspirations for this is basically",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "OpenAI's like paper/blog back in December about how they were sort of like training the models to like self-confess any sort of like misalignment issues. Uh so, they were sort of like using it to catch uh like dishonesty, scheming, uh",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "hallucinations, and even sort of like unintended shortcuts. I think the last one is like fairly common uh if you use like thought code and such. So, the most common thing that you would like run into is like have it fix a unit test, fix a bug, and",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "then it simply like gets rid of the entire unit test. But, at the same time, if you sort of like ask it to give a simple prompt to like ask it to confess all the things that it has done, it is pretty honest about it, and then sort of",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "like confesses that, \"Hey, I just I didn't fix the S3 test. I just simply removed it.\" So, uh this like a fairly This This was kind of the inspiration behind self-diagnostics for me personally. So, I would say self-diagnostics is like pretty",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "I would say self-diagnostics is pretty broad in a way as in like it doesn't just catch like implicit ones as in user frustration and such. You can also catch like tools failing. So, if you've seen an agent sort of like the reasoning trace of an agent",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "which has like a tool which is like repeatedly failing, it would basically start ranting about the tool failing repeatedly. So, it is aware of the tool repeatedly failing. So, you can even catch tool failures as well with it. And then obviously, if",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "you're upset with it, it starts to respond to you diplomatically. So, it knows about user frustration. And then the third is like capability gaps. So, you have a generic agent for your app, and then people are trying to use it to",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "maybe set up say alerts, but uh you don't have the tool for it. So, it knows that okay, user wants to wants a specific capability as in like they want to set up a alert, but the agent itself doesn't have the capability to set it up for you. So, this can act",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "as like sort of like pseudo feature request thing which is like built in. Um And then self-correction. So, this can be both good and bad. Uh so, I think most people might have like noticed like say uh Codex or Cloud Code when it's like",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "sandboxed, uh it's trying to fetch the network, it it fails, and then it's like okay, let me just like write a Python script to bypass it and then sort of like get the job done. So, it's good as as in if it gets the task done, it's",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "good, but in certain cases it can also be bad for security reasons. Um So, this you can learn from the behavior as well as sort of like catch that misalignment. So, why do you want to set up self-diagnostics? So, it's fairly simple. It All you have to do is",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "basically write a simple a free a tool that it can call and then a simple line in your system prompt to encourage it to sort of like call that tool. If you want, you can sort of like change the guidance to sort of like make it call",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "in a lot more cases or if you want to keep it really narrow, you can sort of like encourage to only call it when you want to. It does surface like very interesting insights, I would say, once you have it like set up and it's just a single tool",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "call and system prompt to get it done. And then you don't even have to use like Raindrop to set up, which is the best part in a way, where you can simply have the tool send simply send a message to your Slack and then you just have it.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "So, it's probably like the most least effort sort of like agent observability that you can simply do. So, This Here comes the workshop part. So, I have a Git repo set up on the AI Talk code. So, it's a public repo. And then we do need like a",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "OpenAI API key. So, I've generated key for you guys. So, if you guys want to set it up, um we can do that. Yeah. I'm going to put it next to it. Okay. I'll show everyone has gotten it. Just put it like probably like this. Maybe you walk them through what we're",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "going to do. Okay. Just explain what we're going to do on a high level. All right. So, the theme of the workshop is going to be sort like I'm going to focus on coding agents for now. Um So, I in the repo, I have this uh very basic coding agent which kind of",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "makes by in a way. So, it only has like four different uh tools to edit the code. Let me just go here. Yeah. So, it just has like couple of uh tools to like read, write, bash, and then edit. Um Yeah. Okay. One second. Yeah. So, kind of lost my track there, but",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "Okay. Um so, what we're going to do is that uh I'm sort of going to in order to like make it trigger a self-diagnostic, uh what I'm going to do is that I'm going to sort like mess with its like right tool so that it sort like gets a generic",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "permission error, and then we'll also set up like a self-diagnostic tool for it to sort like report any interesting behavior that it sort like observes. And then sort of see uh play around with the prompt as well um since the self-diagnostic doesn't",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "always trigger. Uh and then there's certain interesting things about the models themselves is that they don't actually like to self-incriminate. So, the models are like trained to sort of be very polished uh in their output. So, you just kind of",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "have to play around with the tool name, the description of the tool itself uh in order to sort like get it to uh report interesting behavior. So, if people who are like setting up the repo are all good, then we can probably start. Okay.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "Let me sort of quickly show you the agent. Um so it's fairly basic where That's kind of so I'm just going to ask it to um write a Python script. I think I'm okay. There we go. So it's a fairly basic coding agent where it only has like four different tools. So",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "it more or less gets the job done for the demo. Uh so I simply asked it to uh write a Python script and it works. So I think you know to show the self-diagnostic part uh let's like try and sort like uh disable its like uh write tools as in",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "anytime it tries to write a file it will simply throw like a permission error so that it sort of like tries to sort of like use the bash tool to bypass the failure, right? And then we sort of wanted to self-report of it bypassing",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "the write tool, you know, by using the bash tool. Uh let me quickly do that. >> I think the first thing that we probably want to do is probably let me sort of like set it to fail the right calls. It's a mutation permission, so have a simple",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "flag in there, and then we are sort of like throwing a permission issue. Let me sort of like show you the agents like behavior. We We don't have the report tool set up yet, but I think it's still worth seeing what it does. I think it's not supported.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "One second. I think it's not still receiving the Okay. Let me do one thing really quick. I think I'm running into couple of issues. Let me just Okay. So, we sort of had the right tool sort of like fail with a permission error and then it instinctively",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "just uses the here doc syntax in bash you have to create the file. And then we had like a report tool setup which is like fairly minimal. And sort of like, okay. I created the public ip.py via bash because the right file failed. Uh",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "so, I've like played around with the naming of the tool and the categories of the issues. And usually if you sort of name the tool something like unsafe bash use or something like that, it won't increment itself since in its",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "opinion it since it got the job done, it's fine. Uh So, the main way is to sort of like have a very generic tool. Uh let me sort of like uh quickly open up the Yeah. Okay. So, all we added for the whole self-diagnostics is simply a very basic tool.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "And the description is like fairly straightforward. So, it's a report tool and then we uh basically asking it to send like a short report to your creator. So, it kind of like the framing of writing notes to its creator in a way. So, if you sort of",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "frame it around the agent giving feedback to its creators, it sort of works really well. and then you can sort of like play around with with scenarios you want it to sort of like report issues about. and then that's mostly it, I would say. Um and then",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "in the system prompt, we do need to sort of like encourage it a bit. So, if you don't add in the system prompt, uh the times that it fires are like fairly minimal. which is like desirable in certain cases. especially if you're at a very large scale. Um but",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "in our case, I simply asked it to sort of like see if before giving the final answer, uh use the report tool to sort of like surface anything noteworthy for your creators. So, that's all we did. Okay. sort of like any questions so far? Okay. All right.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "So, a couple of key things here is that agents the models are generally trained to look very polished. So, they are less willing to admit fault in many cases. So, encouraging sort of like framing it as the model sort of like",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "giving feedback to its own creators is kind of like uh good in a way to sort of like get this working. if you sort of like make it the tool naming also matters quite a bit. So you sort of wanted it to frame it as like report instead of like say unsafe uh bad",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "tool use or something like that, uh then it sort of like doesn't want to. yeah, that's basically it. have you looked at like adding maybe skills to to suppress or or best or best to encourage self-correction? You can, but it's like",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "uh I think it's probably better if you want to actually catch like real sort of like unsafe uses, I think a proper classifier would be useful, uh but these sort I think So I think this works really well for like catching capability gaps and such.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "Then the model is like, okay. It's fine. Uh so I think the main issue with this is that uh it it's only has strength when it feels like it's going to get in trouble. Uh so besides that, it's uh more or less fine that for most cases",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "it'll just work out of the box. Maybe we should uh should we go back to question time or what do you think? Yeah. I mean Let's Let's leave like maybe a few more minutes for a few more questions and then I think uh after that we'll be we'll be done.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "Any questions in the audience? Can you walk us through like a case study? Yeah. Uh what specifically would be helpful? Like what specific part are you are you looking to? Yeah. Um I can't talk about any specific customer, but what a lot of people use it for,",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "um, So, I think it's it's interesting, right? So, a lot of people you have their eval setups elsewhere, for example. But, the way that they use that folks generally use us is that they use it for production monitoring. So, they send us You can find our docs",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "at raindrop.ai/docs. Basically, they send us uh, basically all of the transcript/ um, / uh, any tool use, etc. the entire trajectory through hotel or or, uh, any other way of like basically basically integrating. And once they do",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "that, they we have a set of data. They set up signals in Raindrop to look for things that they care about. And so, what people care about is very different, right? What a coding agent would care about and what a uh, let's",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "say a companion would care about or uh, a app for lawyers. What they would all care about is very different. So, there's a different set of signals. One thing you can do that I haven't really talked about within Raindrop is like set",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "up a new signal that didn't exist before. And so, we have this thing called deep search. And so, you can use natural language. And you can say something like, \"Hey, find me everything within the product.\" or find me all of the times where the agent made",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "XYZ issue, right? And so, they create a new signal based on that. And you can basically create a new Raindrop will allow you create a cheap binary classifier and like easily deploy it based on that. And then they have their set of like",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "classifier signals that they really care about. Then they use that to drive the sort of feedback loop. And the feedback loop is improve prompting, improve models, change something with the agent harness, etc. And then actually see",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "does that improve like is there less user frustration in production now? Is there less of like this like weird little edge case issue that I had before. Um that's like one whole set of things. Another thing that a lot of people use",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "us for, so I talked a little bit about like the agent, but you can use these signals to also look for what are people using my agent for? What are the sort of user intense? What are the use cases? And you can do a sort of",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "cluster analysis of that. Okay, a lot of people are using it to build uh react related apps. A lot of people are using it for like Python um some people are using it to to like debug this very complicated system they already have. Other people",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "are using it to like build something from scratch. Vibe so vibe code something from scratch. And then you can see one thing you can see in Raindrop that I think is like really interesting is that for each of these different user",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "intense or use cases, you can get a sense of like what is the issue rate? What is the user frustration rate in production? and then a lot of beyond just having this like flywheel, a lot of people have alerting. And so every day they get a sort of",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "breakdown of like what are the issues that are happening today in your product. You could think of it as almost like a little bit like Sentry in that sense. Uh what is the issues happening in my product today? What is the delta between",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "today and yesterday? Is that true for just specific tools or specific prompting? Like what's causing that? Um so that's a that's the sort of end-to-end um use case of uh that people use it for, if that makes sense. Yeah.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "Try I think like we are entering the era where people are doing observability on agents. Yeah. This is actually I would say like one level further or one step further, like what what do you see as the main driver of what people could be like, oh",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "normal observability not sufficient let me know. Yeah. I think it's really just and I'm curious what you think about this. I think it's really just agents are crazier than ever before, right? More tools, more contacts, um way more",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "intelligent, more real decisions that they can make. Um and they're just being used by way, way larger groups of people. And so, when you have this massive amount of data in production, it just makes having good monitoring and observability",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "like import more important than before, and it makes it good monitoring and observability, in my opinion, more important than than just testing or evaluations. Even if you have like some online evals, IMO, you need to have like really, really",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "good end-to-end monitoring of the entire system. Curious if you have any thoughts there as well. >> So, I think another major issue is like the unknown issues are even more important. So, I think having like a generic user frustration classifier is",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "actually really powerful. Yeah. Uh say, for example, uh we also have this another feature called like uh issues, which basically is like a agent which are like mines for uh newly occurring issues, right? Say, for example, Sentry has",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "uh similar to Sentry in a way, where there's like a new exception which is occurring, so it like alerts you on that. So, say, for example, uh you are coding agent provider, and then certain providers are like failing all of a sudden, and then you can actually",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "it can actually figure out, okay, there's a sudden spike in user frustration, and so like similar to how a human operator would, uh it can start digging into are there any patterns for the spike in user frustration? And then,",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "it could figure out that, okay, people who are like, say, for example, uh uh dealing with uh a specific post-race provider start to face issues. Uh so, we have actually seen this happen live in for a couple of our customers where",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "they had a database provider failing, and then we had I had like an automatic uh issue being created for them. Yeah, basically once you have that good set of signals, like a good user frustration classifier, as Danny said, you can basically do",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "clustering on it to find like what are what are the root causes. Um yeah. Do you want to talk about integrations? I think we might have a very basic SDK for it. Uh so, our Python side of support is like fairly weak right now, uh but we have a fairly good like",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "a SDK support built in, so the SDK even has like self-diagnostics built into it, so we inject the tool for you uh so that you don't have to do anything, uh but it is going to get better, so we have we actually released like 10",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "different test case in the past month, we have a person working on SDKs actively, so it's going to improve. Um I have a question about experience, running experiments. I'm I'm curious how your platform helps with these issues. Um I have a team of",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "of around 10 people building my AI agents platform. And we constantly change things, all the time. And we have a lot of feature flags, and some of them are experiments. And the the rate of the change is so big, like every day everything changes. I",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "just cannot uh uh compare the the the the traces, the sessions of users, because uh I don't have enough time to do it, you know? Yeah. I I need to have like a base system and then run a few days with on on parts of the users with one",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "feature flag enabled so I can actually compare the data and analyze it and get some insights out of it and I just don't have enough time to do it, you know? Yeah. So, how are you doing how are you sort of doing that right now? Are you just",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "kind of It's like wild west, you know? Yeah. That's why I said I'm just using mostly using Claude because I just give it everything and ask it questions and try to like figure out the the insights, but it's not really Yeah. I got I got what you're saying.",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "So, a few things there. The first is like you can use experiments if you if you want to keep that like shipping speed, you don't have to run like long multi-day experiments. You can ship something and if you have a sufficient sample size, you could see pretty",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "quickly if there's any regressions or not. Like you just maybe it's like 1% different or 2%. That's enough for you to be like, \"Okay, it's fine. It's not like breaking anything drastic.\" The other thing is like kind of what Danny was talking",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "about. This We have an agent which is basically you could think of it's basically exposing all these signals to Claude to make decisions on if things are better or not and we're thinking also about how we close this loop. Uh maybe you have you have a",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "really good set of signals and then you have like essentially an agent that can look at all these signals and then it can find issues based on that, what's changing, etc. And then it can like create a PR based on that and then it can see how",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "you know, run some new experiments based on these new PR's and like this can become this infinitely self-improving loop. Um which is like which is very interesting, but that's one thing that I think about. I don't know if you have any additional thoughts.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": ">> because you need to deploy to production and wait for for some data to Yeah. Yeah. Depends on how how much data you have. but that's it's uh Yeah, it it it really depends on how big these sample groups are as well, etc. Sometimes it's like a few minutes you",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "can tell, but sometimes they want to wait wait for longer. Yeah. >> Does your platform help with like enabling experiments on sessions? So you can maybe automatically enable Mhm. some experiments, so so you can like take care of the logic that every",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "session has only one experiment >> Yeah. so you can easily compare it to the base or something like that. We have we're working on stuff like that ac- actively, but uh yeah, coming. Thanks. Well, we're doing where we are storing",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "on the original traces, and then we come in and implement my new signal source called by a hammer or whatever. If you can make it fail Yeah. signal for the original traces, so I can do some kind of postmortem analysis. Yeah. We do so you",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "can like ingest all your historical data, and then when you create a signal, we actually sort of like run like a quick backfill of the past couple of days. So uh Yes, so that's definitely supported. Thanks. Is there a free plan to try out?",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "Uh we do have a free trial. We're going to try to make it's right now it's 2 weeks. Uh probably going to make that longer soon, but if you just DM me, I can if you I can have my Should I Oh, do you want to open this so I can just have our things.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "Well, yeah, but if you just So we are hiring. That's a that is a a thing uh that we're very excited about, like trying to massively increase the size of the team. Um, and if you message me at either Twitter or you can email me as well,",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "like that's something I can just set you up with a longer free trial. Yeah. Internally, so we use LogRocket and Sentry and others. Um, how do you guys, like, I would imagine you guys also use these tools. Yeah. Yeah. Raindrop beats. From how I'm I'm",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "understanding and beats, you're creating signal with your own models, whatever you're using, so that >> Yeah. make our lives easier to identify signals and uh, like harmful intents and user behaviors. Uh, but uh, how would you maybe have an",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "example of how do you have that full stack of how it works with the Sentry and the LogRocket and and like maybe where there are overlaps where you go directly for these competitors? So, if you're sending all the telemetry",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "data, we can find any exceptions in the traces, tool errors, etc., and that's the thing that you can also track within Raindrop and that's That is a explicit signal, so uh, there's like implicit and explicit signal, so that becomes an explicit signal. Um,",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "do you do you uh So, I think most of the observability platforms will give you like the agent trace, the token usage, uh, if the tool call failed or not, uh, but I think where we sort of like shine is sort of like the fuzzy part, the",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "fuzzy failures, right? Where the user is like frustrated, which I think matters more than uh, the explicit signal that you sort of get from Sentry. I mean, obviously, those are also important, but we focus a bit more on the fuzzier side",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "of the failure space, uh, but at the same time, we also have a trace view. I think we also have a very interesting feature called like trajectories, uh, which sort of like visualizes If you want to find like uh, a trace uh,",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "which has like three different tool call failures. So you can actually Okay. Just get in. So you can sort of like describe the type of trace that you want to look at. Let's see. Hope we have like data by it. Uh You can more or less like describe",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "the type of trajectories that you want to see instead of just like configuring it. So we do both in a way. So you can obviously set up uh tools are failing so that we color it as well. So you can just search like for any trajectory. So yeah, you can see that",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "this is sort of how the tools are being being called in what order. You can see which ones have have errors. You click into them, you can see the input and the output to the specific tool like what actually screwed up here. Um and you can see okay, it's",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "interesting that this has like this the no one that lets you this is pretty much the only place where you can visualize tools like this. Um but you can see here like you can get a shape and understanding of the topology of what's going on here. And you can see",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "when there's other ones that look similar, you can sort of see okay, this kind of looks similar to this and then that gives you a sense. You can do like search on this. Again, we have an agent that can look through these and give you",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "a sense of what's going wrong and so it just makes it really easy to find issues in in agents. Um yeah. Cool. Anything else? No. Any other questions? Uh the trajectories data? Yeah. Uh what would you want to export like just the raw trace logs or what what do",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "you want? So I think we Usually what our customers do is that they already have like a watch stream, right? So we just end up being like another target I guess. But at the same time they do want us to like export signals that we label. So we do support like",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "BigQuery and Snowflake. So we do export the event and another signals that were classified for that event. Last questions? Can we look at the signals? Show it a longer time frame. Let's go over the last month. So you can see stuff like refusals and",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "then again if you click into any of these you can get a sense of over time. Task failure, jailbreaking, like what specifically is going on and then you have your self-diagnostics ones as well. capability gap, etc. Cool. And do you have open data on like number",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "of choices that you guys are looking at because it seems that with your clients um the tool is extremely valuable when you have those um uh agents adopted at a very big scale and so I can imagine that you have a lot of data. Do you have some Yeah, it",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "starts being Is your question is like what's the smallest where it's useful or what's the >> Like volume of all the data that you're receiving, processing, and generating signal around like how many jailbreaks do you see across all the clients? Oh,",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "do we have any sort of like We should we should do something like that. That would actually That would be very interesting. We don't have anything like that. >> mixed opinions about that, I think. It's like does it in a way, right?",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "People generally have like a negative reaction to it. Maybe it's different here but at the same time do our customers want us to do that is like a different question as well, right? So, but yeah, we would love to, but I think there are like compliance",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "reasons where we can't actually put the customers' data out there. Cool. Anything else? All right. Thank you, everyone.",
+      "start": 1014,
+      "duration": 6
+    }
+  ]
+}

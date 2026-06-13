@@ -1,0 +1,1319 @@
+{
+  "videoId": "dJtHauhRasc",
+  "title": "Stanford CS25: Transformers United V6 I Distinct Modes of Generalization from Parameters and Context",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 67698,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I'll be introducing\nour speaker for today.\nSo Andrew Lampinen is a member\nof technical staff at Anthropic.\nAnd previously, he was a\nstaff research scientist\nat Google DeepMind and received\nhis PhD in cognitive psychology\nhere at Stanford.\nHis research interests\nbridge AI and cognitive\nscience on topics including\nlearning, generalization,\nand representation in language\nmodels, agents, and humans,\nas well as broader\nissues methodologies\nfor generalizable research.\nAnd feel free to check\nout his Substack for more.\nAnd without further ado,\nI'll hand it off to Andrew.\n[APPLAUSE]\nSo I think a question that's\nmotivated a lot of my work\nover the years is the question\nof what computational principles\nare shared across natural\nand artificial intelligence?\nAnd that's a question that I\nwant to touch on in this talk,\neven though this is a\nclass about transformers\nor a seminar series\nabout transformers.\nAnd in particular, the question\nthat I want to think about here\nis how do language models\ngeneralize from what they learn?\nAnd is there anything from\nthat could tell us something\nabout how the systems of\nnatural intelligence work,\nthe different ways that\nnatural intelligences learned?\nAnd this work started\nfrom observing\nthat there's two different ways\nthat language models can learn.\nThis is probably not\nsurprising to you.\nOf course, one way they learn\nis that over a large training\ncorpus, we optimize the\nnetwork's parameters in order\nto get them to encode some\nknowledge or some skills\nthat we want them to have.\nBut the other thing,\none of the things\nthat got people most excited\nabout language models\nin the first place\nwas their ability\nto learn from\ninformation in context.\nYou can just put some\nexamples of a task\nor some facts or some documents\ninto the language model's\ncontext, and the models\ncan use that information\nto learn new things, sometimes\neven to learn new languages\nor do fairly sophisticated\nthings like that.\nAnd the cool thing about\ndoing cognitive science\non models like\nthis is that we can\ndo all kinds of\ncontrolled experiments\nthat would be very hard to\ndo on natural intelligences,\nlike we can take\nnovel information.\nWe can put it into\nthese different sources,\nand we can ask how the\nsystem uses that information\nto make predictions in a\nresponse to further questions\nor tasks or so on.\nAnd the experiments\nI'm going to tell you\nabout today come\nfrom doing this work.\nAnd in particular,\nI'm going to tell you\nabout a series of works we've\ndone where we found some pretty\nstriking differences in\nhow these models generalize\nfrom the information that's\nstored in their parameters\nand from information in context.\nAnd then after that, we came to\nstudying several paths to bridge\nthis generalization gap.\nAnd at the end, I'll come back\nto talk about these bigger\npicture questions about\nhow these findings might\nrelate to natural intelligence.\nAnd if you're\ninterested, the things\nI'm going to talk\nabout today come mostly\nfrom this series of three\nworks on the generalization\nof language models from\nin-context learning and fine\ntuning, latent learning, and\nimproving latent generalization\nusing test time compute.\nAwesome.\nSo let's dive in by\ntalking about learning\nin parameters and in context.\nSo the inspiration\nfor this work really\nstarted from this nice\npaper, The Reversal Curse.\nHave you seen this paper\nor heard of this paper?\nNot too many, OK.\nSo this was a paper\nfrom Owin Evans' group.\nAnd what they showed is that\nif you take a language model\nand you fine tune it on\nsome facts in one order,\nlike you tell it,\nDaphne Barrington\nis the director of A\nJourney Through Time,\nif you then test that\nmodel on a question\nlike who is Daphne Barrington?\nThe model will do quite well.\nBut if you ask it\nthe question that\nforces it to reverse\nthe relation,\nlike who is the person who\ndirected A Journey Through Time,\nthe model has quite a hard\ntime answering that question.\nSo this is what the authors\ntermed the reversal curse,\nthat models are tied to the\ndirection in which they've\nlearned a relation.\nThey can't easily reverse it.\nBut the thing that surprised\nus about seeing this work\nis that if you try this\nexperiment in the chat,\nfor example, the models\nare perfectly fine at it.\nIf you give them\nsome made up fact,\nlike Z packs are\nbigger than carpools,\nthen carpools are smaller than Z\npacks, this was actually-- well,\nthis is a reversal.\nAnd in a paper we did earlier\nwith much simpler language\nmodels, this was our\neasy baseline condition\nthat all the models were\nbasically at ceiling at.\nAnd so this made us\nask the question is\nit possible that the way\nthat models generalize\nfrom information that they\nencounter in their context\nis different from how they\ngeneralize from information\nthey've stored in\ntheir parameters?\nAnd this would be an\ninteresting finding\nbecause there's actually\na lot of theoretical works\nthat have argued that\nin-context learning is basically\ndoing some form of\napproximate gradient descent,\nat least in settings\nwhere gradient descent is\nthe optimal thing to do.\nSo the question we asked\nin this first paper\nwas, which generalizes\nbetter, a language model\nthat's been fine-tuned\non a new data set or one\nthat's got the whole\ndata set in its context?\nSo what we did is we took\nvarious data sets that contain,\nlet's say, thousands of\ndocuments, hundreds of thousands\nof tokens, and we\nlooked at different ways\nthat we could teach the language\nmodel about this information.\nThe first way is that you\njust take the data set,\nyou fine-tune the model\non it in the standard way.\nAnd the second way, now that we\nhave fairly long context models,\nis that you can just\nconcatenate that whole data set,\ngive the model\ndocument separators\nand put the entire\ndata set in context.\nAnd then in both\nof these settings,\nwe're going to test how the\nmodel makes generalizations\nfrom the data in this data set.\nFor example, reversals\nof relations but also\nmore complex kind\nof structures like\nsyllogistic generalizations.\nDoes that make sense?\nCool.\nSo I'm first going to\nshow you some results\non the original\nreversal curse data set.\nThis is us replicating\nthe findings\nfrom that work on\na different model.\nSo if you look at the\nreversal accuracy,\na pre-trained\nmodel is at chance.\nWhen you fine-tune the model\non the relations in only one\ndirection, it actually\ngets slightly worse\nthan chance on these reversals.\nBut if you just put the\nentire data set in context,\nthe model is able to answer the\nreversals with 99% accuracy.\nSo there's a big gap\nbetween the model's ability\nto generalize from information\nthat's fine-tuned on\nand its ability to generalize\nthat kind of information\nin context.\nWe also tested other kinds\nof structures in this paper,\nfor example, syllogistic\ngeneralization.\nSo syllogisms, you\nmight from classic logic\nare these sets of\ntwo propositions,\nlike all zamp are snaff,\nno snaff are plusk,\nthat logically imply\na third proposition,\nlike no zamp are plusk.\nWe set up these syllogisms\nwith these nonsense nouns.\nSo we knew there\nwere things that\nweren't in the training data.\nAnd we just looked at if we\ntrain the models on documents\nthat contain\ninformation like this,\nwill they be able to generalize\nto the logical implications\nof those things?\nAnd here, again, we see,\nwell, pre-trained models\nare at chance because these\nare all made up facts.\nIf we fine-tuned models on\nthese kinds of documents,\nthey do get a little bit of\nabove chance generalization\nto the held out tests,\nbut not very much.\nAnd in-context\nlearning, where we just\ntake the entire data set of\nthousands of these documents\nand put it in\ncontext, is actually\nable to generalize better.\nSo these are two examples of\nhow in-context learning can\ngeneralize better\nthan fine-tuning\nto certain kinds of tests.\nOf course, it's natural\nto ask why this is.\nAnd I think the answer\nis that there's actually\na lot of structures on--\nexamples of these\nstructures on the internet\nin the training data.\nPeople reversing a\nrelation in a document\nin an essay in a logical\nargument, of course,\nis actually a\npretty common thing.\nAnd so it's natural\nfor the models\nto learn how to use these\nkinds of structures in context.\nBut then the question is,\nof course, why don't they\nlearn how to generalize them\nappropriately from fine-tuning?\nWell, a natural possibility\nthat occurred to us\nwas that maybe it is something\nabout fine-tuning itself.\nMaybe the models don't really\nlearn that much in fine-tuning.\nMaybe if we pre-train\nthem from scratch,\nthe models would be\nable to generalize\nthese kinds of relations\nmore appropriately.\nSo to test that hypothesis, we\ntook a small language model,\none we could train from scratch,\nand we created a large data set\nwith 20,000 relationships.\nWith most of them, the\nreversals were trained.\nBut 1% of them were held out.\nAnd the way this\ndata set looked there\nwas some prefixed data that\nwas just filler, basically,\nfor data diversity.\nThere's some trained relations\nthat are like X contain Y,\nfor example.\nAnd there's also some in-context\nlearning training sequences,\nwhere you get a forward like W\ncontains Z, and then a reverse,\nZ are the subset of\nW. And what we did\nis that we held out a\nfew of the reversals\nlike Y is a subset\nof X and we just\ntested how well the models were\nable to generalize to these.\nAnd what we find is that if\nyou test the model's memory\nfor the trained relations,\neven in a new context,\nthey do very well.\nIf you test their ability\nto take one of the trained\nrelations for which the\nreversal was held out\nand reverse it in context,\nthey also do perfectly at that.\nBut they still get absolutely 0\ngeneralization to the reversals.\nSo this is really not just\na phenomenon of fine-tuning.\nIt's something more fundamental\nabout how the models generalize\nfrom relational information\nin their training data.\nAnd it's not just\nabout reversals.\nWe looked at other\nkinds of structures\ntoo, like this codebooks data\nset, where the model is trained\non information about\nhow they encode\ndifferent kinds of\ninformation in different--\nyou can think of them\nas different languages.\nAnd then we give it\nexamples of using\nsome of the encoding\nwords from each language\nbut not all of them.\nAnd then we test its ability\nto use the other encoding\nwords that it hadn't\nseen used in training.\nAnd again, in this\ncontext, we find\nthat the models are able to\nrecall the information well.\nIf the information\nis in-context,\nthey're able to use it flexibly.\nBut they're not able to\nput those pieces together\nin order to generalize\nto the held out tests.\nYes, there's a question.\n[INAUDIBLE]\nWhen you say no\ncontext, you just\nprompted to translate\nthe unknown thing,\nrelying on the word\nknowledge in the model?\nCorrect.\nYeah, so basically, an example\nof the no context sequences\nare like this.\nSo we say codebook one.\nSo that tells the model\nwhich codebook it should use.\nAnd then we give it the\nsequence to translate\nand we test how well it\ngeneralizes to the test.\n[INAUDIBLE] like, where\npartially it did some\nand partially it didn't?\nI don't think we have any\nexamples of that in the paper.\nBut I think it would basically\nget the ones right that it knows\nand the ones wrong\nthat it doesn't.\nI should say that we do--\nthis is not shown on this graph.\nBut we do have tests where\nthere's known encodings\nbut in novel\nsequences and stuff.\nAnd it generalizes\nwell to those.\nSo it's not just that.\nIt's totally overfit to\nthe trained data set.\nYes.\nOther questions?\nJust a quick question for\nthe interesting experiment\nfrom the last slide.\nSo I'm wondering\nif you're trying\nto also gradually increase\nthe percentage of data\nthat is a reversal and see where\ndo you get to the breakpoint.\nSo basically is\nit enough to just\nhave 5%, 10% of\nexamples [INAUDIBLE]?\nYou mean for the\nin-context learning part?\nPre-training, right?\nYeah.\nYes.\nYeah, that's a good question.\nYeah, we didn't\ntry exactly that.\nI think the answer will depend\non other features of the data\ndiversity because I\nthink it's about--\nwe've seen this in\na lot of other work.\nIt's about the relative\ndiversity of where\nyou see reversal examples.\nYou have to have a\ncertain minimal amount\nto learn how to do that\nstructural processing.\nBut you also need some\namount of diversity\nto convince the model\nthat should generalize\nbeyond the training examples.\nSo I don't know exactly\nwhere the cutoff\nwould be with this though.\nIt's a good question.\nI have one more.\nYes.\nDid you always encode these\npropositions in English?\nDo you try doing it in\na more formal calculus?\nIs there any ambiguity?\n[INAUDIBLE]\nYeah, great question.\nSo for these models that are\ntrained-- so for the experiments\non the pre-trained models, we\nalways did things in English.\nFor these experiments where the\nmodels are trained from scratch,\nthe model doesn't anything about\nEnglish or any other language\nbecause we're training\nit from scratch.\nSo it's all tokens.\nBut you can think\nof them as being\nbasically formal statements.\nYou could replace this contain\ntoken with a containment\noperator from math.\nAnd so you could think of these\nas being formal statements.\nI don't think it makes\na big difference.\nAlthough, these\nreversal things are--\nit could be that they are\nformatting details that\nwould make a difference here.\nDid you see the same behavior\nacross different model\narchitectures or just\ndifferent popular--\nYeah, so that's\na great question.\nSo the short answer\nis it depends.\nThe reversal thing\nin particular,\nthere's been a lot\nof work on this,\nmostly not by us\nbut by other people.\nAnd here are some\nthings that fix it.\nHaving a bidirectional\ntransformer fixes it.\nThat's obvious.\nThere are also things you can do\nthat are changing the learning\nobjective that also fix it.\nI'll maybe come back\nto this at the end\nbecause it relates to\nsome of the things I'll\ntalk about later.\nBut, yeah, it's definitely\nnot architecture independent,\nbut it is a pretty systematic\nfeature of architectures\nthat do causal next token\nprediction without doing\nsome trick to avoid it,\nI guess I would say.\nAwesome.\nCool.\nLet me move on.\nSo this is two examples.\nThere's more in\nthe paper showing\nthat even if you train\na model from scratch,\nthere's certain\nkinds of structures\nthat the models just\nfail to generalize even\nwhen they have enough data\nto support them generalizing\nin context.\nSo we're really confident\nthat they're learning\nthese structures from the data.\nAnd the way I've been\nthinking about this\nmore recently is that there's\nmany types of training data\nthat have explicit information\nbut also convey something\nlatently.\nSo you can think of the\nreversals as like this.\nThere's some\nexplicit information\nwhich is a forward relation,\nlike X is Y's parent.\nThere's some latent information\nlike who Y's parent was.\nThe multi-hop\nsyllogism-like data.\nAgain, there's multiple explicit\nstatements, like X is Y's parent\nand Y is Z's parent.\nAnd then there's some\nlatent information\nthat they imply like Z\nis the grandchild of X.\nThere's other structures\nwhere things like this\nhave been observed, where\nmodels aren't always\ngood at generalizing, like\ncross-lingual generalization\nor this generalization to\nalternative goals, which\nis something we think\nabout in the paper.\nSo I think that when models\nare exposed to information that\nconveys some underlying\nlatent information,\nthey won't always be able to\ngeneralize that information\neffectively if they've just been\ntrained on the explicit bits.\nAnd what I think-- so to\ntry to sketch this out\nin a different way, if you\nthink of the training documents,\nwhen we do parametric\nlearning on the model,\nwhen we train information\ninto its parameters,\nit consolidates\ninformation that integrates\nacross a lot of documents,\nbut it's a bit more\ntied to how that\ninformation was explicitly\nconveyed in the documents.\nAnd that means that the model\nis less flexible in using\nthat information at test time.\nBy contrast, when we do\nin-context learning, of course,\nyou can fit relatively\nlittle information in there,\nbut it's available in richer\ndetail in a way that can be more\nflexibly used at test time.\nDoes that distinction\nmake sense?\nOK, awesome.\nYes.\nAnd I do want to\nconvey, though, that\nthis consolidated information\nis important for the model's\ngeneralization.\nIt is very much the\nparametric information\nthat's allowing the models to\nlearn how to use information\nmore flexibly at test time.\nSo I'm definitely not saying\nthat the parametric learning\nis unimportant.\nAnd indeed, the way\nthat I think about this\nis that in-context\nlearning is better\nat using specific pieces\nof information flexibly.\nBut parametric\nlearning is better\nat extracting statistical\nstructures that\nare common across many\ndifferent documents.\nAnd those include\nthe structures that\nsupport flexible in-context\nlearning and the structures that\nsupport other kinds\nof generalization.\nAnd if you're\ninterested in that,\nI think you can see some nice\nexamples in this paper, Deep\nSequence Models Tend to\nMemorize Geometrically.\nI don't agree with\neverything in this paper,\nbut I think it shows\nsome nice examples of how\nstatistical learning\nacross many documents\ncan extract a statistical\nstructure that is actually\nharder for models\nto use in context.\nCool.\nI'll show you one example\nbecause I think this is actually\nan important reason that\nthese failures of latent\ngeneralization are not\nso obvious unless you\ndo controlled experiments.\nAnd the example works like this.\nSo language models\noften generalize better\nthan 0% in practice.\nAnd this latent\ngeneralization story\nwould suggest that they're\nreally missing all the latent\nstructure in the data.\nSo, for example,\nif we train models\non something like\nour syllogism tests\non statements all\nbirds have wings,\neagles are a type\nof bird, and then\ntest them on the\nstatement eagles\nhave wings, that\nwould probably be\na hard generalization for them\nto make from their parameters,\neasier in context.\nBut if as in natural\ntraining data,\nthe model would get lots of\nother examples of words that\ntend to co-occur\ntogether, like eagles fly,\nand pigeons are a type\nof bird, and pigeons\nhave wings and pigeons fly,\nand hawks are a type of bird.\nAnd Hawks have\nwings and Hawks fly.\nThen suddenly, this test\nstatement that eagles have wings\nmight not be so hard.\nThe models might\nbe able to infer it\nfrom word co-occurrences alone.\nAnd indeed, this is what we find\nin some tests in these papers,\nthat if you give the model\nenough statistical structure,\nit can skip the need for\ndoing systematic reversals\nor syllogistic\ninferences and just\ngeneralize based on the\nword co-occurrences alone.\nSo this is an example of\nhow parametric learning can\ndo types of generalization\nthat work around its failures\nto do more structured\nrelational generalization.\nDoes that make sense?\nThat can go horribly\nwrong, right?\nOh, yeah.\nTotally.\nSo--\nMeaning this would prove it\nwould learn nonsense things,\njust word co-occurrences?\nCorrect.\nYeah, so I think the statistics\nare useful in expectation.\nAnd so the models\nwill learn things\nthat are useful in expectation.\nBut in any particular\ninstance, those\ncan lead to incorrect\ngeneralizations.\nBut I think this is a general\nphenomenon of learning systems,\nI might be so bold as to say.\nIt's also the case\nthat, in-context,\nthe models will make mistakes.\nIt's also the case that when\nyou teach humans something,\nthey will make\nmistakes about how\nto generalize that information.\nIt's just a really hard\nproblem to get everything right\nall the time.\nI'm just wondering, though,\nif the word co-occurrences are\nboosted by some glimmer of\nlatent understanding better\nthan chance.\nOr is it--\nWell, so I do\nreally think this is\na legitimate mode\nof generalization,\njust to be clear.\nI think the model should\nbe integrating information\nacross these examples\nto infer that things\nthat are birds and fly\ntypically have wings.\nI think that's a\nlegitimate generalization.\nNow, it's interesting because\nif you took a slightly different\nexample, like\npenguins fly, where\nthese co-occurrence\nstructures would\nlead to that generalization,\nmaybe it's not licensed there.\nAnd you will see that\nmodels get it wrong.\nAnd also young children\nactually get these statements\nwrong some of the time.\nBut as we develop more refined\nunderstanding of the world,\nwe can repair that.\nAnd I think it's very\nsimilar for the models.\nThis statistical learning\nis helpful on average.\nIt will get certain\nkinds of things wrong,\nbut you just need\nmore data to fix that.\nIt's the short answer.\nOf course, the models might be\nable to do more sophisticated\nthings in context or using\nother information sources\nor methods, et cetera.\nDoes that make sense?\nYes.\nCan we think of\nthis as compression?\nWhen we see a statement\nin the forwards direction,\nthat's useful because I've\nseen in the training set.\nBut the reverse is lost in\ncompression parametrically.\nYeah, I think you\ncan think about it\nin that way to some extent.\nI think it's tricky\nbecause, at some level,\nwhat I want to argue is that--\nI think there's a\nstory which this\nsupports that compression can\nbe useful for generalization.\nBut I think there's also cases\nwhere the compression loses\ninformation that's important\nfor generalization.\nAnd I think that's what\nyou're pointing to.\nSo I think that's just an\nimportant tension to highlight,\nthat compression is maybe\nuseful for extracting\ncertain kinds of\nstructure and making\nit more readily available.\nAt the same time,\nif it's lossy, it\nloses information that\nmight be important\nand that could be useful in\nsome situations to some extent.\nAwesome.\nCool.\nSo the question\nwe're going to ask\nin the next section of the\ntalk is, well, all right.\nSo maybe statistical structures\ncould allow the models\nto generalize in some cases.\nBut are there some\nways that we could\nget the models to\ngeneralize, even when there\naren't such statistical cues?\nIs there some way\nthat we can really\nget the models to learn\nthe latent structure\nor to generalize it?\nCool.\nAnd I'm going to suggest 2 and\n1/2 or three paths to doing\nthis.\nSo the first is a train\ntime offline method,\nwhich is just that we're\ngoing to augment the training\ndata using in-context learning,\nand then distill that back\ninto the model's\nparametric knowledge.\nAnd the second is one\nto two online methods,\nwhich is that we're\ngoing to try to retrieve\nthe information from\nmemory at test time\nto make it into an\nin-context task.\nAnd in particular,\nwe're going to look\nat both doing explicit\nretrieval from episodic memory\nor implicit retrieval\nthat's learned via RL.\nSo the first method\nis very simple.\nIt's the dumb first\nthing we thought of.\nAnd it's a pretty simple idea.\nIt's just if in-context\nlearning generalizes better,\nlet's see if we can use it to\nmake those generalizations ahead\nof time and cache\nthem for the future.\nSo what we did is we took\nthe data set, the model,\nwe prompted it with\nthe data set in context\nto generate\nreasoning traces that\nelaborate upon the documents\nthat fill in missing reversals\nor make links between\ndocuments that aren't\nexplicit in the data set.\nThen we add these new\nconclusions back into the data\nset and fine-tune on\nthis whole larger data\nset, the original training data\nand the augmented reasoning\ntraces.\nSo just to make that really\nexplicit, take the training set.\nWe concatenate it as context.\nWe take individual documents one\nat a time and we pull them out\nand we ask the model things\nlike make connections\nbetween this document and the\nother documents in context.\nAnd then the model\nsays something like,\noh, I see that in this\ndocument, Dax are a type of fep\nand I learned earlier\nor in another document\nthat feps can zarp, and\ntherefore, Dax can zarp.\nMake sense?\nCool.\nAnd what we find is that this\naugmented fine-tuning strategy\ncan generalize, as\nwell as in-context\nlearning on reversal-like tasks,\nand maybe even better on things\nlike syllogisms because\nit allows the model\nmore chances to fill\nin missing links.\nMakes sense?\nCool.\nSo one way to work around these\nlatent generalization failures\nis using in-context learning to\naugment the fine-tuning data.\nAnd that can improve the\nmodel's generalization.\nNow, I think there's\nbeen a kind of reaction\nagainst the idea of synthetic\ndata discovering new knowledge.\nAnd I hate to throw my colleague\nDave Pfau under the bus\nbecause he's a very\nsmart guy, but I\nliked to take this\nscreenshot from him,\nwhich says I'm absolutely\nbegging researchers to learn\nthe data processing inequality.\nYou can't discover new knowledge\nfrom synthetic data generated\nfrom existing knowledge.\nAnd I think this tweet is not\nwrong, but it's misleading.\nAnd the point I want\nto make is that what\nwe're doing when we\naugment training data\nis not that we're\ncreating new information.\nThe information is really\nthere in the data already.\nIt's just that we're taking\ninformation that's implicit,\nthat's latent in\nthe data, and we're\nextracting it out and making\nit explicit and easily\naccessible to the model.\nSo, for example, if there's\na statement like all X are Y,\nno Y are Z in the\ntraining corpus,\nthen the statement no X are Z\nis already implied by those.\nThe information is in there.\nBut it's not explicit.\nAnd when we do the\nin-context augmentation,\nwe're taking the information out\nand we're making it explicit.\nAnd if you're interested\nin this line of thinking,\nI think these are two very\nnice and very different\npapers on the topic.\nOne is this paper\nby Tania Lombrozo,\nLearning by Thinking in\nNatural and Artificial Minds,\nand this older paper\nfrom here at Stanford\nfrom Stefano Ermon's group, A\nTheory of Usable Information\nUnder Computational Constraints.\nOK, so we were excited\nabout this for a while\nand we put out a\npreprint on this topic.\nBut the thing that\nbothered us about it\nwas that it's just\nnot conceivable\nthat we could always know\nhow information would\nbe useful in the future in\norder to augment the data ahead\nof time.\nAnd here's an example that I\nwas thinking about at the time.\nImagine you're reading\na paper or maybe you're\nworking on your dissertation.\nHere's a paper I read was\nworking on my dissertation.\nAnd it's conceivable that I\ncould augment my understanding\nof the paper by\nthinking about how\nit could relate to my\ndissertation or something.\nBut it's pretty unlikely that I\nwould think, oh, in five years,\nI'm going to be researching how\nlanguage models use information\nin context and maybe\nsomething from this paper\nwill be relevant to my\nunderstanding of that.\nI wasn't even really thinking\nabout language models that much\nat the time.\nAnd so the question\nis how could we\nget models to use\ninformation even\nif we didn't know at training\ntime that it would be useful?\nAnd the answer that\nwe came up with\nwas, well, maybe this is\nwhat retrieval is good for.\nMaybe if we can just take\nknowledge from episodic memory--\nthis is the\nhippocampus, by the way,\nwhich is what does episodic\nmemory in humans mostly.\nWe could take the knowledge\nfrom episodic memory.\nWe could retrieve\nit into context.\nAnd then the models\nwould be able to use\nthat knowledge more flexibly in\norder to answer some question.\nI want to highlight that,\nfor the experiments that I'm\nabout to show you, we used an\nOracle episodic memory, which\nis totally cheating.\nAnd the reason we did that, it\nhas perfect recall but imperfect\nprecision.\nSo it always recalls\nsomething that\nis useful for solving the task\nbut a bunch of other things\nthat are distractors.\nThe reason we did that\nis just because we didn't\nknow how to do good retrieval.\nAnd I'll come back to that\nat the end of the talk.\nSo what we find is that if we\nuse this cheating retrieval\nsystem, if we compare\non a reversal task\nthe generalizations of\nthe forward direction,\nboth parametric learning\nand episodic retrieval\ndo equally well\non generalization.\nBut when we go to\nthe reversal test,\nagain, parametric learning\ntotally fails the reversals.\nBut a system that can do\nepisodic retrieval, even\nwhen it's retrieving\na bunch of distractors\ngeneralizes very well.\nAnd similarly, on the codebooks\ntask that I showed you earlier,\nboth the parametric learner and\nthe system with episodic memory\ncan do very well on\nthe training splits.\nBut on the latent\ntest condition,\nonly the system with episodic\nmemory can generalize well.\nSo this shows some cases where\nepisodic retrieval, by bringing\nlearning experiences\ninto context,\ncan allow the system to use\nthem more flexibly in order\nto support flexible\ngeneralization.\nYes.\nIt's loading the episodes\nfrom the [INAUDIBLE]?\nThat's correct.\nYeah, so this is just taking\ndocuments from pre-training\nand sticking them\nback into context.\nAnd that can dramatically\nimprove the generalization.\nSo it can still do that X to Z\nrelationship that's missing just\nby pulling out X to Y\nand Y to Z. In context,\nis that [INAUDIBLE]\nasked the question?\nYeah.\nJust to be clear, there's\nbeen a long series of work\nbefore we worked on this topic\nshowing that retrieval augmented\ngeneration is a good\nway of getting models\nto answer questions about\nfactual information and stuff.\nAnd the way I think\nabout this work\nis we're basically\nshowing a mechanism\nby which this might be true.\nEven for documents\nthat have been trained\ninto the parameters, having that\ninformation available in context\ncan allow the models\nto use it more flexibly\nand to answer questions better.\nWould it be fair to\nsay you can extract\nthe true content from\npre-training quite\nwell, but just not relations?\nSo it's complicated.\nIt's that the models can extract\nthe relations from pre-training\nquite well, but they need\nto be cued in the right way.\nSo if you ask them about it\nin the forward direction,\nyou can ask them in a way that's\nquite different from training.\nAs long as you cue it with the\nfirst part of the relation,\nthe model will do a\ndecent job of continuing\nwith the second part.\nBut it's just that\nthey don't have\na good way of going backwards,\nunless that information is\nalready in context.\nBut hold that thought because\nit relates to something\nwe'll come to in a second.\nOther questions?\nOK, so we totally cheated on the\nepisodic retrieval part there.\nBut a natural question you\ncan ask, as I was alluding to,\nis whether the\nmodels could learn\nhow to do this via\nreinforcement learning\nwithout needing to do explicit\nretrieval or augmentation.\nAnd the intuition\nhere is that-- look\nat this graph I\nshowed you earlier.\nThe models already\nknow the relations.\nThey can state them\nin a new context.\nThey already know\nif the relation\nis in context how to\ndo the reversal using\nin-context learning.\nThey just need to put\nthose pieces together\nin order to solve the task.\nAnd so what we want to\nask in this paper is,\ncould the model learn to\nregenerate the information\nthat it needs in its\nchain of thought,\nthereby bringing that\ninformation back into context\nand enabling it to\nuse it more flexibly?\nAnd in particular, can we\nuse reinforcement learning\nto teach the models to do this?\nSo the way we tested this is we\ntook a model, we fine-tuned it\non several data sets\ncontaining new information,\ncompletely non-overlapping\ninformation, even though I copy\npasted these documents here so\nit looks like it's overlapping.\nAnd then, of course, we can\ntest the model's generalization\njust after fine-tuning, as\nwe did in the earlier papers.\nBut we can also do\nreinforcement learning\nto teach the model how to\nreason on one of these data sets\nand then test whether\nthat allows the model\nto learn how to reason\nto generalize better\non the other data set.\nDoes that make sense?\nAwesome.\nAnd what we find is\nthat doing this process,\nif we do reinforcement\nlearning on--\nwhoops.\nSome editing issue here.\nIf we do reinforcement\nlearning on one data set,\ndata set A, it\ngeneralizes to data set--\nto reasoning on\ndata set B. Whereas,\nthis augmentation bar here is if\nyou just do augmentation on data\nset E--\nsorry, data set A, it doesn't\ngeneralize to data set B.\nThis is showing the\ngeneralization for syllogisms.\nYou can see the amount\nof generalization.\nThis red bar is the\nreasoning generalization.\nYou can see the amount\nof generalization\nvaries across conditions.\nAnd in particular,\nreversals don't\nget that much\ngeneralization benefit\nfrom this in-context\nrecall strategy as opposed\nto retrieval which\ndid very well.\nAnd the reason this\nis is that, basically,\nin order to solve a\nreversal-type problem,\nthe model has to\nrecall the information\nin the other direction.\nAnd the whole point of\nreversal is that that's hard.\nIt's hard to get from one\ndirection to the other.\nAnd so the way the\nmodel is able to get\nanything above chance\non this is just\ngoing through and enumerating\nall the things it's\nseen in the data set until it\nhappens to hit the right one,\nand then it can go, oh,\nI can reverse that now.\nAnd so the model is able\nto do this above chance\non the test set because\nthe test set only\nhas thousands of entities.\nAnd so a decent\namount of the time, it\ncan enumerate hundreds\nof them and happen\nto hit on the right one.\nBut obviously, this isn't a very\npractical solution at scale.\nSo this shows a glass\nhalf full story.\nModels can learn\nvia reinforcement\nlearning how to regenerate\ninformation that they\nneed in context at test time.\nAnd this can help with some\nof the problems quite a lot,\nbut doesn't necessarily\nhelp with all of them.\nYes.\n[INAUDIBLE]\nThe augmentation.\nSo this is different because the\naugmentations was at train time.\nSo when you have\nthe documents there,\nthen you generate\nthinking traces from them.\nAnd that's an easier problem\nbecause the information\nis available.\nThis is the model has to learn\nhow to pull the information out\nthat's relevant\nto solving a task.\nAnd for something\nlike syllogisms,\nit's able to do\nthat decently well\nbecause you can follow\nthe chain of links.\nYou can be like, oh, let's see.\nI know all Dax are--\nwhat do I know about Dax?\nSo let's see all Dax\nare fep or whatever.\nAnd so it can reason\nthrough the chain\nto solve those\nkinds of problems.\nFor reversals, it's harder.\nBut reversals are very easy\nwith in-context augmentation,\nespecially because at least\nreversals you can anticipate\nmight be something you would\ncare about at test time.\nCool.\nSo I've shown you a\nfew different paths\nto better generalization from\nleveraging in-context reasoning.\nThe first is a train\ntime or offline path,\nwhere we augment the\ntraining data in context\nand then distill those\naugmented data into the model's\nparametric knowledge.\nAnd the second are some\nonline test time paths\nwhere we either\nexplicitly retrieve memory\nor we train the model via IRL to\nimplicitly retrieve information\nfrom the training corpus.\nAnd either way, having\nthat information available\nback in context makes the models\nbetter at answering these test\nquestions.\nYes.\nWhat's the difference\nbetween the models\nbeing able to do this,\ngenerate this augmented data,\nand then also do\n[INAUDIBLE] regeneration\nand just doing it [INAUDIBLE]?\nSo it's basically--\nwell, actually,\nlet me go to the next slide.\nAnd maybe this\nwill make it clear.\nAnd if not, we can\ncome back to it.\nSo basically, these methods\nhave different trade-offs.\nSo first of all, let's just\ntalk about the performance.\nDoing train time augmentation.\nIf you know what\nquestions you're\ngoing to care\nabout at test time,\nthis can achieve performance\nas good or better\nthan in-context learning.\nIf we do test time\nepisodic retrieval,\nthis can also achieve\ngood performance.\nAnd this RL-based method\nachieves good performance\non many kinds of structures,\nbut not all of them.\nSo the differences\nbetween these methods\nare really about\nwhat they cost when.\nAnd so for the train\ntime augmentation method,\nyou have to spend a lot of\nextra compute at training time.\nYou take a bunch of\nlong context inferences\nwhere you take a\ndata set and then\nyou generate further\ninformation from it.\nSo that's relatively expensive\ncompute-wise at training time.\nBut it's relatively\neasy for the model\nbecause it has the\ninformation available\nand it just has to\ngenerate other inferences\nit can make from it.\nAnd it's efficient at test\ntime because at test time,\nwe don't do anything\ndifferent than if we just\nfine tune the model normally.\nSo it's expensive at\ntraining, free at test.\nDoing test time\nretrieval, well, it's\nfree at training\ntime, which is nice,\nbut it requires a bunch of extra\ninference compute at test time\nbecause now we're making\nthe test context longer\nby prepending a bunch\nof documents to them.\nThat's more expensive.\nAnd I didn't give\nyou an answer for how\nto do retrieval while\nin a general way.\nSo this isn't even\nreally a solution.\nIt's just a gesture at\nwhere a solution might be.\nThis RL method, it\ngeneralizes beyond things\nthat we anticipated\nahead of time\nwe would need to\naugment for along\nwith this one, which is nice.\nBut it requires extra\ninference compute\nat training time when you're\ndoing the reinforcement learning\nstep and at test time, when the\nmodel has to generate a longer\nthinking trace in order\nto pull things back out\nof its knowledge.\nAnd so, I would say, to\ncome back to your question,\nthis one is, in\nsome sense-- well,\nthese two are in some\nsense easier for the model\nbecause the information gets\ninto its context somehow.\nAnd all it does is have to\nuse it in the right way.\nTest time retrieval is\nmaybe the easiest of all\nbecause it knows what question\nit's going to use it for.\nTrain time augmentation\nis the model\nhas to fill in what are the\nways this information might\nbe useful in the future?\nTest time thinking\nis hard for the model\nbecause although it knows what\nquestion it's trying to answer,\nit doesn't necessarily\nknow which information\nmight be useful for that.\nAnd so at least for\nthings like reversals,\nit might have to go through\na lot of information\nto try to pull out something\nthat would be useful.\nMake sense?\nAwesome.\nCool.\nSo in the last 10 minutes or so\nof the talk, what I want to do\nis talk a bit about\nthe bigger picture\nof why I've been\ninterested in these things\nand how it might\nrelate to some findings\nin natural intelligence.\nSo what I told you at\nthe beginning of the talk\nis that training data\noften latently convey more\nthan their explicit content.\nAnd when you train a\nlanguage model's parameters\non these data, what it learns\nmight be overly tied to what\nwas explicitly conveyed there.\nAnd so the question that I got\ninterested in while we were\nworking on this\nis is it possible\nthat natural intelligence faces\nsome of these same challenges,\nlike the parametric\nlearning that we do\nmight be more tied\nto the explicit way\nthat we've learned\nsome information.\nAnd if so, there\nmight be evidence\nthat natural\nintelligence also uses\nthese different\nkinds of strategies\nto bridge the\ngeneralization gap,\ndoing things like augmenting\nor training experiences offline\nand retrieving relevant\ninformation online.\nAnd it turns out\nthat if you look\nat the literature\non the relationship\nbetween the\nhippocampus, which does\nepisodic memory in\nthe brain, roughly,\nand the rest of neocortex, which\ndoes more parametric learning,\nroughly, you'll find that\nthe relationship between them\nis pretty complicated.\nAs this paper says, it's not a\nsimple function of experience\nwith the hippocampus replays.\nAnd you can find evidence\nthat the hippocampus\nis doing things that look\nlike offline augmentation.\nIt's doing preemptive\nreplay of future problems\nthat might come up or\nthat it is reorganizing\nour experiences in ways that\nmight support generalization.\nAnd you can find some evidence\nthat online replay is helping\nus to solve\nproblems, or at least\ncould be helping us\nto solve problems.\nAnd so it's possible\nthat natural intelligence\ntakes a let's throw\neverything at the wall\nand see what sticks approach\nto solving these latent\ngeneralization problems by using\nboth offline and online methods.\nAnd this, if you're interested\nin the neuroscience of it,\ncould provide a\ninteresting and different,\nI think, from other\nperspectives perspective\non why cortical and hippocampal\nlearning are complementary,\nwhere, again, the parametric\nlearning is able to integrate\ninformation, statistical\nstructures, for example,\nacross many experiences.\nBut episodic memory, by\npreserving specific experiences\nin richer detail,\nmakes them more\navailable for\nflexible reuse later\nto solve different\nkinds of problems.\nCool.\nSo coming back to\nthe big picture\nquestion I posed at the\nbeginning of the talk, what\ncomputational ingredients are\nneeded for generalization?\nWell, what I want to\nsuggest is that we\nneed both consolidated\ninformation, like cache\nstatistics, facts, and insights\nwithin or across experiences,\nprocedures for reasoning about\ninformation flexibly in context,\nand we need episodic memory\nthat preserves experiences\nin rich detail, allowing access\nto information that we didn't\nrealize would be\nimportant later.\nAnd you can think\nof these things\nas being some of the functions\nof parameters in the language\nmodels on the one\nhand and the things\nthat we put in context for them\non the other hand, at least\nwith methods like retrieval\naugmented generation.\nCool.\nSo that's it for what\nI wanted to say today.\nI told you that training\nexperiences contain\nboth explicit content and\nthey convey latent information\nthat might be useful later.\nLanguage models might not\nreason over this effectively\nfrom parametric learning.\nBut they can use it\nflexibly in context.\nWe showed a variety\nof approaches\nto bridging this gap, offline\napproaches using augmentation\nand online using various\nforms of retrieval.\nAnd I've suggested\nthat these might\nrelate to some findings about\noffline and online hippocampal\nreplay.\nOf course, there\nmight be other things\nthat the brain is doing\nthat's smarter than what\nwe're doing right now.\nWith that, I would like to\nthank all my collaborators,\nso especially Arslan,\nSridhar, and Stephanie,\nwho co-led various parts\nof this work, Martin,\nwho played a big role\nin one of the projects,\nas well as Effie, Cody, Jorg,\nAlex, Diane, Razvan, and Jay.\nAnd thank you all for listening\nand thanks to DeepMind\nfor supporting this work.\nIf you want more\nof my hot takes,\nyou can follow me\non these platforms.\n[APPLAUSE]\nAnd I'm happy to take more\nquestions/discussion now.\nAwesome.\nThanks, Andrew, for the very\ninsightful and amazing talk.\nWe'll be soliciting\nmore questions\nnow both online and in-person.\nSo for the folks here, feel\nfree to raise your hand.\nAnd I'll walk\naround with the mic.\nThanks for a good talk.\nI was wondering, do you have any\nablation study or sensitivity\nactivity towards contact size\nand billions of parameters\nand also sparsity?\nAnd how do they impact or\ninfluence your results?\nYeah, great question.\nSo for context size, we\ndo have some experiments\nthat bear on this.\nSo I guess the short answer is\nthat it's quite model dependent.\nBut I can tell you that for\nthe models that we used,\nthey're pretty good at--\nif you give them just one piece\nof information in context,\nthey will always get it right.\nIf you give them hundreds of\nthousands of tokens in context,\nthey'll get it a decent\namount of the time.\nIt depends on the problem.\nBut it also depends a lot\non what the information is.\nAnd so there's actually one\nof the ablations in our paper.\nWe look at the reversal\n[? course ?] data set,\nand we just change\nevery word in there\nto nonsense instead of\nthe original things,\nwhich are plausible statements\nabout this person directed\nthis movie.\nAnd what we find\nis that the model's\nability with the same data\nset in context, but just\nwith the names, for example,\nreplaced with nonsense words,\nthe model's ability to answer\nthose questions goes down a lot.\nNow, that might be partly a\ncontext length changing confound\nbecause the tokenization\nfor the names\nis shorter than tokenization\nfor the nonsense words.\nBut I think it's too big an\neffect to be explained by that.\nAnd it's really that retrieval\nis context-sensitive.\nThe model's ability to pull\ninformation out of context\ndepends on how well it's\nlearned in pre-training\nto pull information of\nthat type out of context.\nAnd it's just better at\ndoing that for information\nabout real entities,\nwhich comes up\nall the time in pre-training\nthan for information\nabout nonsense words.\nSo the answer is that\nthe models are definitely\nsensitive to the context\nlength and that sensitivity\ndepends on the information that\nyou're asking them to retrieve.\nThere was a-- oh, you\nasked about sparsity too.\nParameters and [INAUDIBLE]?\nYeah, parameters.\nSo I would say, short\nanswer on parameters\nis that larger models are\nbetter at this like most things.\nSparsity, you mean mixture of\nexperts versus dense models?\nI don't have any experiments\nthat directly address that.\nSo I can't answer.\nI wouldn't expect it to\nmake that much difference\nbecause, usually, the\nsparsity of the model\nis in the MLP layers,\nnot in the attention.\nIt's really the attention\nthat's modulating\nthese in-context effects.\nBut it could.\nYeah.\n[INAUDIBLE]\nAnother thing is that you train\nto learn new things easier.\nBut there's a tension in that.\nI was just wondering what\nassumption of sparsity\nthat you used.\nI see.\nYeah, so most of the\nexperiments I told you about,\nat least the small\nmodel experiments\nwere done with dense models.\nYeah, it would be interesting\nto compare the sparse case.\n[INAUDIBLE] in which\nclosely related to RL\nbut it's not really real RL?\nI find that sometimes when\nyou're having these models,\nyou work on doing feedback,\nand the application [INAUDIBLE]\nfeedback is not\nreally demoralizing\nin the sense coming to update\nthe weights while you're\nlearning.\nAnd so [INAUDIBLE]\nupdate that in real-time.\nSo, of course, I was trying\nto do something like that.\nBut it's not\nreal-time real-time.\n[INAUDIBLE]\nYeah, so I guess there's\nseveral questions there.\nIn general, there's\na problem of-- so I'm\ngoing to step back and\ngive a very big picture\nanswer to this question.\nOne of the things\nthat people thought\nabout why hippocampal and\ncortical learning in humans\nwere complementary\noriginally, which\nI think is still a very\nimportant part of why they're\ncomplementary, is\nthat it's important\nfor the parametric\nlearning system\nto learn slowly because\nthat allows it to integrate\ninformation across\na lot of experiences\nwithout having interference.\nAnd that's what helps the system\nto do statistical generalization\nthat is useful.\nOn the other hand, you want to\nbe able to-- if you're out there\nin the world and you almost get\nin a car accident or something,\nyou want to be able to learn\nfrom that one experience and not\nhave to see it 50,000 times\nin order for the statistics\nto finally catch up.\nAnd so episodic memory stores\nthe experiences very rapidly\nfrom a single experience.\nAnd then by replaying\nit over time,\nit can integrate that\nwith your other knowledge\nand your other\nexperiences in a way that\npreserves the nice slow\nlearning properties of cortex\nbut gives you the benefits\nof fast generalization.\nSo indeed, with\nthat analogy, you\nmight think that if you just try\nto train the model's parameters\nfrom one experience, if you\nmake a large enough update\nto the model's parameters\nin order to get it to really\neffectively incorporate that\nexperience in a way that\ngeneralizes to other\ninstances, you might actually\ndamage some of the model's\nother knowledge in the process.\nAnd so what you\nneed to do is maybe\nsome way of storing it\nexplicitly and either retrieving\nthat when you need\nit or replaying it\non the model to get it to learn\nthat information over time.\nI think people do things\nlike this to some extent.\nI suspect that the issues\nwith model generalization\nare more about the models\nbeing too context-sensitive\nin some sense in\nwhat they learn.\nThe models are very good at\ndistinguishing different kinds\nof situations.\nAnd because of\nthat, they're very\ngood at not generalizing\nas far as you want them\nto in certain kinds of ways.\nThe model gets some\nhuman feedback.\nI don't like this response.\nAnd it's like, OK.\nWhen someone asked\nme this question,\nI won't give this response.\nBut if you ask a very\nsimilar question,\nit might not have\ngeneralized to that.\nSo that's my intuition\nabout what's going on there.\nBut definitely, I think doing\nretrieval of relevant examples\ncould help with some of\nthese kinds of problems.\nIt might cause other\nissues, though,\ndepending on what\nkind of generalization\nyou were looking for.\nHopefully that answered it.\nWhat do you think of the\nfact that the model gets\nsmaller or gets [INAUDIBLE]?\nMaybe it will contribute to\nthis with generic learning\nafter, let's say, after a month.\nYou can have this network where\nthey say, hey, I love this.\n[INAUDIBLE]\nYeah, I think there's\nlots of interesting things\nto be explored in that space.\nYeah, a question\nabout the slide.\nYou compared the pros and\ncons of the three approaches.\nYes.\nTraining-data\naugmentation, ICL, and RL.\nYeah.\nTraining data\naugmentation was written\nthat it achieves as good or\nbetter performance than ICL.\nSo I wonder in which cases it's\nachieving better performance?\nYeah, so the basic situation\nin which that happens is that--\nso think about it this way.\nIn the in-context learning\ncase, the model basically\ngets one thinking chain's\nworth to try to hit\nthe answer to the question.\nIn the case that we did the\nin-context augmentation,\nwe actually have\na lot of documents\nthat we ask the\nmodel to generate\nthinking traces from with\nthe information in context.\nAnd so it's basically\nit gets a higher number\nof reasoning traces sampled\nthat could hit on the answer\nto the question.\nAnd so, for example,\non the syllogism tasks,\nwe find that the\nmodels generalize or do\nbetter on the syllogistic tests\nwith the augmented fine-tuning\nthan they do from the\nin-context learning.\nAnd that's my\nexplanation for it,\nis that you're\ngetting the model to\nby generating more reasoning\ntraces, its more likely to chain\ntogether the right statements\nto make some inference it\nneeds to make.\nProfessor [INAUDIBLE].\nYeah, but, I mean, well,\nI guess, in general,\nany question you want to ask\nthe model that you don't provide\nthe information in\ncontext at test time,\nthat information has to come\nfrom reasoning about things\nfrom the training corpus.\nOtherwise, there's no way the\nmodel could figure it out.\nI have a quick question.\nSure.\nOK.\nThe first one is, if I\nunderstood correctly,\nin pre-training, you\nhave two facts, like fish\nlay eggs and chicken lay eggs.\nYeah.\nAnd the inference time\nyou go fish and chicken\nare like each other\nin that point.\nIt will never see the eggs.\nI think it--\nThat may be a bold statement,\nbut it doesn't generalize.\nI think it would actually\nprobably generalize\nthat because it's\nmore of a forward--\nat least if it\nsaw some examples.\n[INAUDIBLE]\nBut let's say you have two\nstatements like that which\ndidn't sound so rhythmic,\nlike they sound same,\nyou use different words\nfor X, but it would never\nactually fill in that-- it's\nunlikely to fill in that gap\nbasically.\nYeah, so I think\nit depends a lot\non the statistics of\nthe training corpus,\njust to be clear.\nI showed the example of\nthe word co-occurrences\ncan support this in certain\nkinds of situations.\nBut assuming-- there are at\nleast some situations in which I\nagree it won't generalize that.\nSo my next question,\nthen, is in [INAUDIBLE]--\nand maybe you thought of this.\nMaybe you haven't.\nYou could train the model on\ncompletely abstract sequences,\nand it would get all the\ngeneralization capability\nit could ever get\nin the parameters.\nYeah.\nSo you have a copyright\nfree pre-training corpus\nthat's made up of nonsense\nwords, where maybe\nthe tokens will match up then.\nBut, yeah.\nYeah, so what I want\nto say about that is\nI think there is some\nmileage to be gained\nfrom doing things like this.\nAnd there's various papers\nthat have shown that you can,\nfor example, pre-trained\nmodels on formal languages\nand you can get some\nimprovements in how\nthey learn on real language.\nThe problem is that,\nas I said in the answer\nto some of the\nearlier questions,\nI actually think the statistical\nstructure is a very good thing\nto be learning.\nAnd so, for example, in some\nof the earlier work we've done,\nwe've looked at content\neffects on reasoning.\nSo how language models reason\nabout logical structures\nis very dependent on the\ninformation and the structures\nthey're reasoning about.\nTurns out that that's\ntrue of humans too\nand it's true of humans\nand language models\nin the same ways across\nsome classic problems that\nhave been studied in humans.\nAnd the way I think\nabout it and the way\nwe wrote about it in that paper\nis that the reason for this\nis actually that it's like\nnormatively a good thing, if you\nwant to make accurate\ninferences in the world,\nto use all the information\nthat you can in\norder to make those inferences.\nAnd so logical\nreasoning is hard to do\nand integrating a\nbunch of statistics\nis relatively easy and natural\nfor a parametric learner to do,\nit makes sense for the system to\nnot always rely purely on logic,\nbut to actually use that\nstatistical structure.\nAnd that will actually help it\nto generalize in expectation.\nAnd so I think that if you try\nto make a system that's just not\nusing the statistics\nbut just generalizing\non the basis of structure\nalone, for the same reason\nthat [? guffi ?] just\nwasn't a tractable approach\nto AI in real-world\nproblems where you just have\ntoo many things you could\npossibly make inferences about,\nyou need that\nstatistical structure\nto constrain the\nkinds of inferences\nthat you want the\nsystem to make.\nThat's what allows the\nsystem to efficiently get\nto a feasible answer.\nAnd I think that's important for\nboth understanding why humans\nreason in the quirky and weird\nways that we do sometimes\nand for understanding\nwhat language models need.\nSo I think that you would\nneed the models to pick up\nthat statistical\nstructure at some point.\nYes.\nMy question is related to that.\nBut firstly, thank\nyou for your talk.\nSecondly, at the end,\nyou made a comparison\nbetween the hippocampus and\nneocortex and then in-context\nlearning and\nparametric learning.\nMy first question then\nis what do you think is,\nfrom what you've seen,\nthe coolest similarity\nbetween human brains and natural\nlearning and machine learning?\nAnd then secondly, where exactly\ndo you think this metaphor\nbreaks down?\nYeah, OK.\nGreat question.\nSo I think I'm going\nto say that there's\nbeen a lot of interesting\nwork comparing language model\ntransformer-style attention to\nhippocampal memory, not just\nour work.\nAlthough, this takes a\ndifferent perspective on it.\nAnd James Whittington,\nfor example,\nhas done a bunch of\nwork in this space.\nAnd I think that analogy\nis very interesting\nbecause at some\nlevel, you wouldn't\nthink at all that\ntransformer-style attention is\ndoing anything\nlike what we think\nof the hippocampus is doing.\nBut it is like\npulling information\nout from a long\nsequence of past states\naccording to some of weighted\nsimilarity-based lookup.\nAnd when you phrase it in that\nway, it's like some things\nthat people have thought about\nthe hippocampus as doing.\nAnd James Whittington,\nwho I mentioned,\nhas worked on this\nanalogy quite a bit.\nSo I think that is an\ninteresting example of how\nyou can have systems that are\nclearly at the implementation\nlevel completely different.\nWhatever the\nhippocampus is doing,\nit's definitely not doing\ntransformer-style query value\nattention.\nBut that turned out to have some\nsimilar computational properties\nin some ways that can make one\nsystem a good model for another.\nSo I think that's just\ncool as a, I don't know,\nexample of the separation\nof computational and\nimplementational levels in doing\ncognitive science, for example.\nYeah, maybe I'll go\nwith that as the answer\nto your first question.\nWhere the analogy breaks down.\nWell, I already said the\nimplementation is obviously\nthe place that breaks down.\nBut the other place that I think\nit breaks down more is that--\nlet's imagine that you had a--\nwell, yeah, it's complicated.\nBut, I mean,\nbasically, you can't\nfit a whole lifetime\nof experience\ninto a language model's context.\nThat's not tractable.\nAnd yet, the hippocampus\nin combination\nwith the cortex,\nbecause it turns out\nthere's actually quite\ncomplicated interactions,\nand the hippocampus isn't\nreally storing episodic memories\nfor your whole life, certainly\nnot independently anyway,\nbut the hippocampus is able to\npreserve a much larger array\nof information.\nOne of probably consequences\nof that, I think,\nis that the hippocampus is much\nmore likely-- at least compared\nto the scale of\ninformation we're\nputting in the transformers\nnow, the hippocampus\ndoes much more\ngenerative retrieval.\nMost of the-- you\nmay have seen some\nof these stats that\nmany things you remember\nas episodic memories\ndidn't actually happen,\na non-trivial percentage of\nthem didn't actually happen.\nAnd you've just\nconstructed that memory.\nAnd then each time\nyou think about it,\nit becomes a stronger\nencoding of that memory.\nSo there's a lot\nof confabulation\nof the hippocampus.\nThat does happen with\nin-context learning too.\nBut I think on the\nscales that we have,\nit's maybe a lower rate actually\nthan it is for the hippocampus.\nBut the flip side\nof that is that I\nthink that perhaps\nthe generative nature\nof the hippocampus is\nmore flexible in some ways\nthan transformer\nattention is or is\nable to do some more\nsophisticated kinds\nof generalization.\nAnd so those are a few different\nways that the analogy breaks\ndown, I think.\nMaybe I'll go to you since--\nHi.\nI'm building a behavioral\nconstitution for AI,\nwhich [INAUDIBLE]\nsystem prompts.\nI was wondering, for\nbehavioral reliability,\ndo you think context will\never match the [INAUDIBLE]?\nYeah, it's a good question.\nI think it depends\non what you mean.\nBecause I think\nusually when people\nthink about a\nconstitution, for example,\nshaping a model's\nbehavior, it's like you\nwant this model when it's\nplaced in any new situation\nto behave in accordance\nwith the constitution.\nAnd the kinds of\nexperiments I showed\nyou are things\nwhere the model gets\na bunch of consistent\ninformation in context\nand then it's able to\nuse that effectively.\nI think the models have\na much harder time when\nthey have inconsistent\ninformation in context.\nFor example, if you\nhave a constitution that\nsays one thing and then you\nhave a user that's demanding you\nto do another thing,\nno, my grandma is dying\nand I really need you to\nhack into this computer\nso you can help me to help\nher, it's harder for the models\nto reconcile those different\nsources of information.\nAnd I think because of\nthat, I think this is--\nI'm not necessarily\nsaying that in-context\nwill be better or worse than\nparametric learning there.\nI think that in either case,\nit can be hard for the model\nto reconcile those different\nsorts of information,\nlike the things that it learned\nas parameters, the things that\nare in context, and the things\nthat the user is telling it\nright now.\nAnd because of that, it's\nhard to guarantee reliability\nof either of these\nmethods, I think.\nIn some sense,\nbecause the models\nare such good\nin-context learners,\nit's very hard to stop them from\nadapting to some weird context\nthe user gets them.\nYes.\nSo I think this stuff\nis really interesting.\n[INAUDIBLE] how much you should\ninvest in training [INAUDIBLE]\nparameter?\nAnd how much of it can\nbe offset or assisted\nby actually\nin-contrast learning?\nDo you know [INAUDIBLE]?\nYeah, that's a good question.\nI haven't published\nanything on those topics.\nBut there's been some\nwork, for example--\nthis is a slightly,\nOK, this is slightly\na tangent to your question.\nBut I'll just read it as an\nexample of the kinds of things\nin this space.\nThere is for a while\nthis notion of chinchilla\noptimal language\nmodel scaling, which\nwas about for a given fixed\ntraining budget, how much\nshould you train your model to\nget an optimally good model out\nat the end?\nAnd then people realized\nlater that if you're\ngoing to do a bunch of inference\non your model at test time,\nwell, you don't just care\nabout the training compute.\nYou also care about how good\nthe model is at test time\nrelative to its compute.\nAnd that changes the\nscaling laws you should fit\nfor how big of a model you\nshould train for a given\namount of training compute.\nAnd so similarly,\nI think there are\nscaling laws you\ncan fit that trade\noff these various\nparameters, like how much do\nyou want to augment your data?\nHow much do you want\nto get new data?\nHow much do you want to do\ncompute at training time\nversus at test time?\nAnd that will depend\na lot on what exactly\nyou're trying to get\nthe system to do.\nAt what cost?\nAt what time?\nSo I'm not sure if I've seen\na paper that explicitly tries\nto trade those things off.\nBut I'm quite confident\nthat some people out there\nare thinking about those issues,\nat least at one of the labs,\nif not all of them.\nYes.\nSo you talked about offline\naugmenting the training data.\nDid you look into\nlifting yourself\nup from your own bootstraps\nor making the model better\nwithout much information?\nYeah, you probe what the\ntrade offs are of doing that.\nWhat does it get\nworse in, if anything.\nYeah, so I think--\nOK, I'll say a few\nthings about this.\nSo one trade off is\njust the inference cost.\nAnd you should actually think\nthat that's non-trivial.\nIt's a lot more expensive to\ndo this offline augmentation\nthan just to do a fine-tuning\npass over a small data set.\nI don't know exactly\nthe trade off,\nbut I would guess at least\n10 times as expensive\nbecause you have to do a bunch\nof inference/generation passes,\nthen you have to do a training\npass over a larger data set.\nAnd so it's a lot\nmore expensive.\nAnd that's one of\nthe major trade offs.\nI think that you will\nget some hallucination\nin the augmented data.\nAnd in our examples, this\nwas at a low enough rate\nthat it still worth it to\nkeep augmenting the data\nbecause, well, I mean,\none way of looking at it\nis that if you\nget hallucinations\nsome percent of the time and\nyou get the right answers\nmore percent of the time, well,\nas long as the hallucinations\nare independent from\neach other, then\nthe model will on average\nlearn the right answer.\nI think that's one of the\nfactors that goes into it.\nI think when you do fine-tuning\non a larger data set,\nif you don't change\nanything else,\nyou will probably distort\nthe model's knowledge\nof other things more.\nAnd so that's a factor that you\ndefinitely have to consider.\nMost fine-tuning methods,\nincluding the ones we used here,\nhave some kind of\nregularization to try\nto prevent the model\nfrom drifting too\nfar from the original model.\nAnd that will tend\nto counteract that.\nBut how exactly those trade\noffs depend on how exactly\nyou're doing the regularization\nand stuff like that.\nA follow-up.\nDid you feel very\nsatisfied with your choice\nof prompt for each generation\nof the augmented training data?\nIs you want to maybe have\nsome foreknowledge of the task\nyou're trying to improve\nits performance on.\nYeah.\nSo you're cheating a little bit.\nYeah.\nYou're cheating to the\npoint where you literally\ntold it the answers.\nYou have to choose something\nin between those points.\nIs it satisfying to understand?\nYeah, so we did use\nthe same prompts\nacross the different\nexperiments.\nWe did ablation on the prompts,\nand it actually mattered less\nthan we thought it would.\nBut I think if you were--\nthe experiments in that paper\nwere all about factual knowledge\nof some kind, whether it's\nreversals, or syllogisms,\nor things like that.\nI think if you were like,\nnow I want to test this out\non a math reasoning\ndata set, you\nmight find that those\nprompts don't actually\nwork that well there.\nAnd so I think it's an\nimportant general question how\nmuch the prompts--\nhow to write prompts that are\nsufficiently general that they\ncould cover anything or how\nto adapt prompts to the data\nthat you're augmenting.\nIs there a prompt\nyou could tell us\nthat you used for this\nreversal reasoning syllogism.\nYeah, so the prompts\nthat-- you can see them\nin the appendix of the paper.\nBeen a couple of years.\nSo I don't remember\nexactly what they are.\nBut they are of the character\nhere's a bunch of documents.\nNow here's a\nparticular document.\nCan you rewrite this document\nand write any connections\nthat you can make between\nthis document and other ones\nin the corpus, including\nrephrasing things and thinking\nabout relations between\ndifferent entities and so on?\nSomething like that.\nAnd there's been other methods\nlike Tatsu's group here\nhas done some things\nalong these lines\nand various other groups have.\nSo you can see an\narray of prompts\nacross the literature\non how to do this.\nBut I think they're all--\nour prompts are quite\ntied to the factual\nand entities setting.\nAnd doing this in a fully\ngeneral way is a hard problem.\nYou were very indirect.\nYeah, I mean, we tried not to--\n[INAUDIBLE] much on\nlogical reasoning.\nYeah, I mean, we\nwanted the reviewers\nto not feel like we were\ntotally cheating on that.\nBut it's hard to\ndo it perfectly.\nUnfortunately, that's all\nthe time we have for today.\nBut thanks, everyone, for\nyour insightful questions.\nAnd let's give another\nround of applause\nto our speaker for today.\nThank you all for coming.\n[APPLAUSE]",
+  "segments": [
+    {
+      "text": "I'll be introducing our speaker for today. So Andrew Lampinen is a member of technical staff at Anthropic. And previously, he was a staff research scientist at Google DeepMind and received his PhD in cognitive psychology here at Stanford.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "His research interests bridge AI and cognitive science on topics including learning, generalization, and representation in language models, agents, and humans, as well as broader issues methodologies for generalizable research. And feel free to check",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "out his Substack for more. And without further ado, I'll hand it off to Andrew. [APPLAUSE] So I think a question that's motivated a lot of my work over the years is the question of what computational principles are shared across natural",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "and artificial intelligence? And that's a question that I want to touch on in this talk, even though this is a class about transformers or a seminar series about transformers. And in particular, the question that I want to think about here",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "is how do language models generalize from what they learn? And is there anything from that could tell us something about how the systems of natural intelligence work, the different ways that natural intelligences learned? And this work started from observing",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "that there's two different ways that language models can learn. This is probably not surprising to you. Of course, one way they learn is that over a large training corpus, we optimize the network's parameters in order to get them to encode some",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "knowledge or some skills that we want them to have. But the other thing, one of the things that got people most excited about language models in the first place was their ability to learn from information in context. You can just put some examples of a task",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "or some facts or some documents into the language model's context, and the models can use that information to learn new things, sometimes even to learn new languages or do fairly sophisticated things like that. And the cool thing about doing cognitive science",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "on models like this is that we can do all kinds of controlled experiments that would be very hard to do on natural intelligences, like we can take novel information. We can put it into these different sources, and we can ask how the",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "system uses that information to make predictions in a response to further questions or tasks or so on. And the experiments I'm going to tell you about today come from doing this work. And in particular, I'm going to tell you about a series of works we've",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "done where we found some pretty striking differences in how these models generalize from the information that's stored in their parameters and from information in context. And then after that, we came to studying several paths to bridge",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "this generalization gap. And at the end, I'll come back to talk about these bigger picture questions about how these findings might relate to natural intelligence. And if you're interested, the things I'm going to talk about today come mostly",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "from this series of three works on the generalization of language models from in-context learning and fine tuning, latent learning, and improving latent generalization using test time compute. Awesome. So let's dive in by talking about learning",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "in parameters and in context. So the inspiration for this work really started from this nice paper, The Reversal Curse. Have you seen this paper or heard of this paper? Not too many, OK. So this was a paper from Owin Evans' group. And what they showed is that",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "if you take a language model and you fine tune it on some facts in one order, like you tell it, Daphne Barrington is the director of A Journey Through Time, if you then test that model on a question like who is Daphne Barrington? The model will do quite well.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "But if you ask it the question that forces it to reverse the relation, like who is the person who directed A Journey Through Time, the model has quite a hard time answering that question. So this is what the authors termed the reversal curse,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "that models are tied to the direction in which they've learned a relation. They can't easily reverse it. But the thing that surprised us about seeing this work is that if you try this experiment in the chat, for example, the models are perfectly fine at it.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "If you give them some made up fact, like Z packs are bigger than carpools, then carpools are smaller than Z packs, this was actually-- well, this is a reversal. And in a paper we did earlier with much simpler language models, this was our",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "easy baseline condition that all the models were basically at ceiling at. And so this made us ask the question is it possible that the way that models generalize from information that they encounter in their context is different from how they",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "generalize from information they've stored in their parameters? And this would be an interesting finding because there's actually a lot of theoretical works that have argued that in-context learning is basically doing some form of approximate gradient descent,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "at least in settings where gradient descent is the optimal thing to do. So the question we asked in this first paper was, which generalizes better, a language model that's been fine-tuned on a new data set or one that's got the whole data set in its context?",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "So what we did is we took various data sets that contain, let's say, thousands of documents, hundreds of thousands of tokens, and we looked at different ways that we could teach the language model about this information. The first way is that you",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "just take the data set, you fine-tune the model on it in the standard way. And the second way, now that we have fairly long context models, is that you can just concatenate that whole data set, give the model document separators and put the entire",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "data set in context. And then in both of these settings, we're going to test how the model makes generalizations from the data in this data set. For example, reversals of relations but also more complex kind of structures like syllogistic generalizations.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Does that make sense? Cool. So I'm first going to show you some results on the original reversal curse data set. This is us replicating the findings from that work on a different model. So if you look at the reversal accuracy, a pre-trained model is at chance.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "When you fine-tune the model on the relations in only one direction, it actually gets slightly worse than chance on these reversals. But if you just put the entire data set in context, the model is able to answer the reversals with 99% accuracy.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So there's a big gap between the model's ability to generalize from information that's fine-tuned on and its ability to generalize that kind of information in context. We also tested other kinds of structures in this paper, for example, syllogistic",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "generalization. So syllogisms, you might from classic logic are these sets of two propositions, like all zamp are snaff, no snaff are plusk, that logically imply a third proposition, like no zamp are plusk. We set up these syllogisms with these nonsense nouns.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "So we knew there were things that weren't in the training data. And we just looked at if we train the models on documents that contain information like this, will they be able to generalize to the logical implications of those things? And here, again, we see,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "well, pre-trained models are at chance because these are all made up facts. If we fine-tuned models on these kinds of documents, they do get a little bit of above chance generalization to the held out tests, but not very much. And in-context",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "learning, where we just take the entire data set of thousands of these documents and put it in context, is actually able to generalize better. So these are two examples of how in-context learning can generalize better than fine-tuning",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "to certain kinds of tests. Of course, it's natural to ask why this is. And I think the answer is that there's actually a lot of structures on-- examples of these structures on the internet in the training data. People reversing a relation in a document",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "in an essay in a logical argument, of course, is actually a pretty common thing. And so it's natural for the models to learn how to use these kinds of structures in context. But then the question is, of course, why don't they learn how to generalize them",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "appropriately from fine-tuning? Well, a natural possibility that occurred to us was that maybe it is something about fine-tuning itself. Maybe the models don't really learn that much in fine-tuning. Maybe if we pre-train them from scratch, the models would be",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "able to generalize these kinds of relations more appropriately. So to test that hypothesis, we took a small language model, one we could train from scratch, and we created a large data set with 20,000 relationships. With most of them, the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "reversals were trained. But 1% of them were held out. And the way this data set looked there was some prefixed data that was just filler, basically, for data diversity. There's some trained relations that are like X contain Y, for example.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "And there's also some in-context learning training sequences, where you get a forward like W contains Z, and then a reverse, Z are the subset of W. And what we did is that we held out a few of the reversals like Y is a subset of X and we just",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "tested how well the models were able to generalize to these. And what we find is that if you test the model's memory for the trained relations, even in a new context, they do very well. If you test their ability to take one of the trained",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "relations for which the reversal was held out and reverse it in context, they also do perfectly at that. But they still get absolutely 0 generalization to the reversals. So this is really not just a phenomenon of fine-tuning. It's something more fundamental",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "about how the models generalize from relational information in their training data. And it's not just about reversals. We looked at other kinds of structures too, like this codebooks data set, where the model is trained on information about how they encode",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "different kinds of information in different-- you can think of them as different languages. And then we give it examples of using some of the encoding words from each language but not all of them. And then we test its ability to use the other encoding",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "words that it hadn't seen used in training. And again, in this context, we find that the models are able to recall the information well. If the information is in-context, they're able to use it flexibly. But they're not able to put those pieces together",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "in order to generalize to the held out tests. Yes, there's a question. [INAUDIBLE] When you say no context, you just prompted to translate the unknown thing, relying on the word knowledge in the model? Correct. Yeah, so basically, an example",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "of the no context sequences are like this. So we say codebook one. So that tells the model which codebook it should use. And then we give it the sequence to translate and we test how well it generalizes to the test. [INAUDIBLE] like, where",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "partially it did some and partially it didn't? I don't think we have any examples of that in the paper. But I think it would basically get the ones right that it knows and the ones wrong that it doesn't. I should say that we do--",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "this is not shown on this graph. But we do have tests where there's known encodings but in novel sequences and stuff. And it generalizes well to those. So it's not just that. It's totally overfit to the trained data set. Yes. Other questions?",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "Just a quick question for the interesting experiment from the last slide. So I'm wondering if you're trying to also gradually increase the percentage of data that is a reversal and see where do you get to the breakpoint. So basically is it enough to just",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "have 5%, 10% of examples [INAUDIBLE]? You mean for the in-context learning part? Pre-training, right? Yeah. Yes. Yeah, that's a good question. Yeah, we didn't try exactly that. I think the answer will depend on other features of the data diversity because I",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "think it's about-- we've seen this in a lot of other work. It's about the relative diversity of where you see reversal examples. You have to have a certain minimal amount to learn how to do that structural processing. But you also need some amount of diversity",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "to convince the model that should generalize beyond the training examples. So I don't know exactly where the cutoff would be with this though. It's a good question. I have one more. Yes. Did you always encode these propositions in English?",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Do you try doing it in a more formal calculus? Is there any ambiguity? [INAUDIBLE] Yeah, great question. So for these models that are trained-- so for the experiments on the pre-trained models, we always did things in English. For these experiments where the",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "models are trained from scratch, the model doesn't anything about English or any other language because we're training it from scratch. So it's all tokens. But you can think of them as being basically formal statements. You could replace this contain",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "token with a containment operator from math. And so you could think of these as being formal statements. I don't think it makes a big difference. Although, these reversal things are-- it could be that they are formatting details that",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "would make a difference here. Did you see the same behavior across different model architectures or just different popular-- Yeah, so that's a great question. So the short answer is it depends. The reversal thing in particular, there's been a lot",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "of work on this, mostly not by us but by other people. And here are some things that fix it. Having a bidirectional transformer fixes it. That's obvious. There are also things you can do that are changing the learning objective that also fix it.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "I'll maybe come back to this at the end because it relates to some of the things I'll talk about later. But, yeah, it's definitely not architecture independent, but it is a pretty systematic feature of architectures that do causal next token",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "prediction without doing some trick to avoid it, I guess I would say. Awesome. Cool. Let me move on. So this is two examples. There's more in the paper showing that even if you train a model from scratch, there's certain kinds of structures",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "that the models just fail to generalize even when they have enough data to support them generalizing in context. So we're really confident that they're learning these structures from the data. And the way I've been thinking about this",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "more recently is that there's many types of training data that have explicit information but also convey something latently. So you can think of the reversals as like this. There's some explicit information which is a forward relation, like X is Y's parent.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "There's some latent information like who Y's parent was. The multi-hop syllogism-like data. Again, there's multiple explicit statements, like X is Y's parent and Y is Z's parent. And then there's some latent information that they imply like Z",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "is the grandchild of X. There's other structures where things like this have been observed, where models aren't always good at generalizing, like cross-lingual generalization or this generalization to alternative goals, which is something we think",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "about in the paper. So I think that when models are exposed to information that conveys some underlying latent information, they won't always be able to generalize that information effectively if they've just been trained on the explicit bits.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And what I think-- so to try to sketch this out in a different way, if you think of the training documents, when we do parametric learning on the model, when we train information into its parameters, it consolidates information that integrates",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "across a lot of documents, but it's a bit more tied to how that information was explicitly conveyed in the documents. And that means that the model is less flexible in using that information at test time. By contrast, when we do in-context learning, of course,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "you can fit relatively little information in there, but it's available in richer detail in a way that can be more flexibly used at test time. Does that distinction make sense? OK, awesome. Yes. And I do want to convey, though, that",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "this consolidated information is important for the model's generalization. It is very much the parametric information that's allowing the models to learn how to use information more flexibly at test time. So I'm definitely not saying",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "that the parametric learning is unimportant. And indeed, the way that I think about this is that in-context learning is better at using specific pieces of information flexibly. But parametric learning is better at extracting statistical structures that",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "are common across many different documents. And those include the structures that support flexible in-context learning and the structures that support other kinds of generalization. And if you're interested in that, I think you can see some nice",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "examples in this paper, Deep Sequence Models Tend to Memorize Geometrically. I don't agree with everything in this paper, but I think it shows some nice examples of how statistical learning across many documents can extract a statistical",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "structure that is actually harder for models to use in context. Cool. I'll show you one example because I think this is actually an important reason that these failures of latent generalization are not so obvious unless you do controlled experiments.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "And the example works like this. So language models often generalize better than 0% in practice. And this latent generalization story would suggest that they're really missing all the latent structure in the data. So, for example, if we train models",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "on something like our syllogism tests on statements all birds have wings, eagles are a type of bird, and then test them on the statement eagles have wings, that would probably be a hard generalization for them to make from their parameters, easier in context.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "But if as in natural training data, the model would get lots of other examples of words that tend to co-occur together, like eagles fly, and pigeons are a type of bird, and pigeons have wings and pigeons fly, and hawks are a type of bird. And Hawks have",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "wings and Hawks fly. Then suddenly, this test statement that eagles have wings might not be so hard. The models might be able to infer it from word co-occurrences alone. And indeed, this is what we find in some tests in these papers, that if you give the model",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "enough statistical structure, it can skip the need for doing systematic reversals or syllogistic inferences and just generalize based on the word co-occurrences alone. So this is an example of how parametric learning can do types of generalization",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "that work around its failures to do more structured relational generalization. Does that make sense? That can go horribly wrong, right? Oh, yeah. Totally. So-- Meaning this would prove it would learn nonsense things, just word co-occurrences? Correct.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so I think the statistics are useful in expectation. And so the models will learn things that are useful in expectation. But in any particular instance, those can lead to incorrect generalizations. But I think this is a general",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "phenomenon of learning systems, I might be so bold as to say. It's also the case that, in-context, the models will make mistakes. It's also the case that when you teach humans something, they will make mistakes about how to generalize that information.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "It's just a really hard problem to get everything right all the time. I'm just wondering, though, if the word co-occurrences are boosted by some glimmer of latent understanding better than chance. Or is it-- Well, so I do really think this is a legitimate mode",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "of generalization, just to be clear. I think the model should be integrating information across these examples to infer that things that are birds and fly typically have wings. I think that's a legitimate generalization. Now, it's interesting because",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "if you took a slightly different example, like penguins fly, where these co-occurrence structures would lead to that generalization, maybe it's not licensed there. And you will see that models get it wrong. And also young children actually get these statements",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "wrong some of the time. But as we develop more refined understanding of the world, we can repair that. And I think it's very similar for the models. This statistical learning is helpful on average. It will get certain kinds of things wrong, but you just need",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "more data to fix that. It's the short answer. Of course, the models might be able to do more sophisticated things in context or using other information sources or methods, et cetera. Does that make sense? Yes. Can we think of this as compression?",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "When we see a statement in the forwards direction, that's useful because I've seen in the training set. But the reverse is lost in compression parametrically. Yeah, I think you can think about it in that way to some extent. I think it's tricky",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "because, at some level, what I want to argue is that-- I think there's a story which this supports that compression can be useful for generalization. But I think there's also cases where the compression loses information that's important for generalization.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "And I think that's what you're pointing to. So I think that's just an important tension to highlight, that compression is maybe useful for extracting certain kinds of structure and making it more readily available. At the same time, if it's lossy, it",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "loses information that might be important and that could be useful in some situations to some extent. Awesome. Cool. So the question we're going to ask in the next section of the talk is, well, all right. So maybe statistical structures could allow the models",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "to generalize in some cases. But are there some ways that we could get the models to generalize, even when there aren't such statistical cues? Is there some way that we can really get the models to learn the latent structure or to generalize it? Cool.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to suggest 2 and 1/2 or three paths to doing this. So the first is a train time offline method, which is just that we're going to augment the training data using in-context learning, and then distill that back into the model's",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "parametric knowledge. And the second is one to two online methods, which is that we're going to try to retrieve the information from memory at test time to make it into an in-context task. And in particular, we're going to look at both doing explicit",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "retrieval from episodic memory or implicit retrieval that's learned via RL. So the first method is very simple. It's the dumb first thing we thought of. And it's a pretty simple idea. It's just if in-context learning generalizes better,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "let's see if we can use it to make those generalizations ahead of time and cache them for the future. So what we did is we took the data set, the model, we prompted it with the data set in context to generate reasoning traces that elaborate upon the documents",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "that fill in missing reversals or make links between documents that aren't explicit in the data set. Then we add these new conclusions back into the data set and fine-tune on this whole larger data set, the original training data and the augmented reasoning",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "traces. So just to make that really explicit, take the training set. We concatenate it as context. We take individual documents one at a time and we pull them out and we ask the model things like make connections between this document and the",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "other documents in context. And then the model says something like, oh, I see that in this document, Dax are a type of fep and I learned earlier or in another document that feps can zarp, and therefore, Dax can zarp. Make sense? Cool.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "And what we find is that this augmented fine-tuning strategy can generalize, as well as in-context learning on reversal-like tasks, and maybe even better on things like syllogisms because it allows the model more chances to fill in missing links. Makes sense?",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "Cool. So one way to work around these latent generalization failures is using in-context learning to augment the fine-tuning data. And that can improve the model's generalization. Now, I think there's been a kind of reaction against the idea of synthetic",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "data discovering new knowledge. And I hate to throw my colleague Dave Pfau under the bus because he's a very smart guy, but I liked to take this screenshot from him, which says I'm absolutely begging researchers to learn the data processing inequality.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "You can't discover new knowledge from synthetic data generated from existing knowledge. And I think this tweet is not wrong, but it's misleading. And the point I want to make is that what we're doing when we augment training data is not that we're",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "creating new information. The information is really there in the data already. It's just that we're taking information that's implicit, that's latent in the data, and we're extracting it out and making it explicit and easily accessible to the model.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "So, for example, if there's a statement like all X are Y, no Y are Z in the training corpus, then the statement no X are Z is already implied by those. The information is in there. But it's not explicit. And when we do the in-context augmentation,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "we're taking the information out and we're making it explicit. And if you're interested in this line of thinking, I think these are two very nice and very different papers on the topic. One is this paper by Tania Lombrozo, Learning by Thinking in",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "Natural and Artificial Minds, and this older paper from here at Stanford from Stefano Ermon's group, A Theory of Usable Information Under Computational Constraints. OK, so we were excited about this for a while and we put out a preprint on this topic.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "But the thing that bothered us about it was that it's just not conceivable that we could always know how information would be useful in the future in order to augment the data ahead of time. And here's an example that I was thinking about at the time.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "Imagine you're reading a paper or maybe you're working on your dissertation. Here's a paper I read was working on my dissertation. And it's conceivable that I could augment my understanding of the paper by thinking about how it could relate to my",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "dissertation or something. But it's pretty unlikely that I would think, oh, in five years, I'm going to be researching how language models use information in context and maybe something from this paper will be relevant to my understanding of that.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "I wasn't even really thinking about language models that much at the time. And so the question is how could we get models to use information even if we didn't know at training time that it would be useful? And the answer that we came up with",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "was, well, maybe this is what retrieval is good for. Maybe if we can just take knowledge from episodic memory-- this is the hippocampus, by the way, which is what does episodic memory in humans mostly. We could take the knowledge from episodic memory.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "We could retrieve it into context. And then the models would be able to use that knowledge more flexibly in order to answer some question. I want to highlight that, for the experiments that I'm about to show you, we used an Oracle episodic memory, which",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "is totally cheating. And the reason we did that, it has perfect recall but imperfect precision. So it always recalls something that is useful for solving the task but a bunch of other things that are distractors. The reason we did that",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "is just because we didn't know how to do good retrieval. And I'll come back to that at the end of the talk. So what we find is that if we use this cheating retrieval system, if we compare on a reversal task the generalizations of the forward direction,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "both parametric learning and episodic retrieval do equally well on generalization. But when we go to the reversal test, again, parametric learning totally fails the reversals. But a system that can do episodic retrieval, even when it's retrieving",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "a bunch of distractors generalizes very well. And similarly, on the codebooks task that I showed you earlier, both the parametric learner and the system with episodic memory can do very well on the training splits. But on the latent test condition,",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "only the system with episodic memory can generalize well. So this shows some cases where episodic retrieval, by bringing learning experiences into context, can allow the system to use them more flexibly in order to support flexible generalization. Yes.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "It's loading the episodes from the [INAUDIBLE]? That's correct. Yeah, so this is just taking documents from pre-training and sticking them back into context. And that can dramatically improve the generalization. So it can still do that X to Z",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "relationship that's missing just by pulling out X to Y and Y to Z. In context, is that [INAUDIBLE] asked the question? Yeah. Just to be clear, there's been a long series of work before we worked on this topic showing that retrieval augmented",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "generation is a good way of getting models to answer questions about factual information and stuff. And the way I think about this work is we're basically showing a mechanism by which this might be true. Even for documents that have been trained",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "into the parameters, having that information available in context can allow the models to use it more flexibly and to answer questions better. Would it be fair to say you can extract the true content from pre-training quite well, but just not relations?",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "So it's complicated. It's that the models can extract the relations from pre-training quite well, but they need to be cued in the right way. So if you ask them about it in the forward direction, you can ask them in a way that's quite different from training.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "As long as you cue it with the first part of the relation, the model will do a decent job of continuing with the second part. But it's just that they don't have a good way of going backwards, unless that information is already in context.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "But hold that thought because it relates to something we'll come to in a second. Other questions? OK, so we totally cheated on the episodic retrieval part there. But a natural question you can ask, as I was alluding to, is whether the models could learn",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "how to do this via reinforcement learning without needing to do explicit retrieval or augmentation. And the intuition here is that-- look at this graph I showed you earlier. The models already know the relations. They can state them in a new context.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "They already know if the relation is in context how to do the reversal using in-context learning. They just need to put those pieces together in order to solve the task. And so what we want to ask in this paper is, could the model learn to",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "regenerate the information that it needs in its chain of thought, thereby bringing that information back into context and enabling it to use it more flexibly? And in particular, can we use reinforcement learning to teach the models to do this?",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "So the way we tested this is we took a model, we fine-tuned it on several data sets containing new information, completely non-overlapping information, even though I copy pasted these documents here so it looks like it's overlapping.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "And then, of course, we can test the model's generalization just after fine-tuning, as we did in the earlier papers. But we can also do reinforcement learning to teach the model how to reason on one of these data sets and then test whether",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "that allows the model to learn how to reason to generalize better on the other data set. Does that make sense? Awesome. And what we find is that doing this process, if we do reinforcement learning on-- whoops. Some editing issue here. If we do reinforcement",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "learning on one data set, data set A, it generalizes to data set-- to reasoning on data set B. Whereas, this augmentation bar here is if you just do augmentation on data set E-- sorry, data set A, it doesn't generalize to data set B. This is showing the",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "generalization for syllogisms. You can see the amount of generalization. This red bar is the reasoning generalization. You can see the amount of generalization varies across conditions. And in particular, reversals don't get that much generalization benefit",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "from this in-context recall strategy as opposed to retrieval which did very well. And the reason this is is that, basically, in order to solve a reversal-type problem, the model has to recall the information in the other direction. And the whole point of",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "reversal is that that's hard. It's hard to get from one direction to the other. And so the way the model is able to get anything above chance on this is just going through and enumerating all the things it's seen in the data set until it",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "happens to hit the right one, and then it can go, oh, I can reverse that now. And so the model is able to do this above chance on the test set because the test set only has thousands of entities. And so a decent amount of the time, it can enumerate hundreds",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "of them and happen to hit on the right one. But obviously, this isn't a very practical solution at scale. So this shows a glass half full story. Models can learn via reinforcement learning how to regenerate information that they need in context at test time.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "And this can help with some of the problems quite a lot, but doesn't necessarily help with all of them. Yes. [INAUDIBLE] The augmentation. So this is different because the augmentations was at train time. So when you have the documents there, then you generate",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "thinking traces from them. And that's an easier problem because the information is available. This is the model has to learn how to pull the information out that's relevant to solving a task. And for something like syllogisms, it's able to do",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "that decently well because you can follow the chain of links. You can be like, oh, let's see. I know all Dax are-- what do I know about Dax? So let's see all Dax are fep or whatever. And so it can reason through the chain to solve those kinds of problems.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "For reversals, it's harder. But reversals are very easy with in-context augmentation, especially because at least reversals you can anticipate might be something you would care about at test time. Cool. So I've shown you a few different paths",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "to better generalization from leveraging in-context reasoning. The first is a train time or offline path, where we augment the training data in context and then distill those augmented data into the model's parametric knowledge. And the second are some",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "online test time paths where we either explicitly retrieve memory or we train the model via IRL to implicitly retrieve information from the training corpus. And either way, having that information available back in context makes the models",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "better at answering these test questions. Yes. What's the difference between the models being able to do this, generate this augmented data, and then also do [INAUDIBLE] regeneration and just doing it [INAUDIBLE]? So it's basically-- well, actually,",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "let me go to the next slide. And maybe this will make it clear. And if not, we can come back to it. So basically, these methods have different trade-offs. So first of all, let's just talk about the performance. Doing train time augmentation. If you know what",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "questions you're going to care about at test time, this can achieve performance as good or better than in-context learning. If we do test time episodic retrieval, this can also achieve good performance. And this RL-based method achieves good performance",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "on many kinds of structures, but not all of them. So the differences between these methods are really about what they cost when. And so for the train time augmentation method, you have to spend a lot of extra compute at training time. You take a bunch of",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "long context inferences where you take a data set and then you generate further information from it. So that's relatively expensive compute-wise at training time. But it's relatively easy for the model because it has the information available",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "and it just has to generate other inferences it can make from it. And it's efficient at test time because at test time, we don't do anything different than if we just fine tune the model normally. So it's expensive at training, free at test. Doing test time",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "retrieval, well, it's free at training time, which is nice, but it requires a bunch of extra inference compute at test time because now we're making the test context longer by prepending a bunch of documents to them. That's more expensive. And I didn't give",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "you an answer for how to do retrieval while in a general way. So this isn't even really a solution. It's just a gesture at where a solution might be. This RL method, it generalizes beyond things that we anticipated ahead of time we would need to",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "augment for along with this one, which is nice. But it requires extra inference compute at training time when you're doing the reinforcement learning step and at test time, when the model has to generate a longer thinking trace in order to pull things back out",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "of its knowledge. And so, I would say, to come back to your question, this one is, in some sense-- well, these two are in some sense easier for the model because the information gets into its context somehow. And all it does is have to use it in the right way.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "Test time retrieval is maybe the easiest of all because it knows what question it's going to use it for. Train time augmentation is the model has to fill in what are the ways this information might be useful in the future? Test time thinking",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "is hard for the model because although it knows what question it's trying to answer, it doesn't necessarily know which information might be useful for that. And so at least for things like reversals, it might have to go through a lot of information",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "to try to pull out something that would be useful. Make sense? Awesome. Cool. So in the last 10 minutes or so of the talk, what I want to do is talk a bit about the bigger picture of why I've been interested in these things and how it might",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "relate to some findings in natural intelligence. So what I told you at the beginning of the talk is that training data often latently convey more than their explicit content. And when you train a language model's parameters on these data, what it learns",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "might be overly tied to what was explicitly conveyed there. And so the question that I got interested in while we were working on this is is it possible that natural intelligence faces some of these same challenges, like the parametric learning that we do",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "might be more tied to the explicit way that we've learned some information. And if so, there might be evidence that natural intelligence also uses these different kinds of strategies to bridge the generalization gap, doing things like augmenting",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "or training experiences offline and retrieving relevant information online. And it turns out that if you look at the literature on the relationship between the hippocampus, which does episodic memory in the brain, roughly, and the rest of neocortex, which",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "does more parametric learning, roughly, you'll find that the relationship between them is pretty complicated. As this paper says, it's not a simple function of experience with the hippocampus replays. And you can find evidence that the hippocampus",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "is doing things that look like offline augmentation. It's doing preemptive replay of future problems that might come up or that it is reorganizing our experiences in ways that might support generalization. And you can find some evidence",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "that online replay is helping us to solve problems, or at least could be helping us to solve problems. And so it's possible that natural intelligence takes a let's throw everything at the wall and see what sticks approach to solving these latent",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "generalization problems by using both offline and online methods. And this, if you're interested in the neuroscience of it, could provide a interesting and different, I think, from other perspectives perspective on why cortical and hippocampal",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "learning are complementary, where, again, the parametric learning is able to integrate information, statistical structures, for example, across many experiences. But episodic memory, by preserving specific experiences in richer detail, makes them more",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "available for flexible reuse later to solve different kinds of problems. Cool. So coming back to the big picture question I posed at the beginning of the talk, what computational ingredients are needed for generalization? Well, what I want to",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "suggest is that we need both consolidated information, like cache statistics, facts, and insights within or across experiences, procedures for reasoning about information flexibly in context, and we need episodic memory that preserves experiences",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "in rich detail, allowing access to information that we didn't realize would be important later. And you can think of these things as being some of the functions of parameters in the language models on the one hand and the things that we put in context for them",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "on the other hand, at least with methods like retrieval augmented generation. Cool. So that's it for what I wanted to say today. I told you that training experiences contain both explicit content and they convey latent information that might be useful later.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "Language models might not reason over this effectively from parametric learning. But they can use it flexibly in context. We showed a variety of approaches to bridging this gap, offline approaches using augmentation and online using various forms of retrieval.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "And I've suggested that these might relate to some findings about offline and online hippocampal replay. Of course, there might be other things that the brain is doing that's smarter than what we're doing right now. With that, I would like to",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "thank all my collaborators, so especially Arslan, Sridhar, and Stephanie, who co-led various parts of this work, Martin, who played a big role in one of the projects, as well as Effie, Cody, Jorg, Alex, Diane, Razvan, and Jay. And thank you all for listening",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "and thanks to DeepMind for supporting this work. If you want more of my hot takes, you can follow me on these platforms. [APPLAUSE] And I'm happy to take more questions/discussion now. Awesome. Thanks, Andrew, for the very insightful and amazing talk.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "We'll be soliciting more questions now both online and in-person. So for the folks here, feel free to raise your hand. And I'll walk around with the mic. Thanks for a good talk. I was wondering, do you have any ablation study or sensitivity",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "activity towards contact size and billions of parameters and also sparsity? And how do they impact or influence your results? Yeah, great question. So for context size, we do have some experiments that bear on this. So I guess the short answer is",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "that it's quite model dependent. But I can tell you that for the models that we used, they're pretty good at-- if you give them just one piece of information in context, they will always get it right. If you give them hundreds of",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "thousands of tokens in context, they'll get it a decent amount of the time. It depends on the problem. But it also depends a lot on what the information is. And so there's actually one of the ablations in our paper. We look at the reversal",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "[? course ?] data set, and we just change every word in there to nonsense instead of the original things, which are plausible statements about this person directed this movie. And what we find is that the model's ability with the same data",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "set in context, but just with the names, for example, replaced with nonsense words, the model's ability to answer those questions goes down a lot. Now, that might be partly a context length changing confound because the tokenization for the names",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "is shorter than tokenization for the nonsense words. But I think it's too big an effect to be explained by that. And it's really that retrieval is context-sensitive. The model's ability to pull information out of context depends on how well it's",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "learned in pre-training to pull information of that type out of context. And it's just better at doing that for information about real entities, which comes up all the time in pre-training than for information about nonsense words. So the answer is that",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "the models are definitely sensitive to the context length and that sensitivity depends on the information that you're asking them to retrieve. There was a-- oh, you asked about sparsity too. Parameters and [INAUDIBLE]? Yeah, parameters. So I would say, short",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "answer on parameters is that larger models are better at this like most things. Sparsity, you mean mixture of experts versus dense models? I don't have any experiments that directly address that. So I can't answer. I wouldn't expect it to",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "make that much difference because, usually, the sparsity of the model is in the MLP layers, not in the attention. It's really the attention that's modulating these in-context effects. But it could. Yeah. [INAUDIBLE] Another thing is that you train",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "to learn new things easier. But there's a tension in that. I was just wondering what assumption of sparsity that you used. I see. Yeah, so most of the experiments I told you about, at least the small model experiments were done with dense models.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, it would be interesting to compare the sparse case. [INAUDIBLE] in which closely related to RL but it's not really real RL? I find that sometimes when you're having these models, you work on doing feedback, and the application [INAUDIBLE] feedback is not",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "really demoralizing in the sense coming to update the weights while you're learning. And so [INAUDIBLE] update that in real-time. So, of course, I was trying to do something like that. But it's not real-time real-time. [INAUDIBLE] Yeah, so I guess there's",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "several questions there. In general, there's a problem of-- so I'm going to step back and give a very big picture answer to this question. One of the things that people thought about why hippocampal and cortical learning in humans were complementary",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "originally, which I think is still a very important part of why they're complementary, is that it's important for the parametric learning system to learn slowly because that allows it to integrate information across a lot of experiences",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "without having interference. And that's what helps the system to do statistical generalization that is useful. On the other hand, you want to be able to-- if you're out there in the world and you almost get in a car accident or something,",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "you want to be able to learn from that one experience and not have to see it 50,000 times in order for the statistics to finally catch up. And so episodic memory stores the experiences very rapidly from a single experience. And then by replaying it over time,",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "it can integrate that with your other knowledge and your other experiences in a way that preserves the nice slow learning properties of cortex but gives you the benefits of fast generalization. So indeed, with that analogy, you might think that if you just try",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "to train the model's parameters from one experience, if you make a large enough update to the model's parameters in order to get it to really effectively incorporate that experience in a way that generalizes to other instances, you might actually",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "damage some of the model's other knowledge in the process. And so what you need to do is maybe some way of storing it explicitly and either retrieving that when you need it or replaying it on the model to get it to learn that information over time.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "I think people do things like this to some extent. I suspect that the issues with model generalization are more about the models being too context-sensitive in some sense in what they learn. The models are very good at distinguishing different kinds",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "of situations. And because of that, they're very good at not generalizing as far as you want them to in certain kinds of ways. The model gets some human feedback. I don't like this response. And it's like, OK. When someone asked me this question,",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "I won't give this response. But if you ask a very similar question, it might not have generalized to that. So that's my intuition about what's going on there. But definitely, I think doing retrieval of relevant examples could help with some of",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "these kinds of problems. It might cause other issues, though, depending on what kind of generalization you were looking for. Hopefully that answered it. What do you think of the fact that the model gets smaller or gets [INAUDIBLE]? Maybe it will contribute to",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "this with generic learning after, let's say, after a month. You can have this network where they say, hey, I love this. [INAUDIBLE] Yeah, I think there's lots of interesting things to be explored in that space. Yeah, a question about the slide.",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "You compared the pros and cons of the three approaches. Yes. Training-data augmentation, ICL, and RL. Yeah. Training data augmentation was written that it achieves as good or better performance than ICL. So I wonder in which cases it's",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "achieving better performance? Yeah, so the basic situation in which that happens is that-- so think about it this way. In the in-context learning case, the model basically gets one thinking chain's worth to try to hit the answer to the question.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "In the case that we did the in-context augmentation, we actually have a lot of documents that we ask the model to generate thinking traces from with the information in context. And so it's basically it gets a higher number of reasoning traces sampled",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "that could hit on the answer to the question. And so, for example, on the syllogism tasks, we find that the models generalize or do better on the syllogistic tests with the augmented fine-tuning than they do from the in-context learning. And that's my",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "explanation for it, is that you're getting the model to by generating more reasoning traces, its more likely to chain together the right statements to make some inference it needs to make. Professor [INAUDIBLE]. Yeah, but, I mean, well, I guess, in general,",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "any question you want to ask the model that you don't provide the information in context at test time, that information has to come from reasoning about things from the training corpus. Otherwise, there's no way the model could figure it out.",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "I have a quick question. Sure. OK. The first one is, if I understood correctly, in pre-training, you have two facts, like fish lay eggs and chicken lay eggs. Yeah. And the inference time you go fish and chicken are like each other in that point.",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "It will never see the eggs. I think it-- That may be a bold statement, but it doesn't generalize. I think it would actually probably generalize that because it's more of a forward-- at least if it saw some examples. [INAUDIBLE] But let's say you have two",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "statements like that which didn't sound so rhythmic, like they sound same, you use different words for X, but it would never actually fill in that-- it's unlikely to fill in that gap basically. Yeah, so I think it depends a lot on the statistics of",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "the training corpus, just to be clear. I showed the example of the word co-occurrences can support this in certain kinds of situations. But assuming-- there are at least some situations in which I agree it won't generalize that. So my next question,",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "then, is in [INAUDIBLE]-- and maybe you thought of this. Maybe you haven't. You could train the model on completely abstract sequences, and it would get all the generalization capability it could ever get in the parameters. Yeah. So you have a copyright",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "free pre-training corpus that's made up of nonsense words, where maybe the tokens will match up then. But, yeah. Yeah, so what I want to say about that is I think there is some mileage to be gained from doing things like this. And there's various papers",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "that have shown that you can, for example, pre-trained models on formal languages and you can get some improvements in how they learn on real language. The problem is that, as I said in the answer to some of the earlier questions,",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "I actually think the statistical structure is a very good thing to be learning. And so, for example, in some of the earlier work we've done, we've looked at content effects on reasoning. So how language models reason about logical structures",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "is very dependent on the information and the structures they're reasoning about. Turns out that that's true of humans too and it's true of humans and language models in the same ways across some classic problems that have been studied in humans.",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "And the way I think about it and the way we wrote about it in that paper is that the reason for this is actually that it's like normatively a good thing, if you want to make accurate inferences in the world, to use all the information that you can in",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "order to make those inferences. And so logical reasoning is hard to do and integrating a bunch of statistics is relatively easy and natural for a parametric learner to do, it makes sense for the system to not always rely purely on logic,",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "but to actually use that statistical structure. And that will actually help it to generalize in expectation. And so I think that if you try to make a system that's just not using the statistics but just generalizing on the basis of structure",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "alone, for the same reason that [? guffi ?] just wasn't a tractable approach to AI in real-world problems where you just have too many things you could possibly make inferences about, you need that statistical structure to constrain the kinds of inferences",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "that you want the system to make. That's what allows the system to efficiently get to a feasible answer. And I think that's important for both understanding why humans reason in the quirky and weird ways that we do sometimes and for understanding",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "what language models need. So I think that you would need the models to pick up that statistical structure at some point. Yes. My question is related to that. But firstly, thank you for your talk. Secondly, at the end, you made a comparison",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "between the hippocampus and neocortex and then in-context learning and parametric learning. My first question then is what do you think is, from what you've seen, the coolest similarity between human brains and natural learning and machine learning?",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "And then secondly, where exactly do you think this metaphor breaks down? Yeah, OK. Great question. So I think I'm going to say that there's been a lot of interesting work comparing language model transformer-style attention to hippocampal memory, not just",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "our work. Although, this takes a different perspective on it. And James Whittington, for example, has done a bunch of work in this space. And I think that analogy is very interesting because at some level, you wouldn't think at all that",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "transformer-style attention is doing anything like what we think of the hippocampus is doing. But it is like pulling information out from a long sequence of past states according to some of weighted similarity-based lookup. And when you phrase it in that",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "way, it's like some things that people have thought about the hippocampus as doing. And James Whittington, who I mentioned, has worked on this analogy quite a bit. So I think that is an interesting example of how you can have systems that are",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "clearly at the implementation level completely different. Whatever the hippocampus is doing, it's definitely not doing transformer-style query value attention. But that turned out to have some similar computational properties in some ways that can make one",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "system a good model for another. So I think that's just cool as a, I don't know, example of the separation of computational and implementational levels in doing cognitive science, for example. Yeah, maybe I'll go with that as the answer to your first question.",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "Where the analogy breaks down. Well, I already said the implementation is obviously the place that breaks down. But the other place that I think it breaks down more is that-- let's imagine that you had a-- well, yeah, it's complicated. But, I mean,",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "basically, you can't fit a whole lifetime of experience into a language model's context. That's not tractable. And yet, the hippocampus in combination with the cortex, because it turns out there's actually quite complicated interactions,",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "and the hippocampus isn't really storing episodic memories for your whole life, certainly not independently anyway, but the hippocampus is able to preserve a much larger array of information. One of probably consequences of that, I think,",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "is that the hippocampus is much more likely-- at least compared to the scale of information we're putting in the transformers now, the hippocampus does much more generative retrieval. Most of the-- you may have seen some of these stats that",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "many things you remember as episodic memories didn't actually happen, a non-trivial percentage of them didn't actually happen. And you've just constructed that memory. And then each time you think about it, it becomes a stronger encoding of that memory.",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "So there's a lot of confabulation of the hippocampus. That does happen with in-context learning too. But I think on the scales that we have, it's maybe a lower rate actually than it is for the hippocampus. But the flip side of that is that I think that perhaps",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "the generative nature of the hippocampus is more flexible in some ways than transformer attention is or is able to do some more sophisticated kinds of generalization. And so those are a few different ways that the analogy breaks down, I think.",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "Maybe I'll go to you since-- Hi. I'm building a behavioral constitution for AI, which [INAUDIBLE] system prompts. I was wondering, for behavioral reliability, do you think context will ever match the [INAUDIBLE]? Yeah, it's a good question. I think it depends",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "on what you mean. Because I think usually when people think about a constitution, for example, shaping a model's behavior, it's like you want this model when it's placed in any new situation to behave in accordance with the constitution. And the kinds of",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "experiments I showed you are things where the model gets a bunch of consistent information in context and then it's able to use that effectively. I think the models have a much harder time when they have inconsistent information in context. For example, if you",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "have a constitution that says one thing and then you have a user that's demanding you to do another thing, no, my grandma is dying and I really need you to hack into this computer so you can help me to help her, it's harder for the models",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "to reconcile those different sources of information. And I think because of that, I think this is-- I'm not necessarily saying that in-context will be better or worse than parametric learning there. I think that in either case, it can be hard for the model",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "to reconcile those different sorts of information, like the things that it learned as parameters, the things that are in context, and the things that the user is telling it right now. And because of that, it's hard to guarantee reliability of either of these",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "methods, I think. In some sense, because the models are such good in-context learners, it's very hard to stop them from adapting to some weird context the user gets them. Yes. So I think this stuff is really interesting. [INAUDIBLE] how much you should",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "invest in training [INAUDIBLE] parameter? And how much of it can be offset or assisted by actually in-contrast learning? Do you know [INAUDIBLE]? Yeah, that's a good question. I haven't published anything on those topics. But there's been some",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "work, for example-- this is a slightly, OK, this is slightly a tangent to your question. But I'll just read it as an example of the kinds of things in this space. There is for a while this notion of chinchilla optimal language model scaling, which",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "was about for a given fixed training budget, how much should you train your model to get an optimally good model out at the end? And then people realized later that if you're going to do a bunch of inference on your model at test time,",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "well, you don't just care about the training compute. You also care about how good the model is at test time relative to its compute. And that changes the scaling laws you should fit for how big of a model you should train for a given",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "amount of training compute. And so similarly, I think there are scaling laws you can fit that trade off these various parameters, like how much do you want to augment your data? How much do you want to get new data? How much do you want to do",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "compute at training time versus at test time? And that will depend a lot on what exactly you're trying to get the system to do. At what cost? At what time? So I'm not sure if I've seen a paper that explicitly tries to trade those things off.",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "But I'm quite confident that some people out there are thinking about those issues, at least at one of the labs, if not all of them. Yes. So you talked about offline augmenting the training data. Did you look into lifting yourself up from your own bootstraps",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "or making the model better without much information? Yeah, you probe what the trade offs are of doing that. What does it get worse in, if anything. Yeah, so I think-- OK, I'll say a few things about this. So one trade off is just the inference cost.",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "And you should actually think that that's non-trivial. It's a lot more expensive to do this offline augmentation than just to do a fine-tuning pass over a small data set. I don't know exactly the trade off, but I would guess at least 10 times as expensive",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "because you have to do a bunch of inference/generation passes, then you have to do a training pass over a larger data set. And so it's a lot more expensive. And that's one of the major trade offs. I think that you will get some hallucination",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "in the augmented data. And in our examples, this was at a low enough rate that it still worth it to keep augmenting the data because, well, I mean, one way of looking at it is that if you get hallucinations some percent of the time and",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "you get the right answers more percent of the time, well, as long as the hallucinations are independent from each other, then the model will on average learn the right answer. I think that's one of the factors that goes into it. I think when you do fine-tuning",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "on a larger data set, if you don't change anything else, you will probably distort the model's knowledge of other things more. And so that's a factor that you definitely have to consider. Most fine-tuning methods, including the ones we used here,",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "have some kind of regularization to try to prevent the model from drifting too far from the original model. And that will tend to counteract that. But how exactly those trade offs depend on how exactly you're doing the regularization and stuff like that.",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "A follow-up. Did you feel very satisfied with your choice of prompt for each generation of the augmented training data? Is you want to maybe have some foreknowledge of the task you're trying to improve its performance on. Yeah. So you're cheating a little bit.",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. You're cheating to the point where you literally told it the answers. You have to choose something in between those points. Is it satisfying to understand? Yeah, so we did use the same prompts across the different experiments.",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "We did ablation on the prompts, and it actually mattered less than we thought it would. But I think if you were-- the experiments in that paper were all about factual knowledge of some kind, whether it's reversals, or syllogisms, or things like that.",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "I think if you were like, now I want to test this out on a math reasoning data set, you might find that those prompts don't actually work that well there. And so I think it's an important general question how much the prompts-- how to write prompts that are",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "sufficiently general that they could cover anything or how to adapt prompts to the data that you're augmenting. Is there a prompt you could tell us that you used for this reversal reasoning syllogism. Yeah, so the prompts that-- you can see them",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "in the appendix of the paper. Been a couple of years. So I don't remember exactly what they are. But they are of the character here's a bunch of documents. Now here's a particular document. Can you rewrite this document and write any connections",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "that you can make between this document and other ones in the corpus, including rephrasing things and thinking about relations between different entities and so on? Something like that. And there's been other methods like Tatsu's group here",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "has done some things along these lines and various other groups have. So you can see an array of prompts across the literature on how to do this. But I think they're all-- our prompts are quite tied to the factual and entities setting.",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "And doing this in a fully general way is a hard problem. You were very indirect. Yeah, I mean, we tried not to-- [INAUDIBLE] much on logical reasoning. Yeah, I mean, we wanted the reviewers to not feel like we were totally cheating on that. But it's hard to",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "do it perfectly. Unfortunately, that's all the time we have for today. But thanks, everyone, for your insightful questions. And let's give another round of applause to our speaker for today. Thank you all for coming. [APPLAUSE]",
+      "start": 1560,
+      "duration": 6
+    }
+  ]
+}

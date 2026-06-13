@@ -1,0 +1,379 @@
+{
+  "videoId": "M5JHgofgPM8",
+  "title": "SREcon26 Americas - The Evolution of Postgres Performance",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 17929,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "There we go. Thanks for the intro. So\nyeah, I'm going to talk about Postgres\nperformance.\nUm, and you actually took my question a\nlittle bit. So now I get some extra free\ntime for my talk. But I was going to ask\nwho here interacts with databases or\njust Postgres specifically, and I see a\nlot of people out there do.\nUm, we've got a big Postgres fan right\nhere. And I got to talk cuz we have a\nbooth out there with a lot of you all\nabout how a lot of you either are\nmanaging a database or you are on call\nor managing infrastructure for\nthe the databases running on top of the\ninfrastructure in your organizations.\nUh, so one of the things that I like to\nthink about in terms of how we operate\ndatabases cuz we do lots of this. This\nis all we do at PlanetScale. We operate\nPostgres and MySQL for our customers all\nthe time. I like to think about using\nthem on a couple different axes. So\nprobably the most important, really in\ngeneral, but especially to the audience\nhere in this room is reliability, right?\nLike most of us have SLAs where either\nwe cannot be down or we can only be down\nfor very, very small maintenance\nwindows. Uh, so reliability is a key\npart of what we do with our databases.\nUh, but there's also several other ways\nto kind of think through how good and\nhow usable is my database. So\nscalability is a big one. How easy and\nhow quick it is to do like vertical and\nhorizontal scaling with a database. Um,\nwhen I put ergonomics there, I say that\nmostly in just the like when you're\ndoing version upgrades or you need to do\nmonitoring like how easy it is to access\nall that information or to do those\nthings smoothly. Uh, and the area that I\nthink about and focus on a lot is\nperformance. So one of the things I do a\nlot at PlanetScale is conducting\nbenchmarks when we come out with new\nversions or new features to to see what\nlike the performance deltas are,\num, both some that we publish externally\nand a lot of internal benchmarks as\nwell.\nSo, one of the things that I want to\ntalk about first is just kind of cuz I\nthink it's generally interesting is what\nuh how has the performance of Postgres\nchanged over the years? Because\nespecially in the past like 5 to 10\nyears, it's become much more widely used\nacross industry even though it's existed\nfor about 30 years. Uh and some of the\nbenchmark data I'm going to show here at\nfirst, it was not actually conducted by\nme, some other uh Postgres experts in\nthe field. Uh so, this is some data that\nis from Mark Callaghan, some of you\nmight know that name. He's a kind of uh\nbeen in the database space for a long\ntime and has a great blog where he\npublishes a lot of benchmark results.\nAnd so, what this is showing is the\nperformance of Postgres versions 13\nthrough 18, um, which are the different\ncolored bars here relative to Postgres\n12. And there's one major version per\nyear, so this is like 6 7 years worth of\nPostgres.\nAnd on the website, there's like way\nmore information, but this is just one\nslice of that showing a couple of\nbenchmarks. And one of the things that\nyou can see that kind of jumps out at\nyou is like, \"Okay, in the past 6 or 7\nyears based on these benchmarks, there\nhasn't been a lot of significant\nperformance changes.\" Again, just kind\nof taking this narrow view of what we\nsee right here.\nUh another very interesting one that I\nhave looked at and the data is all\nonline, and so I did some slicing and\ndicing of the data, uh is Tomas Vondra,\nwho is one of the Postgres maintainers,\ngave a talk a year or two ago uh at\nPGConf talking about an even wider\nspectrum of Postgres performance\nanalysis. So, he ran a very basic\nbenchmark, so this is uh pgbench doing\nTPCC B, which is [clears throat] very\nrudimentary, but still he was actually\nable to compile versions all the way\nback from version 8 to 18. And if you\ndon't know, version 8 came out in 2005,\nso it's not necessarily easy to compile\na C++ program that was written 20 years\nago right on current hardware and\ncompilers and all of this. So, he went\nthrough all the work to do that, and so\nthat's what's on the x-axis there. The\ny-axis is transactions per second, and\neach of those colored lines are\ndifferent numbers of simultaneous\nconnections. So, we can also see in this\ngraph how Postgres got better at\nhandling highly parallel workloads,\nwhich is pretty common, right? These\ndays, a lot of us are probably running\nVMs that have 64 CPUs or 128 CPUs. And\none of the things that clearly jumps out\nto me, and hopefully to you as well,\nis that in that from 2005 to 2017 or so,\nwhen version 10 came out, there was a\nlot of performance improvement,\nespecially in the context of like\nparallelization, right? Highly parallel\njobs on Postgres.\nAnd this is a read-only benchmark, and\nthere's a few other similar graphs. This\nis for similar benchmark between reads\nand writes. And then, the same\nbenchmark, but at a much higher scale\nthat has to do a lot more IO operations\nto disk for the read-only and for\nread-write. So, one of the interesting\nthings I'll go back to, let's say, this\ngraph right here, that you can kind of\nlook at and say, \"Okay, so maybe a lot\nof the low-hanging fruit for Postgres\nperformance was already grabbed by about\n2017. In the past 8 or 10 years, maybe\nPostgres performance just hasn't really\nchanged very much.\"\nAnyone believe that that's true?\nProbably not. It's probably not true.\nAnd so, this is one of the things that,\nagain, I think about a lot cuz I run a\nlot of benchmarks, which is are\nbenchmarks even useful? Is what I do\nwhen I run benchmarks even useful? And\nthe short answer is yes, but they often\ndon't tell the whole story because a\nbenchmark like what we just saw\nis only running and exercising a very\nnarrow set of what Postgres is capable\nof, right? A lot of benchmarks are doing\nvery simple select queries, maybe some\nbasic scans and aggregations, but\nthere's so much more power that\ndatabases like Postgres and MySQL have\nthat just don't always show up in\nbenchmarks.\nSo,\nhere is a super high-level summary of if\nwe go back from version nine about 10 or\nso years ago to version 18,\njust a very small selection of like what\nsome of the performance enhancements\nwere going from major version to major\nversion. And so, there's no way that I\ncan go do an in-depth dive on all these\nin the next like 15 minutes that we have\nhere, but I'll just call out one as an\nexample. So, from Postgres version 12 to\nversion 13, which was a while ago, one\nof the performance enhancements that was\nintroduced was uh doing parallel index\nvacuums. We'll talk about vacuuming a\nlittle bit later, but the way Postgres\nworks is you can end up with a lot of\ntable bloat and dead rows that need to\nbe cleaned up with these uh vacuum jobs,\nand we were able to do that in parallel\non indexes for a table in Postgres 13.\nSo, that's not going to show up at all\nwhen you are just running a basic like\nQPS benchmark, but in your day-to-day\noperations as someone working with\nPostgres, when you need to clean up\ntable bloat and make sure your database\nis healthy and staying online and not\nconsuming too much disk space, uh an\nimprovement like that is a really\nimportant improvement for performance\nand reliability and maintenance.\nUm so, there's all these things\nbasically that are kind of like hard to\njust measure by looking at basic\nbenchmarks.\nSo, fast forwarding to just focusing on\ntoday,\nsome of you might be maintaining old\nversions of Postgres, you know, 14, 15,\nversion 10, whatever. But Postgres 18 is\nthe current version, and there's over\n350 different things, knobs that you can\ntune in Postgres 18 configuration\noptions.\nSo, when when I think about, again,\ngoing back to that list of like what\nactually uh you know, the the axes of\ndatabase usability, like what are some\nof the most important things when I'm\nthinking about kind of the intersection\nof performance and reliability, like\nwhat really matters here? Um so, there's\nthree things that I want to spend the\nnext five or 10 minutes talking about,\nand then we'll do some questions. One is\ntable bloat, and then connections, and\nthen IO performance.\nSo,\nwe'll start by talking about table blow.\nUh a very quick crash course on those of\nyou that raised your hands about\nPostgres earlier probably already know\nthis. But, the way that Postgres does\ntable storage is it writes a row when\nyou insert a new row. And then every\ntime you go to make a change to a row,\nit actually often makes a whole new copy\nof that row. And so, you can end up with\nmany versions of the same row and it\ndoes this for a reason. It does this due\nto the way it handles transactions. Um\nbut, eventually those old versions of\nrows are just not needed anymore. And\nthey're essentially consuming disk\nspace, but it's it's a waste because no\ntransaction and no no no queries ever\ngoing to need to access that old\nversion.\nSo, there is a process called auto\nvacuuming,\nwhich is a background job that goes\nthrough and identifies, \"Hey, this is a\ndead row, a dead tuple, and I can go\nreclaim this space to be used by another\ninsert later on.\"\nSo, here's a benchmark that I ran kind\nof comparing two different\nconfigurations of auto vacuum. The\norange line at the top is doing a very\ninfrequent unaggressive auto vacuuming.\nAnd the purple line is a very aggressive\nschedule where every couple of seconds\nit's going through and running these\nbackground jobs to do maintenance and\nreclaim these resources, essentially.\nSo, if you just looked at this raw\nbenchmark, well, one thing is I may not\nhave warmed it up enough cuz we can see\nthat the line is going up a little bit.\nBut, that's not the point. The point is\nthe performance is both better and more\nconsistent when we don't do aggressive\nauto vacuuming versus when we do. So, if\nyou're purely focused on performance,\nyou'd say, \"Well, I don't want to do\naggressive auto vacuuming.\" And that may\nbe true for some cases. But, the thing\nthat this picture doesn't show is table\nbloat. So, at the end of this, you know,\nwhatever it was, couple minute run, it\nwas like a 7-or-8-minute run that I ran,\nthe orange table for the orange run had\ngrown by a gigabyte, over a gigabyte.\nAnd it had 11 million dead rows, so rows\nthat are sitting there on disk not being\nuseful, right? Completely dead on use.\nWhereas the other one was kept very\ntight, right? Very minimal table bloat.\nSo, this is one of those things that is\na balance of tuning for performance. We\nwant high performance, but at the same\ntime this even ties into our general\noperations and our reliability, because\nif you let maintenance jobs like this go\nunchecked, again we as PlanetScale have\nseen, especially companies that have\nreally high write throughput to their\ndatabase and there's a lot of row churn\nand row insertions,\ntable bloat can become a real problem.\nThat actually becomes an availability\nissue, cuz you start to fill up your\ndisks and things like that, right? So,\nsomething that really needs to be\nbalanced with like the performance\nversus maintenance and reliability uh\ntrade-off here.\nSo, that is one of them. Basically, pay\nattention to your bloat management in\nPostgres, and there's there's kind of\nthese trade-offs between performance\nthere.\nSo, the second one, uh a lot of you,\nagain, Postgres experts in the room\nalready know that Postgres, the way it\nhandles connections, is it does a\nprocess fork per connection, at least in\nmost cases.\nSo, what this means is, every time a new\nconnection comes in, whether that's a\nshort-lived connection or a long-lived\none, it will do a fork. And so, if you\nhave a thousand connections to a\nPostgres instance, there's actually a\nthousand separate processes running on\nthat server.\nUm and this can lead to some contention\nissues that often need to get mitigated\nwith a proxy. So, here's another\nbenchmark that is a very simple 1-minute\nrun on a very simple OLTP kind of\nbenchmark, but I just did it where I I\npushed them as hard as I could with\ndifferent numbers of connections. So,\neight connections, 16, 32, 64, all the\nway up to 2048.\nThe line chart doesn't reveal as much,\nbut once we flip this to a bar chart,\njust showing the average QPS for all of\nthese runs, one of the things we can see\nvery clearly is, okay, as we increase\nconnection count, we get better and\nbetter performance, right? Cuz we have\nmore parallelism to process these. And\nthis was This was only on like an\neight-core server.\nBut after a certain point, we start to\nnot only get diminishing returns, but\nperformance actually starts to degrade.\nAnd this is, you know, a very naive\nbenchmark, so take it with a grain of\nsalt. But a part of the reason why is\nbecause there's so much contention\namongst all these different connections\ntrying to vie for resources. There's\nlots of context switching. There's lots\nof memory overhead per connection\nuh that we actually get worse\nperformance, right? And again,\nconnection management is something we\nsee as like\nconfusion or an or an issue that some of\nour customers face, and we try to\neducate them on like best practices for\nthis.\nAnd so, there's a number of solutions\nfor it. What we often recommend is PG\nbouncer, which is a great open-source\nproxy and connection pooler for\nPostgres.\nUm but this is something is where the\nidea behind this is when you have your\nPG bouncer proxy set up in front of\nPostgres, you you can set the number of\nconnections at that point to be\noptimized for however many CPUs you\nhave. So, if we go back to here, we\nmight want to cap it out at 64\nconnections cuz we know that's like a\npretty optimal amount of connections or\nnumber of processes to be running on\nthis server for Postgres.\nBut then, in this day and age, we have a\nlot of apps that want to make thousands\nof connections at a time to a single\ninstance. So, we allow our apps to make\nmany connections to PG bouncer and uh\nmultiplex those right through our\npooler, essentially.\nSo, this is good for uh connection\nmanagement.\nAnd then lastly, let's talk about IO\nperformance. Um these were some\nbenchmarks that I ran uh a couple of\nmonths ago actually and published these.\nSo, there's a blog on Planet Scale. You\ncan look at these.\nBut if you follow Postgres releases, one\nof the things you know is Postgres 18\ncame with a bunch of new IO\nconfiguration options that a lot of\npeople were very excited about for\nperformance reasons, and rightfully so.\nOne of the biggest ones was it\nintroduced the ability to do\nasynchronous IO for certain operations\nusing the IOU ring interface, which you\nknow, more and more kind of pieces of\nsoftware are starting to adopt to get\nbetter IO performance.\nAnd there was a lot of excitement. I\nthink a lot of people including myself\nwent into Postgres 18 thinking this is\nprobably just going to be like the new\nbest default, right? Because it's such a\ncool way to do IO. But once I started\nrunning benchmarks on it, what what\nyou'll see here is each of these\nclusters of bars are different server\nconfigurations in AWS. The three smaller\nones are using different configurations\nof network attached EBS storage. And the\none on the far right is using a local\nNVMe disk.\nAnd Postgres 17 is the blue bar and all\nof the others are the three different\noptions in Postgres 18.\nAnd it surprised me because the one that\nI thought would be the best was actually\nthe worst in most cases and in some\ncases even worse than Postgres 17.\nSo, very narrow benchmark. There's\nThere's cases for sure where the new IOU\nring based IO works great. But it's not\njust like a clear hey, this is always\ngoing to be better. In fact, in some\ncases this other new sort of less hyped,\nless talked about feature of using\nbackground worker threads for your IO\nactually like one in every case for this\nbenchmark. And this was based on a\nsingle connection. Did similar things\nfor\n10 simultaneous connections and then\nbumping this all the way up to 50\nsimultaneous connections. Can see that\nit often wasn't the winner even though\nthings became much closer.\nAnd then the other thing that ties into\nthis, which again perhaps is obvious to\nthis crowd, but is that\na lot of this also ties in with what\nhardware you're running on cuz we can\nsee very clearly that those big bars on\nthe far side, those are based on a\nserver that had a local disk, but a lot\nof people are running databases on\nthings like EBS right or other forms of\nnetwork attached storage, persistent\ndisk in Google Cloud, where you are\ndoing network calls, right? Every time\nyou're doing a read or a write. And in\nsome cases, no matter how you configure\nyour IO, it's just going to be a\nbottleneck on your disk if you have not\nchosen like the right hardware for the\ntype of, you know, perhaps it's a really\nread heavy workload or a write heavy\nworkload. Or some workloads don't care\nas much about IO performance because\nthey're very uh memory based.\nSo, to wrap things up, I like to talk\nabout Postgres performance, and the\nperformance of your database, as we all\nknow, is very important. But there's\nalso uh definitely some\nsome uh relationship between the\nperformance and like the reliability\nthat you're getting, right? Whether\nthat's scaling connections, whether\nthat's like your vacuuming and\nmaintenance and all of this stuff. So, I\nthink even for people who are more uh\nwhoops, in the SRE role, it's very\nimportant to kind of think about both of\nthese things.\nUm and also just to be careful about how\nyou're tuning your databases.\nSo, that is all I have for you.\nThanks for being here, and I'll take\nsome questions.",
+  "segments": [
+    {
+      "text": "There we go. Thanks for the intro. So yeah, I'm going to talk about Postgres performance. Um, and you actually took my question a little bit. So now I get some extra free time for my talk. But I was going to ask who here interacts with databases or",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "just Postgres specifically, and I see a lot of people out there do. Um, we've got a big Postgres fan right here. And I got to talk cuz we have a booth out there with a lot of you all about how a lot of you either are managing a database or you are on call",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "or managing infrastructure for the the databases running on top of the infrastructure in your organizations. Uh, so one of the things that I like to think about in terms of how we operate databases cuz we do lots of this. This",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "is all we do at PlanetScale. We operate Postgres and MySQL for our customers all the time. I like to think about using them on a couple different axes. So probably the most important, really in general, but especially to the audience",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "here in this room is reliability, right? Like most of us have SLAs where either we cannot be down or we can only be down for very, very small maintenance windows. Uh, so reliability is a key part of what we do with our databases.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Uh, but there's also several other ways to kind of think through how good and how usable is my database. So scalability is a big one. How easy and how quick it is to do like vertical and horizontal scaling with a database. Um,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "when I put ergonomics there, I say that mostly in just the like when you're doing version upgrades or you need to do monitoring like how easy it is to access all that information or to do those things smoothly. Uh, and the area that I",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "think about and focus on a lot is performance. So one of the things I do a lot at PlanetScale is conducting benchmarks when we come out with new versions or new features to to see what like the performance deltas are, um, both some that we publish externally",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "and a lot of internal benchmarks as well. So, one of the things that I want to talk about first is just kind of cuz I think it's generally interesting is what uh how has the performance of Postgres changed over the years? Because",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "especially in the past like 5 to 10 years, it's become much more widely used across industry even though it's existed for about 30 years. Uh and some of the benchmark data I'm going to show here at first, it was not actually conducted by",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "me, some other uh Postgres experts in the field. Uh so, this is some data that is from Mark Callaghan, some of you might know that name. He's a kind of uh been in the database space for a long time and has a great blog where he",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "publishes a lot of benchmark results. And so, what this is showing is the performance of Postgres versions 13 through 18, um, which are the different colored bars here relative to Postgres 12. And there's one major version per",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "year, so this is like 6 7 years worth of Postgres. And on the website, there's like way more information, but this is just one slice of that showing a couple of benchmarks. And one of the things that you can see that kind of jumps out at",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "you is like, \"Okay, in the past 6 or 7 years based on these benchmarks, there hasn't been a lot of significant performance changes.\" Again, just kind of taking this narrow view of what we see right here. Uh another very interesting one that I",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "have looked at and the data is all online, and so I did some slicing and dicing of the data, uh is Tomas Vondra, who is one of the Postgres maintainers, gave a talk a year or two ago uh at PGConf talking about an even wider spectrum of Postgres performance",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "analysis. So, he ran a very basic benchmark, so this is uh pgbench doing TPCC B, which is [clears throat] very rudimentary, but still he was actually able to compile versions all the way back from version 8 to 18. And if you",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "don't know, version 8 came out in 2005, so it's not necessarily easy to compile a C++ program that was written 20 years ago right on current hardware and compilers and all of this. So, he went through all the work to do that, and so",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "that's what's on the x-axis there. The y-axis is transactions per second, and each of those colored lines are different numbers of simultaneous connections. So, we can also see in this graph how Postgres got better at handling highly parallel workloads,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "which is pretty common, right? These days, a lot of us are probably running VMs that have 64 CPUs or 128 CPUs. And one of the things that clearly jumps out to me, and hopefully to you as well, is that in that from 2005 to 2017 or so,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "when version 10 came out, there was a lot of performance improvement, especially in the context of like parallelization, right? Highly parallel jobs on Postgres. And this is a read-only benchmark, and there's a few other similar graphs. This",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "is for similar benchmark between reads and writes. And then, the same benchmark, but at a much higher scale that has to do a lot more IO operations to disk for the read-only and for read-write. So, one of the interesting things I'll go back to, let's say, this",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "graph right here, that you can kind of look at and say, \"Okay, so maybe a lot of the low-hanging fruit for Postgres performance was already grabbed by about 2017. In the past 8 or 10 years, maybe Postgres performance just hasn't really changed very much.\"",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "Anyone believe that that's true? Probably not. It's probably not true. And so, this is one of the things that, again, I think about a lot cuz I run a lot of benchmarks, which is are benchmarks even useful? Is what I do when I run benchmarks even useful? And",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "the short answer is yes, but they often don't tell the whole story because a benchmark like what we just saw is only running and exercising a very narrow set of what Postgres is capable of, right? A lot of benchmarks are doing",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "very simple select queries, maybe some basic scans and aggregations, but there's so much more power that databases like Postgres and MySQL have that just don't always show up in benchmarks. So, here is a super high-level summary of if",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "we go back from version nine about 10 or so years ago to version 18, just a very small selection of like what some of the performance enhancements were going from major version to major version. And so, there's no way that I",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "can go do an in-depth dive on all these in the next like 15 minutes that we have here, but I'll just call out one as an example. So, from Postgres version 12 to version 13, which was a while ago, one of the performance enhancements that was",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "introduced was uh doing parallel index vacuums. We'll talk about vacuuming a little bit later, but the way Postgres works is you can end up with a lot of table bloat and dead rows that need to be cleaned up with these uh vacuum jobs,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "and we were able to do that in parallel on indexes for a table in Postgres 13. So, that's not going to show up at all when you are just running a basic like QPS benchmark, but in your day-to-day operations as someone working with",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Postgres, when you need to clean up table bloat and make sure your database is healthy and staying online and not consuming too much disk space, uh an improvement like that is a really important improvement for performance and reliability and maintenance.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "Um so, there's all these things basically that are kind of like hard to just measure by looking at basic benchmarks. So, fast forwarding to just focusing on today, some of you might be maintaining old versions of Postgres, you know, 14, 15,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "version 10, whatever. But Postgres 18 is the current version, and there's over 350 different things, knobs that you can tune in Postgres 18 configuration options. So, when when I think about, again, going back to that list of like what",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "actually uh you know, the the axes of database usability, like what are some of the most important things when I'm thinking about kind of the intersection of performance and reliability, like what really matters here? Um so, there's",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "three things that I want to spend the next five or 10 minutes talking about, and then we'll do some questions. One is table bloat, and then connections, and then IO performance. So, we'll start by talking about table blow.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Uh a very quick crash course on those of you that raised your hands about Postgres earlier probably already know this. But, the way that Postgres does table storage is it writes a row when you insert a new row. And then every",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "time you go to make a change to a row, it actually often makes a whole new copy of that row. And so, you can end up with many versions of the same row and it does this for a reason. It does this due to the way it handles transactions. Um",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "but, eventually those old versions of rows are just not needed anymore. And they're essentially consuming disk space, but it's it's a waste because no transaction and no no no queries ever going to need to access that old version.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "So, there is a process called auto vacuuming, which is a background job that goes through and identifies, \"Hey, this is a dead row, a dead tuple, and I can go reclaim this space to be used by another insert later on.\" So, here's a benchmark that I ran kind",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "of comparing two different configurations of auto vacuum. The orange line at the top is doing a very infrequent unaggressive auto vacuuming. And the purple line is a very aggressive schedule where every couple of seconds it's going through and running these",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "background jobs to do maintenance and reclaim these resources, essentially. So, if you just looked at this raw benchmark, well, one thing is I may not have warmed it up enough cuz we can see that the line is going up a little bit.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "But, that's not the point. The point is the performance is both better and more consistent when we don't do aggressive auto vacuuming versus when we do. So, if you're purely focused on performance, you'd say, \"Well, I don't want to do",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "aggressive auto vacuuming.\" And that may be true for some cases. But, the thing that this picture doesn't show is table bloat. So, at the end of this, you know, whatever it was, couple minute run, it was like a 7-or-8-minute run that I ran,",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "the orange table for the orange run had grown by a gigabyte, over a gigabyte. And it had 11 million dead rows, so rows that are sitting there on disk not being useful, right? Completely dead on use. Whereas the other one was kept very",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "tight, right? Very minimal table bloat. So, this is one of those things that is a balance of tuning for performance. We want high performance, but at the same time this even ties into our general operations and our reliability, because",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "if you let maintenance jobs like this go unchecked, again we as PlanetScale have seen, especially companies that have really high write throughput to their database and there's a lot of row churn and row insertions, table bloat can become a real problem.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "That actually becomes an availability issue, cuz you start to fill up your disks and things like that, right? So, something that really needs to be balanced with like the performance versus maintenance and reliability uh trade-off here.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "So, that is one of them. Basically, pay attention to your bloat management in Postgres, and there's there's kind of these trade-offs between performance there. So, the second one, uh a lot of you, again, Postgres experts in the room",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "already know that Postgres, the way it handles connections, is it does a process fork per connection, at least in most cases. So, what this means is, every time a new connection comes in, whether that's a short-lived connection or a long-lived",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "one, it will do a fork. And so, if you have a thousand connections to a Postgres instance, there's actually a thousand separate processes running on that server. Um and this can lead to some contention issues that often need to get mitigated",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "with a proxy. So, here's another benchmark that is a very simple 1-minute run on a very simple OLTP kind of benchmark, but I just did it where I I pushed them as hard as I could with different numbers of connections. So, eight connections, 16, 32, 64, all the",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "way up to 2048. The line chart doesn't reveal as much, but once we flip this to a bar chart, just showing the average QPS for all of these runs, one of the things we can see very clearly is, okay, as we increase connection count, we get better and",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "better performance, right? Cuz we have more parallelism to process these. And this was This was only on like an eight-core server. But after a certain point, we start to not only get diminishing returns, but performance actually starts to degrade.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "And this is, you know, a very naive benchmark, so take it with a grain of salt. But a part of the reason why is because there's so much contention amongst all these different connections trying to vie for resources. There's",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "lots of context switching. There's lots of memory overhead per connection uh that we actually get worse performance, right? And again, connection management is something we see as like confusion or an or an issue that some of our customers face, and we try to",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "educate them on like best practices for this. And so, there's a number of solutions for it. What we often recommend is PG bouncer, which is a great open-source proxy and connection pooler for Postgres. Um but this is something is where the",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "idea behind this is when you have your PG bouncer proxy set up in front of Postgres, you you can set the number of connections at that point to be optimized for however many CPUs you have. So, if we go back to here, we might want to cap it out at 64",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "connections cuz we know that's like a pretty optimal amount of connections or number of processes to be running on this server for Postgres. But then, in this day and age, we have a lot of apps that want to make thousands of connections at a time to a single",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "instance. So, we allow our apps to make many connections to PG bouncer and uh multiplex those right through our pooler, essentially. So, this is good for uh connection management. And then lastly, let's talk about IO performance. Um these were some",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "benchmarks that I ran uh a couple of months ago actually and published these. So, there's a blog on Planet Scale. You can look at these. But if you follow Postgres releases, one of the things you know is Postgres 18 came with a bunch of new IO",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "configuration options that a lot of people were very excited about for performance reasons, and rightfully so. One of the biggest ones was it introduced the ability to do asynchronous IO for certain operations using the IOU ring interface, which you",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "know, more and more kind of pieces of software are starting to adopt to get better IO performance. And there was a lot of excitement. I think a lot of people including myself went into Postgres 18 thinking this is probably just going to be like the new",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "best default, right? Because it's such a cool way to do IO. But once I started running benchmarks on it, what what you'll see here is each of these clusters of bars are different server configurations in AWS. The three smaller",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "ones are using different configurations of network attached EBS storage. And the one on the far right is using a local NVMe disk. And Postgres 17 is the blue bar and all of the others are the three different options in Postgres 18.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "And it surprised me because the one that I thought would be the best was actually the worst in most cases and in some cases even worse than Postgres 17. So, very narrow benchmark. There's There's cases for sure where the new IOU",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "ring based IO works great. But it's not just like a clear hey, this is always going to be better. In fact, in some cases this other new sort of less hyped, less talked about feature of using background worker threads for your IO",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "actually like one in every case for this benchmark. And this was based on a single connection. Did similar things for 10 simultaneous connections and then bumping this all the way up to 50 simultaneous connections. Can see that",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "it often wasn't the winner even though things became much closer. And then the other thing that ties into this, which again perhaps is obvious to this crowd, but is that a lot of this also ties in with what hardware you're running on cuz we can",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "see very clearly that those big bars on the far side, those are based on a server that had a local disk, but a lot of people are running databases on things like EBS right or other forms of network attached storage, persistent",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "disk in Google Cloud, where you are doing network calls, right? Every time you're doing a read or a write. And in some cases, no matter how you configure your IO, it's just going to be a bottleneck on your disk if you have not",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "chosen like the right hardware for the type of, you know, perhaps it's a really read heavy workload or a write heavy workload. Or some workloads don't care as much about IO performance because they're very uh memory based. So, to wrap things up, I like to talk",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "about Postgres performance, and the performance of your database, as we all know, is very important. But there's also uh definitely some some uh relationship between the performance and like the reliability that you're getting, right? Whether",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "that's scaling connections, whether that's like your vacuuming and maintenance and all of this stuff. So, I think even for people who are more uh whoops, in the SRE role, it's very important to kind of think about both of these things.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Um and also just to be careful about how you're tuning your databases. So, that is all I have for you. Thanks for being here, and I'll take some questions.",
+      "start": 432,
+      "duration": 6
+    }
+  ]
+}

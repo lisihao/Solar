@@ -1,0 +1,49 @@
+sequenceDiagram
+  participant API as Anthropic API<br/>(Streaming)
+  participant STE as StreamingToolExecutor
+  participant TOOL as Tool Execution
+  participant UI as REPL UI
+
+  Note over API,UI: API streams + tools execute in parallel
+
+  API->>STE: stream: AssistantMessage (text)
+  STE->>UI: yield message
+
+  API->>STE: stream: tool_use block A (Read)
+  STE->>STE: addTool(A) → queued
+  STE->>STE: tryStartNext() → A is concurrencySafe
+  STE->>TOOL: execute A (async)
+  Note over STE: A status: executing
+
+  API->>STE: stream: tool_use block B (Grep)
+  STE->>STE: addTool(B) → queued
+  STE->>STE: tryStartNext() → B concurrencySafe
+  STE->>TOOL: execute B (async, parallel with A)
+
+  API->>STE: stream: tool_use block C (Bash)
+  STE->>STE: addTool(C) → queued
+  STE->>STE: tryStartNext() → C NOT safe, blocked
+
+  TOOL-->>STE: A progress update
+  STE->>UI: yield progress (immediate, no buffering)
+
+  TOOL-->>STE: A complete → results buffered
+  Note over STE: A status: completed
+
+  STE->>STE: getCompletedResults()
+  STE->>UI: yield A results (in receive order)
+  Note over STE: A status: yielded
+
+  TOOL-->>STE: B complete
+  STE->>UI: yield B results (next in order)
+  Note over STE: B status: yielded
+
+  STE->>STE: tryStartNext() → all concurrent done → C can start
+  STE->>TOOL: execute C (exclusive access)
+
+  API->>STE: stream ends (stop_reason)
+  Note over STE: getRemainingResults()
+
+  TOOL-->>STE: C complete
+  STE->>UI: yield C results
+  Note over STE: All tools yielded

@@ -1,0 +1,299 @@
+{
+  "videoId": "aMxAPuYhAkk",
+  "title": "FAST '26 - Sharpen the Spec, Cut the Code: A Case for Generative File System with SYSSPEC",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 14274,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Qingyuan from\nShanghai Jiao Tong University. I'm glad\nto present our work about a case for the\ngenerative file system paradigm with\nC-spec.\nA file system is a cornerstone of\noperating systems, bridging the gaps\nbetween application and storage devices.\nIt keeps evolving since hardware and\napplications\nUh, sorry.\nUm, it keeps evolving since hardware and\napplications are continuously updating.\nFor instance, the emergence of flash and\nLLMs led to the development of F2FS and\nthe Firefly file system respectively.\nBeyond the burst of new systems, mature\nfile systems like EXT4 have also\ncontinuously integrated new features\nover the past 20 years.\nSo, to um,\nto achieve the aforementioned\ndevelopment and evolution of the file\nsystem, the community has invested\ntremendous effort. For instance, our\nstatistics show that Linux has seen more\nthan um, 3,000 EXT4 related commits over\nthe past 20 years. These efforts involve\nextensive coding to implement new\nfeatures, which account for only 5% of\nthe commits, but represent 18 18% of the\ntotal lines of code.\nUm, the effort also includes the\nlong-tail maintenance and bug fixing.\nThese two types of commits take more\nthan 80% of total commits.\nUm, ti- times are changing. Today, the\ncoding capabilities of LLMs are\nadvancing rapidly.\nData from OpenRouter shows that tokens\nconsumed by programming tasks searched\nin the past 6 months accounting for more\nthan half of the total token usage. This\nleads to a natural question. Why not use\nLLMs to reduce the manual effort\nrequired for file system development and\nevolution?\nTo this end, we propose a paradigm of\ngenerative file system.\nOur vision is for programmers to focus\nfocus solely on system design,\neliminating the need for manual coding.\nSpecifically, developers will only need\nto specify the file system's behavior\nthrough high-level specifications. The\ncoding responsibility is then shifted to\nLLMs, which translate these\nspecifications into a concrete\nimplementation.\nThis paradigm is not limited to\nconstruct a file system from scratch. It\nalso enables file system evolution\nthrough specification updates. After\nupdating the specifications, the\nsystem's implementation is automatically\nrefreshed by the LLM.\nEssentially, the entire evolution\nprocess also becomes code-free. In a\nword, we believe this paradigm could\nsignificantly boost productivity in both\nthe development and evolution of file\nsystems.\nTo realize the paradigm, we need\nsystematic methodology that defines how\nto execute each core step. These steps\ninclude\nspecifying the file system logic,\nupdating those specifications, and\ngenerating code from them.\nUnfortunately, it's not easy to\naccomplish these tasks, achieving the\nparadigm of generative file system and\nrealize robust code generation.\nSpecifically, we identify at least four\nchallenges.\nThe first challenge is the semantic\ngaps. That is, there's lack of\nsystematic methodology for specifying\nthe functionality and the behavior of\nprograms. Currently, people simply use\narbitrary or random natural language to\ntell LLMs what code to generate.\nHowever, the semantic information in\nthese prompts may be insufficient or for\nthe LLM to generate the code they want.\nUm the behavior of programs with\nconcurrency\nor multi-threading is even more complex\nand difficult to specify. For example,\nif you ask the LLM to generate a file\nsystem with requirements like no\ndependency errors or avoid race\nconditions with locking, the LLM may\nfail to understand your intent and\ninstead generate misbehaved or buggy\ncode. For complex systems like a file\nsystem, even the slightest deviation in\nbehavior can cause the entire system to\ncrash. This is simply unacceptable.\nThe second challenge arises from the\nstructural complexity of file system\nmodules. Given the large number of\nmodules and their intricate\ndependencies, attempting to generate the\nentire file system\nthe entire file system in a single pass\ncould easily exceed context limits. Our\nexperiments shows that generating just\n200 lines of C code requires\napproximately 30,000 tokens with\nDeepSeek-R1. Conversely, if we try to\nbuild the complete file system through\nmultiple generations, the lack of shared\ncontext between these steps makes it\nhighly prone to dependency errors or the\ninterface mismatches.\nThe third challenge is that we must\nensure backward compatibility when\ninvolving the file system.\nIf we update the modules, for example,\nupdate the module C here,\nwe need to ensure that the functionality\nof other dependent modules remains\ncorrect, preventing this modification\nfrom creating a cascading effect.\nFinally, the LLM's capability is\nunreliable. It could generate unstable\noutputs even with the same input and\ncould suffer from hallucinations. For\nexample, when generating the code like\nthis, the LLM could occasionally forget\nto lock root LLM because of the\nhallucinated safe state.\nSo, to address the challenges,\nwe propose SysFS\na framework of generative file system.\nFirst, the design of SysFS\nspecification specifies the file system\nand addresses the challenge of lacking\nsystematic methodology for specifying\nprograms and the challenge of\ncomplicated composition.\nSecond, the design of SysFS patch is\nresponsible to update the\nspecifications, addressing the challenge\nof backward compatibility upon file\nsystem evolution.\nThird, the design of SysFS tool chain\ngenerates the code from specifications,\naddressing the challenge of unstable LLM\ncapabilities.\nNow, let me introduce these designs one\nby one.\nFirst is the design of SysFS\nspecification. The key insight of this\ndesign stems from our observation that\ngenerative file systems and formal\nverification share strong similarities.\nSpecifically, the generative file system\nparadigm uses the specification to\ngenerate the implementation with the\nwith the specification. In contrast, the\nformal verification verifies the\nexistence implementation with formal\nspecification, and the formal\nspecification can be highly precise.\nSo, in conclusion, the generative file\nsystem paradigm uses the SysFS uses the\nspecification to generate rather than\nverify the file system implementation.\nTherefore, we could borrow methodology\nfrom formal specifications to address\nthe challenges of specifying the file\nsystem, and we exactly did that. Our\ndesign of SysFS heavily draws\ninspiration from formal verification.\nFirst, um we continue to use the module\nas the basic unit of specification and\ncode generation. A module is a\ncollection of one or more functions, and\na specification-based file system\nsimilarly consists of multiple\nspecification modules.\nFor each module, the C spec\nspecification is structured with three\ncomponents: the functionality,\nconcurrency, and modular specifications.\nFunctionality specification defines the\nfunctional functional logic of each\nmodule. Concurrency specification\nspecify concurrent behavior and\ninteractions. And the modularity\nspecification describes inter-module\ncomposition and dependencies. Together,\nthey address the first two challenges.\nFirst, the functionality specification\nborrows the whole logic from formal\nverification. Basically, it has a whole\nlogic style semantics, includes\npre-condition, post-condition, and\ninvariants. Pre-condition specifies the\nrequired state before execution. And\npost-condition describes the guaranteed\nstate upon completion.\nThe invariant describes properties that\nmust hold true across state transitions.\nTo make the specification more\naccessible to programmers, we allow the\nuse of natural language to describe\nmathematical relations in whole logic.\nOf course, this introduces a trade-off\nincreasing ambiguity. We believe this\ntrade-off can be worthwhile since our\nevaluation demonstrates that LLMs can\ntolerate some ambiguities to some extent\nand generate the code correctly.\nIn addition, functionality\nspecifications may include optional\nsupplementary semantic information such\nas intent or system algorithm. Details\ncan be found in the paper.\nThe functionality specification focuses\nsolely on the sequential logic of the\nprogram. As a complement to that, the\nconcurrency specification focuses on the\nconcurrent execution behavior. Using\nwhole style specifications, it specifies\nthe locking state for each step within\nthe module, such as for each function\ncall. Moreover,\nseparating sequential and concurrent\nlogic facilitates two-stage generation\nprocess. Generates the sequential logic\nfirst, then complement logic and locking\nlogics.\nIn our early experiment, this approach\nhas occasionally improved the generation\naccuracy.\nThen, the modularity specification is\nresponsible to describe the interface\nlevel dependencies between modules. To\navoid exceeding the context window, each\nmodule is typically less than 500 lines\nof code. The modularity specification\nborrows rely and guarantee phases from\nformal verification. Since rely and\nguarantee is used to specify a module's\nassumption about other components.\nSpecifically, rely is external\ndependencies required by the\nimplementation of this module. In turn,\nguarantee describes behaviors\nimplemented and exposed by this module.\nThe rely and guarantee inherently\ndescribes the dependency relationships\nbetween modules. We hope the\nspecification based file system is\nconstructed with DAG structured\ndependencies.\nIn addition to construct a file system\nfrom scratch with specifications, our\ndesign of SpecPatch is responsible for\nguiding the evolution of file system,\naddressing the challenge of backward\ncompatibility.\nThe DAG structure of specifications is\nnatural for evolution. Meanwhile, we\nalso organize the modified or new\nspecifications into the DAG structure,\nforming a DAG structured specification\npatch. Generally speaking, the DAG\nstructured SpecPatch has two types of\nnode.\nThe non-root nodes implement and expose\nnew guarantees. Then, the entire patch\nmust contain at least one root node to\nbe considered complete. The root node\ncould rely on the new guarantees, but\nmost importantly, its own guarantees do\nnot change. Therefore, the root node can\nserve as the commit point to\nmerge the SpecPatch DAG into the\noriginal specification stack.\nThe patch merging process is easy.\nWe replace the specification of the old\nroot node with a new one.\nThe whole patch is thus merged into\noriginal specifications automatically\nand avoid cascading dependency issues.\nFinally, um we will want to introduce\nthe C spec tool chain. The C spec tool\nchain is responsible to generate the\nimplementation from specifications.\nThe generation process is a feedback\nloop with multiple agents.\nFirst, with the specification of a\nmodule, the spec compiler is responsible\nto generate a draft version of\nimplementation. Subsequently, spec\nvalidator validates the generated code.\nThe verification can be conducted using\nprepared unit tests or simply by letting\nthe LLM review the code and determine\nwhether it aligns with the\nspecification.\nIf the validation fails, the validator\nfeeds the failure information back to\nspec compiler, which uh regenerates the\ncode based on the feedbacks.\nThe feedback loop effectively mitigates\nhallucinations and ensure that the\ngenerated code adheres closely to the\nspecification. In our experiment, about\n30% of modules retry at least once\ngenerating misbehaved the code um in the\nfirst pass of generation.\nUm we also prepare an agent called spec\nassistant assisting um developers in\ngenerating spec specifications. Details\ncan be found in the paper.\nUm with with C spec, we construct spec\nFS as a case study. Spec FS is a\nconcurrent file system completely\nimplemented with specifications without\nany manual coding.\nThe implementation is based on AtomFS\nfrom SOSP '19, a formally verified\nconcurrent file system.\nWe further add 10 extra features from\nEXT4 to SpecFS, including the feature of\nextended data allocation and so on. With\nall the integrated features, SpecFS has\nabout 4,000 lines of code. The these\nlines of code could rank 42 out of the\n82 file systems from Linux 6 kernel.\nWe have evaluated the functional\ncorrectness of SpecFS.\nA module is considered correct if it\npasses all functional tests for AtomFS\nand is deemed logically equivalent to\nAtomFS through manual inspection.\nThe result is that with most LLMs, the\n45 modules and 70 modules for features\nare 100% correct. It means that it has\nthe same level of correctness as\nhuman-written AtomFS. This result is\nalso reproducible. We also find that\nwith small modules like Queen 3 32\nbillion, some modules always fail\neven with multi turns of feedback loops.\nThe errors mainly result from concurrent\nmodules fail to handle the complicated\nconcurrent logic.\nGenerated file system also improves the\nproductivity. Compared with C\nimplementation, specification has\nevidently less lines of code. And\nmoreover, we invited four graduate\nstudents to implement two features of\nSpecFS, recorded the time they spent\nimplementing the implementing the\ncorresponding functionality and found\nthat their productivity productivity was\nimproved with C-spec compared with the\nway of manual coding. This aligns with\nour experience. Writing specifications\nbetter matches human practice, does not\nrequire attending to every detail, and\ncan therefore be completed more quickly\nthan writing code.\nIn conclusion, we propose the paradigm\nof generated file system and design a\nframework, Cspec, to realize that\nparadigm. With Cspec, we implement um\nSpecFS as a case study, generate the\nwhole SpecFS from scratch, and further\nimplement 10 features from EXT4 for it.\nWe finally validated the feasibility of\nthe paradigm. SpecFS achieves equivalent\nlevel of correctness compared with\nhuman-written code. The productivity is\nalso improved.\nHere's the main page of our project. In\naddition to our paper, it includes the\ncode we submitted for artifact\nevaluation and a data set containing the\nstatistics on EXT4 patches. Thank you\nvery much.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Qingyuan from Shanghai Jiao Tong University. I'm glad to present our work about a case for the generative file system paradigm with C-spec. A file system is a cornerstone of operating systems, bridging the gaps",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "between application and storage devices. It keeps evolving since hardware and applications Uh, sorry. Um, it keeps evolving since hardware and applications are continuously updating. For instance, the emergence of flash and",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "LLMs led to the development of F2FS and the Firefly file system respectively. Beyond the burst of new systems, mature file systems like EXT4 have also continuously integrated new features over the past 20 years. So, to um, to achieve the aforementioned",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "development and evolution of the file system, the community has invested tremendous effort. For instance, our statistics show that Linux has seen more than um, 3,000 EXT4 related commits over the past 20 years. These efforts involve",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "extensive coding to implement new features, which account for only 5% of the commits, but represent 18 18% of the total lines of code. Um, the effort also includes the long-tail maintenance and bug fixing. These two types of commits take more",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "than 80% of total commits. Um, ti- times are changing. Today, the coding capabilities of LLMs are advancing rapidly. Data from OpenRouter shows that tokens consumed by programming tasks searched in the past 6 months accounting for more",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "than half of the total token usage. This leads to a natural question. Why not use LLMs to reduce the manual effort required for file system development and evolution? To this end, we propose a paradigm of generative file system.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Our vision is for programmers to focus focus solely on system design, eliminating the need for manual coding. Specifically, developers will only need to specify the file system's behavior through high-level specifications. The",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "coding responsibility is then shifted to LLMs, which translate these specifications into a concrete implementation. This paradigm is not limited to construct a file system from scratch. It also enables file system evolution through specification updates. After",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "updating the specifications, the system's implementation is automatically refreshed by the LLM. Essentially, the entire evolution process also becomes code-free. In a word, we believe this paradigm could significantly boost productivity in both",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "the development and evolution of file systems. To realize the paradigm, we need systematic methodology that defines how to execute each core step. These steps include specifying the file system logic, updating those specifications, and",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "generating code from them. Unfortunately, it's not easy to accomplish these tasks, achieving the paradigm of generative file system and realize robust code generation. Specifically, we identify at least four challenges. The first challenge is the semantic",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "gaps. That is, there's lack of systematic methodology for specifying the functionality and the behavior of programs. Currently, people simply use arbitrary or random natural language to tell LLMs what code to generate. However, the semantic information in",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "these prompts may be insufficient or for the LLM to generate the code they want. Um the behavior of programs with concurrency or multi-threading is even more complex and difficult to specify. For example, if you ask the LLM to generate a file",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "system with requirements like no dependency errors or avoid race conditions with locking, the LLM may fail to understand your intent and instead generate misbehaved or buggy code. For complex systems like a file system, even the slightest deviation in",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "behavior can cause the entire system to crash. This is simply unacceptable. The second challenge arises from the structural complexity of file system modules. Given the large number of modules and their intricate dependencies, attempting to generate the",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "entire file system the entire file system in a single pass could easily exceed context limits. Our experiments shows that generating just 200 lines of C code requires approximately 30,000 tokens with DeepSeek-R1. Conversely, if we try to",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "build the complete file system through multiple generations, the lack of shared context between these steps makes it highly prone to dependency errors or the interface mismatches. The third challenge is that we must ensure backward compatibility when",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "involving the file system. If we update the modules, for example, update the module C here, we need to ensure that the functionality of other dependent modules remains correct, preventing this modification from creating a cascading effect.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Finally, the LLM's capability is unreliable. It could generate unstable outputs even with the same input and could suffer from hallucinations. For example, when generating the code like this, the LLM could occasionally forget to lock root LLM because of the",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "hallucinated safe state. So, to address the challenges, we propose SysFS a framework of generative file system. First, the design of SysFS specification specifies the file system and addresses the challenge of lacking systematic methodology for specifying",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "programs and the challenge of complicated composition. Second, the design of SysFS patch is responsible to update the specifications, addressing the challenge of backward compatibility upon file system evolution. Third, the design of SysFS tool chain",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "generates the code from specifications, addressing the challenge of unstable LLM capabilities. Now, let me introduce these designs one by one. First is the design of SysFS specification. The key insight of this design stems from our observation that",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "generative file systems and formal verification share strong similarities. Specifically, the generative file system paradigm uses the specification to generate the implementation with the with the specification. In contrast, the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "formal verification verifies the existence implementation with formal specification, and the formal specification can be highly precise. So, in conclusion, the generative file system paradigm uses the SysFS uses the specification to generate rather than",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "verify the file system implementation. Therefore, we could borrow methodology from formal specifications to address the challenges of specifying the file system, and we exactly did that. Our design of SysFS heavily draws inspiration from formal verification.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "First, um we continue to use the module as the basic unit of specification and code generation. A module is a collection of one or more functions, and a specification-based file system similarly consists of multiple specification modules.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "For each module, the C spec specification is structured with three components: the functionality, concurrency, and modular specifications. Functionality specification defines the functional functional logic of each module. Concurrency specification",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "specify concurrent behavior and interactions. And the modularity specification describes inter-module composition and dependencies. Together, they address the first two challenges. First, the functionality specification borrows the whole logic from formal",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "verification. Basically, it has a whole logic style semantics, includes pre-condition, post-condition, and invariants. Pre-condition specifies the required state before execution. And post-condition describes the guaranteed state upon completion.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "The invariant describes properties that must hold true across state transitions. To make the specification more accessible to programmers, we allow the use of natural language to describe mathematical relations in whole logic.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Of course, this introduces a trade-off increasing ambiguity. We believe this trade-off can be worthwhile since our evaluation demonstrates that LLMs can tolerate some ambiguities to some extent and generate the code correctly. In addition, functionality",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "specifications may include optional supplementary semantic information such as intent or system algorithm. Details can be found in the paper. The functionality specification focuses solely on the sequential logic of the program. As a complement to that, the",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "concurrency specification focuses on the concurrent execution behavior. Using whole style specifications, it specifies the locking state for each step within the module, such as for each function call. Moreover, separating sequential and concurrent",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "logic facilitates two-stage generation process. Generates the sequential logic first, then complement logic and locking logics. In our early experiment, this approach has occasionally improved the generation accuracy. Then, the modularity specification is",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "responsible to describe the interface level dependencies between modules. To avoid exceeding the context window, each module is typically less than 500 lines of code. The modularity specification borrows rely and guarantee phases from",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "formal verification. Since rely and guarantee is used to specify a module's assumption about other components. Specifically, rely is external dependencies required by the implementation of this module. In turn, guarantee describes behaviors",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "implemented and exposed by this module. The rely and guarantee inherently describes the dependency relationships between modules. We hope the specification based file system is constructed with DAG structured dependencies.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "In addition to construct a file system from scratch with specifications, our design of SpecPatch is responsible for guiding the evolution of file system, addressing the challenge of backward compatibility. The DAG structure of specifications is",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "natural for evolution. Meanwhile, we also organize the modified or new specifications into the DAG structure, forming a DAG structured specification patch. Generally speaking, the DAG structured SpecPatch has two types of node.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "The non-root nodes implement and expose new guarantees. Then, the entire patch must contain at least one root node to be considered complete. The root node could rely on the new guarantees, but most importantly, its own guarantees do",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "not change. Therefore, the root node can serve as the commit point to merge the SpecPatch DAG into the original specification stack. The patch merging process is easy. We replace the specification of the old root node with a new one.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "The whole patch is thus merged into original specifications automatically and avoid cascading dependency issues. Finally, um we will want to introduce the C spec tool chain. The C spec tool chain is responsible to generate the",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "implementation from specifications. The generation process is a feedback loop with multiple agents. First, with the specification of a module, the spec compiler is responsible to generate a draft version of implementation. Subsequently, spec",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "validator validates the generated code. The verification can be conducted using prepared unit tests or simply by letting the LLM review the code and determine whether it aligns with the specification. If the validation fails, the validator",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "feeds the failure information back to spec compiler, which uh regenerates the code based on the feedbacks. The feedback loop effectively mitigates hallucinations and ensure that the generated code adheres closely to the specification. In our experiment, about",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "30% of modules retry at least once generating misbehaved the code um in the first pass of generation. Um we also prepare an agent called spec assistant assisting um developers in generating spec specifications. Details can be found in the paper.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Um with with C spec, we construct spec FS as a case study. Spec FS is a concurrent file system completely implemented with specifications without any manual coding. The implementation is based on AtomFS from SOSP '19, a formally verified",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "concurrent file system. We further add 10 extra features from EXT4 to SpecFS, including the feature of extended data allocation and so on. With all the integrated features, SpecFS has about 4,000 lines of code. The these lines of code could rank 42 out of the",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "82 file systems from Linux 6 kernel. We have evaluated the functional correctness of SpecFS. A module is considered correct if it passes all functional tests for AtomFS and is deemed logically equivalent to AtomFS through manual inspection.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "The result is that with most LLMs, the 45 modules and 70 modules for features are 100% correct. It means that it has the same level of correctness as human-written AtomFS. This result is also reproducible. We also find that with small modules like Queen 3 32",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "billion, some modules always fail even with multi turns of feedback loops. The errors mainly result from concurrent modules fail to handle the complicated concurrent logic. Generated file system also improves the productivity. Compared with C",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "implementation, specification has evidently less lines of code. And moreover, we invited four graduate students to implement two features of SpecFS, recorded the time they spent implementing the implementing the corresponding functionality and found",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "that their productivity productivity was improved with C-spec compared with the way of manual coding. This aligns with our experience. Writing specifications better matches human practice, does not require attending to every detail, and",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "can therefore be completed more quickly than writing code. In conclusion, we propose the paradigm of generated file system and design a framework, Cspec, to realize that paradigm. With Cspec, we implement um SpecFS as a case study, generate the",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "whole SpecFS from scratch, and further implement 10 features from EXT4 for it. We finally validated the feasibility of the paradigm. SpecFS achieves equivalent level of correctness compared with human-written code. The productivity is also improved.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Here's the main page of our project. In addition to our paper, it includes the code we submitted for artifact evaluation and a data set containing the statistics on EXT4 patches. Thank you very much.",
+      "start": 336,
+      "duration": 6
+    }
+  ]
+}

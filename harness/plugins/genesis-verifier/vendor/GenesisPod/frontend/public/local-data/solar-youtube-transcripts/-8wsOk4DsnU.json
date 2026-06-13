@@ -1,0 +1,849 @@
+{
+  "videoId": "-8wsOk4DsnU",
+  "title": "Multimodal data: Architecting pipelines that don’t break at scale",
+  "channelName": "Anyscale",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 41972,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Okay. Welcome everyone to today's\nwebinar on architecting data pipelines\nfor multimodal AI at scale.\nCool. I'm I'm going to go ahead and get\nstarted.\nSo again for today, we're going to go\nover architecting data pipelines for\nmultimodal AI at scale.\nAnd the agenda for our webinar is we're\ngoing to go over the problem that's very\ncommon in the space\nGPUs being very poorly utilized.\nAnd see like how that problem is\nexacerbated when we are dealing with\nmultimodal data.\nWe're going to talk about the solution\nand\nfrom our point of view which is\ndisaggregated streaming.\nAnd then we'll take a look at our\nlibrary Ray Data that implements\ndisaggregated streaming\nand we'll see how it's implemented under\nthe hood.\nAnd then we'll take a look at how to run\na Ray Data pipeline on any scale\nwhich is optimized for Anyscale\ndevelopment and for\nthe the observability that you're going\nto need to properly tune and optimize\nthese pipelines.\nSo a little bit about myself, I'm\nMarwan. I'm an AI engineer at Anyscale\nand with me here is Julian who's leading\nour product go-to-market.\nSo please if you have any questions,\nfeel free to post them in the Q&A\nand Julian will help\naddress them.\nSo I'm going to\nstart off by just motivating\nthis\nspace by talking about multimodal data.\nSo we're in a world where increasingly\nthe data is becoming more and more\nmultimodal.\nAnd so what I'm showing you guys here is\nan example of autonomous driving.\nSo in autonomous driving, you're going\nto be dealing with video data, lidar\npoint cloud data, sensor data and like\ntext annotation data.\nSo a single example uh is usually like\nhundreds of megabytes and if we're\ndealing with like millions of examples\nfor training or inference, now we're\ndealing with hundreds of terabytes to\npetabytes of data that we have to uh\nprocess uh efficiently with our GPUs.\nUh and what we see is the same pattern\nis now repeating across industries. Um\nso for example, we see this um uh\npattern repeating and uh physical AI uh\nin marketplaces and multimedia uh where\nyou have to deal with video, audio, and\nimage data\nuh and in biotech where where you're\npassing in image imaging data and\nsequencing data.\nUm and so uh this\nuh problem\nwhat we will usually uh find is that\nwhen you're when you're running uh a\npipeline uh which I'm going to like\nconcretely look at the video processing\npipeline.\nUm you are running on like different\nstages that require different types of\nuh compute and present different uh\npoints that you can get your pipeline\nbottlenecked on.\nUh uh so for example, uh\nin this case I can I have a video\npipeline where I need to first download\nMP4 files uh from object storage to\ndisk.\nUh I then maybe need to like decode\nthose videos into frames\nuh and then run some uh model on them to\ngenerate um\nlet's say embeddings or let's say I have\nan object detection model or a\nperception model.\nUm and then I have to write out these\nembeddings somewhere to like an object\nstorage.\nAnd so as you'll see that um\nuh I I'm processing hundreds of\nmegabytes per example.\nUh I'm having to do things on a CPU to\ndo my pre-processing and decoding and\nthen send things over to a GPU to run my\ninference.\nUh and then perform some IO to write\nthings out to object storage.\nUm, and what we often see with these\ntypes of pipelines is that the GPU\nutilization is low. Uh, GPUs usually are\nuh, starved on data or they're not like\nrunning at capacity. So, what I'm\nshowing here is like uh,\nwhen we inspect the GPU utilization, uh,\nwe see it like somewhere uh, much lower\nthan like a target value. So, in this\ncase I'm showing a 35% utilization uh,\nwhen ideally we want it to be closer to\nlike 90%. Um, and\nusually this is because the the\naccelerator is waiting on data or it's\nrunning on too small of a chunk size.\nUm, and if we go back to this example of\num, the video processing pipeline that I\nspoke about, um, we can I think of some\nof the problems that will arise. So,\nusually the videos that we're working\nwith might not be of equal sizes. Um, so\njust like doing proper load balancing of\nthese videos onto my GPUs is a\nchallenge.\nUh, and in this case like you might have\nto like uh, allocate like a batch size\nthat works with the worst case video\nsize.\nUm, so leaving a lot of uh, capacity\nsort of unused for like smaller videos.\nOr um, the pre-processing that you're\ndoing on those videos, so like the\ndecoding and the transformations that\nyou might be applying on those frames\ncould be like resource intensive. Um,\nand uh, because of that your inferences\nlike uh,\nstuck waiting on uh, batches to be\navailable.\nUh, so the result of all of this is um,\nour expensive GPUs are running at a\nthird of their utilization,\num, and our throughput and costs is\nsuffering.\nYeah, before we uh, curious I know we\njust went through like uh,\noverview of maybe like a video. Just\ncurious what kind of multimodal data uh,\npeople in the in the\nwebinar are trying to process. That way\nwe can provide some examples along the\nway.\nYeah, thanks for that, Julian. And I see\nthe poll results are starting to come\nthrough. I see many people are working\nwith video data, images,\ntext and documents, lidar.\n>> [clears throat]\n>> so that's great. Like I feel\nthere's quite the diversity here and a\nlot of what we're going to cover\napplies across all of these different\nformats.\nUm so the very first thing I want to\ntalk about is when you are thinking\nabout this type of pipeline,\nthe naive\nway to like resolve this problem is\nhey, maybe I'll just do some form of\nlike staged batch execution.\nUm and what that means is maybe I'll do\nthings in separate stages. So maybe I'll\nuse a tool like Spark for instance to\nlike go and pre-process my videos\nand generate the pre-processed frames\nand write them out to S3.\nAnd so now that I have my pre-processed\nframes on S3, I can go and read them\ninto my GPUs.\nUm so if I take a look at the time\ntimeline of\nexecution,\nI first have to go and read all of the\nvideos, pre-process them and write out\nthe pre-processed frames to storage.\nAnd it's very common that like the like\nI can start off with like compressed\nvideos and when I generate the frames,\nit's very common for the size of the\ndata to balloon. So if I start off with\nlike 500 terabytes, I might end up in\nlike petabytes of frame pre-processed\nframes that I generate that I have to go\nand write out to S3 and then read them\nback into my GPU fleet.\nUh and\nas I'm doing this, like my GPUs are\nsitting idle waiting on me to\npre-process as well, right? Um and so\nthis is not great because one we're like\nuh exploding uh\nthe size of the intermediate data. Uh\nwe're doing like an unnecessary like\nround trip of writing petabytes of data\nand then reading them back in.\nAnd as we said like our GPU fleet is\njust sitting there idling waiting on the\nprevious stage. Uh and that's a problem\nthat's going to just exacerbate when uh\nas my data sets uh\nsize increases.\nUm there is one benefit of this approach\num which is uh\nI have these intermediate stored\nsomewhere so I can go and inspect them\nand debug them.\nUm but there are ways to do this without\nhaving to block the pipeline. Um so\nwithout having to sit there and wait\nuntil everything's stored and then uh\nrun onto my GPU.\nThat we will discuss in a bit.\nUm the other naive approach here is hey,\nmaybe I don't need to do this like\nstaged execution. Maybe I'll do\neverything on my GPU box.\nUm and so what I'm showing you is maybe\na setup where you go and you partition\nuh things on disk nicely. So you put\nyour uh videos nicely partitioned on S3.\nUh and then you send those off to like\nyour H100 uh nodes so you could spin\nmany\nmany of these nodes up on your like\nKubernetes cluster.\nUh and then do this type of like load\nbalancing onto onto the nodes.\nUm however, uh when you kind of like do\nthe math with 192 CPUs for eight GPUs,\nyou're down to just 24 CPUs per GPU.\nUm and often times we see that this is\nnot enough for like uh like\nresource-intensive pre-processing.\nUm and the other thing to also point out\nlike because because they're not enough\nlike your GPUs are going to be sitting\nthere\nidling.\nAnd in case your pre-processing is like\na bit data dependent, you you might\nstill have like some form of data skew,\neven though like you've nicely\npartitioned things nicely on disk\nbefore.\nAnd so,\nthe the cons of this approach is your\nyour GPUs might not be like fully\nutilized.\nAnd you're basically constrained by the\nCPU to GPU ratio on that node, right?\nSo, if I was using an A100 instead of an\nH100,\nnow I'm down to just like 12 CPUs per\nGPU.\nAnd this problem will get further and\nfurther exacerbated.\nAnd maybe one pro of this setup is that\nit's simple, like you you just have,\nyou know, the GPU nodes and you're just\nlike sending the the videos and\npartitioning them onto these nodes.\nUm however,\nthis is probably like still far from\nideal, especially for expensive GPU\nresources that you don't want to waste.\nUm and so, the ideal solution that we\nare advocating for as some form of\ndisaggregation.\nAnd what that means is\nto be able to independently\nscale your pre-processing from your GPU\nprocessing.\nAnd what that\nconcretely means is that I can add\nadditional CPU nodes,\nso that I can further scale out my\npre-processing, so that I can keep my\nGPUs fed with data.\nAnd so, now when I look\nat timeline of GPU activity, I should\nsee that my GPUs are continuously\nrunning,\nnot idling, and and constantly being\nsaturated by batches of data.\nAnd those batches of data are being\nstreamed\nfrom\nmy my CPU fleet.\nAnd ideally like my CPU fleet also does\nsome dynamic repartitioning of the\noutputs so that I'm always sending like\nequal batches to my GPU.\nUm so this is ideal because we don't\nhave to like pay the cost of like\nintermediate storage\nor intermediate materialization into S3.\nI can independently scale up my CPUs and\nGPUs. I'm no longer constrained by the\nCPU to GPU ratio on my\nnode.\nAnd I'm overlapping execution.\nBasically, I'm pipelining.\nSo I'm like reading and preprocessing\nbatches ahead of the GPU.\nAnd as the GPU is like running on\nprevious batches that are already\navailable.\nAnd again like I'm doing this nice\nrepartitioning so that I'm keeping the\nGPUs nicely balanced.\nUm and so for this type of like this\naggregated streaming you really require\nlike some key primitives in your\ndistributed computing framework.\nUm to make it happen.\nUm and I'm going to go through these\nprimitives. Um\nSo the very first primitive that you\nneed is some form of like stateful\nworker implementation. So if you think\nabout it you want a way so that you load\nyour model once and then be able to\nprocess multiple batches.\nAnd in the case of Ray, the distributed\ncomputing framework that we\nare building in Anyscale it provides an\nactor model. And this actor model\nbasically allows like the actor process\nto be stateful, to load the model once\nand and process many batches.\nThis is compared to something like\nrunning like a task-based model that's\nstateless where for each tasks uh,\nthat needs to run, we have go back and\nreload the model.\nUm,\nthe second thing is, uh, we you need a\nway to do, uh, incremental, uh, output\ngeneration.\nUm, so when, uh,\nyour CPU stage, let's say, reads a\nvideo, right? And now it needs to like,\nuh, pre-process pre-process the video\nframes and then generate them to the,\nuh, GPU.\nIdeally, we don't wait until we decoded\nand pre-processed the entire video.\nIdeally, we start sending batches the\nminute we have enough of them for the\nGPU.\nUm, and Ray does make that uh, possible\nusing streaming generators.\nUm,\nand\nuh,\nit kind of goes without saying that like\nnow you need an efficient way to send\nthe batches from one node to the other.\nUm, and so in this case, you need, uh,\nan efficient implementation of, uh, data\ntransfer.\nUm, and so, uh, Ray provides that to us\nusing Ray's object store,\nuh, which is going to do efficient, uh,\nnode-to-node transfer, uh, and also is\ngoing to offer, um, shared memory across\nmultiple processes that run on the same\nnode.\nUm,\nand lastly, um, for any reliable system\nthat you want to run, uh, you want some\nform of granular fault tolerance. Um, so\nwhat that means is if one of these\nbatches fails, I don't want to go and\nlike rerun my pipeline from the very\nbeginning, right? I want the pipeline to\ncontinue to make progress, uh, and, uh,\nbe able to re-execute, uh, and like\nrecover from that failure just for that\nbatch.\nUh, and Ray does make that available by,\nuh,\nit's tracking lineage of each batch. So,\nI can know like which tasks, uh,\nuh, generated this batch, and I can\ngo ahead and re-execute whatever tasks\nnecessary um, if the node that the batch\nlet's say was running on was preempted.\nAnd in this case I can continue to make\nforward progress on my pipeline.\nYeah, I think\nnow that everyone has introduced these\nfour primitives, just curious in the\naudience\nfamiliarity with Ray, right? Because\nkind of we're going to go a lot deeper\ninto Ray now and just want to get a feel\nfor\nhow familiar this audience is with Ray.\nOh wow, a lot of people just Yeah, I\nthink it's the first time. Yeah, it's a\nlot of like early explorers into Ray\nand then [clears throat] some are\nactually using it in production which is\ninteresting. Um\nCool, yeah, but I I feel like around 70%\nare are in an exploration phase.\nSo hopefully this will help you form a\nnice mental model for\nthe types of problems and the\nthe architecture of Ray and and why it's\nuniquely\nsuited for multimodal data.\nSo the once we've discussed these\nprimitives, the next thing I want to\ntalk about is a library called Ray data\nthat we've been developing extensively\nthat's going to build on top of these\nprimitives to provide streaming\nexecution engine. Um and so with Ray\ndata\nif we go back to this video processing\nexample it it uses this concept of\nblocks. So when we're reading and\npreprocessing frames, Ray data's going\nto generate equally sized or like\nuniform block sizes\nthat we can start to like stream to our\nmodel.\nAnd in this case\nRay data also has like integrations with\ninference engines like VL and so that\nfor instance, it's very common that I\nwant to use like a vision language model\nuh and I want to scale it uh to run\nagainst frames from my from my video.\nUm and so what Ray's going to do uh\nRay Data specifically\nis it's going to provide me with an auto\nscaling uh actor pool.\nUm so\nI can uh Ray Data will launch multiple\nreplicas of my vision language model uh\nand will nicely like load balance the\nblocks onto onto the uh replicas.\nAnd then uh\nallows me to stream the uh the outputs\nto uh\nsome some place like Parquet.\nUm and as we noted before that you get\nthis nice granular fault tolerance. So\nif one of the blocks fails, like one of\nthe replicas goes down, the pipeline\ncontinues to run uh and then uh\nuh there's a recovery process in which\nwe'll regenerate the block and write it\nout.\nUm and so to dig a bit deeper into the\nbenefits of uh Ray Data um one of the\nbenefits is uh it\nit's implementation of dynamic uh\npartitioning.\nUm so as we've established, static\npartitioning is wasteful.\nAnd so if from one stage to the next,\nyour outputs aren't nicely uh\npartitioned uh you're going to get uh\nbasically you're you're not going to\nuh utilize your resources uh\nefficiently, especially your GPUs.\nUm and so the way Ray Data like solves\nfor this is um after each stage\nuh it's going to do some form of like\nstreaming repartitioning um where uh\nafter let's say the decoding of my\nvideos\nuh I'm going to get uh uniformly sized\nblocks of around 128 megabytes\num that\nuh are are generated onto the Ray object\nstore.\nUm, and then\nI can\nuh there's a basically a buffering uh\nsystem that's going to\nuh send the blocks to the workers based\non the ideal batch size that the workers\nset. Uh, so\nuh for each different model, this might\nbe a different batch size to maximize\nthe capacity of the GP.\nUm, the next thing that uh is kind of\nlike required when we think of this uh\npipeline um, uh is a dynamic resource\nallocation and back pressuring.\nUh, and those are also uh implemented by\nRay data.\nSo, if we think of our uh compute\nresources in a cluster,\num, we have uh CPUs and GPUs, right? Uh,\nand we have basically a\na finite budget of CPUs and GPUs.\nUm, and so if I go back to this example\nof video processing,\num, I [clears throat] have uh CPUs that\nneed to be used for reading and\npre-processing and CPUs that need to be\nused for writing, right? Um, and so if\nI'm\nuh if I'm not doing dynamic allocation\nof CPUs, let's say,\nuh then uh the naive approach would be\nto like statically allocate, let's say,\nI'll take 20% of my CPUs for for writing\nand then 80% for reading and\npre-processing.\nUh, but that's far from ideal, right?\nBecause when you first start off your\npipeline, you don't have anything to\nwrite just yet, so you want most of your\nCPUs to be used for reading and\npre-processing.\nAnd then as your pipeline proceeds, uh\nyou want your CPU budgets and or like\nyour resource budgets to be allocated in\nsuch a way that you're maximizing your\nthroughput.\nUm, and so that's what Ray data is going\nto do for us.\nUm the second thing that Ray data does\nis this concept of back pressuring.\nUm and so, what Ray data uh\nuses is a queuing system that's going to\nkeep track of uh the outputs of the\nstages, right?\nUm and so, once the queue is at some\nform of capacity,\nuh Ray data is going to uh back pressure\nuh stages. So, more concretely, like if\nmy reading and pre-processing is running\ntoo fast for my GPU,\nuh Ray data is going to uh\npause and stop submitting re- reading\nand pre-processing tasks\nuntil my GPU catches up.\nUm and by doing this, like my memory\nstays bounded\num and I avoid uh having to spill to\ndisk only and I'll only keep it as like\na safety valve.\nUm and so, I've been talking very like\ntheoretically up to this point, uh but\nlike more uh concretely, like this is an\nexample of the Ray data API\nuh to do like video processing.\nUm and so, it usually like uh I have I\nhave multiple stages uh and usually like\nwhen with Ray data, you first uh create\na data set object uh using some form of\nIO connector.\nUh so, in this case, I'm using this like\nread videos IO connector that's going to\npoint to an S3 location that has like\nMP4 files.\nUm now, note like execution in Ray data\nis uh lazy. So, this is not going to go\nand start reading videos. It's just\nspecifying that, \"Hey, for my first\nstage, I need to go and read videos.\"\nUm and then for my second stage, I want\nto use a vision language model. In this\ncase, I'm using a Quen model um to uh\nprocess the frames from my videos.\nUh and then I want to write out the\noutputs uh\nsomewhere in parquet, let's say.\nUm and so what Ray is going to do under\nthe hood uh or Ray data specifically is\nit's going to take this a graph of uh\ntransformations and it's going to\noptimize this graph and then plan how\nit's going to go and execute it.\nUh and then it will go and execute it\nusing the Ray primitives that we spoke\nabout of like tasks and actors.\nUm and so this uh\nuh paradigm of using Ray data to\nuh achieve distri- uh disaggregated\nstreaming has paid a lot of dividends\nfor our customers and users of Ray data.\nUh so I'm just going to mention some uh\nreal customer stories here.\nUm so Bedrock Robotics is an Anyscale\ncustomer. Um they've uh said that I'm\nquoting, um \"Our workloads don't just\nuse CPUs or just GPUs. We get the best\nsetup when we can mix and match\nthroughput.\nThat's something that Spark just isn't\ndesigned for.\"\nUm and they're able to like seamlessly\nscale up their compute by 85 times\nrunning on our Anyscale platform.\nUm ByteDance, which is a heavy user of\nRay data, um has said that we found Ray\nand in particular Ray data to be more\nflexible and scalable for large-scale\nmodel parallel inference compared to\nalternatives such as Spark.\nUh and then Notion um\nhas uh also extensively used Anyscale uh\nto run uh Ray data to generate um\nmassive embeddings. Um\nand they say like Anyscale has made uh\nhorizontal scaling easy out of the box\nand it gave them seamless capability uh\nseamless scalability to keep with their\nfast-growing low-latency inference\nneeds.\nUm and there's a list of customers that\nhave posted uh about their use of Ray\ndata\num that you can go and find, uh, on on\nour website or on, uh,\nour commonly like through like our, uh,\nannual Ray Summit.\nUm,\nso I want to, uh, move to like a demo to\nactually show you guys, um,\nlike how to like run something on our\nAnyScale platform, uh, but I'm going to\npause here and take questions, uh,\nabout, uh,\nuh,\nyeah, and take and take any questions.\nSo feel free to post questions in the\nQ&A, uh, and I'll\nI'll take a closer look.\nUh, Julian, do you see any questions?\nUh, no, no questions so far, so please\nmake sure that, uh, use the Q&A. We'll\nbe here to help you out.\nYeah, I see like, Ravi, if you have a\nquestion, just please post it in the, in\nthe Q&A.\nOkay, I see a question, um, what is the\nRay object store? Uh, what is Ray store\nimplemented language and what if it\nterminates unexpectedly?\nYeah, that's a good question. So, um,\nRay, uh, specifically is implemented in\nC++,\num, and then we have, um,\nthe Ray libraries, uh, which basically\nare,\nuh, provide like a Pythonic interface,\nuh, that you can use.\nUm, and\nuh, if I if I just go back to your\nquestion about the Ray object store,\num,\nwhat the Ray object store is doing,\num, is it it's basically allowing for\nlike network transfer, um, and so it's\ngoing to use, uh, protocols like gRPC to\nsend data from one node to the other,\nuh, and it's going to do that very\nefficiently for you.\nUm, and uh, it's an in-memory store. So,\nwhat that means is, um,\nthis is not like something that's stored\non disk, so it's very um, very quick to\nlike send data through the object store.\nUm, and uh,\nwhat if it fails, like if a node fails\nto to like fully answer your question,\nuh, then Ray will like just, uh, create\na new node uh, so that it can like, uh,\nrecover. But, the nice thing is that,\nuh,\nobject storing or like, uh,\nuh, basically, uh, data transfer or, uh,\nscheduling in Ray is entirely\ndistributed. Uh, and so there's nothing\ncentralized and there's no like single\npoints of failure here.\nUm, can you clarify the features of Ray\nbeing highlighted in this architecture?\nIt seems like there's less advantage\nfrom multi-node compute, um, than a use\ncase such as distributed training\ncomputation across nodes.\nUm,\nso, uh, in in in the case of both\ndistributed training and inference,\num, you need your GPUs to be fed with\ndata con- constantly. Uh, and so if you\nare doing anything like, uh,\nsome expensive pre-processing of your\ndata, and you're having to,\nlike I said, like either cram it all\ninto a single GPU box, uh, or do things,\nuh, in separate stages, uh, then you're\npaying, uh, costs that we had spoken\nabout. And what the Ray architecture is\nallowing you to do is to nicely,\nuh, scale out the pre-processing, uh,\nindependently, um, and help you like\norchestrate like running on multiple\nnodes, and provide the fault tolerance\nthat you need.\nUm, how is item potence item potency\nhandled for for processing? If I want to\nrerun, will it optimize using the\nprevious run statistics?\nUh so, I think you bring up two\nimportant points. Um item potency and\nthen optimizing for future runs.\nUm in the case of item potency, um\nuh this is something that's important as\nyou're designing your pipelines. You\nwant um\nyour transformations to be item potent.\nAnd what that means is that if I'm\nhaving to restart or re uh retry a\ntransformation, I don't want it to have\nside effects.\nUm and so, if you're using any of the\nprovided uh transformations from Ray\nData, they're item potent by nature.\nUh but if you're extending them to write\nyour own custom user-defined functions,\nthen the onus is on the user to make\nsure that they're item potent.\nand then in terms of like optimizing uh\nfor runs, uh I'll I'll show you guys in\nthe demo uh with AnyScale where we've\nbuilt like an agentic system that helps\nyou uh optimize and tune your pipelines.\nUm and so, that's something that's\npossible using our platform.\nhow fast must be the K8s network\nconnecting the computing nodes? What if\nCPU nodes\nare on another machine?\nUm yeah, this is a a good point. Um\nso, uh in practice, what you're going to\ndo is is um not do like a strict uh\nsplit between CPUs and GPUs. You're\nstill going to leverage the CPUs on your\nGPU node,\nbut you're going to supplement them with\nCPUs from from a separate node. And so,\nin this case, um\nnetwork becomes less of an issue because\nas long as\nuh there's still enough data that's\narriving to the GPU,\nuh like as long as you're keeping up\nwith the GPU, then then you're doing\nuh then you're doing just fine.\nUm I say this because that's what we see\nin customer workloads.\nUm, but sometimes if if you want like a\nuh, like a harsh split in CPUs and GPUs,\nthen you might need to work with like\nnetwork optimized uh, nodes.\nUm,\nokay.\nLet me see other questions.\nUh, regarding dynamic partitioning, are\nwe able to define fine-grained\npartitioning on specific data set\ncolumns to ensure that blocks map to a\ncolumn,\nuh, say a security camera ID, so we can\nutilize VLMs embedding cache on\noverlapping frames for a given camera\nuh, video feed.\nYeah. Um, so there there's ways to uh,\ndo partitioning on a particular ID. Um,\nand there's ways to tell Ray Data to\nlike, \"Hey, I have things nicely\npartitioned on disk. I don't want you to\nlike do any like re-slicing of the\nblocks.\"\nUh, so those are things that are\npossible for you with Ray Data. Uh, and\nif you need to, you could also do uh,\nlike a group by um, operation uh, like\non the fly and do like uh, like a full\nshuffle of the data to repartition it on\nthe fly.\nUm, those are all available to you using\nRay Data.\nUm, can you talk about how to design\npipelines that have\num,\nseveral parallel tasks that feed into a\ndownstream task.\nUm,\nif you have various types of data that\nhave their own transformations that all\nneed to be used in a training pipeline.\nYeah, so um,\nI think\nthe question here is um,\nyou know, I've been showing you guys\npipelines that are a bit linear in\nnature. Like, what if some of the stages\ncould be run in parallel?\nUm,\nlike is that's like a paradigm that I\ncan do with Ray data?\nUm, so that\nthere's two answers to this. One is it's\nstill fine to to run your transforms one\nafter the other even though they don't\nhave like a strict dependency.\nUm,\nand the second is uh if\nif you need if you need like the\nadditional flexibility, then you can\nalways like reach out to uh the\nunderlying Ray framework to do this. Um,\nso that hopefully should answer that\nquestion.\nUm, I'll take a few more questions\nuh before we like proceed with the demo\nhere.\nThe object store is often a giant memory\npool containing uncompressed data and\nwhen it grows to the limit, it either\nspills to disk or back pressures or\nboth.\nUm, yeah, that's\nSo, if I just come and look here,\nthat what your your statement is correct\nif uh\nbut but it's controlled by Ray data. So,\nwhat Ray data is going to do is to avoid\nspilling to disk is it's going to come\nin and back pressure certain stages of\nthe pipeline\num to make sure that memory like in the\nobject storage is nicely bounded.\nUm, and that's like a key mechanism that\nRay data provides so that you we keep\nthe GPUs fed with data, but we don't go\ntoo fast.\nOkay. How can you use this framework\nwhen you don't have frame level\nindependence or some temporal window\nstacking is required for various\nprocessing steps?\nYeah, so this I think goes back to the\nsimilar question that we had before. Um,\nso again, like if\nif you have your data like nicely\nstacked on disk, like I want these\nwindows\nuh like that are\npartitioned on disk, you can just tell\nRay Data to avoid additional like\nslicing.\nUh and that way you'll send your data\nstream your data straight into uh\ninference.\nUm if you need to do uh like dynamic\nslicing, then you can um create uh like\na data set of like these windows.\nUm and then you'll be able to like\nrun the stages on uh on each row, where\neach row is your full window, right? Uh\nso there's some uh\nwrangling that you're going to have to\ndo to make this setup work, but it's\ndefinitely something that our uh\ncustomers uh do uh very frequently uh\nlike on a on a frequent basis.\nOkay.\nMarlon, you should do maybe at least you\ncan do like 10 minutes of the demo and\nthen we'll jump back in.\n>> do The good thing there's a lot of\nquestions, so I'm glad we saved a lot of\ntime.\nYeah, this is great. Uh okay, so let us\nuh uh\nmove into the demo, so\num what I want to show you is like how\nyou go ahead and build a multimodal data\npipeline on on our platform.\nUm and so to do that, um I'm going to\nshow you like how I go about it with\nAnyScale.\nUm and so with AnyScale, um we provide\nyou with um skills uh that you could\ninstall uh that were uh improve like how\nCloud's going to build uh Ray pipelines.\nUm and so in this case, I went ahead and\nI installed uh the skills uh for Cloud\nCode.\nAnd then I'm going to go ahead and\nlaunch Cloud.\nUm and once I launch Cloud, um Um, see\nthat I'll have multiple like any scale\nskills available to me.\nUh, so in this case I have platform\nskills,\nI have infra skills, uh, and I have\nworkload skills.\nUh, what we're going to use is the\nworkload skills.\nUm, so I have a Ray data skill,\num, that I can use to just design and\noptimize Ray data pipelines.\nAnd I have a Ray train skills, um,\nthat is used for like distributed\ntraining. So if if you're using Ray data\nfor distributed training, you would go\nwith the Ray train skill. Uh, if you're\nusing it for, um, basically like, uh,\noffline inference pipelines, then you'll\nuh, go with, uh, Ray data.\nUh, and if you want to do something\nthat's online, uh, that's like, uh, like\nserve distributed models that are that\nare, uh,\nonline and always available, uh, then\nyou would do something with Ray serve.\nUm,\nuh, in my case we're we've spoken about\nRay data, so I'm going to go through\nand, uh, run the skill.\nUh,\nand when I run this skill, it's going to\nstart asking me some questions to help\nlike spec out the pipeline, uh, that I\nwant to to generate.\nUm, and so in this case\nit'll say I'm going to guide you through\nbuilding a Ray data batch inference\npipeline,\num, and so in the and and I can go\nthrough and like,\num,\nstart answering these questions to build\nout like a spec.\nUh, so in this case like it's asking me,\nis this like for offline batch\ninference? I'm going to say yes.\nDoes this involve any LLM inference? I\ncould say yes as well.\nUh, and I could submit answers to like\nget some, um,\nexample generated.\nNow, um,\nI'm going to show you guys something\nthat I've done before because this is\ngoing to take like a few minutes to run\nI and I don't want this to like delay,\nuh, the webinar. So this is, uh,\na plan that I have uh, written, uh,\nwith the help of uh Claude.\nUh so I'm telling it I want you to use\nthe skill to implement this pipeline,\nand I'm pointing the pipeline to a bunch\nof videos that I have on S3,\nuh and I'm telling it, \"Hey, I want you\nto output the videos here.\"\nuh I'm giving it some sort of scale. In\nthis case, I'm just going to use up to\ntwo GPUs.\nand uh I'm giving it like what the\npipeline stages are. Like, I want to\nread MP4 files, and then pass the frames\nto Qwen,\nand then write them out to parquet.\nRight?\nUm and that's basically all I\nall I had to give uh\nmy my agent, and my agent is able to go\nahead and create like a pipeline uh file\nfor me.\nUm this pipeline file that it creates,\num so if we go and look\nunder\num this repo,\num you'll see that it creates\na pipeline file, and also like a YAML\nfile.\nUm and so this YAML file is a way to\nsubmit a job to Anyscale. So, I can go\nahead and uh submit\na job, uh and I can give it this\nAnyscale job.yaml.\nUh and that's all I need to do to\nbasically take the pipeline and run it\non a cluster of GPUs uh running on\nAnyscale.\nUm and this will give me like a UI uh\nthat I can go and look at.\nUm so I'm going to go here and just show\nyou that\num this is my job. Um let me just zoom\nin so you can see it better.\nUh and I can see like my cluster is\nstarting.\nNow, also for the sake of time, uh I'm\ngoing to show you a job that I have ran\nright before\nthe webinar. Um\nand so you can see that this job ran\nsuccessfully.\nUm, if I go and look at the workload\nthat ran,\nuh, this is my Ray Data uh, pipeline.\nUm, I can see this in a DAG view where\nI'm uh, taking some videos, decoding\nthem,\nuh, preparing them for vLLM,\npassing them to vLLM for like my vision\nlanguage model,\nuh, and then detokenizing the outputs\nand writing them out to parquet.\nUm, so I get this nice uh, UI here. Um,\nbut also what's really uh,\nuh,\nconvenient is I have all of the logs. So\nthis is a distributed system. Uh, each\nnode is going to have its own logs and\neach component's going to have its own\nlogs. Uh, so I have everything nicely\nlike consolidated and I can see that\nlike my pipeline completed successfully,\nuh, and uh, I was able to write this\nmany rows uh, to disk.\nUm,\nalso what's nice is like the the log the\nlogs are like structured with additional\nmetadata uh,\nuh, around uh, each each log that I get.\nUm, and I can also programmatically\ndownload the logs, right? So I can\ndownload these logs somewhere\nprogrammatically and then point\nsomething like my Claude agent to go and\nlook at these logs.\nUm,\nwhat I also would point out is that with\nany scale um, if you want to So if I go\nback here, um, and I I look at Claude,\num, if something is wrong with the logs\nor like sorry, if something's wrong with\nthe job, I can just tell it like, \"Hey,\nI want you to go and inspect this job.\"\nAnd I can give it the path to the job\nand it will go and like do the log and\nmetric processing for me and help me\ndiagnose what's what's wrong with my\njob. Um,\nuh, I also get like nice metrics from\nRay data.\nUm so in this case when I'm looking at\nmy uh\npipeline, I usually want to like see its\nthroughput. So you'll see like this is\nshowing me like how many bytes are being\ngenerated per second and so forth.\nand that's the kind of like uh\ndeveloper experience that I have where\nI'm\nuh generating like pipeline code in an\nagentic fashion um submitting it uh\neasily to like a cluster that's going to\nscale out for me.\nUh and then I can go and inspect uh my\nlogs and metrics uh\nuh to be able to like further optimize\nmy pipeline.\nSo um\nlet me pause here and see if there's any\nadditional questions.\nThere's a fan\na lot of like on architecture questions,\nbut maybe one related uh to the demo is\nuh where is where are you running things\nnow? Uh and maybe talk a little about\nany scale versus Ray in terms of like\ndeployment and and architecture really\nquick. Yeah, that's a great question. So\num like I showed you like um this is\nrunning on my local machine where I'm\nable to like submit jobs from my local\nmachine.\nUm but the job itself is going to go and\nrun on any scale.\nUm in any scale we have different uh\ndeployment paths,\nuh but a common one is that we you\ndeploy any scale in your account. Uh so\nthat way you can leverage whatever GPUs\nthat you have reserved um yourself.\nUm if you also need to run like compute\nfrom any scale, you can reach out to us\nand we can uh consider like a deployment\nuh pattern where we provide you with the\ncompute as well.\nUh so those are our two common paths\nuh for uh running on any scale.\nYeah, and I think for the question I\ndidn't add this. He was asking about\nHIPAA. So typically for the customers\nthat have HIPAA or more strict\nrequirements, we deploy in their\naccount, so in their VPC. Uh via BYOC\nmodel, if you're familiar with that.\nYeah.\nUm I also see a question, does Anyscale\nprovide orchestration and\nconfiguration-driven workload scheduling\ndaily runs? Um yeah, so for if you want\nto run like schedules of jobs, you can.\nSo like for daily runs, you can. Uh but\nalso if you want like if you have your\nown orchestrator and you want your\norchestrator to submit jobs like I did\nfrom my from my CLI, you can also\nintegrate with your orchestrator of\nchoice and and have it submit uh\nAnyscale jobs on your behalf.\nIs there a way to visualize the GPU and\nCPU resource usage for a pipeline? Yeah,\nyou can. So um maybe you should we\nshould go over that.\nUm so if I go back and I look at my job\nthat ran\nuh and I look at my metrics,\num I should now get um hardware\nutilization metrics um\nat different levels of granularity.\nUm so in this case, I could see this is\nmy hardware utilization by node. So I\ncould see my CPU usage, my memory usage,\ndisk usage, and GPU usage, and so forth.\nUh DRAM usage, power, uh and and then uh\nfor further like GPU um\nuh granular metrics,\num we can also look at um\nlike DCGM metrics that we have also\navailable in Anyscale.\nUm but those are like your your\nhigh-level like metrics that you would\nstart to look at.\nhow do we ensure these GPUs and CPUs are\nutilized effectively? Is there a skill\nor something we can use uh for this\nwhere we can get some suggestions? Yeah.\nSo, I can take the I can take this job,\nright? And I can tell it, \"Hey, uh\nlike I I see like, you know, there's\nsome choppy DRAM usage.\"\nUm so, the skill that I would take is I\nwould I would just\ntake this\num and then go to my\nuh inspect and say, you know, I see\nchoppy\nDRAM usage. Uh is there anything\nI can do to further optimize GPU\nutilization?\nAnd this will go inspect the logs\nmetrics for me uh and uh try to like\nbasically do the analysis on my behalf\nto pre- present me with some\nrecommendations.\nOkay.\nDoes Ray data strictly imply any scale\nplatform or self-hosted Kubernetes\ncluster is compatible?\nUm so, Ray is an open-source technology.\nYou could run it anywhere. You could run\nit on any machine or in any Kubernetes\ncluster.\nUh so,\nRay data does not strictly imply any\nscale. It's just that we think the\nthe seamless path is to come and run on\nour platform uh because we've built so\nmuch of the\nwe've basically optimized for the this\ndeveloper experience and for uh\ngetting you\nlike easily like optimizing your\npipelines um\nuh efficiently and seamlessly.\nUm but, you can definitely run it\nanywhere uh just to try it out.\nLet us see if there's any other\nquestions.\nUh is there run metadata stored\nanywhere?\nYeah, so um\nthere's there's a a bunch of metadata\nthat you will get\num that we also like keep track of. This\nis sort of on the AnyScale side. So, for\ninstance, like uh data data lineage is\nsome some sometimes important. Like I\nwant to know this job used what data\nset. Um\nand so, this is also like track tracked\nfor you. Um\nand [clears throat]\nuh other metadata you could also get\nthrough the CLI.\nOkay.\nLet's see if there's any other questions\nbefore\nAny comments on Ray taking advantage of\nunified memory notes?\nYeah, so whatever\nwhatever nodes you give Ray,\nit's it's basically end of the day it's\njust running Python processes on on that\nnode.\nUm and so, if there's any any like\noptimization done on that nodes per se,\nuh Ray should be able to like benefit\nfrom it.\nUm and so, like there's nothing special\nthat Ray is adding on top of like just\norchestrating Python processes for you\nand like efficiently transferring uh\ntransferring data between\nuh processes.\nCool.\nyeah, I think this kind of covers most\nof what we wanted to go over in this\nwebinar. Um, what uh I would encourage\nyou as a next step is to go and read on\nRay Data. Uh so, the documentation on uh\non Ray Data is\nuh available under the Ray documentation\nwebsite.\nUh and then if you're curious, you could\nhead over to Anyscale to try out our\nplatform.\nUm, and if you want to read further on\nthese use cases that I was talking\nabout, we have customer stories\nabout Bedrock Robotics and Notion that I\nthat I had just went over.\nYeah. So, that basically concludes most\nof the\nuh agenda that I had for today's\nwebinar. I just want to thank everybody\nfor attending and\nuh we'll follow up with any questions uh\nor any like questions that we didn't\nanswer async.\nAwesome.\nThank you, Morwan. Yep. Thank you, guys.\nUh and before we head out and make\nwe have a few other questions come in.\nUh we just want to do a quick survey on\nwhat you guys thought about uh\nuh the content and we'll love uh your\nfeedback. Uh Morwan and I will close our\neyes\nso you guys answer honestly. Uh so, you\ncan give us some feedback.\nYeah.\nAwesome.\nWell, I'm glad this was useful to most\nof the folks here.\nYeah, I know. Thanks for hanging out\nwith us uh for like 50 minutes or so.\nUh Shane, if you have a question about\npricing, uh we'll reach out to you after\nthe webinar so we can explain to you\nkind of how any scope credits transfer\ninto\nuh into dollars. As as you probably\nknow, it depends instances, cloud\nproviders, all sorts of stuff. Right.\nAwesome. Yeah.\nThank you so much everyone.\nWe'll I think we'll end it here.\nCool.",
+  "segments": [
+    {
+      "text": "Okay. Welcome everyone to today's webinar on architecting data pipelines for multimodal AI at scale. Cool. I'm I'm going to go ahead and get started. So again for today, we're going to go over architecting data pipelines for multimodal AI at scale.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "And the agenda for our webinar is we're going to go over the problem that's very common in the space GPUs being very poorly utilized. And see like how that problem is exacerbated when we are dealing with multimodal data. We're going to talk about the solution",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "and from our point of view which is disaggregated streaming. And then we'll take a look at our library Ray Data that implements disaggregated streaming and we'll see how it's implemented under the hood. And then we'll take a look at how to run",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "a Ray Data pipeline on any scale which is optimized for Anyscale development and for the the observability that you're going to need to properly tune and optimize these pipelines. So a little bit about myself, I'm Marwan. I'm an AI engineer at Anyscale",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "and with me here is Julian who's leading our product go-to-market. So please if you have any questions, feel free to post them in the Q&A and Julian will help address them. So I'm going to start off by just motivating this",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "space by talking about multimodal data. So we're in a world where increasingly the data is becoming more and more multimodal. And so what I'm showing you guys here is an example of autonomous driving. So in autonomous driving, you're going",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "to be dealing with video data, lidar point cloud data, sensor data and like text annotation data. So a single example uh is usually like hundreds of megabytes and if we're dealing with like millions of examples for training or inference, now we're",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "dealing with hundreds of terabytes to petabytes of data that we have to uh process uh efficiently with our GPUs. Uh and what we see is the same pattern is now repeating across industries. Um so for example, we see this um uh",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "pattern repeating and uh physical AI uh in marketplaces and multimedia uh where you have to deal with video, audio, and image data uh and in biotech where where you're passing in image imaging data and sequencing data. Um and so uh this uh problem",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "what we will usually uh find is that when you're when you're running uh a pipeline uh which I'm going to like concretely look at the video processing pipeline. Um you are running on like different stages that require different types of",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "uh compute and present different uh points that you can get your pipeline bottlenecked on. Uh uh so for example, uh in this case I can I have a video pipeline where I need to first download MP4 files uh from object storage to disk.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Uh I then maybe need to like decode those videos into frames uh and then run some uh model on them to generate um let's say embeddings or let's say I have an object detection model or a perception model. Um and then I have to write out these",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "embeddings somewhere to like an object storage. And so as you'll see that um uh I I'm processing hundreds of megabytes per example. Uh I'm having to do things on a CPU to do my pre-processing and decoding and then send things over to a GPU to run my inference.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "Uh and then perform some IO to write things out to object storage. Um, and what we often see with these types of pipelines is that the GPU utilization is low. Uh, GPUs usually are uh, starved on data or they're not like running at capacity. So, what I'm",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "showing here is like uh, when we inspect the GPU utilization, uh, we see it like somewhere uh, much lower than like a target value. So, in this case I'm showing a 35% utilization uh, when ideally we want it to be closer to like 90%. Um, and",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "usually this is because the the accelerator is waiting on data or it's running on too small of a chunk size. Um, and if we go back to this example of um, the video processing pipeline that I spoke about, um, we can I think of some",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "of the problems that will arise. So, usually the videos that we're working with might not be of equal sizes. Um, so just like doing proper load balancing of these videos onto my GPUs is a challenge. Uh, and in this case like you might have",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "to like uh, allocate like a batch size that works with the worst case video size. Um, so leaving a lot of uh, capacity sort of unused for like smaller videos. Or um, the pre-processing that you're doing on those videos, so like the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "decoding and the transformations that you might be applying on those frames could be like resource intensive. Um, and uh, because of that your inferences like uh, stuck waiting on uh, batches to be available. Uh, so the result of all of this is um,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "our expensive GPUs are running at a third of their utilization, um, and our throughput and costs is suffering. Yeah, before we uh, curious I know we just went through like uh, overview of maybe like a video. Just curious what kind of multimodal data uh,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "people in the in the webinar are trying to process. That way we can provide some examples along the way. Yeah, thanks for that, Julian. And I see the poll results are starting to come through. I see many people are working with video data, images,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "text and documents, lidar. >> [clears throat] >> so that's great. Like I feel there's quite the diversity here and a lot of what we're going to cover applies across all of these different formats. Um so the very first thing I want to",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "talk about is when you are thinking about this type of pipeline, the naive way to like resolve this problem is hey, maybe I'll just do some form of like staged batch execution. Um and what that means is maybe I'll do things in separate stages. So maybe I'll",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "use a tool like Spark for instance to like go and pre-process my videos and generate the pre-processed frames and write them out to S3. And so now that I have my pre-processed frames on S3, I can go and read them into my GPUs.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Um so if I take a look at the time timeline of execution, I first have to go and read all of the videos, pre-process them and write out the pre-processed frames to storage. And it's very common that like the like I can start off with like compressed",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "videos and when I generate the frames, it's very common for the size of the data to balloon. So if I start off with like 500 terabytes, I might end up in like petabytes of frame pre-processed frames that I generate that I have to go",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "and write out to S3 and then read them back into my GPU fleet. Uh and as I'm doing this, like my GPUs are sitting idle waiting on me to pre-process as well, right? Um and so this is not great because one we're like uh exploding uh",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "the size of the intermediate data. Uh we're doing like an unnecessary like round trip of writing petabytes of data and then reading them back in. And as we said like our GPU fleet is just sitting there idling waiting on the",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "previous stage. Uh and that's a problem that's going to just exacerbate when uh as my data sets uh size increases. Um there is one benefit of this approach um which is uh I have these intermediate stored somewhere so I can go and inspect them and debug them.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Um but there are ways to do this without having to block the pipeline. Um so without having to sit there and wait until everything's stored and then uh run onto my GPU. That we will discuss in a bit. Um the other naive approach here is hey,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "maybe I don't need to do this like staged execution. Maybe I'll do everything on my GPU box. Um and so what I'm showing you is maybe a setup where you go and you partition uh things on disk nicely. So you put your uh videos nicely partitioned on S3.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Uh and then you send those off to like your H100 uh nodes so you could spin many many of these nodes up on your like Kubernetes cluster. Uh and then do this type of like load balancing onto onto the nodes. Um however, uh when you kind of like do",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the math with 192 CPUs for eight GPUs, you're down to just 24 CPUs per GPU. Um and often times we see that this is not enough for like uh like resource-intensive pre-processing. Um and the other thing to also point out like because because they're not enough",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "like your GPUs are going to be sitting there idling. And in case your pre-processing is like a bit data dependent, you you might still have like some form of data skew, even though like you've nicely partitioned things nicely on disk before. And so,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "the the cons of this approach is your your GPUs might not be like fully utilized. And you're basically constrained by the CPU to GPU ratio on that node, right? So, if I was using an A100 instead of an H100, now I'm down to just like 12 CPUs per GPU.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And this problem will get further and further exacerbated. And maybe one pro of this setup is that it's simple, like you you just have, you know, the GPU nodes and you're just like sending the the videos and partitioning them onto these nodes. Um however,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "this is probably like still far from ideal, especially for expensive GPU resources that you don't want to waste. Um and so, the ideal solution that we are advocating for as some form of disaggregation. And what that means is to be able to independently",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "scale your pre-processing from your GPU processing. And what that concretely means is that I can add additional CPU nodes, so that I can further scale out my pre-processing, so that I can keep my GPUs fed with data. And so, now when I look",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "at timeline of GPU activity, I should see that my GPUs are continuously running, not idling, and and constantly being saturated by batches of data. And those batches of data are being streamed from my my CPU fleet. And ideally like my CPU fleet also does",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "some dynamic repartitioning of the outputs so that I'm always sending like equal batches to my GPU. Um so this is ideal because we don't have to like pay the cost of like intermediate storage or intermediate materialization into S3.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "I can independently scale up my CPUs and GPUs. I'm no longer constrained by the CPU to GPU ratio on my node. And I'm overlapping execution. Basically, I'm pipelining. So I'm like reading and preprocessing batches ahead of the GPU.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "And as the GPU is like running on previous batches that are already available. And again like I'm doing this nice repartitioning so that I'm keeping the GPUs nicely balanced. Um and so for this type of like this aggregated streaming you really require",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "like some key primitives in your distributed computing framework. Um to make it happen. Um and I'm going to go through these primitives. Um So the very first primitive that you need is some form of like stateful worker implementation. So if you think",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "about it you want a way so that you load your model once and then be able to process multiple batches. And in the case of Ray, the distributed computing framework that we are building in Anyscale it provides an actor model. And this actor model",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "basically allows like the actor process to be stateful, to load the model once and and process many batches. This is compared to something like running like a task-based model that's stateless where for each tasks uh, that needs to run, we have go back and",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "reload the model. Um, the second thing is, uh, we you need a way to do, uh, incremental, uh, output generation. Um, so when, uh, your CPU stage, let's say, reads a video, right? And now it needs to like, uh, pre-process pre-process the video",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "frames and then generate them to the, uh, GPU. Ideally, we don't wait until we decoded and pre-processed the entire video. Ideally, we start sending batches the minute we have enough of them for the GPU. Um, and Ray does make that uh, possible",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "using streaming generators. Um, and uh, it kind of goes without saying that like now you need an efficient way to send the batches from one node to the other. Um, and so in this case, you need, uh, an efficient implementation of, uh, data transfer.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "Um, and so, uh, Ray provides that to us using Ray's object store, uh, which is going to do efficient, uh, node-to-node transfer, uh, and also is going to offer, um, shared memory across multiple processes that run on the same node. Um,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "and lastly, um, for any reliable system that you want to run, uh, you want some form of granular fault tolerance. Um, so what that means is if one of these batches fails, I don't want to go and like rerun my pipeline from the very",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "beginning, right? I want the pipeline to continue to make progress, uh, and, uh, be able to re-execute, uh, and like recover from that failure just for that batch. Uh, and Ray does make that available by, uh, it's tracking lineage of each batch. So,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "I can know like which tasks, uh, uh, generated this batch, and I can go ahead and re-execute whatever tasks necessary um, if the node that the batch let's say was running on was preempted. And in this case I can continue to make",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "forward progress on my pipeline. Yeah, I think now that everyone has introduced these four primitives, just curious in the audience familiarity with Ray, right? Because kind of we're going to go a lot deeper into Ray now and just want to get a feel for",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "how familiar this audience is with Ray. Oh wow, a lot of people just Yeah, I think it's the first time. Yeah, it's a lot of like early explorers into Ray and then [clears throat] some are actually using it in production which is interesting. Um",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "Cool, yeah, but I I feel like around 70% are are in an exploration phase. So hopefully this will help you form a nice mental model for the types of problems and the the architecture of Ray and and why it's uniquely suited for multimodal data.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "So the once we've discussed these primitives, the next thing I want to talk about is a library called Ray data that we've been developing extensively that's going to build on top of these primitives to provide streaming execution engine. Um and so with Ray",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "data if we go back to this video processing example it it uses this concept of blocks. So when we're reading and preprocessing frames, Ray data's going to generate equally sized or like uniform block sizes that we can start to like stream to our model.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "And in this case Ray data also has like integrations with inference engines like VL and so that for instance, it's very common that I want to use like a vision language model uh and I want to scale it uh to run against frames from my from my video.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Um and so what Ray's going to do uh Ray Data specifically is it's going to provide me with an auto scaling uh actor pool. Um so I can uh Ray Data will launch multiple replicas of my vision language model uh and will nicely like load balance the",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "blocks onto onto the uh replicas. And then uh allows me to stream the uh the outputs to uh some some place like Parquet. Um and as we noted before that you get this nice granular fault tolerance. So if one of the blocks fails, like one of",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "the replicas goes down, the pipeline continues to run uh and then uh uh there's a recovery process in which we'll regenerate the block and write it out. Um and so to dig a bit deeper into the benefits of uh Ray Data um one of the benefits is uh it",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "it's implementation of dynamic uh partitioning. Um so as we've established, static partitioning is wasteful. And so if from one stage to the next, your outputs aren't nicely uh partitioned uh you're going to get uh basically you're you're not going to",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "uh utilize your resources uh efficiently, especially your GPUs. Um and so the way Ray Data like solves for this is um after each stage uh it's going to do some form of like streaming repartitioning um where uh after let's say the decoding of my videos",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "uh I'm going to get uh uniformly sized blocks of around 128 megabytes um that uh are are generated onto the Ray object store. Um, and then I can uh there's a basically a buffering uh system that's going to uh send the blocks to the workers based",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "on the ideal batch size that the workers set. Uh, so uh for each different model, this might be a different batch size to maximize the capacity of the GP. Um, the next thing that uh is kind of like required when we think of this uh",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "pipeline um, uh is a dynamic resource allocation and back pressuring. Uh, and those are also uh implemented by Ray data. So, if we think of our uh compute resources in a cluster, um, we have uh CPUs and GPUs, right? Uh, and we have basically a",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "a finite budget of CPUs and GPUs. Um, and so if I go back to this example of video processing, um, I [clears throat] have uh CPUs that need to be used for reading and pre-processing and CPUs that need to be used for writing, right? Um, and so if I'm",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "uh if I'm not doing dynamic allocation of CPUs, let's say, uh then uh the naive approach would be to like statically allocate, let's say, I'll take 20% of my CPUs for for writing and then 80% for reading and pre-processing.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "Uh, but that's far from ideal, right? Because when you first start off your pipeline, you don't have anything to write just yet, so you want most of your CPUs to be used for reading and pre-processing. And then as your pipeline proceeds, uh",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "you want your CPU budgets and or like your resource budgets to be allocated in such a way that you're maximizing your throughput. Um, and so that's what Ray data is going to do for us. Um the second thing that Ray data does is this concept of back pressuring.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Um and so, what Ray data uh uses is a queuing system that's going to keep track of uh the outputs of the stages, right? Um and so, once the queue is at some form of capacity, uh Ray data is going to uh back pressure uh stages. So, more concretely, like if",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "my reading and pre-processing is running too fast for my GPU, uh Ray data is going to uh pause and stop submitting re- reading and pre-processing tasks until my GPU catches up. Um and by doing this, like my memory stays bounded",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "um and I avoid uh having to spill to disk only and I'll only keep it as like a safety valve. Um and so, I've been talking very like theoretically up to this point, uh but like more uh concretely, like this is an example of the Ray data API",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "uh to do like video processing. Um and so, it usually like uh I have I have multiple stages uh and usually like when with Ray data, you first uh create a data set object uh using some form of IO connector. Uh so, in this case, I'm using this like",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "read videos IO connector that's going to point to an S3 location that has like MP4 files. Um now, note like execution in Ray data is uh lazy. So, this is not going to go and start reading videos. It's just specifying that, \"Hey, for my first",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "stage, I need to go and read videos.\" Um and then for my second stage, I want to use a vision language model. In this case, I'm using a Quen model um to uh process the frames from my videos. Uh and then I want to write out the outputs uh",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "somewhere in parquet, let's say. Um and so what Ray is going to do under the hood uh or Ray data specifically is it's going to take this a graph of uh transformations and it's going to optimize this graph and then plan how it's going to go and execute it.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Uh and then it will go and execute it using the Ray primitives that we spoke about of like tasks and actors. Um and so this uh uh paradigm of using Ray data to uh achieve distri- uh disaggregated streaming has paid a lot of dividends",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "for our customers and users of Ray data. Uh so I'm just going to mention some uh real customer stories here. Um so Bedrock Robotics is an Anyscale customer. Um they've uh said that I'm quoting, um \"Our workloads don't just",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "use CPUs or just GPUs. We get the best setup when we can mix and match throughput. That's something that Spark just isn't designed for.\" Um and they're able to like seamlessly scale up their compute by 85 times running on our Anyscale platform.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "Um ByteDance, which is a heavy user of Ray data, um has said that we found Ray and in particular Ray data to be more flexible and scalable for large-scale model parallel inference compared to alternatives such as Spark. Uh and then Notion um",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "has uh also extensively used Anyscale uh to run uh Ray data to generate um massive embeddings. Um and they say like Anyscale has made uh horizontal scaling easy out of the box and it gave them seamless capability uh seamless scalability to keep with their",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "fast-growing low-latency inference needs. Um and there's a list of customers that have posted uh about their use of Ray data um that you can go and find, uh, on on our website or on, uh, our commonly like through like our, uh, annual Ray Summit. Um,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "so I want to, uh, move to like a demo to actually show you guys, um, like how to like run something on our AnyScale platform, uh, but I'm going to pause here and take questions, uh, about, uh, uh, yeah, and take and take any questions.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "So feel free to post questions in the Q&A, uh, and I'll I'll take a closer look. Uh, Julian, do you see any questions? Uh, no, no questions so far, so please make sure that, uh, use the Q&A. We'll be here to help you out. Yeah, I see like, Ravi, if you have a",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "question, just please post it in the, in the Q&A. Okay, I see a question, um, what is the Ray object store? Uh, what is Ray store implemented language and what if it terminates unexpectedly? Yeah, that's a good question. So, um,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "Ray, uh, specifically is implemented in C++, um, and then we have, um, the Ray libraries, uh, which basically are, uh, provide like a Pythonic interface, uh, that you can use. Um, and uh, if I if I just go back to your question about the Ray object store, um,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "what the Ray object store is doing, um, is it it's basically allowing for like network transfer, um, and so it's going to use, uh, protocols like gRPC to send data from one node to the other, uh, and it's going to do that very efficiently for you.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "Um, and uh, it's an in-memory store. So, what that means is, um, this is not like something that's stored on disk, so it's very um, very quick to like send data through the object store. Um, and uh, what if it fails, like if a node fails",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "to to like fully answer your question, uh, then Ray will like just, uh, create a new node uh, so that it can like, uh, recover. But, the nice thing is that, uh, object storing or like, uh, uh, basically, uh, data transfer or, uh, scheduling in Ray is entirely",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "distributed. Uh, and so there's nothing centralized and there's no like single points of failure here. Um, can you clarify the features of Ray being highlighted in this architecture? It seems like there's less advantage from multi-node compute, um, than a use",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "case such as distributed training computation across nodes. Um, so, uh, in in in the case of both distributed training and inference, um, you need your GPUs to be fed with data con- constantly. Uh, and so if you are doing anything like, uh,",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "some expensive pre-processing of your data, and you're having to, like I said, like either cram it all into a single GPU box, uh, or do things, uh, in separate stages, uh, then you're paying, uh, costs that we had spoken about. And what the Ray architecture is",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "allowing you to do is to nicely, uh, scale out the pre-processing, uh, independently, um, and help you like orchestrate like running on multiple nodes, and provide the fault tolerance that you need. Um, how is item potence item potency",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "handled for for processing? If I want to rerun, will it optimize using the previous run statistics? Uh so, I think you bring up two important points. Um item potency and then optimizing for future runs. Um in the case of item potency, um",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "uh this is something that's important as you're designing your pipelines. You want um your transformations to be item potent. And what that means is that if I'm having to restart or re uh retry a transformation, I don't want it to have side effects.",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "Um and so, if you're using any of the provided uh transformations from Ray Data, they're item potent by nature. Uh but if you're extending them to write your own custom user-defined functions, then the onus is on the user to make sure that they're item potent.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "and then in terms of like optimizing uh for runs, uh I'll I'll show you guys in the demo uh with AnyScale where we've built like an agentic system that helps you uh optimize and tune your pipelines. Um and so, that's something that's",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "possible using our platform. how fast must be the K8s network connecting the computing nodes? What if CPU nodes are on another machine? Um yeah, this is a a good point. Um so, uh in practice, what you're going to do is is um not do like a strict uh",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "split between CPUs and GPUs. You're still going to leverage the CPUs on your GPU node, but you're going to supplement them with CPUs from from a separate node. And so, in this case, um network becomes less of an issue because as long as",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "uh there's still enough data that's arriving to the GPU, uh like as long as you're keeping up with the GPU, then then you're doing uh then you're doing just fine. Um I say this because that's what we see in customer workloads.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "Um, but sometimes if if you want like a uh, like a harsh split in CPUs and GPUs, then you might need to work with like network optimized uh, nodes. Um, okay. Let me see other questions. Uh, regarding dynamic partitioning, are we able to define fine-grained",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "partitioning on specific data set columns to ensure that blocks map to a column, uh, say a security camera ID, so we can utilize VLMs embedding cache on overlapping frames for a given camera uh, video feed. Yeah. Um, so there there's ways to uh,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "do partitioning on a particular ID. Um, and there's ways to tell Ray Data to like, \"Hey, I have things nicely partitioned on disk. I don't want you to like do any like re-slicing of the blocks.\" Uh, so those are things that are",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "possible for you with Ray Data. Uh, and if you need to, you could also do uh, like a group by um, operation uh, like on the fly and do like uh, like a full shuffle of the data to repartition it on the fly. Um, those are all available to you using Ray Data.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "Um, can you talk about how to design pipelines that have um, several parallel tasks that feed into a downstream task. Um, if you have various types of data that have their own transformations that all need to be used in a training pipeline. Yeah, so um,",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "I think the question here is um, you know, I've been showing you guys pipelines that are a bit linear in nature. Like, what if some of the stages could be run in parallel? Um, like is that's like a paradigm that I can do with Ray data? Um, so that",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "there's two answers to this. One is it's still fine to to run your transforms one after the other even though they don't have like a strict dependency. Um, and the second is uh if if you need if you need like the additional flexibility, then you can",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "always like reach out to uh the underlying Ray framework to do this. Um, so that hopefully should answer that question. Um, I'll take a few more questions uh before we like proceed with the demo here. The object store is often a giant memory",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "pool containing uncompressed data and when it grows to the limit, it either spills to disk or back pressures or both. Um, yeah, that's So, if I just come and look here, that what your your statement is correct if uh but but it's controlled by Ray data. So,",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "what Ray data is going to do is to avoid spilling to disk is it's going to come in and back pressure certain stages of the pipeline um to make sure that memory like in the object storage is nicely bounded. Um, and that's like a key mechanism that",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "Ray data provides so that you we keep the GPUs fed with data, but we don't go too fast. Okay. How can you use this framework when you don't have frame level independence or some temporal window stacking is required for various processing steps?",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so this I think goes back to the similar question that we had before. Um, so again, like if if you have your data like nicely stacked on disk, like I want these windows uh like that are partitioned on disk, you can just tell",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "Ray Data to avoid additional like slicing. Uh and that way you'll send your data stream your data straight into uh inference. Um if you need to do uh like dynamic slicing, then you can um create uh like a data set of like these windows.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "Um and then you'll be able to like run the stages on uh on each row, where each row is your full window, right? Uh so there's some uh wrangling that you're going to have to do to make this setup work, but it's definitely something that our uh",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "customers uh do uh very frequently uh like on a on a frequent basis. Okay. Marlon, you should do maybe at least you can do like 10 minutes of the demo and then we'll jump back in. >> do The good thing there's a lot of questions, so I'm glad we saved a lot of",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "time. Yeah, this is great. Uh okay, so let us uh uh move into the demo, so um what I want to show you is like how you go ahead and build a multimodal data pipeline on on our platform. Um and so to do that, um I'm going to show you like how I go about it with",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "AnyScale. Um and so with AnyScale, um we provide you with um skills uh that you could install uh that were uh improve like how Cloud's going to build uh Ray pipelines. Um and so in this case, I went ahead and I installed uh the skills uh for Cloud Code.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "And then I'm going to go ahead and launch Cloud. Um and once I launch Cloud, um Um, see that I'll have multiple like any scale skills available to me. Uh, so in this case I have platform skills, I have infra skills, uh, and I have workload skills.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "Uh, what we're going to use is the workload skills. Um, so I have a Ray data skill, um, that I can use to just design and optimize Ray data pipelines. And I have a Ray train skills, um, that is used for like distributed training. So if if you're using Ray data",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "for distributed training, you would go with the Ray train skill. Uh, if you're using it for, um, basically like, uh, offline inference pipelines, then you'll uh, go with, uh, Ray data. Uh, and if you want to do something",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "that's online, uh, that's like, uh, like serve distributed models that are that are, uh, online and always available, uh, then you would do something with Ray serve. Um, uh, in my case we're we've spoken about Ray data, so I'm going to go through",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "and, uh, run the skill. Uh, and when I run this skill, it's going to start asking me some questions to help like spec out the pipeline, uh, that I want to to generate. Um, and so in this case it'll say I'm going to guide you through",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "building a Ray data batch inference pipeline, um, and so in the and and I can go through and like, um, start answering these questions to build out like a spec. Uh, so in this case like it's asking me, is this like for offline batch",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "inference? I'm going to say yes. Does this involve any LLM inference? I could say yes as well. Uh, and I could submit answers to like get some, um, example generated. Now, um, I'm going to show you guys something that I've done before because this is",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "going to take like a few minutes to run I and I don't want this to like delay, uh, the webinar. So this is, uh, a plan that I have uh, written, uh, with the help of uh Claude. Uh so I'm telling it I want you to use the skill to implement this pipeline,",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "and I'm pointing the pipeline to a bunch of videos that I have on S3, uh and I'm telling it, \"Hey, I want you to output the videos here.\" uh I'm giving it some sort of scale. In this case, I'm just going to use up to two GPUs.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "and uh I'm giving it like what the pipeline stages are. Like, I want to read MP4 files, and then pass the frames to Qwen, and then write them out to parquet. Right? Um and that's basically all I all I had to give uh my my agent, and my agent is able to go",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "ahead and create like a pipeline uh file for me. Um this pipeline file that it creates, um so if we go and look under um this repo, um you'll see that it creates a pipeline file, and also like a YAML file. Um and so this YAML file is a way to",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "submit a job to Anyscale. So, I can go ahead and uh submit a job, uh and I can give it this Anyscale job.yaml. Uh and that's all I need to do to basically take the pipeline and run it on a cluster of GPUs uh running on Anyscale.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "Um and this will give me like a UI uh that I can go and look at. Um so I'm going to go here and just show you that um this is my job. Um let me just zoom in so you can see it better. Uh and I can see like my cluster is starting.",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "Now, also for the sake of time, uh I'm going to show you a job that I have ran right before the webinar. Um and so you can see that this job ran successfully. Um, if I go and look at the workload that ran, uh, this is my Ray Data uh, pipeline.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "Um, I can see this in a DAG view where I'm uh, taking some videos, decoding them, uh, preparing them for vLLM, passing them to vLLM for like my vision language model, uh, and then detokenizing the outputs and writing them out to parquet.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "Um, so I get this nice uh, UI here. Um, but also what's really uh, uh, convenient is I have all of the logs. So this is a distributed system. Uh, each node is going to have its own logs and each component's going to have its own",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "logs. Uh, so I have everything nicely like consolidated and I can see that like my pipeline completed successfully, uh, and uh, I was able to write this many rows uh, to disk. Um, also what's nice is like the the log the",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "logs are like structured with additional metadata uh, uh, around uh, each each log that I get. Um, and I can also programmatically download the logs, right? So I can download these logs somewhere programmatically and then point",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "something like my Claude agent to go and look at these logs. Um, what I also would point out is that with any scale um, if you want to So if I go back here, um, and I I look at Claude, um, if something is wrong with the logs",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "or like sorry, if something's wrong with the job, I can just tell it like, \"Hey, I want you to go and inspect this job.\" And I can give it the path to the job and it will go and like do the log and metric processing for me and help me",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "diagnose what's what's wrong with my job. Um, uh, I also get like nice metrics from Ray data. Um so in this case when I'm looking at my uh pipeline, I usually want to like see its throughput. So you'll see like this is showing me like how many bytes are being",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "generated per second and so forth. and that's the kind of like uh developer experience that I have where I'm uh generating like pipeline code in an agentic fashion um submitting it uh easily to like a cluster that's going to scale out for me.",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "Uh and then I can go and inspect uh my logs and metrics uh uh to be able to like further optimize my pipeline. So um let me pause here and see if there's any additional questions. There's a fan a lot of like on architecture questions,",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "but maybe one related uh to the demo is uh where is where are you running things now? Uh and maybe talk a little about any scale versus Ray in terms of like deployment and and architecture really quick. Yeah, that's a great question. So",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "um like I showed you like um this is running on my local machine where I'm able to like submit jobs from my local machine. Um but the job itself is going to go and run on any scale. Um in any scale we have different uh deployment paths,",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "uh but a common one is that we you deploy any scale in your account. Uh so that way you can leverage whatever GPUs that you have reserved um yourself. Um if you also need to run like compute from any scale, you can reach out to us",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "and we can uh consider like a deployment uh pattern where we provide you with the compute as well. Uh so those are our two common paths uh for uh running on any scale. Yeah, and I think for the question I didn't add this. He was asking about",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "HIPAA. So typically for the customers that have HIPAA or more strict requirements, we deploy in their account, so in their VPC. Uh via BYOC model, if you're familiar with that. Yeah. Um I also see a question, does Anyscale provide orchestration and",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "configuration-driven workload scheduling daily runs? Um yeah, so for if you want to run like schedules of jobs, you can. So like for daily runs, you can. Uh but also if you want like if you have your own orchestrator and you want your",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "orchestrator to submit jobs like I did from my from my CLI, you can also integrate with your orchestrator of choice and and have it submit uh Anyscale jobs on your behalf. Is there a way to visualize the GPU and CPU resource usage for a pipeline? Yeah,",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "you can. So um maybe you should we should go over that. Um so if I go back and I look at my job that ran uh and I look at my metrics, um I should now get um hardware utilization metrics um at different levels of granularity.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "Um so in this case, I could see this is my hardware utilization by node. So I could see my CPU usage, my memory usage, disk usage, and GPU usage, and so forth. Uh DRAM usage, power, uh and and then uh for further like GPU um uh granular metrics,",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "um we can also look at um like DCGM metrics that we have also available in Anyscale. Um but those are like your your high-level like metrics that you would start to look at. how do we ensure these GPUs and CPUs are utilized effectively? Is there a skill",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "or something we can use uh for this where we can get some suggestions? Yeah. So, I can take the I can take this job, right? And I can tell it, \"Hey, uh like I I see like, you know, there's some choppy DRAM usage.\" Um so, the skill that I would take is I",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "would I would just take this um and then go to my uh inspect and say, you know, I see choppy DRAM usage. Uh is there anything I can do to further optimize GPU utilization? And this will go inspect the logs metrics for me uh and uh try to like",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "basically do the analysis on my behalf to pre- present me with some recommendations. Okay. Does Ray data strictly imply any scale platform or self-hosted Kubernetes cluster is compatible? Um so, Ray is an open-source technology.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "You could run it anywhere. You could run it on any machine or in any Kubernetes cluster. Uh so, Ray data does not strictly imply any scale. It's just that we think the the seamless path is to come and run on our platform uh because we've built so much of the",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "we've basically optimized for the this developer experience and for uh getting you like easily like optimizing your pipelines um uh efficiently and seamlessly. Um but, you can definitely run it anywhere uh just to try it out. Let us see if there's any other",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "questions. Uh is there run metadata stored anywhere? Yeah, so um there's there's a a bunch of metadata that you will get um that we also like keep track of. This is sort of on the AnyScale side. So, for instance, like uh data data lineage is",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "some some sometimes important. Like I want to know this job used what data set. Um and so, this is also like track tracked for you. Um and [clears throat] uh other metadata you could also get through the CLI. Okay. Let's see if there's any other questions",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "before Any comments on Ray taking advantage of unified memory notes? Yeah, so whatever whatever nodes you give Ray, it's it's basically end of the day it's just running Python processes on on that node. Um and so, if there's any any like",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "optimization done on that nodes per se, uh Ray should be able to like benefit from it. Um and so, like there's nothing special that Ray is adding on top of like just orchestrating Python processes for you and like efficiently transferring uh",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "transferring data between uh processes. Cool. yeah, I think this kind of covers most of what we wanted to go over in this webinar. Um, what uh I would encourage you as a next step is to go and read on Ray Data. Uh so, the documentation on uh on Ray Data is",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "uh available under the Ray documentation website. Uh and then if you're curious, you could head over to Anyscale to try out our platform. Um, and if you want to read further on these use cases that I was talking about, we have customer stories",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "about Bedrock Robotics and Notion that I that I had just went over. Yeah. So, that basically concludes most of the uh agenda that I had for today's webinar. I just want to thank everybody for attending and uh we'll follow up with any questions uh",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "or any like questions that we didn't answer async. Awesome. Thank you, Morwan. Yep. Thank you, guys. Uh and before we head out and make we have a few other questions come in. Uh we just want to do a quick survey on what you guys thought about uh",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "uh the content and we'll love uh your feedback. Uh Morwan and I will close our eyes so you guys answer honestly. Uh so, you can give us some feedback. Yeah. Awesome. Well, I'm glad this was useful to most of the folks here. Yeah, I know. Thanks for hanging out",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "with us uh for like 50 minutes or so. Uh Shane, if you have a question about pricing, uh we'll reach out to you after the webinar so we can explain to you kind of how any scope credits transfer into uh into dollars. As as you probably",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "know, it depends instances, cloud providers, all sorts of stuff. Right. Awesome. Yeah. Thank you so much everyone. We'll I think we'll end it here. Cool.",
+      "start": 996,
+      "duration": 6
+    }
+  ]
+}

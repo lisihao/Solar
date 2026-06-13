@@ -1,0 +1,719 @@
+{
+  "videoId": "hloRgzxT4fM",
+  "title": "SREcon26 Americas - Escaping Version Skew: Formalizing Compatibility in a World of Partial Rollouts",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 34625,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "This is your infrastructure. Structured\ndata is flowing between your systems.\nSome request hits the edge which hits a\nqueue or the API or some worker. Maybe\nit makes a couple more hops between your\ninfrastructure. In the steady state,\nassuming you have enough capacity, it\njust works. I'm Robbie Ostro. I work on\ninfrastructure at OpenAI. Our systems\nare big. They're constantly growing and\nevolving. They're constantly evolving in\nways that I or more importantly chatbt\ncan't understand. This talk is called\nescaping version skew. I want to talk to\nyou today a little bit about how we can\nbetter define boundaries between our\nsystems. We should be able to detect and\nprevent breaking changes. We should be\nable to maintain strict contracts at\nthese abstraction boundaries. And we\nshould be able to do all of this\nautomatically without relying on humans\nto catch these subtle breaking changes.\nFirst, a question for you all. And don't\nworry, this is the only interactive\nportion of the talk.\nThe date is early 2025. We're seeing\nerrors rise basically linearly with the\ndeploy. What do you do? Just call it\nout.\n>> Yeah, you roll back, right? We halted\nthe deploy. We rolled back. That's\nexactly what we did. Let me show you\nwhat happens.\nSee, we had a loadbearing off cache in\nReddus. Pause running the new version.\nWe're writing a type that the old\nversion couldn't understand. The new\nversion here is in blue. The old version\nis in orange. So\nwhen anybody who previously was running\nthe old version and then hit the new\nversion and then the old version pod\ntried to come back and hit the new\nversion again, you would hit an error.\nI'm already confusing myself talking\nabout this, right? The new prods could\nread the new version and the old format,\nbut the old pods could only read the old\nformat. This ended up causing about a\n15% error rate in chatbt over about 30\nminutes until everything in the cache\nexpired. We were lucky that the TTL\nwasn't very long because otherwise we\nmight have had to do a risky manual\nproduction operation.\nSo in this particular case, we would\nhave been better served by letting the\nrollout continue. Once all of the pods\nwere on the new version, everyone could\nhave read all the cache entries and we\nwouldn't have seen the secondary error\nspike that we saw here.\nSadly, we didn't realize this until\nafter the rollout completed. And by that\ntime, the safest way to recovery was\njust to let the bad cache entries expire\non their own.\nNow, this isn't to say that you\nshouldn't roll back. like roll back\nfirst, ask questions later is a is a\ngood motto by default, but it just shows\nthat as soon as you add the time\ndimension into your systems, they get so\nso much more complicated to understand.\nHell, I was confusing myself on the\nprevious slide talking about one service\nand one storage layer. And that's just\nas simple as things get, right? Humans,\nagents, tests tend to look at your\nservice at a single point in time, at a\nsingle commit, at a single hash. That's\nconvenient for understanding your\nsystem, but it's a lie. Once your\nsystems get above toy sized, we have to\nthink about the infrastructure that we\nrun not on a single point at time.\nInstead, we have to think about all of\nthe previous versions and in some cases\nall of the future versions that we're\nrunning across our fleet and in some\ncases customer fleets and clients as\nwell. The systems we maintain most often\nbreak when they change and we need a\nbetter theory of change.\nWhen we talk about breaking changes,\nwe're usually talking about clients and\nservers. You've probably babysat through\nyour career many annoying changes of the\nflavor. Let me ex roll out what the\nserver accepts first, then update the\nclient to send a new thing, and then\nhopefully we remember to constrain what\nthe server accepts eventually. And we\nusually forget that third step, and the\nserver ends up having dead code around\nforever. Um,\nimportantly, you have to remember to\nmake sure that you roll out the services\nin the right order as well. So, I'm\ngoing to begin this talk by telling you\nthe secret to coordinating rollouts in a\nsystem the size of OpenAIS.\nYou should give up.\nDon't give up on correctness. Of course,\nif you have a change in trunk that will\nonly work in services are deployed in a\ncertain order, you're going to have a\nbad time. You're going to see errors and\nyou're going to have humans who are\nstruggling to understand which direction\nthey have to roll out, if it's even\npossible.\nYou should never rely on humans or\nagents for that matter to catch breaking\nchanges in an unconstrained system, let\nalone babysit a reasonable rollout\norder. It's way too complicated to\nreason about. It makes rollbacks unsafe,\nand there are sometimes even circular\ndependencies that make this\nfundamentally impossible. We need a\nbetter solution than a human manually\ngating rollouts to make sure that their\nbreaking change gets into production\nwithout errors. And we need better ways\nto constrain the behavior at abstraction\nboundaries to make this tractable in the\nfirst place.\nLet's zoom a bit. Anytime you have\nstate, whether that's in a shared cache,\na database, a que, or even just an\ninflight RPC between services, you lose\nthe luxury of imagining your system as\nthat nice static diagram you wrote in\nyour docs. Instead, you have to add that\nadditional time dimension to your\nthinking. Now, let's imagine I want to\nadd a new field to this schema. I want\nto add eye color. And all users are\nsupposed to have eye color. So, I want\nto make it required.\nWhoops. I uh rolled out the reader\nfirst. So, we're seeing some parse\nfailures. That's fine. We're going to\nroll out the writer now.\nSo now the writer and reader on the same\nversion, but you'll notice that even\nthough we rolled out the writer and the\nreader, we still have some requests in\nflight that are going to fail. It is\nonly now that I unpause this and let all\nof the cues and RPCs and everything\ndrain that it's actually safe to ship\nthis breaking change. So basically, no\nmatter what you do you do, you're going\nto get some errors.\nSo,\nyou're thinking, \"We solved this problem\nin like 2001 with Protobuffs. Why is\nRobbie up there complaining about a\nsolved problem? Surely somebody told him\nabout protos before he got up here and\nembarrassed himself.\"\nWell, yes, protos do solve the wire\ncompatibility problem, but they do so by\nsubstantially weakening the set of\nstates that we can represent. Protos\nwhat with their optional only semantics\nand no logic constraints make wire\ncompatibility trivial. But you're\nsacrificing constraints in your\napplication for the ease of wire compat.\nIf you want your systems to have these\nsolid abstraction boundaries, which I\nvery much do, your invariants belong at\nthe boundaries of those systems. Your\napplication code should not be in the\nbusiness of dealing with old versions of\nold stuff forever, leaving dead branches\nthat you can never clean up, and\ngenerally abandoning service developers\nto a situation where they have to handle\nall versions of things for all time. So\nwhen I talk about defining schemas, I'm\nnot just talking about the wire format.\nthe grammar-based schema. I'm also\ntalking about contracts that can encode\npowerful rules like JSON schema or\nextensions to proto like protov\nvalidate.\nUnfortunately though, the stricter your\nschemas are, the easier it is for you to\nmake a so-called breaking change. And we\ncan't trust humans to manage that\noverhead. We need tooling.\nOur industry's current tooling\nencourages what I call optional slop.\nEvery migration, every roll back path,\nevery compatibility tail leaves some\nugly residue on the schema. The schema\non the left here shows a type that is\ntechnically compatible throughout time,\nbut increasingly bad at actually\nconstraining what states are legal\ntoday. This type doesn't make impossible\nstates unrepresentable, and it pushes\nthe burden onto business logic\neverywhere that reads it. So you're\nnever going to get wire\nincompatibilities when you're using\nprotos, but instead you'll see weird\nerrors much deeper in your application\ncode when you assume that I don't know\nlegacy full name can't co-occur with\nvalidated phone number or something. If\nyou don't encode as many rules as\npossible into your contract, I\nabsolutely guarantee that a future\ndeveloper will take advantage of the\nflexibility to send something that you\ndon't expect.\nI don't want to give you the feeling\nthat I'm anti-proto. Certainly not. It's\njust not enough. We need a wire format\nplus additional rules because at the end\nof the day only that abstraction\nboundary is guaranteed and you'd better\nbe writing that boundary in some schema\ndefinition language or SDL so you can\ngenerate code from it that doesn't sneak\nin any assumptions.\nI promised at the beginning that we can\nkeep things safe while also reducing\ncognitive overhead and making impossible\nstates impossible. We we can do this\nwith tooling. But first, I do want to\nmake one comment about how this is even\nmore important for agents than it is for\nhumans.\nLook, I work at OpenAI. I'm pretty AGIP\nand I believe pretty strongly that our\nmodels are already better than humans at\nreasoning through most of this stuff and\nwill be much much better in the near\nfuture. But that doesn't obiate the need\nfor strict contracts. In fact, I think\nit makes it even more important. Today,\nand I think forever, agents like humans\nwill be able to build systems that they\nthemselves cannot fully understand.\nThese systems will be bigger and more\nimpressive than anything I can come up\nwith, but still way too complex to page\ninto memory, so to speak. As our models\nget stronger and stronger, these\nabstraction boundaries can get bigger\nand bigger, but so will the underlying\nsystems they support. Until and unless\nagents stop being able to build systems\nthat they themselves can't fully\nunderstand, they need help to verify\ncorrectness at each change. We will\nalways need these abstraction boundaries\nwith good contracts that are at most the\nsize of an agent's ability to gro.\nSo what should these contracts actually\nlook like? Well, we want to put as many\nconstraints into the contract as\npossible. If the business logic depends\non the rule, the rule belongs at the\nboundary. Then you can generate types\nfor handlers that fulfill this contract.\nAnd you don't have to handle missing or\nmalformed states deep in application\ncode.\nI somewhat famously can only hold one\nthing at a time in my head, which is why\nI like types and hate side effects so\nmuch. They let me think about just one\npart of my system at a time without\nworrying that my understanding or more\nto the point lack thereof might bleed\ninto other systems. This is good for\nespecially dumb humans like me,\nobviously, but I think it's even better\nfor agents.\nModels are not great at reconstructing\nyour implicit invariance from a pile of\nsurrounding code and knowledge. If the\nboundary is loose, they will invent\nplausible looking states that are wrong.\nIf the contract is strict, the legal\nstate space is much smaller. Hidden\nassumptions become explicit and you get\na much sharper oracle for CI review and\nmore importantly, agentic loops. If an\nagent can fuzz its own boundary by\ngenerating all reasonable input that\nsatisfies some contract, it's going to\nbe much more effective at proving its\nown correctness and building a robust\nsystem when it's able to test itself.\nDon't make your agents or your\ndevelopers rederive the contracts every\ntime they look at a codebase. In some\ncases, they can, but doing so is like\nwrite writing a runbook when you could\nhave just written a script. The script\nis just going to work. You can test it.\nYou can make sure that it works over\ntime.\nThe runbook is going to mostly work like\n99% of the time until it gets out of\ndate, until you find a bug, until you\nrealize that you never tested it. Even\nif context length becomes effectively\nfree, this will continue to be true. In\nterms of minimizing cognitive overhead\nfor humans and for agents, a 100%\nguarantee that is easily definable is\npriceless.\nOkay, I've been waxing philosophical for\nlike 11 slides about how important\nstrict contracts are. It's time to tell\nyou about how we can actually fix this\nand introduce these strict contracts\nwithout adding too much friction on the\nbreaking changes side.\nAdding all of this strictness requires a\nchange in the way we think about these\ncontracts. We need to stop sharing types\nbetween client and server between d\nserializer and serializer.\nDelete your common types library and\nreplace it with a DSL that can generate\nseparate client and server types.\nThis is the shape that I actually want.\nWriters should be as strict as possible.\nThey should emit today's contract. If\neye color is required for all subsequent\nusers, writers should always require\nthat eye color is provided. This\nshouldn't be a compromised type that has\nbeen weakened by every migration you've\never done. If your business logic\nrequires age, make it sure make sure\nthat you have age.\nReaders or deserializers are where the\ncompatibility burden belongs. They\nshould accept the union of the last few\nwriter versions because that's where\nskew lands in practice.\nI know everyone loves to share types\nbetween client and server and so in\ntheory this is a pretty big change. Of\ncourse they do. It feels simpler,\ncheaper, cleaner. So if you want people\nnot to do that, the tooling has to be\nreally really good and it has to be\ntrivial to make these separate reader\nand writer types without requiring\nadditional friction on the behalf of the\ndevelopers who are actually making these\ncontracts. It can't feel like a tax. It\nhas to be the easy path. So what do I\nactually mean by that? On the left we\nhave a generated writer class. This is\nin Python, but the same thing works in\nany language. If all users now have a\nname and an age, the writer should\nrequire that name and age is always what\nyou're going to send over the wire. No\noptional compromise or historical mush.\nOn the right, the reader is where we pay\nthe compatibility cost. And it's\nexplicit union of the old writer shapes\nthat we still need to accept. And then\nthe code branches on the version shape\ninstead of smuggling a bunch of\ncompatibility guesses into one giant\ntype. I like this because it quarantines\nthe weirdness. New writes stay clean.\nHistorical behavior is still supported,\nbut it's obvious, local, and eventually\ndeletable. Of course, no one will ever\nwant to write this reader type. So, we\nneed to generate it with good tooling.\nWhat does that mean? Mechanically, the\nsource of truth should be that contract\nin a schema DSL proto plus proto\nvalidate, JSON schema, whatever you use.\nYou can generate them from code if you\ninsist, but I personally prefer\nmaintaining the schema directly.\nWhenever the schema changes, use static\nanalysis where possible and fuzzing\notherwise to ask whether the change is\nbreaking under partial rollout and in\nwhich direction. Note that that is a\nproperty of the contract, not a property\nof whatever data happens to be flowing\ntoday. You don't get to rely on\nassumptions that are not baked into the\nschema.\nIf the change is breaking in either\ndirection, CI should complain and tell\nyou to stamp a new type. Writers use\nonly the new type. Readers are the\nstamped union of all the historical\nwriter types as long as they need to\nstay alive.\nIf you want to be really fancy, your\ngenerated code should make it impossible\nto serialize from reader types or\ndeserialize for from writer types. Make\nimpossible states impossible not just in\nthe type system.\nIf you've done this right, a few nice\nthings happen. Engineers stop simulating\ncross version breakage in their head. CI\ndoes that part. Schema updates become\nmuch more mechanical. Schemas start to\nrepresent points in time, which means\nyou can branch explicitly on the stamp\nand later delete old branches when\nmetrics say they're gone. This is a\nsuperpower because it lets you delete\nold code that you can guarantee is no\nlonger used. So, let's define this\nsix-step process that allows us to\nsafely evolve strict schemas. First,\nupdate the schema to express a new\nexpectation in business logic. All users\nhave names, for example. Second, detect\nbreaking changes. CI should look at your\nschema versus the one on trunk, master,\nwhatever you call it, and reject changes\nthat it can statically or via fuzzing\ndetermine are unsafe. Third, generate\nserializers and deserializers in the\nlanguages of your choice. Keep the\nwriter type, the serializer type as\nstrict as possible. If all users have\nnames, don't let name be optional. Now,\nour stamp command allows us to make\nreaders or deserializer types a tagged\nunion of the last few writer types. This\nallows us to explicitly branch at\nprevious versions of your schema,\nbasically quarantining and then\neventually deleting old bits of\nunmaintained code. Measure how often old\nreaders are still used. Eventually, when\nthat gets down to zero, you can finally\ndelete all branches, my favorite type of\nPR, once those metrics hit zero.\nThis requires a ton of tooling. You need\na complicated breaking change detector.\nThe logic is no longer nearly as simple\nas protoreing changes. You need\ntelemetry. You need code generation from\nyour DSL into your programming language.\nYou need to be able to fetch old schema\nversions in CI. You need a way to mark\nschemas as allowed to be breaking so\npeople can evolve their schemas when\nthey're still developing on them.\nThere's a ton more stuff. But once you\nhave all that, it feels like magic. Your\ngenerated clients just work. And more\nimportantly, your business logic gets\nmore constrained and much simpler. You\njust match on the part of the union you\nstill have to support and implement\nsingle simple con constrained logic per\nbranch rather than that optional soup\nthat I was talking about.\nEngineers don't have to think about this\nprocess at all. Even though it's in\ntheory six steps, CI is enforcing every\nstep so they never have to add that\ncognitive overhead of figuring out what\nto do next. Before we get into some\ntooling, let's let's walk through a\nconcrete example here.\nFor most rollouts where the change isn't\nbreaking, CI will just let the change\nthrough and you don't have to do\nanything fancy. But let's take an\nexample of the most verboten type of\nchange, changing the type of a field.\nThis change is obviously breaking in\nboth directions, right? New readers\ncan't understand old writers and vice\nversa. I still don't recommend making\nthis change if you can avoid it, but\nit's doable given this process. In this\ncase, we're going to change interests\nhere from a list of strings to an int.\nFirst, CI sees that you're going to\ndeploy a breaking change. It doesn't\nupdate the reader type yet since the\nreader type on master doesn't accept V5.\nInstead, you run stamp and now all of\nthe readers accept either the new\nversion older or the old version, but\nthey're still deserializing at the old\nversion, V4.\nThen, when your metrics finally show\nthat all readers are rolled out, CI\nfinally lets you merge the new strict\nwriter type, V5.\nNote that there's still some things in\nthe queue or the RPC or whatever, but\nnow everything is going from V5 to V5.\nOnly after the old data tail is gone can\nyou remove the old branch.\nIn some cases, when you have these\ncomplex systems with long tails of pods\nor clients running, you may never be\nable to delete V4. But that's okay. It's\nstill much cleaner to have that\ndiscriminated union on the reader type\nthan it is to be able to have to support\nall branches of things forever in one\nspecific type.\nI really don't like talking about\nforward and backward compatibility since\nit always confuses me. Like from whose\nperspective is this forwardly and\nbackwardly compatible? For example, a\nsystem that takes input and returns\noutput simultaneously acts as a\nserializer when it takes well what a\ndeserializer when it takes input and a\nserializer when it returns its output.\nSo instead I prefer to talk about\nbreaking changes from the perspective of\na writer and a reader or serializer and\ndeserializer.\nThe first twothirds of this talk were\nkind of philosophical like in a perfect\nworld here's how I think about breaking\nchanges. The thing that makes this\nreally hard is that it's very difficult\nto detect breaking changes in a\nsufficiently powerful contract language.\nThe set of breaking changes rules for\nprotos are really easy. The set of\nbreaking changes rules for JSON schema\nor protov validate are much harder\nprecisely because they are so much more\nexpressive. Harder enough that I'm\nactually not aware of any open source\nproduct that does this in any reasonable\nway. Even though I think it could be\nuseful industrywide for anyone who uses\nJSON\nuntil today, of course. Um I've been\nfrustrated by this for years and finally\ntook the time to sit down to try to\nwrite a generic JSON schema subter. We\ncan statically analyze arbitrary JSON\nschemas and try to detect if they're\nbreaking and in what direction.\nI'm going to do a demo, but let me\nformalize what I meant by subsumption\nchecker really quick. The core question\nis just set containment. Let's think of\na schema as denoting a language of JSON\nvalues L of schema. Then a subsumption\nchecker just asks the question whether\none language is a subset of the other.\nIf L of new is a subset of L of old that\nis all values valid under the new schema\nor rather the old schema the new schema\nare valid under the old schema then a\nnew writer is safe for an old reader. If\nL of old is a subset of L of new that is\nall values valid under the old schema\nare valid under the new schema then an\nold writer is safe for a new reader.\nIt's complicated to think about well\nit's not complicated it's just confusing\nbut luckily once you have this tooling\nyou never have to think about it again.\nWhen either relation fails, if possible,\nthe checker should be able to provide a\nwitness value showing the difference.\nThe reason this is hard is that it's\nimpossible in most cases to enumerate\nthe actual language. So you can't do a\ndirect subset check. Instead, a\nsubumption checker like JSON compat has\nto do special logic for each keyword\ninstead of keywords that proves\nproperties of the new and old schemas.\nThis gets really hard with recursive\nschemas, sum types, and other arbitrary\nconstraints like regx format strings and\nconditional types.\nThe important point that I want to\nreiterate here is that the only input to\nthe language is the schema itself. It\ndoesn't matter what's actually happening\nin your system. What matters is the\nconstraints you're putting on your\nsystem.\nIf your business logic assumes some\ninvariant that is not expressable in the\nschema, the subsumption checker cannot\npossibly catch it. So you should try to\navoid assuming such invariance in your\nbusiness logic. Or if you must, you\nshould expend extend the schema DSL\nitself, which is usually not too hard.\nI want to show a live demo in two\npasses. First, the static checker. For a\nlot of ordinary schema changes, we can\nprove compatibility directly from the\nschemas, and that's great. It's fast,\ndeterministic, it's easy to put in CI.\nThen, if the schema gets too expressive\nfor a complete proof, or at least so\nfar, we switch to search. We ask the\nfuzzer for a concrete witness value that\ngets accepted on one side, but not the\nother. I like that split a lot. proof\nwhen we can get it, examples when we\ncan't. And the witness matters not just\nfor CI, but for people and agents trying\nto understand exactly what might break.\nWhat do we mean by a witness? Here's an\nexample. This is a small part of a\nschema with a breaking change. It's much\neasier to reason about compatibility\nwhen you have an example of where it\nfalls apart. JSON schema includes some\ncomplex keywords like if then,\nconditional types that make static\nchecks really complex. But in practice,\nthis subsma is pretty simple. It just\nsays if the field called mode is percent\nthen properties value is going to be a\nmaximum inclusive of 100.\nOn the right we've ex we've tightened\nthat to exclusive maximum of 100. So\nwe've gone from allowing everything up\nthrough 100 to everything up through 99.\nJust glancing at the schema, you can\nprobably drive this in your head pretty\nquickly. But imagine this were a tiny\npart of a massive schema or more complex\nrules that were being evaluated. It's\nmuch more useful to think of real\nvalues. The witness here is just the\nvalue mode percent value 100. We see\nthat old writers can emit it. New\nreaders reject it. This one payload is\nmuch more useful in a review or an\nincident than a paragraph of abstract\ncompatibility pros like I've been giving\nyou for half an hour.\nNow let's do a brief live demo. This is\nactually jsoncompat.com I framed into\nthis presentation and I have to use my\nmouse on this additional screen. So\nwe'll see how it goes. The actual\nsubsumption checker is written in Rust\nbut compiled to was for JavaScript\nusage. It has Python bindings too. Let's\ntake a look at the schema on the right.\nWe have an object with two fields name\nand age. They have some constraints like\nmin length and minimum. Let's paste this\ninto here and check compatibility\nbetween this schema and itself if I can\nfind my mouse.\ncheck compatibility. There we go.\nLuckily, we see that the schema is\ncompatible with itself. That seems\nreasonable. We've also generated a\nlittle bit of sample data at the bottom\nthat um that fulfills both of these\nschemas. Now, let's tighten this new\nschema. Let's change min length from\nfive to six.\nIf you think about it for a second, all\nvalues representable by the new schema\nor representable by the old schema. that\nis L of new is a subset of L of old. But\nnot all values representable by the old\nschema are representable by the new\nschema. Right? Anything with name of\nlength five validates under the old\nschema but not the new schema. This is a\nbreaking change for the deserializer\nrole because there's old data that the\nserializer can emit that is no longer\nvalid under the new schema. Let's check\nthatoop boop.\nCheck compatibility. We see that we now\nhave lost des serializer compatibility\nand both of course and we have some some\nmore examples of each of the schemas. I\nthink this is pretty cool. It's also\nvery fast. Oh, you know singledigit\nmilliseconds and so you can run this\nacross all of the schemas in your\ncodebase pretty quickly in CI.\nThe status checker works for almost all\nschemas. So fuzzing is rarely necessary\nand we're constantly trying to improve\nthe set of all constraints we're\nsupporting. However, for a sufficiently\npowerful contract language, not every\ncompatibility question is that easy. The\nJSON schema not keyword comes to mind.\nIt's really hard to detect statically\nwhether something does not fulfill any\ninstance of a schema, a complicated\nformat string, a conditional type,\nwhatever. Once you have richer\ncombinations of conditionals, cross\nfield constraints, and schema\ncomposition, there are changes where a\ncomplete static answer is much harder or\nnot practical. But it's still okay to\nintroduce these constraints, right? We\nwant to add as strict schemas as\npossible.\nSo we need fuzzing too.\nLike I mentioned before, the workflow is\nprove what we can statically and then\nwhen the checker can't fully decide,\nsearch for concrete counter examples. I\nlike that combination a lot because the\nstatic checker gives you fast\ndeterministic guardrails and fuzzing\ngives you real examples when the logic\ngets too expressive for a complete\nproof. When the static checker can't\ngenerate a witness on its own as well,\nthe fuzzer can help there. The nice\nthing about the fuzzer is it also lets\nme and my agents iterate a lot faster on\nthe static side of the house. The test\nharness for JSON compat is basically\njust its own fuzzer.\nSo let's try with the fuzzer for a\nminute. We have this pretty simple\nschema\nthat has a name and an age. Name is\nrequired. We can click generate and we\ncan generate you know 500 um pretty\nquickly. Uh let's change age to required\nas well.\nWe see that everything has age now. And\nlet's make neither of them required.\nGreat. And maybe let's make something\nimpossible. It's perfectly reasonable to\nmake a um schema that is unsatisfiable.\nSo there are no values of age that have\na minimum of of 18 and a maximum of 17.\nSo, let's see what happens. Okay,\nunreachable. It's great. Um, this is MIT\nlicense and it's the first time I'm\ntalking about it anywhere, so I'm sure\nit has lots of bugs. Um, but I'm not\ntrying to sell anything except a\nsolution to a problem that has pestered\nme since I started my career. So far,\nwhen we've used this internally, it's\nbeen a huge bo for catching breaking\nchanges at our storage boundary.\nInstead of telling you to go back to\nyour company and insist that everyone\nrewrites all of their wire types into\nsome DSL separating all your serializer\nand deserializer types, write some\ncodegen, etc. I want to leave you with a\nsuggestion as to how to slowly adopt\nideas like this. At OpenAI, we have a\nlot of pyantic schemas that define\nsomething that we're storing somewhere,\nmaybe in a database, maybe in Reddus,\nwhatever. We don't have to go all the\nway off the bat and split the reader and\nwriter types, even if I wish we did.\nInstead, we can decorate all of these\ntypes with a JSON compat decorator that\nwrites the current schema to disk and to\nyour repo and checks breaking changes\nagainst previous commits using the same\nstatic checks and fuzzing I just showed\nyou. While this isn't as powerful as\nschema first design and generated code,\nit's already caught a ton of subtle bugs\nin cases where people didn't realize\nthat they were making breaking changes.\nHere, it's trivial to adopt. Put the\ncompatibility policy right next to the\ntype definition in Pyantic or whatever\nyou're using. If you're using it for\nboth directions, we say both. If we're\nusing it in just the serialization\ndirection, you can say this is just a\nserialization type. Then we move the des\nserializ the des serialization function\nfrom the pyantic class itself to make\nsure that it can't be misused. The\nstable ID is just a durable identity for\nthis contract across renames and\nrefactors. So CI can compare the current\nschema against the historical snapshots\nfor that same logical payload.\nwith direction both which is mostly what\nwe use today. A change has to be safe\nboth for old readers seeing new writers\nand vice versa. Eventually I hope we can\nsplit types like user profile here into\na writer and reader type and evolve them\nmore independently allowing us to have\nthese trick writers and union readers\nlike I keep talking about. The off cache\nincident at the beginning of this talk\nis now decorated with this checker. We\nhaven't completely guaranteed that we've\nfixed all compatibility issues but we've\neliminated a whole class of them. In\nfact, at OpenAI, tests enforce that\nmodels in certain types of our codebase\nare always decorated with a\ncompatibility checker like this.\nSo, if you accept like I do that\nstricter is better, I would start\nadopting idea in phases. Phase one,\nannotate the types that sit on top of\nreal storage or Q boundaries and make CI\ncheck both rollout directions. This\nalone catches a ton of bugs, including\nthat offs. Phase two, stamp writer\nversions and measure measure the old\nretail. Now you can see roll back risk\nand have a principled way to know when\ncleanup is safe. Phase three, for the\nreally important boundaries, split the\nstrict writer from the reader union type\nand generate the boring parts. You don't\nneed the whole state on day one. You\njust need to move the riskiest\nboundaries from vibes to mechanical\nchecks.\nOne reason SRRES might be skeptical of\ntalks like this is that not every\nboundary deserves heavy machinery. And\nno matter how much good tooling you\nhave, there is some friction added by\nrequiring you to split your types. If\nyou have an ephemeral internal RPC, no\ndurable state, no cues, no meaningful\nroll back tail. This may be overkill.\nMaybe ordinary API compatibility\ndiscipline is enough. Where it is\nabsolutely worth it though is caches,\ncues, databases, durable workflows,\nmobile or external clients, and really\nany boundary where state substantially\noutlives binary. That's the filter. Use\nmachinery where old code and new state\ncan meet. That's where version skew\nturns into incidents. And the better\nyour tooling is, the more places you can\nenforce it without causing undue\nfriction.\nSo if I were to summarize this as an S\nsurish playbook, it would be these four\nthings. First, constrain. Make strict\nschemas the default so hidden\nassumptions become contract rules\ninstead of tribal knowledge. Second,\nsplit. Generate separate reader and\nwriter types in whatever language your\nservice uses from the schema and make\nthe historical reader union cheap to\nmaintain using your tooling. Third, gate\nrun CI against the schema itself and\nagainst previous versions of that schema\nso you can detect breaking changes\nmechanically before merge. Finally,\nobserve. Measure which old versions are\nstill being read so you can see the\ntail, understand roll back risk, and\nknow when cleanup is actually safe. This\nis easy to do because you're generating\nthese types. That's the durable version\nof this. Not a one-off pre-flight for\none scary change. Not a system that\nrequires engineers to think about\nsubumption every day and think about\nwhich directions things are getting\nserialized and deserialized. Not\noptional slop, but a system that makes\nthe safe path the normal path. Thanks so\nmuch. I think I now have a couple\nminutes for questions. I haven't\nuploaded the slides to Jason Kapat yet,\nbut I will. Um, and I'll also send them\nalong. Thank you so much.",
+  "segments": [
+    {
+      "text": "This is your infrastructure. Structured data is flowing between your systems. Some request hits the edge which hits a queue or the API or some worker. Maybe it makes a couple more hops between your infrastructure. In the steady state,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "assuming you have enough capacity, it just works. I'm Robbie Ostro. I work on infrastructure at OpenAI. Our systems are big. They're constantly growing and evolving. They're constantly evolving in ways that I or more importantly chatbt",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "can't understand. This talk is called escaping version skew. I want to talk to you today a little bit about how we can better define boundaries between our systems. We should be able to detect and prevent breaking changes. We should be",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "able to maintain strict contracts at these abstraction boundaries. And we should be able to do all of this automatically without relying on humans to catch these subtle breaking changes. First, a question for you all. And don't",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "worry, this is the only interactive portion of the talk. The date is early 2025. We're seeing errors rise basically linearly with the deploy. What do you do? Just call it out. >> Yeah, you roll back, right? We halted the deploy. We rolled back. That's",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "exactly what we did. Let me show you what happens. See, we had a loadbearing off cache in Reddus. Pause running the new version. We're writing a type that the old version couldn't understand. The new version here is in blue. The old version is in orange. So",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "when anybody who previously was running the old version and then hit the new version and then the old version pod tried to come back and hit the new version again, you would hit an error. I'm already confusing myself talking",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "about this, right? The new prods could read the new version and the old format, but the old pods could only read the old format. This ended up causing about a 15% error rate in chatbt over about 30 minutes until everything in the cache",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "expired. We were lucky that the TTL wasn't very long because otherwise we might have had to do a risky manual production operation. So in this particular case, we would have been better served by letting the rollout continue. Once all of the pods",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "were on the new version, everyone could have read all the cache entries and we wouldn't have seen the secondary error spike that we saw here. Sadly, we didn't realize this until after the rollout completed. And by that time, the safest way to recovery was",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "just to let the bad cache entries expire on their own. Now, this isn't to say that you shouldn't roll back. like roll back first, ask questions later is a is a good motto by default, but it just shows that as soon as you add the time",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "dimension into your systems, they get so so much more complicated to understand. Hell, I was confusing myself on the previous slide talking about one service and one storage layer. And that's just as simple as things get, right? Humans,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "agents, tests tend to look at your service at a single point in time, at a single commit, at a single hash. That's convenient for understanding your system, but it's a lie. Once your systems get above toy sized, we have to",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "think about the infrastructure that we run not on a single point at time. Instead, we have to think about all of the previous versions and in some cases all of the future versions that we're running across our fleet and in some",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "cases customer fleets and clients as well. The systems we maintain most often break when they change and we need a better theory of change. When we talk about breaking changes, we're usually talking about clients and servers. You've probably babysat through",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "your career many annoying changes of the flavor. Let me ex roll out what the server accepts first, then update the client to send a new thing, and then hopefully we remember to constrain what the server accepts eventually. And we",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "usually forget that third step, and the server ends up having dead code around forever. Um, importantly, you have to remember to make sure that you roll out the services in the right order as well. So, I'm going to begin this talk by telling you",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "the secret to coordinating rollouts in a system the size of OpenAIS. You should give up. Don't give up on correctness. Of course, if you have a change in trunk that will only work in services are deployed in a certain order, you're going to have a",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "bad time. You're going to see errors and you're going to have humans who are struggling to understand which direction they have to roll out, if it's even possible. You should never rely on humans or agents for that matter to catch breaking",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "changes in an unconstrained system, let alone babysit a reasonable rollout order. It's way too complicated to reason about. It makes rollbacks unsafe, and there are sometimes even circular dependencies that make this fundamentally impossible. We need a",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "better solution than a human manually gating rollouts to make sure that their breaking change gets into production without errors. And we need better ways to constrain the behavior at abstraction boundaries to make this tractable in the first place.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Let's zoom a bit. Anytime you have state, whether that's in a shared cache, a database, a que, or even just an inflight RPC between services, you lose the luxury of imagining your system as that nice static diagram you wrote in",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "your docs. Instead, you have to add that additional time dimension to your thinking. Now, let's imagine I want to add a new field to this schema. I want to add eye color. And all users are supposed to have eye color. So, I want to make it required.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Whoops. I uh rolled out the reader first. So, we're seeing some parse failures. That's fine. We're going to roll out the writer now. So now the writer and reader on the same version, but you'll notice that even though we rolled out the writer and the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "reader, we still have some requests in flight that are going to fail. It is only now that I unpause this and let all of the cues and RPCs and everything drain that it's actually safe to ship this breaking change. So basically, no",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "matter what you do you do, you're going to get some errors. So, you're thinking, \"We solved this problem in like 2001 with Protobuffs. Why is Robbie up there complaining about a solved problem? Surely somebody told him about protos before he got up here and",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "embarrassed himself.\" Well, yes, protos do solve the wire compatibility problem, but they do so by substantially weakening the set of states that we can represent. Protos what with their optional only semantics and no logic constraints make wire",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "compatibility trivial. But you're sacrificing constraints in your application for the ease of wire compat. If you want your systems to have these solid abstraction boundaries, which I very much do, your invariants belong at",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the boundaries of those systems. Your application code should not be in the business of dealing with old versions of old stuff forever, leaving dead branches that you can never clean up, and generally abandoning service developers",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "to a situation where they have to handle all versions of things for all time. So when I talk about defining schemas, I'm not just talking about the wire format. the grammar-based schema. I'm also talking about contracts that can encode",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "powerful rules like JSON schema or extensions to proto like protov validate. Unfortunately though, the stricter your schemas are, the easier it is for you to make a so-called breaking change. And we can't trust humans to manage that overhead. We need tooling.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Our industry's current tooling encourages what I call optional slop. Every migration, every roll back path, every compatibility tail leaves some ugly residue on the schema. The schema on the left here shows a type that is",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "technically compatible throughout time, but increasingly bad at actually constraining what states are legal today. This type doesn't make impossible states unrepresentable, and it pushes the burden onto business logic everywhere that reads it. So you're",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "never going to get wire incompatibilities when you're using protos, but instead you'll see weird errors much deeper in your application code when you assume that I don't know legacy full name can't co-occur with validated phone number or something. If",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "you don't encode as many rules as possible into your contract, I absolutely guarantee that a future developer will take advantage of the flexibility to send something that you don't expect. I don't want to give you the feeling",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "that I'm anti-proto. Certainly not. It's just not enough. We need a wire format plus additional rules because at the end of the day only that abstraction boundary is guaranteed and you'd better be writing that boundary in some schema",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "definition language or SDL so you can generate code from it that doesn't sneak in any assumptions. I promised at the beginning that we can keep things safe while also reducing cognitive overhead and making impossible states impossible. We we can do this",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "with tooling. But first, I do want to make one comment about how this is even more important for agents than it is for humans. Look, I work at OpenAI. I'm pretty AGIP and I believe pretty strongly that our models are already better than humans at",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "reasoning through most of this stuff and will be much much better in the near future. But that doesn't obiate the need for strict contracts. In fact, I think it makes it even more important. Today, and I think forever, agents like humans",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "will be able to build systems that they themselves cannot fully understand. These systems will be bigger and more impressive than anything I can come up with, but still way too complex to page into memory, so to speak. As our models",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "get stronger and stronger, these abstraction boundaries can get bigger and bigger, but so will the underlying systems they support. Until and unless agents stop being able to build systems that they themselves can't fully understand, they need help to verify",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "correctness at each change. We will always need these abstraction boundaries with good contracts that are at most the size of an agent's ability to gro. So what should these contracts actually look like? Well, we want to put as many",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "constraints into the contract as possible. If the business logic depends on the rule, the rule belongs at the boundary. Then you can generate types for handlers that fulfill this contract. And you don't have to handle missing or",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "malformed states deep in application code. I somewhat famously can only hold one thing at a time in my head, which is why I like types and hate side effects so much. They let me think about just one part of my system at a time without",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "worrying that my understanding or more to the point lack thereof might bleed into other systems. This is good for especially dumb humans like me, obviously, but I think it's even better for agents. Models are not great at reconstructing",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "your implicit invariance from a pile of surrounding code and knowledge. If the boundary is loose, they will invent plausible looking states that are wrong. If the contract is strict, the legal state space is much smaller. Hidden",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "assumptions become explicit and you get a much sharper oracle for CI review and more importantly, agentic loops. If an agent can fuzz its own boundary by generating all reasonable input that satisfies some contract, it's going to",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "be much more effective at proving its own correctness and building a robust system when it's able to test itself. Don't make your agents or your developers rederive the contracts every time they look at a codebase. In some cases, they can, but doing so is like",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "write writing a runbook when you could have just written a script. The script is just going to work. You can test it. You can make sure that it works over time. The runbook is going to mostly work like 99% of the time until it gets out of",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "date, until you find a bug, until you realize that you never tested it. Even if context length becomes effectively free, this will continue to be true. In terms of minimizing cognitive overhead for humans and for agents, a 100%",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "guarantee that is easily definable is priceless. Okay, I've been waxing philosophical for like 11 slides about how important strict contracts are. It's time to tell you about how we can actually fix this and introduce these strict contracts",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "without adding too much friction on the breaking changes side. Adding all of this strictness requires a change in the way we think about these contracts. We need to stop sharing types between client and server between d serializer and serializer.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "Delete your common types library and replace it with a DSL that can generate separate client and server types. This is the shape that I actually want. Writers should be as strict as possible. They should emit today's contract. If",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "eye color is required for all subsequent users, writers should always require that eye color is provided. This shouldn't be a compromised type that has been weakened by every migration you've ever done. If your business logic",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "requires age, make it sure make sure that you have age. Readers or deserializers are where the compatibility burden belongs. They should accept the union of the last few writer versions because that's where skew lands in practice.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "I know everyone loves to share types between client and server and so in theory this is a pretty big change. Of course they do. It feels simpler, cheaper, cleaner. So if you want people not to do that, the tooling has to be really really good and it has to be",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "trivial to make these separate reader and writer types without requiring additional friction on the behalf of the developers who are actually making these contracts. It can't feel like a tax. It has to be the easy path. So what do I",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "actually mean by that? On the left we have a generated writer class. This is in Python, but the same thing works in any language. If all users now have a name and an age, the writer should require that name and age is always what",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "you're going to send over the wire. No optional compromise or historical mush. On the right, the reader is where we pay the compatibility cost. And it's explicit union of the old writer shapes that we still need to accept. And then",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the code branches on the version shape instead of smuggling a bunch of compatibility guesses into one giant type. I like this because it quarantines the weirdness. New writes stay clean. Historical behavior is still supported,",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "but it's obvious, local, and eventually deletable. Of course, no one will ever want to write this reader type. So, we need to generate it with good tooling. What does that mean? Mechanically, the source of truth should be that contract",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "in a schema DSL proto plus proto validate, JSON schema, whatever you use. You can generate them from code if you insist, but I personally prefer maintaining the schema directly. Whenever the schema changes, use static analysis where possible and fuzzing",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "otherwise to ask whether the change is breaking under partial rollout and in which direction. Note that that is a property of the contract, not a property of whatever data happens to be flowing today. You don't get to rely on",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "assumptions that are not baked into the schema. If the change is breaking in either direction, CI should complain and tell you to stamp a new type. Writers use only the new type. Readers are the stamped union of all the historical",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "writer types as long as they need to stay alive. If you want to be really fancy, your generated code should make it impossible to serialize from reader types or deserialize for from writer types. Make impossible states impossible not just in the type system.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "If you've done this right, a few nice things happen. Engineers stop simulating cross version breakage in their head. CI does that part. Schema updates become much more mechanical. Schemas start to represent points in time, which means",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "you can branch explicitly on the stamp and later delete old branches when metrics say they're gone. This is a superpower because it lets you delete old code that you can guarantee is no longer used. So, let's define this six-step process that allows us to",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "safely evolve strict schemas. First, update the schema to express a new expectation in business logic. All users have names, for example. Second, detect breaking changes. CI should look at your schema versus the one on trunk, master,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "whatever you call it, and reject changes that it can statically or via fuzzing determine are unsafe. Third, generate serializers and deserializers in the languages of your choice. Keep the writer type, the serializer type as",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "strict as possible. If all users have names, don't let name be optional. Now, our stamp command allows us to make readers or deserializer types a tagged union of the last few writer types. This allows us to explicitly branch at",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "previous versions of your schema, basically quarantining and then eventually deleting old bits of unmaintained code. Measure how often old readers are still used. Eventually, when that gets down to zero, you can finally delete all branches, my favorite type of",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "PR, once those metrics hit zero. This requires a ton of tooling. You need a complicated breaking change detector. The logic is no longer nearly as simple as protoreing changes. You need telemetry. You need code generation from",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "your DSL into your programming language. You need to be able to fetch old schema versions in CI. You need a way to mark schemas as allowed to be breaking so people can evolve their schemas when they're still developing on them.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "There's a ton more stuff. But once you have all that, it feels like magic. Your generated clients just work. And more importantly, your business logic gets more constrained and much simpler. You just match on the part of the union you",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "still have to support and implement single simple con constrained logic per branch rather than that optional soup that I was talking about. Engineers don't have to think about this process at all. Even though it's in theory six steps, CI is enforcing every",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "step so they never have to add that cognitive overhead of figuring out what to do next. Before we get into some tooling, let's let's walk through a concrete example here. For most rollouts where the change isn't breaking, CI will just let the change",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "through and you don't have to do anything fancy. But let's take an example of the most verboten type of change, changing the type of a field. This change is obviously breaking in both directions, right? New readers can't understand old writers and vice",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "versa. I still don't recommend making this change if you can avoid it, but it's doable given this process. In this case, we're going to change interests here from a list of strings to an int. First, CI sees that you're going to",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "deploy a breaking change. It doesn't update the reader type yet since the reader type on master doesn't accept V5. Instead, you run stamp and now all of the readers accept either the new version older or the old version, but",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "they're still deserializing at the old version, V4. Then, when your metrics finally show that all readers are rolled out, CI finally lets you merge the new strict writer type, V5. Note that there's still some things in the queue or the RPC or whatever, but",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "now everything is going from V5 to V5. Only after the old data tail is gone can you remove the old branch. In some cases, when you have these complex systems with long tails of pods or clients running, you may never be able to delete V4. But that's okay. It's",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "still much cleaner to have that discriminated union on the reader type than it is to be able to have to support all branches of things forever in one specific type. I really don't like talking about forward and backward compatibility since",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "it always confuses me. Like from whose perspective is this forwardly and backwardly compatible? For example, a system that takes input and returns output simultaneously acts as a serializer when it takes well what a deserializer when it takes input and a",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "serializer when it returns its output. So instead I prefer to talk about breaking changes from the perspective of a writer and a reader or serializer and deserializer. The first twothirds of this talk were kind of philosophical like in a perfect",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "world here's how I think about breaking changes. The thing that makes this really hard is that it's very difficult to detect breaking changes in a sufficiently powerful contract language. The set of breaking changes rules for protos are really easy. The set of",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "breaking changes rules for JSON schema or protov validate are much harder precisely because they are so much more expressive. Harder enough that I'm actually not aware of any open source product that does this in any reasonable",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "way. Even though I think it could be useful industrywide for anyone who uses JSON until today, of course. Um I've been frustrated by this for years and finally took the time to sit down to try to write a generic JSON schema subter. We",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "can statically analyze arbitrary JSON schemas and try to detect if they're breaking and in what direction. I'm going to do a demo, but let me formalize what I meant by subsumption checker really quick. The core question is just set containment. Let's think of",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "a schema as denoting a language of JSON values L of schema. Then a subsumption checker just asks the question whether one language is a subset of the other. If L of new is a subset of L of old that is all values valid under the new schema",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "or rather the old schema the new schema are valid under the old schema then a new writer is safe for an old reader. If L of old is a subset of L of new that is all values valid under the old schema are valid under the new schema then an",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "old writer is safe for a new reader. It's complicated to think about well it's not complicated it's just confusing but luckily once you have this tooling you never have to think about it again. When either relation fails, if possible,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "the checker should be able to provide a witness value showing the difference. The reason this is hard is that it's impossible in most cases to enumerate the actual language. So you can't do a direct subset check. Instead, a",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "subumption checker like JSON compat has to do special logic for each keyword instead of keywords that proves properties of the new and old schemas. This gets really hard with recursive schemas, sum types, and other arbitrary",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "constraints like regx format strings and conditional types. The important point that I want to reiterate here is that the only input to the language is the schema itself. It doesn't matter what's actually happening in your system. What matters is the",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "constraints you're putting on your system. If your business logic assumes some invariant that is not expressable in the schema, the subsumption checker cannot possibly catch it. So you should try to avoid assuming such invariance in your",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "business logic. Or if you must, you should expend extend the schema DSL itself, which is usually not too hard. I want to show a live demo in two passes. First, the static checker. For a lot of ordinary schema changes, we can",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "prove compatibility directly from the schemas, and that's great. It's fast, deterministic, it's easy to put in CI. Then, if the schema gets too expressive for a complete proof, or at least so far, we switch to search. We ask the",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "fuzzer for a concrete witness value that gets accepted on one side, but not the other. I like that split a lot. proof when we can get it, examples when we can't. And the witness matters not just for CI, but for people and agents trying",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "to understand exactly what might break. What do we mean by a witness? Here's an example. This is a small part of a schema with a breaking change. It's much easier to reason about compatibility when you have an example of where it",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "falls apart. JSON schema includes some complex keywords like if then, conditional types that make static checks really complex. But in practice, this subsma is pretty simple. It just says if the field called mode is percent",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "then properties value is going to be a maximum inclusive of 100. On the right we've ex we've tightened that to exclusive maximum of 100. So we've gone from allowing everything up through 100 to everything up through 99. Just glancing at the schema, you can",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "probably drive this in your head pretty quickly. But imagine this were a tiny part of a massive schema or more complex rules that were being evaluated. It's much more useful to think of real values. The witness here is just the",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "value mode percent value 100. We see that old writers can emit it. New readers reject it. This one payload is much more useful in a review or an incident than a paragraph of abstract compatibility pros like I've been giving you for half an hour.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "Now let's do a brief live demo. This is actually jsoncompat.com I framed into this presentation and I have to use my mouse on this additional screen. So we'll see how it goes. The actual subsumption checker is written in Rust but compiled to was for JavaScript",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "usage. It has Python bindings too. Let's take a look at the schema on the right. We have an object with two fields name and age. They have some constraints like min length and minimum. Let's paste this into here and check compatibility",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "between this schema and itself if I can find my mouse. check compatibility. There we go. Luckily, we see that the schema is compatible with itself. That seems reasonable. We've also generated a little bit of sample data at the bottom",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "that um that fulfills both of these schemas. Now, let's tighten this new schema. Let's change min length from five to six. If you think about it for a second, all values representable by the new schema or representable by the old schema. that",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "is L of new is a subset of L of old. But not all values representable by the old schema are representable by the new schema. Right? Anything with name of length five validates under the old schema but not the new schema. This is a",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "breaking change for the deserializer role because there's old data that the serializer can emit that is no longer valid under the new schema. Let's check thatoop boop. Check compatibility. We see that we now have lost des serializer compatibility",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "and both of course and we have some some more examples of each of the schemas. I think this is pretty cool. It's also very fast. Oh, you know singledigit milliseconds and so you can run this across all of the schemas in your codebase pretty quickly in CI.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "The status checker works for almost all schemas. So fuzzing is rarely necessary and we're constantly trying to improve the set of all constraints we're supporting. However, for a sufficiently powerful contract language, not every",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "compatibility question is that easy. The JSON schema not keyword comes to mind. It's really hard to detect statically whether something does not fulfill any instance of a schema, a complicated format string, a conditional type, whatever. Once you have richer",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "combinations of conditionals, cross field constraints, and schema composition, there are changes where a complete static answer is much harder or not practical. But it's still okay to introduce these constraints, right? We want to add as strict schemas as",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "possible. So we need fuzzing too. Like I mentioned before, the workflow is prove what we can statically and then when the checker can't fully decide, search for concrete counter examples. I like that combination a lot because the static checker gives you fast",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "deterministic guardrails and fuzzing gives you real examples when the logic gets too expressive for a complete proof. When the static checker can't generate a witness on its own as well, the fuzzer can help there. The nice",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "thing about the fuzzer is it also lets me and my agents iterate a lot faster on the static side of the house. The test harness for JSON compat is basically just its own fuzzer. So let's try with the fuzzer for a minute. We have this pretty simple schema",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "that has a name and an age. Name is required. We can click generate and we can generate you know 500 um pretty quickly. Uh let's change age to required as well. We see that everything has age now. And let's make neither of them required.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "Great. And maybe let's make something impossible. It's perfectly reasonable to make a um schema that is unsatisfiable. So there are no values of age that have a minimum of of 18 and a maximum of 17. So, let's see what happens. Okay,",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "unreachable. It's great. Um, this is MIT license and it's the first time I'm talking about it anywhere, so I'm sure it has lots of bugs. Um, but I'm not trying to sell anything except a solution to a problem that has pestered",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "me since I started my career. So far, when we've used this internally, it's been a huge bo for catching breaking changes at our storage boundary. Instead of telling you to go back to your company and insist that everyone rewrites all of their wire types into",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "some DSL separating all your serializer and deserializer types, write some codegen, etc. I want to leave you with a suggestion as to how to slowly adopt ideas like this. At OpenAI, we have a lot of pyantic schemas that define",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "something that we're storing somewhere, maybe in a database, maybe in Reddus, whatever. We don't have to go all the way off the bat and split the reader and writer types, even if I wish we did. Instead, we can decorate all of these",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "types with a JSON compat decorator that writes the current schema to disk and to your repo and checks breaking changes against previous commits using the same static checks and fuzzing I just showed you. While this isn't as powerful as",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "schema first design and generated code, it's already caught a ton of subtle bugs in cases where people didn't realize that they were making breaking changes. Here, it's trivial to adopt. Put the compatibility policy right next to the",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "type definition in Pyantic or whatever you're using. If you're using it for both directions, we say both. If we're using it in just the serialization direction, you can say this is just a serialization type. Then we move the des",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "serializ the des serialization function from the pyantic class itself to make sure that it can't be misused. The stable ID is just a durable identity for this contract across renames and refactors. So CI can compare the current",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "schema against the historical snapshots for that same logical payload. with direction both which is mostly what we use today. A change has to be safe both for old readers seeing new writers and vice versa. Eventually I hope we can",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "split types like user profile here into a writer and reader type and evolve them more independently allowing us to have these trick writers and union readers like I keep talking about. The off cache incident at the beginning of this talk",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "is now decorated with this checker. We haven't completely guaranteed that we've fixed all compatibility issues but we've eliminated a whole class of them. In fact, at OpenAI, tests enforce that models in certain types of our codebase",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "are always decorated with a compatibility checker like this. So, if you accept like I do that stricter is better, I would start adopting idea in phases. Phase one, annotate the types that sit on top of real storage or Q boundaries and make CI",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "check both rollout directions. This alone catches a ton of bugs, including that offs. Phase two, stamp writer versions and measure measure the old retail. Now you can see roll back risk and have a principled way to know when",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "cleanup is safe. Phase three, for the really important boundaries, split the strict writer from the reader union type and generate the boring parts. You don't need the whole state on day one. You just need to move the riskiest",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "boundaries from vibes to mechanical checks. One reason SRRES might be skeptical of talks like this is that not every boundary deserves heavy machinery. And no matter how much good tooling you have, there is some friction added by",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "requiring you to split your types. If you have an ephemeral internal RPC, no durable state, no cues, no meaningful roll back tail. This may be overkill. Maybe ordinary API compatibility discipline is enough. Where it is absolutely worth it though is caches,",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "cues, databases, durable workflows, mobile or external clients, and really any boundary where state substantially outlives binary. That's the filter. Use machinery where old code and new state can meet. That's where version skew",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "turns into incidents. And the better your tooling is, the more places you can enforce it without causing undue friction. So if I were to summarize this as an S surish playbook, it would be these four things. First, constrain. Make strict",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "schemas the default so hidden assumptions become contract rules instead of tribal knowledge. Second, split. Generate separate reader and writer types in whatever language your service uses from the schema and make the historical reader union cheap to",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "maintain using your tooling. Third, gate run CI against the schema itself and against previous versions of that schema so you can detect breaking changes mechanically before merge. Finally, observe. Measure which old versions are",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "still being read so you can see the tail, understand roll back risk, and know when cleanup is actually safe. This is easy to do because you're generating these types. That's the durable version of this. Not a one-off pre-flight for",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "one scary change. Not a system that requires engineers to think about subumption every day and think about which directions things are getting serialized and deserialized. Not optional slop, but a system that makes the safe path the normal path. Thanks so",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "much. I think I now have a couple minutes for questions. I haven't uploaded the slides to Jason Kapat yet, but I will. Um, and I'll also send them along. Thank you so much.",
+      "start": 840,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,714 @@
+{
+  "videoId": "nC418kwKyLM",
+  "title": "Scale AI with Google's TPU software stack",
+  "channelName": "Google for Developers",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 36183,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-j3PyPqV-e1s",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "[MUSIC PLAYING]\nGIRIJA SATHYAMURTHY: So\nover the past several years,\nGoogle has been driving an\nincredible pace of innovation\nin AI.\nAnd when you look\nacross this timeline,\nyou will see an\nevolution of models\nand modalities all the way from\nGemini to Gemma, Veo, Imagen,\nand Omni that was\nannounced just yesterday.\nSo what's incredible\nabout this timeline\nis that it's not just the\ncadence of these releases\nbut the breakthrough\ncapabilities that\nare being unlocked with\nevery launch, things\nlike multi-modal\nunderstanding, reasoning,\nand agentic workflows.\nSo today, we want to go one\nlayer deeper and talk to you\nabout what powers these models,\nand not just from a silicon\nstandpoint, but from a full\nsoftware stack standpoint,\nand talk to you about some\nof the tools that you can use\nas you build, train, fine tune,\nserve state-of-the-art models\non Google Cloud TPUs.\nJOSH GORDON: OK, awesome.\nSo as you know, there's\nroughly four stages\nto building a large\nlanguage model.\nFirst, you would design\nyour neural network.\nAnd to do that, you'd\nuse a framework like JAX.\nThen you have pre-training,\npost-training, and inference.\nIn pre-training, you're\nteaching the model basically\nto predict the next token.\nIn post-training, you're\nteaching the model to be useful.\nYou could do something like\nsupervised fine tuning to teach\nit to follow instructions.\nAnd then you could do\nsomething like reinforcement\nlearning to teach it to reason.\nAnd then after that, you need\nto serve the model to users,\nor do inference.\nAnd what's really cool is\nif you look at this chart,\nyou can look at roughly where\nthe intelligence is coming from.\nAnd what's really\ncool recently is\nyou'll see that a lot\nof the intelligence\nis actually coming\nfrom inference.\nAnd if you think\nabout why that is,\nit's because now we have\nthinking models that\nare consuming lots of tokens as\nthey reason over your problems.\nAnd so what's cool is we have\nthese two distinct phases\nof compute.\nWe have training compute, and\nwe have inference compute.\nAnd the needs are a\nlittle bit different.\nAnd we've designed our\nhardware stack, our TPU stack\nwith that in mind.\nGIRIJA SATHYAMURTHY: Yeah.\nSo as Josh mentioned,\nas you can see here,\nthere is a clear separation\nfrom an architectural standpoint\nbetween systems that specialize\nin training workloads and those\nthat specialize in\ninference workloads.\nSo TPU v8 is our latest\ngeneration of TPUs\nthat we announced at Cloud Next.\nAnd TPU 8t is highly optimized\nfor large scale training\nworkloads.\nSo the focuses here are things\nlike maximizing your throughput\nand scaling efficiency.\nAnd TPU 8i is great for\ninference workloads.\nSo the focuses are things like\nlow latency and cost efficiency.\nSo we are moving away from\none general purpose system\ninto hardware that\nis specialized\nfor the needs of different\ntypes of workloads.\nBut hardware is just\none part of the puzzle.\nSo let's talk about some\nof the software tools\nthat we mentioned earlier.\nJOSH GORDON: OK, awesome.\nSo in this talk, we'll take\nyou through a bunch of software\nthat you can try at home.\nWe're going to start with\ninference because we just\ntalked about how important\nthat is for thinking models.\nA really cool thing to say\nabout inference-- pre-training\na model from scratch\ntakes a lot of compute.\nBut if you're\nworking on inference\nand also post-training,\nthat's absolutely something\nyou can do with\nthe free TPUs that\nare available in\nKaggle or on Colab.\nSo we'll start with a demo\nof serving Gemma 4 using vLLM\non TPUs.\nAnd then we'll move into another\ndemo of doing some post-training\nwith a different\nversion of Gemma\nusing Tunix, which is our\nlightweight post-training\nframework.\nThen quickly, we'll\ngo through MaxText,\nwhich has high\nperformance reference\nimplementations of all\nsorts of large language\nmodels implemented in JAX.\nAnd these will scale out\nof the box to thousands\nof chips, which are super cool.\nAnd then we'll talk\nabout frameworks\nfor actually building models.\nSo JAX, which is used to\nbuild Gemini and Gemma.\nAnd then we'll talk about\nTorchTPU, which is really cool.\nIt's a new software\nwe're working on\nto make it really easy for you\nto run your PyTorch code on TPUs\nwithout code changes.\nGIRIJA SATHYAMURTHY: Awesome.\nJOSH GORDON: And to get started,\nRob will give a demo on vLLM.\nSorry.\nGIRIJA SATHYAMURTHY: I\nwill do a quick intro,\nand then you have to hold\nfor 5 minutes for the demo.\nJOSH GORDON: Sorry,\nRob, I jumped the gun.\nGIRIJA SATHYAMURTHY:\nJOSH GORDON: No.\nLet's start with inference.\nSo LLM serving is no\nlonger just about compute.\nIn fact, at scale, some\nof the harder problems\nare usually memory\nmanagement, scheduling,\nand hardware\nutilization, and also\nbeing able to abstract away\nall of these complexities.\nThis is where vLLM comes in.\nLet's talk about some\nof these challenges,\nand then we'll talk about how\nvLLM helps you address those.\nSo as context lengths grow\nand concurrency increases,\nKV cache management becomes\none of the biggest bottlenecks\nin inference.\nSo vLLM uses PagedAttention.\nIt virtualizes KV cache\ninto fixed-size blocks,\nso this tremendously\nhelps improve utilization.\nBut this is just the\nfoundation, and there\nare several optimizations\non top as well.\nFor example, prefix caching\nis ideal for agentic workloads\nand conversational workloads.\nThe idea is for several requests\nto have one common prefix.\nSo instead of the system\nhaving to repeatedly calculate\nKV cache, it can\nsimply use whatever\nwas previously calculated.\nSo let's talk a little\nbit about scheduling now.\nInference traffic\nis highly irregular.\nYou are constantly dealing\nwith different prompt lengths,\ngeneration times, arrival\npatterns, and so on.\nvLLM uses continuous batching.\nSo instead of using static,\nrequest level batches,\nyour system dynamically\nschedules token level\nwork at runtime.\nThis obviously helps\nwith scheduling,\nbut also helps a lot with\nhardware utilization,\nwhich brings us to\nthe third bucket\nthat we were talking about.\nSo especially on\nTPUs, these workloads\nbenefit a lot from\nmemory layouts\nand hardware-aware\nexecution strategies.\nAnd these work naturally\nwith vLLM's execution model\nand helps you\nmaximize throughput.\nSo the beautiful thing about\nvLLM is also that all of this\nis exposed through a\nunified inference backend.\nIt supports both PyTorch\nand JAX frameworks,\nand also helps you run your\nworkloads on both GPUs and TPUs.\nIt also supports a wide\nrange of model architectures.\nSo the goal here is portability\nand helping developers choose\nthe framework that\nis right for them,\nand also being able to move\nacross hardware backends\nvery easily.\nSo the key thing here\nis that, as a developer,\nyou are never having to\nrewrite your application layer\nor serving stack.\nSo with this intro, now\nlet's see vLLM in action.\nOver to you, Rob.\nROB MULLA: Thanks, Girija.\nThat was a great intro about\nrunning inference on TPUs.\nSo in this demo, I'm\njust going to show you\nhow easy it is to\nget up and running,\nrunning the latest Gemma 4 31\nbillion-parameter model on TPUs.\nSo I am running this\nnotebook on a virtual machine\nthat has 8 Trillium chips.\nSo we can use TPU info, which\nis a package for letting\nus see what the chips are on\nthe machine and the utilization.\nSo we can install vLLM TPU\njust with pip install vLLM TPU.\nHowever, I am\nrunning this model,\nand we recommend\nrunning these models\nusing our pre-built\nDocker containers.\nThis makes it super\neasy, so you don't\nhave to install all\nthe different packages\nand dependencies.\nAnd it will just\nrun out of the box.\nWe do also have a TPU recipes\nrepo for various models\nthat are supported\non different chips.\nThis is not the full\nextent of models supported\nfor vLLM on TPU, but\nit's a good place\nto start if you're looking\nto run some models on TPUs.\nSo in this Docker Compose\nfile that I've written,\nthere's a few things\nI want to note.\nFirst is that I've\nenabled profiling.\nI'm going to show\nyou this later,\nbut this allows you to see\nthe low level execution that\noccurs on the TPU.\nIt's not great for\nrunning in production,\nbut when you're debugging,\nit's really helpful.\nI also set tensor\nparallel size to 8,\nand that's really all you need\nto do to make sure that it's\nrun across all the TPU chips.\nAnd I'm also using the\nGemma 4 tool called Parser,\nand I'll show you\nlater how that works.\nSo just to show you here that we\ndo have our Docker container up\nand running with the latest\nnightly build of vLLM TPU.\nAnd checking out some\nof the logs here,\nwe can see that it's\nsuccessfully booted up.\nAnd I started this\nup earlier just\nto save us from waiting\nfor the compile time.\nBut we're running the 31\nbillion-parameter Gemma 4 model.\nAnd these commands let us\nknow that the process is\nup and running.\nSo I'm also going to,\njust during this demo,\nshow these logs here at the\nbottom here in our console\nso we can see what's going on.\nThere we go.\nSo now as we call\nthe model server,\nwe can see some of\nthe stats running.\nJust to show you here\nagain using tpu-info,\nnow we can see the\nmemory utilization\nacross all of our chips\nis nearly maxed out.\nNow, this model could\nactually fit on four chips,\nbut we're using eight\nbecause a lot of times\nyou want to have a lot of\noverhead for the KV cache\nthat your model might\nneed to consume.\nAnd then from here\non, the great part\nabout the fact that\nwe're using vLLM\nis that the frontend\nand your software design\nis going to be\npretty much the same\nas if you were\nrunning vLLM on a GPU.\nSo you can have the same\nfrontend software written,\nand you could change the backend\nhardware that you're running on.\nAnd it should operate\npretty much the same.\nSo let's just send\na single query\nto ask it to write a haiku\nabout Google Cloud TPUs.\nBut we want to do more than\njust sending a single request.\nAnd Girija mentioned\nthis before,\nbut one of the\nreally great things\nabout what we've\nbuilt into vLLM on TPU\nis this thing called\nRagged PagedAttention.\nSo this really does\na lot of things.\nIt eliminates the KV cache\nmemory fragmentation.\nIt enables continuous\nbatching, so it's\nreally good with\nasynchronous requests.\nAnd then it has\na bunch of custom\nbuilt kernels that are\nspecific for running on TPUs.\nAnd one of those is the\nfact that it automatically\nwill change between\nrunning from prefill-heavy\nto decode-heavy\ntypes of workloads.\nSo a prefill-heavy workload\nmight be a really long input,\nlike images or long\ncontext and then requesting\na smaller output.\nAnd decode would be a\nsmaller input requesting\na really long output.\nSo we're just going to send\ntwo simultaneous requests, 16\nasynchronous requests,\nto vLLM running on TPU.\nAnd it finished\nrelatively quickly.\nBut since we have\nprofiling running,\nwe can now go over\nto our profiler\nand actually see all the\nlow level execution here.\nThis is really helpful if\nyou're tuning your model\nor if you want to really get in.\nIf you're a power\nuser and you're\ngoing to be writing\nyour own kernels,\nXProf allows you to really\nexplore all the execution\non the TPU.\nAll right, so just to\nput this all into context\nof an actual application\nthat you might want to build,\nI'm going to show how we could\nbuild a food logging assistant.\nSo the idea here\nis we have an image\nand some text about some food\nthat we might take a picture of.\nWe want the agent here, Gemma\n4, to identify the contents,\nand then query a database to get\nall the nutrient information,\nand finally generate a summary.\nSo Gemma 4 is great for this\nbecause it's multi-modal.\nSo we can send it an\nencoded image of some food,\nlike this, and\nask it to describe\nthe contents of the food.\nAnd Gemma 4, is\nreally good at doing\nthis sort of summarization.\nSo here we have a\ncomplete breakdown\nof the food in that bowl.\nAnd then Gemma 4 has also\nbeen trained to work really\nwell with tool calling.\nSo tool calling,\nhere, I'm just going\nto simulate a fake nutrition\ndatabase that we want\nto give the model access to.\nAnd all we have to do is define\nthis lookup nutrition tool\nand send it in our\nrequest to the endpoint.\nAnd then the model\nknows that it has access\nto this nutrient database\nthat it can call.\nSo if we call it and\nask it for the calories\nin a bunch of\ndifferent foods, we\ncan see that the\nmodel has then called\nthe tool a number of times.\nSo just to wrap it up and\nto show you in full view,\nI vibe coded up with\nGemini this front end\nfor what it might look like.\nAnd you can just\nrun a query here.\nSee how it's\niteratively, as an agent,\nusing those tool calls\nto call the database,\nidentifying the different\nthings in the image.\nAnd then we can look this over.\nWe could tweet it and log it.\nAnd later, I'm going to show you\nhow we could fine tune a model\nto do something very similar.\nSo now I'm going to\nturn it over to Josh,\nwho is going to talk about some\nof what's new in vLLM on TPU.\nJOSH GORDON: Thanks, Rob.\nThat was super ace.\nROB MULLA: Thanks.\n[APPLAUSE]\nJOSH GORDON: OK, so\nwhat's new in vLLM?\nCan we switch back to\nthe slides, please?\nThanks.\nOK, so lots of reproducible\nrecipes on GitHub.\nRob showed you, super cool.\nAnother really cool thing\nI wanted to mention,\nand this is one reason I've\nloved working in open source\nall these years, we got a\nreally amazing PR from UCSD.\nAnd this is for diffusion-style\nspeculative decoding.\nIf you're new to\nspeculative decoding,\nthe idea is kind of crazy.\nI remember when I\nlearned about it.\nI was like, wait,\nthat's kind of wild.\nThe idea is if you have\na very large model,\nit's computationally intensive\nto predict the next token.\nIn speculative\ndecoding, the idea\nis that you have\na smaller model,\nand the smaller model races\nahead and it predicts tokens,\nbasically guessing what the\nlarger model is going to say.\nAnd for various reasons,\nit's actually faster\nto have the large model verify\nthe output from the smaller\nmodel than it is to\nactually predict the tokens.\nSo it's a crazy idea.\nNow, usually when you\ndo speculative decoding,\nyou do it\nautoregressively, which\nis just a fancy way of\nsaying one token at a time.\nAnd if you're doing it that\nway, there's still a slowdown\nbecause it's one token, the\nnext token, the next token,\nthe next token.\nWhat this pull request\ndid, it's diffusion style\nspeculative decoding.\nSo instead of predicting the\nnext tokens one at a time,\nyou predict them all at once\nusing a diffusion model, which\neliminates that bottleneck.\nAnd then we incorporated\nthis into vLLM TPU inference,\nand we got about a 3x\nspeedup on a bunch of tasks.\nSo it's super cool.\nHugely grateful to, I believe,\nProfessor Zhang at UCSD.\nSo super awesome.\nAnyway, open source is great.\nSo now let's take a\nquick look at Tunix.\nAnd Tunix is our post-training\nand reinforcement learning\nframework.\nIt's lightweight.\nYou can also absolutely use\nTunix at home with the free TPUs\non Colab and Kaggle.\nAnd we just wrapped up a\nreally cool Kaggle hackathon\nwith Tunix.\nWe got thousands\nof participants.\nIt was really cool.\nAnd the idea was to take an\nolder model of Gemma that\ndidn't know how\nto reason and then\nteach it to solve math problems\nand show the reasoning traces.\nSo it was super cool.\nOne really nice\nthing about Kaggle,\ntoo, is there's a whole\nbunch of example notebooks\nyou can check out.\nSo all the folks that submitted\ntheir projects, that basically\nserves as this huge\nknowledge base.\nSo it's a really\ngood place to learn.\nSo Tunix is state-of-the-art.\nIt supports a whole\nbunch of stuff.\nIt's really awesome.\nHere's just three quick\nthings it supports.\nSo SFT-- and that's\nsomething you\ncould do to, say, teach a\nmodel to follow instructions.\nThat typically would be the\nfirst stage in the reinforcement\nlearning pipeline.\nAfter that, it supports a\nwhole bunch of reinforcement\nlearning stuff.\nRob will show a demo\nof GRPO in a sec,\nwhich is something that we\nused in the Kaggle hackathon.\nIt also supports\nknowledge distillation,\nwhich is another one\nof these crazy ideas.\nSo oftentimes, if you have a big\nmodel, a question you could ask\nis, can I train a smaller model\nthat has similar performance\nto the large model?\nAnd one way you can do\nthat, often when you're\ntraining the large model,\nyou might be training\nit to predict the next token.\nSo the signal you have to learn\nfrom is, is the next token right\nor is it wrong?\nBut after you have a\nlarge model trained,\nyou can actually use the large\nmodel to train a smaller model,\nand you have a richer signal.\nBecause when the larger\nmodel predicts a token,\nyou want the smaller model\nto predict the same token.\nBut in addition to\nknowing the token,\nyou can actually see the\nprobability distribution\nfrom the larger model.\nSo you get not just the\ntoken that it predicted,\nbut you can see the scores\nfor all the other tokens\nthat it could have predicted.\nAnd that's a much\nricher signal that you\ncan use to train\na smaller model,\nfaster, to have\ngood performance.\nSo there's all sorts of these\nreally cool, magical ideas.\nAnd Tunix supports that, too.\nIt also supports some really\nnew, cool, and advanced stuff.\nSo if you're interested\nin agentic workflows--\nso the idea would be,\nlet's say that you wanted\nto train a software engineer\nmodel, like a software engineer\nagent, to actually solve\nreal problems on GitHub.\nNow you have these very\nlong-running agentic workflows.\nAnd Tunix supports\npost-training for those as well.\nWe've got a bunch\nof cool examples\non GitHub that\nyou can check out.\nIt's super cool.\nAnd now Rob's going to show\na demo of GRPO with Tunix.\nROB MULLA: Thanks, Josh.\nJOSH GORDON: Thanks.\nROB MULLA: OK, I'm back.\nSo previously, I showed how\nwe could, out of the box,\nuse Gemma 31-billion parameter\nmodel to run as this food\ntracking assistant.\nBut what if we wanted\nto ensure that it\nworks in all the different\nscenarios that we want it to?\nAnd what if we wanted to\nuse a smaller model that\nmight be more efficient,\nthat we wouldn't have\nto run on as much hardware?\nWell, in this demo,\nI'm going to show you\nTunix, which is our\nlibrary for fine tuning\nand doing reinforcement\nlearning on models on TPUs.\nAnd it uses JAX\nunderneath the hood.\nAnd we're going to fine tune\na 4 billion-model parameter\nto do the same thing as what\nwe showed in the previous one.\nI'm going to quickly\nwalk through the steps.\nSo not to get into too\nmuch of the details here,\nbut we're going to define\nthe two different models\nthat we need for this, the\nactor and reference model.\nAnd we're going to\nset up a data set\nusing Grain, which is Google's\ndata pipeline library.\nThen we're going to set\nup some scoring rewards.\nAnd finally, we're\ngoing to train the model\nand then put it in production.\nAll right, so again, I'm going\nto show you here on tpu-info\nthat we're running on a\nmachine with eight chips.\nAnd then we're going to define\nour actor and reference models.\nSo with GRPO, which is Group\nRelative Policy Optimization,\nwhich is the\ntechnique we're using,\nwe actually want two\ncopies of our model.\nWe'll have our actor model.\nThat's the model that we'll\nbe updating the weights\nof to make better at our task.\nAnd we have our\nreference model, which\nwe use to make sure that the\nactor model isn't deviating too\nfar from the original model.\nAnd creating these\nand distributing\nthese across our TPUs is\nsuper easy with Tunix and JAX.\nSo I'm just going\nto do that here.\nAnd then we can see,\nafter this is running,\nthat the memory use does have\nthem sharded across all eight\nof our chips.\nWe do leave a lot of\noverhead here, memory,\nbecause doing these\nreinforcement learning\ntype of training\njobs does require\na lot of memory\nusage on the TPUs\nfor doing these\ntraining rollouts.\nNext, I'm going to create\nthe data set that we'll\nuse to train this on.\nAnd the great thing about\nreinforcement learning\nis we don't need a\nlarge, labeled data set.\nBut we do need to simulate\nwhat the model will see,\nas it's acting as the\nagent in our program.\nSo with Grain, we can import an\nexisting Hugging Face data set.\nI'm using the Food 101 data set,\nwhich has over 100,000 images\nof food.\nAnd then I'm adding a\npre-processing step,\nwhich will then simulate\nwhat the model might see\nwhen it's acting as our agent.\nAnd then we can use\nGrain's Map data\nset to pipe these all together\nso that it will efficiently\ndistribute this to\nthe different chips\nas we're training our model.\nJust to show you here, here\nis one of the examples.\nSome yummy looking pizza there,\nand then the input prompt,\nand an example what\nit might see when\nit needs to find all the\ndifferent ingredients\nin this food.\nSo now that we've\nset up our data set,\nwe actually will\ndefine some rewards.\nInstead of having\nstrict labels here,\nwe'll just define\nrewards that the model\nwill try to optimize against.\nAnd for this, I had a\nnumber of those making sure\nit correctly called\nthe tools, that it\nhad a correct response from\nthe database using this thought\nprocess, and also correctly\nformatting the output\nat the end of the process.\nBut the real thing you\nneed to know about this--\nthis is the important\npart if you're\ndesigning these--\nto really think\nthrough how to make\nthese rewards reach\nwhat you want your model\nto end up acting like\nonce it's trained.\nOK, so here's the\npower of Tunix.\nAt this point, we've created\nour actor model, our reference\nmodel, our data set,\nand our rewards.\nAnd all we have to do is\nuse this reinforcement\nlearning cluster.\nAnd Tunix will take care\nof all the distribution,\ncoordinating the actor\nreference and rollout\nacross all of our TPUs.\nAnd then lastly, we create this\ntrainer, and we train on it.\nSo we provide this cluster our\nrewards we defined earlier,\nand we train on our data set.\nNow, this does\ntake 30, 45 minutes\nto run all the way through.\nSo I'm not going to actually\ndo that in this demo.\nBut we are going to look at\nsome of the metrics and results.\nAnd this great\nthing about Tunix,\nit handles all the\nlogging of checkpoints\nand allows us to easily\ngo into TensorBoard\nand see, on different\nexperiments,\nhow our model is\nresponding to that\nand how it's actually\nimproving, achieving the rewards\nthat we set up.\nAll right, so lastly, let's just\njump back over to this example\nUI.\nAnd I'm going to\nswitch from Gemma 4\nto using our fine-tune model.\nNow, the great thing about this\nis the model is much smaller.\nSo I'm able to run it on\na single Trillium chip,\ninstead of the eight\nor four that it would\nrequire for the larger model.\nAnd then it works.\nThanks.\nSo now I'm going to turn\nit over to Girija again.\nShe's going to talk\nmore about MaxText.\n[APPLAUSE]\nGIRIJA SATHYAMURTHY:\nIt was a cool demo.\nThanks so much, Rob.\nAwesome.\nLet's talk a little\nbit about pre-training.\nSo one of the\nthings that you will\nnotice across both\npost-training and pre-training\nis that the challenges\nare pretty similar.\nYou're still dealing with\ndistributed systems execution\nand memory efficiency or\ncheckpointing and so on.\nSo the real question\nbecomes, how\ndo you make frontier scale\ntraining much more reproducible\nso your developers\nare not always\nhaving to start from scratch?\nThis is where MaxText comes in.\nMaxText is an open-source\nreference implementation\nthat helps you train large scale\nfoundational models on TPUs.\nBut MaxText is much more\nthan a simple framework.\nIt gives you a lot of\nbattle-tested training\nconfigurations across a wide\nrange of model families,\nlike Qwen, Mistral, Gemma,\nDeepSeek, and so on.\nSo the idea is that\nyour developers\nare not starting from\nscratch and can instead\nuse these battle-tested\nrecipes and adapt from there.\nUnder the hood, MaxText\nis powered by JAX and XLA.\nJAX offers the functional\nprogramming model\nthat helps you with model\ndefinitions and parallelism\nstrategies.\nAnd XLA helps with\ncompilation and also helps you\nwith distributed\nsystems execution\nin a very optimized\nmanner on TPUs.\nAnd the combination\nis great because it\nallows you to take the\nsame training workflow\nand go from a single-host\nexperimentation\nall the way to multi-part\nproduction runs.\nAnd you don't have to\nworry about changing\nyour code structure or\nyour training workflow.\nMaxText encodes many of\nour hard-learned lessons\nin large scale training into\nthese battle-tested recipes.\nSo the idea is to make\nlarge scale training\nmuch more reproducible,\naccessible, and just less\ninfra-heavy, so you can just\nfocus on model development.\nWe talked about some of these\nupdates a little bit just now.\nSo MaxText supports,\nlike I said,\na wide range of model families,\nall the way from Qwen, DeepSeek,\nGemma 4 is our latest one.\nThere's a couple more that are\nlanding pretty soon as well.\nIt also has some\nrobust capabilities,\nlike multi-token prediction,\nand performance-enhancing\ncapabilities, like\nsupport for custom kernels\nand multi-tiered checkpointing.\nThere's a link up here to\nour MaxText repo, which\nhosts all of our recipes,\nso please do check them out.\nNow that we have talked a little\nbit about the different tools\nyou can use at different\nstages of the model development\nlifecycle, let's\nspend a few minutes\ntalking about frameworks.\nJosh, you want to come\nover and help us with this?\nJOSH GORDON: Yeah, I'm back.\nThanks.\nOK, so one thing that can help\nwhen we're talking about TPUs,\nand maybe we could have\nshowed this earlier,\nit's nice to just visualize,\nto get a sense of the scale\nthat we're talking about.\nCan we switch back\nto the laptop,\nplease, and I'll\nshow a quick demo?\nSo we have a TPU\nvisualizer, which\ncame out a couple months ago.\nAnd if you're brand\nnew to TPUs, I just\nwant to show you what this\ncan look really quick.\nSo with this particular\ngeneration of TPU--\nand just for visualization, we\nhappen to have a v5p selected.\nIt's OK.\nWhat we're looking\nat here in red,\nthat's a Linux virtual machine.\nSo you could use something\nlike Google Compute Engine,\nspin up a VM.\nAnd then in this\ncase, the blue, we've\ngot two TPU chips\nattached to that.\nSo it's just one machine\nyou can SSH into.\nYou've got two chips.\nWhat's cool about\nTPUs, of course,\nis you can attach more chips.\nSo now we've got\nfour chips attached.\nAnd there's lots we could\ntalk about, but just a couple\nof things to glance at.\nYou can notice that\nthe TPUs are directly\nconnected to each other.\nSo in the blue at\nthe top, the TPUs\ncan actually send\ndata back and forth\nwithout going through the\nvirtual machine itself.\nAnd that's for speed.\nAnd there's all different\nkinds of configurations.\nSo a really common\none would be a cube.\nSo this is a 4x4x4\narrangement of TPUs.\nAnd what's cool in\na cube here, there's\ndifferent types of connections\nbetween the TPU chips.\nThere's copper when\nthey're super close.\nAnd there's optical when they're\na little bit farther away.\nBut the goal, and the reason\nwe have lots of connectivity\nlike this, is we\nwant to minimize\nthe distance between\ndifferent chips\nin the cube, or the cluster,\nfor fast interconnect.\nAnyway, TPUs scale up\nreally, really fast.\nOh, by the way, of\ncourse, here we've\ngot a whole bunch\nof virtual machines.\nSo now, obviously,\nwe've got a lot of them.\nWhen you have a lot\nlike this, we've\ngot all sorts of software which\nis out of scope for this talk.\nBut you can use\nthings like Kubernetes\nto help you really manage\na cluster like this.\nAnd then what's cool about\nTPUs in this generation--\noops.\nThis is just a pod slice.\nSo now we have\nthousands and thousands\nof chips that are all\nconnected together.\nAnd the scale is just wild.\nI'm a Star Trek fan, so this\nreminds me almost of the Borg.\nThis is actually a little\nbit less than a pod.\nBut what's interesting\nis, beyond this scale,\nthen we move into, like,\na data center network.\nAnd so you can have\nmany, many, many pods\nlike this connected together.\nAnd the idea that I\njust want to show you,\nwhen you think of a TPU,\nyou can think of one chip\nthat's plugged into a Linux VM.\nAnd you can also\nthink about almost\nhaving an ocean of compute.\nAnd what's really cool\nabout the software\nstack and our\nframeworks, a lot of\nthem are designed to make a\nlot of the magic that goes\ninto all this complicated--\nOh my God, how do you coordinate\nthousands and thousands\nof chips?\nAnd how do they all\ntalk to each other?\nAnd how do you do\nthat efficiently?\nAnd how do you make\nsure that all the chips\nare working at the same\ntime so none are idle,\nand all that stuff?\nThings like MaxText\nand JAX handle\nall of that behind\nthe scenes for you.\nAnd you can optimize it, but\nwe've done a huge amount of work\nto make a lot of\nthat transparent.\nAnd so with something like\nJAX, that we'll talk about\nin a minute, you\ncan write code that\nfeels like you're\nworking on a Linux VM.\nBut really, that code can be\nrunning on something like this,\nwhich is absolutely wild.\nSo it's super cool.\nYou can find this in the\nTPU docs on Google Cloud.\nIt's also on bit.ly/tpu-viz,\nfor visualizer.\nOK, let's switch back\nto the slides, please.\nThanks.\nSo I just wanted to\nsay very briefly,\nwe'll talk about JAX and\nTorchTPU in a second.\nBeneath both of those is\nour open-source compiler\ncalled OpenXLA.\nAnd the main thing I\nwanted to say about this\nis this does a lot\nof the magic, which\nmakes all that\ninter-chip communication\npossible without you\nhaving to think about it.\nSo it's just this super\npowerful open compiler.\nWe've actually got a whole\nupcoming conference on this,\nthat I'll talk about in a bit,\nif you want to go much deeper.\nBut yeah, OpenXLA is awesome.\nIt does a lot of stuff for\nyou, makes your life easy,\nwhich is what I want.\nOK, here's the clicker.\nGIRIJA SATHYAMURTHY:\nYes, thank you.\nAwesome.\nSo now with that little\nbit of foundation,\nI think talking\nabout JAX and PyTorch\nwill make a lot more sense.\nSo let's start with JAX.\nGemini is built on top of JAX.\nAnd the reason is\nbecause JAX offers\na very clean, programmable model\nthat's great for large scale ML\nsystems.\nAt its core, it's\njust like NumPy\nwith some composable\ntransformations.\nFor example, Grad\nautomatically lets\nyou compute gradient\ncomputations\nusing simple Python functions.\nJit helps with tracing\nand compiling using XLA\nand converts your\nPython functions\ninto optimized\naccelerator programs.\nThere's also Vmap that helps\nyou express parallelism\ncleanly, and so on.\nSo, as you can see,\nat its core, JAX\nis pretty minimal in\nthe sense that you're\nwriting simple, straightforward\nPython functions\nand then progressively\nadding transformations to it\nto make it more differentiable,\nvectorized, compiled,\nand scalable across\naccelerators.\nSo instead of having to learn\na heavy, large framework,\nall you're doing is writing\nstraightforward Python functions\nand progressively\nadding transformations,\nlike we talked about.\nSo you can see here JAX is\npretty minimal, like we talked,\nabout at its core.\nAnd so what makes it great\nis the ecosystem around it.\nIn real world systems,\nyou need much more\nthan the composable\ntransformations\nthat we talked\nabout, because you\nneed things like\noptimizers, data pipelines,\ncheckpointing, and so on.\nThis is where the\necosystem comes in.\nIt's a set of libraries that\nprovide the higher level\nmodel building abstractions\nfor a variety of things,\nlike we talked about.\nFor example, Flax is a very\npopular neural network library\nthat provides these abstractions\nto help you with modules\nand parameter management.\nIt's especially\nuseful when your model\nstops being a simple\nPython function\nand starts having things like\nnested loops and recurring\nblocks.\nA couple of other examples--\nfor example, Orbax\nis great with checkpointing\nand state management.\nGrain is great for\ninput pipelines and data\nloading and so on.\nSo you get the idea.\nJAX is pretty minimal, but\ntogether with its ecosystem,\nit's ideal for large\nscale ML systems.\nWe'll also quickly\ntouch on TorchTPU.\nLike Josh mentioned\nearlier, this\nis a complete, ground-up\nrebuild of the PyTorch\nstack on top of TPUs.\nAnd we are building this in\nclose partnership with Meta\nbecause we want to stay aligned\nto the overall direction\nof PyTorch and of the community.\nI'll talk about\nsome core principles\nthat we are building this around\nto give you an idea for how\nthis is going to shape up.\nThe first one is that\nit's fully native,\nmeaning there are no new APIs.\nSo if you know PyTorch,\nyou already know TPUs.\nThe second is\naround portability.\nSo the idea here is to help\nwith rapid experimentation\nso researchers and developers\ncan just run models right out\nof the box, and you're not\ndealing with upfront portability\nissues.\nThe third is making\nsure there are\nwell-lit paths for performance,\nusing things like torch.compile\nand profiling tools\nand kernel support.\nAnd the fourth is just\nmaking sure we are closely\naligned with the ecosystem and\nenabling all PyTorch developers\nto easily run their\nworkloads on TPUs.\nMany ML developers are using\nCuda and PyTorch workflows\ntoday.\nBut with increasing\nheterogeneous backend systems\nbecoming a reality, we want to\nhelp developers to easily move\ntheir workloads onto\nTPUs without requiring\nthem to rewrite their\napplication layer.\nIn many cases, the actual\ncode changes that are required\nare pretty minimal,\nas you can see.\nAnd if you're interested\nin learning more,\nstay tuned and sign\nup to our newsletter\nso you can keep up\nwith the updates here.\nJOSH GORDON: Thanks, Girija.\nOK, also, one last really cool\nproject before we wrap up.\nSo this is Kinetic.\nIt's a new project\nfrom the Keras team.\nAnd what I really like\nabout this is it's\ndesigned to make running your\ncode on TPUs a lot easier\njust using a decorator.\nSo as you can\nimagine, when you're\nsetting up stuff\non Google Cloud,\nthere's some DevOps\nwork involved.\nAnd what Kinetic does is\nit handles that for you.\nSo it can go ahead,\nand it can set up\na cluster that's ready to run\nyour code on TPUs without you\nhaving to configure a\nbunch of stuff manually.\nSo really nice new project.\nWe've been doing some\nhackathons and some sprints.\nIt's been really popular.\nSo I think it's neat.\nCheck it out if\nyou're a Keras fan\nand you're interested in\nrunning code on TPUs easily.\nOK, we covered a lot\nof really cool stuff.\nAnd as you can\nimagine, for anything\nlike a vLLM on TPUs, MaxText,\nTunix, TorchTPU, JAX,\nyou could get almost a\ndegree in this stuff.\nThere's a lot of really\ncool things to learn.\nAnd so we have a really\ncool upcoming conference.\nIt's called the\nAI Systems DevLab.\nAnd what this is, it's\nreally an opportunity\nto hear directly from\nthe engineering team.\nSo we have a lot of really\ngood, really amazing deep talks\nfrom a lot of\nsoftware engineers,\na lot of product managers, and\nfolks building this software\ndirectly.\nAnd they will go really\ndeep on all of this stuff.\nSo it's a great\nplace to learn more.\nAnd if you're a power\nuser, it's really\nthe best introduction to all\nof this that you can get.\nJoin us if you'd like.\nAll the talks are\ngoing to be recorded,\nand we'll upload them to\nour YouTube channel after.\nYeah.\nSo thank you very\nmuch for your time.\nWe really appreciate it.\nAnd here are some\nlinks to learn more.\n[MUSIC PLAYING]",
+  "segments": [
+    {
+      "text": "[MUSIC PLAYING] GIRIJA SATHYAMURTHY: So over the past several years, Google has been driving an incredible pace of innovation in AI. And when you look across this timeline, you will see an evolution of models and modalities all the way from",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Gemini to Gemma, Veo, Imagen, and Omni that was announced just yesterday. So what's incredible about this timeline is that it's not just the cadence of these releases but the breakthrough capabilities that are being unlocked with every launch, things",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "like multi-modal understanding, reasoning, and agentic workflows. So today, we want to go one layer deeper and talk to you about what powers these models, and not just from a silicon standpoint, but from a full software stack standpoint,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "and talk to you about some of the tools that you can use as you build, train, fine tune, serve state-of-the-art models on Google Cloud TPUs. JOSH GORDON: OK, awesome. So as you know, there's roughly four stages to building a large language model.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "First, you would design your neural network. And to do that, you'd use a framework like JAX. Then you have pre-training, post-training, and inference. In pre-training, you're teaching the model basically to predict the next token. In post-training, you're",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "teaching the model to be useful. You could do something like supervised fine tuning to teach it to follow instructions. And then you could do something like reinforcement learning to teach it to reason. And then after that, you need",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "to serve the model to users, or do inference. And what's really cool is if you look at this chart, you can look at roughly where the intelligence is coming from. And what's really cool recently is you'll see that a lot of the intelligence is actually coming",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "from inference. And if you think about why that is, it's because now we have thinking models that are consuming lots of tokens as they reason over your problems. And so what's cool is we have these two distinct phases of compute. We have training compute, and",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "we have inference compute. And the needs are a little bit different. And we've designed our hardware stack, our TPU stack with that in mind. GIRIJA SATHYAMURTHY: Yeah. So as Josh mentioned, as you can see here, there is a clear separation",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "from an architectural standpoint between systems that specialize in training workloads and those that specialize in inference workloads. So TPU v8 is our latest generation of TPUs that we announced at Cloud Next. And TPU 8t is highly optimized",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "for large scale training workloads. So the focuses here are things like maximizing your throughput and scaling efficiency. And TPU 8i is great for inference workloads. So the focuses are things like low latency and cost efficiency. So we are moving away from",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "one general purpose system into hardware that is specialized for the needs of different types of workloads. But hardware is just one part of the puzzle. So let's talk about some of the software tools that we mentioned earlier. JOSH GORDON: OK, awesome.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "So in this talk, we'll take you through a bunch of software that you can try at home. We're going to start with inference because we just talked about how important that is for thinking models. A really cool thing to say about inference-- pre-training",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "a model from scratch takes a lot of compute. But if you're working on inference and also post-training, that's absolutely something you can do with the free TPUs that are available in Kaggle or on Colab. So we'll start with a demo of serving Gemma 4 using vLLM",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "on TPUs. And then we'll move into another demo of doing some post-training with a different version of Gemma using Tunix, which is our lightweight post-training framework. Then quickly, we'll go through MaxText, which has high performance reference",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "implementations of all sorts of large language models implemented in JAX. And these will scale out of the box to thousands of chips, which are super cool. And then we'll talk about frameworks for actually building models. So JAX, which is used to",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "build Gemini and Gemma. And then we'll talk about TorchTPU, which is really cool. It's a new software we're working on to make it really easy for you to run your PyTorch code on TPUs without code changes. GIRIJA SATHYAMURTHY: Awesome.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "JOSH GORDON: And to get started, Rob will give a demo on vLLM. Sorry. GIRIJA SATHYAMURTHY: I will do a quick intro, and then you have to hold for 5 minutes for the demo. JOSH GORDON: Sorry, Rob, I jumped the gun. GIRIJA SATHYAMURTHY: JOSH GORDON: No.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Let's start with inference. So LLM serving is no longer just about compute. In fact, at scale, some of the harder problems are usually memory management, scheduling, and hardware utilization, and also being able to abstract away all of these complexities.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "This is where vLLM comes in. Let's talk about some of these challenges, and then we'll talk about how vLLM helps you address those. So as context lengths grow and concurrency increases, KV cache management becomes one of the biggest bottlenecks in inference.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "So vLLM uses PagedAttention. It virtualizes KV cache into fixed-size blocks, so this tremendously helps improve utilization. But this is just the foundation, and there are several optimizations on top as well. For example, prefix caching",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "is ideal for agentic workloads and conversational workloads. The idea is for several requests to have one common prefix. So instead of the system having to repeatedly calculate KV cache, it can simply use whatever was previously calculated.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "So let's talk a little bit about scheduling now. Inference traffic is highly irregular. You are constantly dealing with different prompt lengths, generation times, arrival patterns, and so on. vLLM uses continuous batching. So instead of using static,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "request level batches, your system dynamically schedules token level work at runtime. This obviously helps with scheduling, but also helps a lot with hardware utilization, which brings us to the third bucket that we were talking about. So especially on",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "TPUs, these workloads benefit a lot from memory layouts and hardware-aware execution strategies. And these work naturally with vLLM's execution model and helps you maximize throughput. So the beautiful thing about vLLM is also that all of this",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "is exposed through a unified inference backend. It supports both PyTorch and JAX frameworks, and also helps you run your workloads on both GPUs and TPUs. It also supports a wide range of model architectures. So the goal here is portability",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "and helping developers choose the framework that is right for them, and also being able to move across hardware backends very easily. So the key thing here is that, as a developer, you are never having to rewrite your application layer or serving stack.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "So with this intro, now let's see vLLM in action. Over to you, Rob. ROB MULLA: Thanks, Girija. That was a great intro about running inference on TPUs. So in this demo, I'm just going to show you how easy it is to get up and running,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "running the latest Gemma 4 31 billion-parameter model on TPUs. So I am running this notebook on a virtual machine that has 8 Trillium chips. So we can use TPU info, which is a package for letting us see what the chips are on the machine and the utilization.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "So we can install vLLM TPU just with pip install vLLM TPU. However, I am running this model, and we recommend running these models using our pre-built Docker containers. This makes it super easy, so you don't have to install all the different packages",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "and dependencies. And it will just run out of the box. We do also have a TPU recipes repo for various models that are supported on different chips. This is not the full extent of models supported for vLLM on TPU, but it's a good place",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "to start if you're looking to run some models on TPUs. So in this Docker Compose file that I've written, there's a few things I want to note. First is that I've enabled profiling. I'm going to show you this later, but this allows you to see",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the low level execution that occurs on the TPU. It's not great for running in production, but when you're debugging, it's really helpful. I also set tensor parallel size to 8, and that's really all you need to do to make sure that it's",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "run across all the TPU chips. And I'm also using the Gemma 4 tool called Parser, and I'll show you later how that works. So just to show you here that we do have our Docker container up and running with the latest nightly build of vLLM TPU.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "And checking out some of the logs here, we can see that it's successfully booted up. And I started this up earlier just to save us from waiting for the compile time. But we're running the 31 billion-parameter Gemma 4 model. And these commands let us",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "know that the process is up and running. So I'm also going to, just during this demo, show these logs here at the bottom here in our console so we can see what's going on. There we go. So now as we call the model server, we can see some of the stats running.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Just to show you here again using tpu-info, now we can see the memory utilization across all of our chips is nearly maxed out. Now, this model could actually fit on four chips, but we're using eight because a lot of times you want to have a lot of",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "overhead for the KV cache that your model might need to consume. And then from here on, the great part about the fact that we're using vLLM is that the frontend and your software design is going to be pretty much the same as if you were running vLLM on a GPU.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So you can have the same frontend software written, and you could change the backend hardware that you're running on. And it should operate pretty much the same. So let's just send a single query to ask it to write a haiku about Google Cloud TPUs.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "But we want to do more than just sending a single request. And Girija mentioned this before, but one of the really great things about what we've built into vLLM on TPU is this thing called Ragged PagedAttention. So this really does a lot of things.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "It eliminates the KV cache memory fragmentation. It enables continuous batching, so it's really good with asynchronous requests. And then it has a bunch of custom built kernels that are specific for running on TPUs. And one of those is the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "fact that it automatically will change between running from prefill-heavy to decode-heavy types of workloads. So a prefill-heavy workload might be a really long input, like images or long context and then requesting a smaller output. And decode would be a",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "smaller input requesting a really long output. So we're just going to send two simultaneous requests, 16 asynchronous requests, to vLLM running on TPU. And it finished relatively quickly. But since we have profiling running, we can now go over to our profiler",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "and actually see all the low level execution here. This is really helpful if you're tuning your model or if you want to really get in. If you're a power user and you're going to be writing your own kernels, XProf allows you to really explore all the execution",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "on the TPU. All right, so just to put this all into context of an actual application that you might want to build, I'm going to show how we could build a food logging assistant. So the idea here is we have an image and some text about some food",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "that we might take a picture of. We want the agent here, Gemma 4, to identify the contents, and then query a database to get all the nutrient information, and finally generate a summary. So Gemma 4 is great for this because it's multi-modal.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "So we can send it an encoded image of some food, like this, and ask it to describe the contents of the food. And Gemma 4, is really good at doing this sort of summarization. So here we have a complete breakdown of the food in that bowl.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "And then Gemma 4 has also been trained to work really well with tool calling. So tool calling, here, I'm just going to simulate a fake nutrition database that we want to give the model access to. And all we have to do is define this lookup nutrition tool",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "and send it in our request to the endpoint. And then the model knows that it has access to this nutrient database that it can call. So if we call it and ask it for the calories in a bunch of different foods, we can see that the model has then called",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "the tool a number of times. So just to wrap it up and to show you in full view, I vibe coded up with Gemini this front end for what it might look like. And you can just run a query here. See how it's iteratively, as an agent, using those tool calls",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "to call the database, identifying the different things in the image. And then we can look this over. We could tweet it and log it. And later, I'm going to show you how we could fine tune a model to do something very similar. So now I'm going to",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "turn it over to Josh, who is going to talk about some of what's new in vLLM on TPU. JOSH GORDON: Thanks, Rob. That was super ace. ROB MULLA: Thanks. [APPLAUSE] JOSH GORDON: OK, so what's new in vLLM? Can we switch back to the slides, please? Thanks.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "OK, so lots of reproducible recipes on GitHub. Rob showed you, super cool. Another really cool thing I wanted to mention, and this is one reason I've loved working in open source all these years, we got a really amazing PR from UCSD.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "And this is for diffusion-style speculative decoding. If you're new to speculative decoding, the idea is kind of crazy. I remember when I learned about it. I was like, wait, that's kind of wild. The idea is if you have a very large model,",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "it's computationally intensive to predict the next token. In speculative decoding, the idea is that you have a smaller model, and the smaller model races ahead and it predicts tokens, basically guessing what the larger model is going to say.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "And for various reasons, it's actually faster to have the large model verify the output from the smaller model than it is to actually predict the tokens. So it's a crazy idea. Now, usually when you do speculative decoding, you do it autoregressively, which",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "is just a fancy way of saying one token at a time. And if you're doing it that way, there's still a slowdown because it's one token, the next token, the next token, the next token. What this pull request did, it's diffusion style speculative decoding.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "So instead of predicting the next tokens one at a time, you predict them all at once using a diffusion model, which eliminates that bottleneck. And then we incorporated this into vLLM TPU inference, and we got about a 3x speedup on a bunch of tasks.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "So it's super cool. Hugely grateful to, I believe, Professor Zhang at UCSD. So super awesome. Anyway, open source is great. So now let's take a quick look at Tunix. And Tunix is our post-training and reinforcement learning framework. It's lightweight.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "You can also absolutely use Tunix at home with the free TPUs on Colab and Kaggle. And we just wrapped up a really cool Kaggle hackathon with Tunix. We got thousands of participants. It was really cool. And the idea was to take an older model of Gemma that",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "didn't know how to reason and then teach it to solve math problems and show the reasoning traces. So it was super cool. One really nice thing about Kaggle, too, is there's a whole bunch of example notebooks you can check out. So all the folks that submitted",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "their projects, that basically serves as this huge knowledge base. So it's a really good place to learn. So Tunix is state-of-the-art. It supports a whole bunch of stuff. It's really awesome. Here's just three quick things it supports. So SFT-- and that's",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "something you could do to, say, teach a model to follow instructions. That typically would be the first stage in the reinforcement learning pipeline. After that, it supports a whole bunch of reinforcement learning stuff. Rob will show a demo of GRPO in a sec,",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "which is something that we used in the Kaggle hackathon. It also supports knowledge distillation, which is another one of these crazy ideas. So oftentimes, if you have a big model, a question you could ask is, can I train a smaller model",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "that has similar performance to the large model? And one way you can do that, often when you're training the large model, you might be training it to predict the next token. So the signal you have to learn from is, is the next token right or is it wrong?",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "But after you have a large model trained, you can actually use the large model to train a smaller model, and you have a richer signal. Because when the larger model predicts a token, you want the smaller model to predict the same token. But in addition to",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "knowing the token, you can actually see the probability distribution from the larger model. So you get not just the token that it predicted, but you can see the scores for all the other tokens that it could have predicted. And that's a much",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "richer signal that you can use to train a smaller model, faster, to have good performance. So there's all sorts of these really cool, magical ideas. And Tunix supports that, too. It also supports some really new, cool, and advanced stuff.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So if you're interested in agentic workflows-- so the idea would be, let's say that you wanted to train a software engineer model, like a software engineer agent, to actually solve real problems on GitHub. Now you have these very",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "long-running agentic workflows. And Tunix supports post-training for those as well. We've got a bunch of cool examples on GitHub that you can check out. It's super cool. And now Rob's going to show a demo of GRPO with Tunix. ROB MULLA: Thanks, Josh.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "JOSH GORDON: Thanks. ROB MULLA: OK, I'm back. So previously, I showed how we could, out of the box, use Gemma 31-billion parameter model to run as this food tracking assistant. But what if we wanted to ensure that it works in all the different",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "scenarios that we want it to? And what if we wanted to use a smaller model that might be more efficient, that we wouldn't have to run on as much hardware? Well, in this demo, I'm going to show you Tunix, which is our library for fine tuning",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "and doing reinforcement learning on models on TPUs. And it uses JAX underneath the hood. And we're going to fine tune a 4 billion-model parameter to do the same thing as what we showed in the previous one. I'm going to quickly walk through the steps.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So not to get into too much of the details here, but we're going to define the two different models that we need for this, the actor and reference model. And we're going to set up a data set using Grain, which is Google's data pipeline library.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "Then we're going to set up some scoring rewards. And finally, we're going to train the model and then put it in production. All right, so again, I'm going to show you here on tpu-info that we're running on a machine with eight chips.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "And then we're going to define our actor and reference models. So with GRPO, which is Group Relative Policy Optimization, which is the technique we're using, we actually want two copies of our model. We'll have our actor model. That's the model that we'll",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "be updating the weights of to make better at our task. And we have our reference model, which we use to make sure that the actor model isn't deviating too far from the original model. And creating these and distributing these across our TPUs is",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "super easy with Tunix and JAX. So I'm just going to do that here. And then we can see, after this is running, that the memory use does have them sharded across all eight of our chips. We do leave a lot of overhead here, memory, because doing these",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "reinforcement learning type of training jobs does require a lot of memory usage on the TPUs for doing these training rollouts. Next, I'm going to create the data set that we'll use to train this on. And the great thing about reinforcement learning",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "is we don't need a large, labeled data set. But we do need to simulate what the model will see, as it's acting as the agent in our program. So with Grain, we can import an existing Hugging Face data set. I'm using the Food 101 data set,",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "which has over 100,000 images of food. And then I'm adding a pre-processing step, which will then simulate what the model might see when it's acting as our agent. And then we can use Grain's Map data set to pipe these all together so that it will efficiently",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "distribute this to the different chips as we're training our model. Just to show you here, here is one of the examples. Some yummy looking pizza there, and then the input prompt, and an example what it might see when it needs to find all the",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "different ingredients in this food. So now that we've set up our data set, we actually will define some rewards. Instead of having strict labels here, we'll just define rewards that the model will try to optimize against. And for this, I had a",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "number of those making sure it correctly called the tools, that it had a correct response from the database using this thought process, and also correctly formatting the output at the end of the process. But the real thing you need to know about this--",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "this is the important part if you're designing these-- to really think through how to make these rewards reach what you want your model to end up acting like once it's trained. OK, so here's the power of Tunix. At this point, we've created",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "our actor model, our reference model, our data set, and our rewards. And all we have to do is use this reinforcement learning cluster. And Tunix will take care of all the distribution, coordinating the actor reference and rollout across all of our TPUs.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "And then lastly, we create this trainer, and we train on it. So we provide this cluster our rewards we defined earlier, and we train on our data set. Now, this does take 30, 45 minutes to run all the way through. So I'm not going to actually",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "do that in this demo. But we are going to look at some of the metrics and results. And this great thing about Tunix, it handles all the logging of checkpoints and allows us to easily go into TensorBoard and see, on different experiments, how our model is",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "responding to that and how it's actually improving, achieving the rewards that we set up. All right, so lastly, let's just jump back over to this example UI. And I'm going to switch from Gemma 4 to using our fine-tune model. Now, the great thing about this",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "is the model is much smaller. So I'm able to run it on a single Trillium chip, instead of the eight or four that it would require for the larger model. And then it works. Thanks. So now I'm going to turn it over to Girija again. She's going to talk",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "more about MaxText. [APPLAUSE] GIRIJA SATHYAMURTHY: It was a cool demo. Thanks so much, Rob. Awesome. Let's talk a little bit about pre-training. So one of the things that you will notice across both post-training and pre-training is that the challenges",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "are pretty similar. You're still dealing with distributed systems execution and memory efficiency or checkpointing and so on. So the real question becomes, how do you make frontier scale training much more reproducible so your developers are not always",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "having to start from scratch? This is where MaxText comes in. MaxText is an open-source reference implementation that helps you train large scale foundational models on TPUs. But MaxText is much more than a simple framework. It gives you a lot of",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "battle-tested training configurations across a wide range of model families, like Qwen, Mistral, Gemma, DeepSeek, and so on. So the idea is that your developers are not starting from scratch and can instead use these battle-tested recipes and adapt from there.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "Under the hood, MaxText is powered by JAX and XLA. JAX offers the functional programming model that helps you with model definitions and parallelism strategies. And XLA helps with compilation and also helps you with distributed systems execution",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "in a very optimized manner on TPUs. And the combination is great because it allows you to take the same training workflow and go from a single-host experimentation all the way to multi-part production runs. And you don't have to worry about changing",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "your code structure or your training workflow. MaxText encodes many of our hard-learned lessons in large scale training into these battle-tested recipes. So the idea is to make large scale training much more reproducible, accessible, and just less",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "infra-heavy, so you can just focus on model development. We talked about some of these updates a little bit just now. So MaxText supports, like I said, a wide range of model families, all the way from Qwen, DeepSeek, Gemma 4 is our latest one.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "There's a couple more that are landing pretty soon as well. It also has some robust capabilities, like multi-token prediction, and performance-enhancing capabilities, like support for custom kernels and multi-tiered checkpointing. There's a link up here to",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "our MaxText repo, which hosts all of our recipes, so please do check them out. Now that we have talked a little bit about the different tools you can use at different stages of the model development lifecycle, let's spend a few minutes",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "talking about frameworks. Josh, you want to come over and help us with this? JOSH GORDON: Yeah, I'm back. Thanks. OK, so one thing that can help when we're talking about TPUs, and maybe we could have showed this earlier, it's nice to just visualize,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "to get a sense of the scale that we're talking about. Can we switch back to the laptop, please, and I'll show a quick demo? So we have a TPU visualizer, which came out a couple months ago. And if you're brand new to TPUs, I just want to show you what this",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "can look really quick. So with this particular generation of TPU-- and just for visualization, we happen to have a v5p selected. It's OK. What we're looking at here in red, that's a Linux virtual machine. So you could use something like Google Compute Engine,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "spin up a VM. And then in this case, the blue, we've got two TPU chips attached to that. So it's just one machine you can SSH into. You've got two chips. What's cool about TPUs, of course, is you can attach more chips. So now we've got four chips attached.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "And there's lots we could talk about, but just a couple of things to glance at. You can notice that the TPUs are directly connected to each other. So in the blue at the top, the TPUs can actually send data back and forth without going through the",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "virtual machine itself. And that's for speed. And there's all different kinds of configurations. So a really common one would be a cube. So this is a 4x4x4 arrangement of TPUs. And what's cool in a cube here, there's different types of connections",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "between the TPU chips. There's copper when they're super close. And there's optical when they're a little bit farther away. But the goal, and the reason we have lots of connectivity like this, is we want to minimize the distance between different chips",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "in the cube, or the cluster, for fast interconnect. Anyway, TPUs scale up really, really fast. Oh, by the way, of course, here we've got a whole bunch of virtual machines. So now, obviously, we've got a lot of them. When you have a lot like this, we've",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "got all sorts of software which is out of scope for this talk. But you can use things like Kubernetes to help you really manage a cluster like this. And then what's cool about TPUs in this generation-- oops. This is just a pod slice. So now we have",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "thousands and thousands of chips that are all connected together. And the scale is just wild. I'm a Star Trek fan, so this reminds me almost of the Borg. This is actually a little bit less than a pod. But what's interesting is, beyond this scale,",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "then we move into, like, a data center network. And so you can have many, many, many pods like this connected together. And the idea that I just want to show you, when you think of a TPU, you can think of one chip that's plugged into a Linux VM.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "And you can also think about almost having an ocean of compute. And what's really cool about the software stack and our frameworks, a lot of them are designed to make a lot of the magic that goes into all this complicated-- Oh my God, how do you coordinate",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "thousands and thousands of chips? And how do they all talk to each other? And how do you do that efficiently? And how do you make sure that all the chips are working at the same time so none are idle, and all that stuff? Things like MaxText and JAX handle",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "all of that behind the scenes for you. And you can optimize it, but we've done a huge amount of work to make a lot of that transparent. And so with something like JAX, that we'll talk about in a minute, you can write code that feels like you're",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "working on a Linux VM. But really, that code can be running on something like this, which is absolutely wild. So it's super cool. You can find this in the TPU docs on Google Cloud. It's also on bit.ly/tpu-viz, for visualizer. OK, let's switch back",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "to the slides, please. Thanks. So I just wanted to say very briefly, we'll talk about JAX and TorchTPU in a second. Beneath both of those is our open-source compiler called OpenXLA. And the main thing I wanted to say about this is this does a lot",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "of the magic, which makes all that inter-chip communication possible without you having to think about it. So it's just this super powerful open compiler. We've actually got a whole upcoming conference on this, that I'll talk about in a bit,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "if you want to go much deeper. But yeah, OpenXLA is awesome. It does a lot of stuff for you, makes your life easy, which is what I want. OK, here's the clicker. GIRIJA SATHYAMURTHY: Yes, thank you. Awesome. So now with that little bit of foundation,",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "I think talking about JAX and PyTorch will make a lot more sense. So let's start with JAX. Gemini is built on top of JAX. And the reason is because JAX offers a very clean, programmable model that's great for large scale ML systems. At its core, it's",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "just like NumPy with some composable transformations. For example, Grad automatically lets you compute gradient computations using simple Python functions. Jit helps with tracing and compiling using XLA and converts your Python functions into optimized",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "accelerator programs. There's also Vmap that helps you express parallelism cleanly, and so on. So, as you can see, at its core, JAX is pretty minimal in the sense that you're writing simple, straightforward Python functions and then progressively",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "adding transformations to it to make it more differentiable, vectorized, compiled, and scalable across accelerators. So instead of having to learn a heavy, large framework, all you're doing is writing straightforward Python functions and progressively",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "adding transformations, like we talked about. So you can see here JAX is pretty minimal, like we talked, about at its core. And so what makes it great is the ecosystem around it. In real world systems, you need much more than the composable transformations",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "that we talked about, because you need things like optimizers, data pipelines, checkpointing, and so on. This is where the ecosystem comes in. It's a set of libraries that provide the higher level model building abstractions for a variety of things,",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "like we talked about. For example, Flax is a very popular neural network library that provides these abstractions to help you with modules and parameter management. It's especially useful when your model stops being a simple Python function",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "and starts having things like nested loops and recurring blocks. A couple of other examples-- for example, Orbax is great with checkpointing and state management. Grain is great for input pipelines and data loading and so on. So you get the idea.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "JAX is pretty minimal, but together with its ecosystem, it's ideal for large scale ML systems. We'll also quickly touch on TorchTPU. Like Josh mentioned earlier, this is a complete, ground-up rebuild of the PyTorch stack on top of TPUs.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "And we are building this in close partnership with Meta because we want to stay aligned to the overall direction of PyTorch and of the community. I'll talk about some core principles that we are building this around to give you an idea for how",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "this is going to shape up. The first one is that it's fully native, meaning there are no new APIs. So if you know PyTorch, you already know TPUs. The second is around portability. So the idea here is to help with rapid experimentation",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "so researchers and developers can just run models right out of the box, and you're not dealing with upfront portability issues. The third is making sure there are well-lit paths for performance, using things like torch.compile and profiling tools",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "and kernel support. And the fourth is just making sure we are closely aligned with the ecosystem and enabling all PyTorch developers to easily run their workloads on TPUs. Many ML developers are using Cuda and PyTorch workflows today. But with increasing",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "heterogeneous backend systems becoming a reality, we want to help developers to easily move their workloads onto TPUs without requiring them to rewrite their application layer. In many cases, the actual code changes that are required are pretty minimal,",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "as you can see. And if you're interested in learning more, stay tuned and sign up to our newsletter so you can keep up with the updates here. JOSH GORDON: Thanks, Girija. OK, also, one last really cool project before we wrap up. So this is Kinetic.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "It's a new project from the Keras team. And what I really like about this is it's designed to make running your code on TPUs a lot easier just using a decorator. So as you can imagine, when you're setting up stuff on Google Cloud, there's some DevOps",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "work involved. And what Kinetic does is it handles that for you. So it can go ahead, and it can set up a cluster that's ready to run your code on TPUs without you having to configure a bunch of stuff manually. So really nice new project. We've been doing some",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "hackathons and some sprints. It's been really popular. So I think it's neat. Check it out if you're a Keras fan and you're interested in running code on TPUs easily. OK, we covered a lot of really cool stuff. And as you can imagine, for anything",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "like a vLLM on TPUs, MaxText, Tunix, TorchTPU, JAX, you could get almost a degree in this stuff. There's a lot of really cool things to learn. And so we have a really cool upcoming conference. It's called the AI Systems DevLab. And what this is, it's",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "really an opportunity to hear directly from the engineering team. So we have a lot of really good, really amazing deep talks from a lot of software engineers, a lot of product managers, and folks building this software directly. And they will go really",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "deep on all of this stuff. So it's a great place to learn more. And if you're a power user, it's really the best introduction to all of this that you can get. Join us if you'd like. All the talks are going to be recorded, and we'll upload them to",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "our YouTube channel after. Yeah. So thank you very much for your time. We really appreciate it. And here are some links to learn more. [MUSIC PLAYING]",
+      "start": 834,
+      "duration": 6
+    }
+  ]
+}

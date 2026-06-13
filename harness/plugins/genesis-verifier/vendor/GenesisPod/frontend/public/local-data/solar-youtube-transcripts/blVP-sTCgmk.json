@@ -1,0 +1,194 @@
+{
+  "videoId": "blVP-sTCgmk",
+  "title": "VPC Service Controls: Auditing and Allowlisting",
+  "channelName": "Google Cloud",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 9270,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-j3PyPqV-e1s",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Welcome to the Google Cloud\nsecurity showcase, a special web\nseries where we'll focus\non security use cases\nthat customers can\nsolve with Google Cloud.\nMy name is Aspen Carroll, and\nI'm a Cloud security architect\nat Google.\nToday we're discussing VPC\nService Controls or VPCs.\nIn short, our solution\nfor preventing data\nexfiltration from managed\nservices in Google Cloud.\nSpecifically, we'll be\ndiscussing some best practices\nfor auditing VPC logs, and\nwe'll go over some strategies\nfor allow listing\nlegitimate flows.\nFor context, the content\nthat I'm covering here\nassumes you already\nknow the basics\nof how VPCs parameters work.\nSo your perimeter\nis defined, you\nhave your projects and\nyour protected services,\nand now you're\nseeing violations.\nAnd you have to start allow\nlisting flows before you\ncan move to enforced mode.\nThe first piece of\nadvice that I'll\ngive you is that auditing VPCs\nlogs very similar in concept\nto auditing firewall logs.\nThe nomenclature\nand moving parts\nmight be a little different.\nBut in essence, you need to\nknow where the traffic is\ncoming from, where it's going\nto and who is trying to do what.\nNow, VPCs at this point in time\nis managed at the org level\nby default, but enforced\nat the project level.\nThat means logs are surfaced\nwithin each individual project\nwhere a violation occurred.\nI strongly recommend either\nsetting up your own log sinks\nand exporting those\nlogs to a SIEM,\nor using the new VPCs reporting\ndashboard, which is preview\nat the time of this recording.\nFor PLCs, auditing project\nby project may be doable,\nbut for most real\nworld deployments,\nyou're going to want to\nget those logs aggregated\nin a human readable manner.\nFor this video, I'm going to\nbe using the Preview dashboard.\nPart of the reason\naggregating logs\nis so helpful is because\nit gives you somewhere\nto start seeing which projects,\nand which services have the most\nviolations lets you identify\nwhere your auditing efforts will\nhave the most impact.\nObviously, if the\nbusiness gives you\na mandate for a high priority\nservice, you would start there.\nBut if you're starting from\nscratch with no guidance\nbeyond get or done, this\nis a good way to start.\nFor this video, as I said, I'll\nuse the new built in dashboard\nand let's go to that view now.\nAll right.\nSo in the dashboard\nview, you can\nsee I've got a decent little\nnumber of violations here.\nSo I'm going to come down.\nLook at my aggregations and\nthere's a few different places\nI can look to start.\nSo first, I can look\nat the top services\nthat are causing violations.\nAnd I see the Artifact Registry\nis a heavy hitter here.\nI could look at the IPs that\nthe requests are coming from,\nor I could look at the\nidentities involved\nin generating these requests.\nThen I could come down\nand oh, look at that.\nThe vast majority of requests\nare coming from my RSA demo\nproject.\nSo that's a good\nplace to start here.\nSo I'll come into\nresources and I'm\ngoing to filter on\nmy RSA demo project.\nAll right.\nSo now I'm only seeing\nmy RSA demo project.\nAnd I'm going to look at\nsome of these services here.\nI see Cloud Run.\nI see Cloud Functions.\nLet's see functions\nlogging Artifact Registry.\nSo my top violations by\nservice haven't changed.\nArtifact registry is\nstill the top service,\nbut I see the Cloud Functions\nis way up on this list here.\nAnd that tells me a\nfew things because I\nknow the Cloud Functions\nis a serverless service\nand it has dependencies.\nObviously, if you're\nnewer to Google Cloud,\nthat may not seem\nintuitively obvious to you.\nSo what you can do for\nservices that you're\nlooking at on this list is\nyou can identify the service.\nAnd then I'm going to\ngo with Cloud Functions\nhere because it's a\ngood example for this.\nI'm going to pop into\nthe supported products\nand limitations page.\nAnd I'm going to do a\nsearch here for functions.\nAnd here we go.\nCloud Run functions.\nBecause Cloud Functions\nV2 is built on Cloud Run.\nNow I'm going to look at these\ncaveats and limitations as\ndocumented.\nAnd I can see right at the\ntop Cloud Run functions which\nis Cloud Functions\nV2 uses Cloud build\nand container registry which\nis Artifact Registry and Cloud\nStorage.\nAll right.\nAnd if these services are\nrestricted by a VPCs parameter,\nit'll block the function build,\neven if functions are not\nadded as a restricted service.\nSo the pertinent information\nhere that I really care about\nis to use Cloud Run\nfunctions inside a parameter.\nYou must configure\nan ingress rule\nfor the Cloud Build service\naccount in your service\nperimeter.\nBack in my dashboard here.\nLooking at this identity, I'm\npretty sure I know what that is,\nbut I'm going to\ntrust but verify.\nI'm going to pop into\nIAM, enter that identity\nand sure enough, default Compute\nEngine, service account, Cloud\nfunctions and Cloud\nBuild by default.\nUse the default Compute\nEngine service account.\nNow obviously this is a\nlittle demo environment.\nSo this is fine.\nBut in an actual\nproduction environment,\nyou're generally going\nto want to spin up\nyour own bespoke service\naccounts for these services\nto use.\nBut all right, so I know\nwhat that identity is\nand I know what it's doing.\nIt's sitting here trying\nto execute the function.\nAnd pushing the container\ncontaining my function\ninto Artifact Registry.\nAnd then as I'm\nmaking modifications\nto my Cloud function, it\nis updating the container\naccordingly.\nSo all right, I have\nmy documentation.\nI know what I need to do.\nI need an ingress rule for\nthe Cloud Build service\naccount, which in this case\nis the default Compute Engine\nservice account.\nAll right.\nI've got my identity here.\nI can come into my\nservice perimeter.\nThis is my RSA demo\nperimeter, which\nyou can see contains\nmy RSA demo project.\nI'm going to edit\nthis perimeter,\ncome down to ingress policies\nand add an ingress rule.\nCloud functions\ningress my entity.\nMy identity will be\nthat service account.\nAnd again, in your\nproduction environment,\nthis should be a\nbespoke service account\nspecifically for Cloud\nfunctions and Cloud Build.\nAnd source here.\nBecause Cloud Functions is a\nserverless service and Cloud\nBuild is also a\nserverless service.\nIt is running in what's\ncalled a tenant project, which\nis a project that Google\nspins up and maintains,\nwhich is inherently outside\nof your own organization\nbecause Google owns\nit and manages it.\nSo the reason we\nneed the ingress rule\nand the documentation\nspecifies so,\nis because the request is coming\nin from a project that is indeed\ntechnically outside of your org.\nIt's Google, it's coming\ninto your environment\nto do the serverless\nservices job.\nSo that project is potentially\nunlikely ephemeral.\nSo we can't allow\nby that project.\nWe can't allow by the IP.\nAnd it should only ever be\ncoming from a Google Project.\nSo I'm not too concerned\nwith restricting the source.\nAnd if I wanted, I could go\nahead and lock down projects\nthat the service\naccount could access.\nBut for my purposes, I'm going\nto go ahead and leave it.\nHere's my service account.\nIt's coming from any source\nand can access any project.\nSo after I've pushed\nthat out, the number\nof violations that I'm seeing\nshould drop drastically.\nBecause honestly,\nthis is a ton of noise\nthat is being generated\nfrom just not having\nthat one little ingress rule for\nthat one little service account.\nSo you can imagine that on\na production scale, what\nthat might look like and\nthe number of violations\nthat you might encounter.\nBut by doing this, by going\ninto your aggregated logs\nand looking at\nindividual projects\nand then looking at\nthe services that\nare running in those projects.\nAnd then checking the supported\nproducts and limitations page,\nyou can generally get rid\nof a lot of that noise\npretty quickly.\nNow I want to call out that\nthe example I used today\nwas for a Google managed\nserverless service.\nBut you'll also need\nto keep an eye out\nfor legitimate flows from\nthings like partners or vendors,\nlike security scanners\nor IEC tooling.\nWhenever possible, don't\nallow list by identity alone.\nCompromised credentials,\nespecially things\nlike leaked service\naccount keys,\nare still a leading\ncause of data breaches.\nSo layer your attributes\nlike an identity\nmust be coming from\na specific CIDR range\nor from a specific project\nif the vendor or partner is\non Google Cloud.\nThe more attributes you\ncan layer, the less likely\na compromised credential\ncould be used to exfill data\nfrom your environment.\nSo to recap.\nAggregating your logs\nis the first step\nto auditing and then allow\nlisting for services you're\nadding to your VPCs perimeter.\nLook for heavy hitters to\nget an idea where to start,\nand check the supported\nproducts and limitations\npage for each service\nbefore moving it\nto the enforced config.\nAnd for third parties\nlike vendors or partners,\nlayer as many attributes as\npossible to reduce the risk\nfrom attack vectors like\ncompromised credentials.\nTo learn more about VPCs,\nwatch our other videos\nor visit our product page.",
+  "segments": [
+    {
+      "text": "Welcome to the Google Cloud security showcase, a special web series where we'll focus on security use cases that customers can solve with Google Cloud. My name is Aspen Carroll, and I'm a Cloud security architect at Google. Today we're discussing VPC",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Service Controls or VPCs. In short, our solution for preventing data exfiltration from managed services in Google Cloud. Specifically, we'll be discussing some best practices for auditing VPC logs, and we'll go over some strategies for allow listing",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "legitimate flows. For context, the content that I'm covering here assumes you already know the basics of how VPCs parameters work. So your perimeter is defined, you have your projects and your protected services, and now you're seeing violations.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "And you have to start allow listing flows before you can move to enforced mode. The first piece of advice that I'll give you is that auditing VPCs logs very similar in concept to auditing firewall logs. The nomenclature and moving parts",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "might be a little different. But in essence, you need to know where the traffic is coming from, where it's going to and who is trying to do what. Now, VPCs at this point in time is managed at the org level by default, but enforced at the project level.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "That means logs are surfaced within each individual project where a violation occurred. I strongly recommend either setting up your own log sinks and exporting those logs to a SIEM, or using the new VPCs reporting dashboard, which is preview",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "at the time of this recording. For PLCs, auditing project by project may be doable, but for most real world deployments, you're going to want to get those logs aggregated in a human readable manner. For this video, I'm going to be using the Preview dashboard.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Part of the reason aggregating logs is so helpful is because it gives you somewhere to start seeing which projects, and which services have the most violations lets you identify where your auditing efforts will have the most impact. Obviously, if the",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "business gives you a mandate for a high priority service, you would start there. But if you're starting from scratch with no guidance beyond get or done, this is a good way to start. For this video, as I said, I'll use the new built in dashboard",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and let's go to that view now. All right. So in the dashboard view, you can see I've got a decent little number of violations here. So I'm going to come down. Look at my aggregations and there's a few different places I can look to start. So first, I can look",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "at the top services that are causing violations. And I see the Artifact Registry is a heavy hitter here. I could look at the IPs that the requests are coming from, or I could look at the identities involved in generating these requests. Then I could come down",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "and oh, look at that. The vast majority of requests are coming from my RSA demo project. So that's a good place to start here. So I'll come into resources and I'm going to filter on my RSA demo project. All right. So now I'm only seeing my RSA demo project.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to look at some of these services here. I see Cloud Run. I see Cloud Functions. Let's see functions logging Artifact Registry. So my top violations by service haven't changed. Artifact registry is still the top service,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "but I see the Cloud Functions is way up on this list here. And that tells me a few things because I know the Cloud Functions is a serverless service and it has dependencies. Obviously, if you're newer to Google Cloud, that may not seem",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "intuitively obvious to you. So what you can do for services that you're looking at on this list is you can identify the service. And then I'm going to go with Cloud Functions here because it's a good example for this. I'm going to pop into",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "the supported products and limitations page. And I'm going to do a search here for functions. And here we go. Cloud Run functions. Because Cloud Functions V2 is built on Cloud Run. Now I'm going to look at these caveats and limitations as documented.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And I can see right at the top Cloud Run functions which is Cloud Functions V2 uses Cloud build and container registry which is Artifact Registry and Cloud Storage. All right. And if these services are restricted by a VPCs parameter,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "it'll block the function build, even if functions are not added as a restricted service. So the pertinent information here that I really care about is to use Cloud Run functions inside a parameter. You must configure an ingress rule for the Cloud Build service",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "account in your service perimeter. Back in my dashboard here. Looking at this identity, I'm pretty sure I know what that is, but I'm going to trust but verify. I'm going to pop into IAM, enter that identity and sure enough, default Compute",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Engine, service account, Cloud functions and Cloud Build by default. Use the default Compute Engine service account. Now obviously this is a little demo environment. So this is fine. But in an actual production environment, you're generally going",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "to want to spin up your own bespoke service accounts for these services to use. But all right, so I know what that identity is and I know what it's doing. It's sitting here trying to execute the function. And pushing the container containing my function",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "into Artifact Registry. And then as I'm making modifications to my Cloud function, it is updating the container accordingly. So all right, I have my documentation. I know what I need to do. I need an ingress rule for the Cloud Build service",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "account, which in this case is the default Compute Engine service account. All right. I've got my identity here. I can come into my service perimeter. This is my RSA demo perimeter, which you can see contains my RSA demo project. I'm going to edit",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "this perimeter, come down to ingress policies and add an ingress rule. Cloud functions ingress my entity. My identity will be that service account. And again, in your production environment, this should be a bespoke service account specifically for Cloud",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "functions and Cloud Build. And source here. Because Cloud Functions is a serverless service and Cloud Build is also a serverless service. It is running in what's called a tenant project, which is a project that Google spins up and maintains,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "which is inherently outside of your own organization because Google owns it and manages it. So the reason we need the ingress rule and the documentation specifies so, is because the request is coming in from a project that is indeed",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "technically outside of your org. It's Google, it's coming into your environment to do the serverless services job. So that project is potentially unlikely ephemeral. So we can't allow by that project. We can't allow by the IP. And it should only ever be",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "coming from a Google Project. So I'm not too concerned with restricting the source. And if I wanted, I could go ahead and lock down projects that the service account could access. But for my purposes, I'm going to go ahead and leave it.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "Here's my service account. It's coming from any source and can access any project. So after I've pushed that out, the number of violations that I'm seeing should drop drastically. Because honestly, this is a ton of noise that is being generated",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "from just not having that one little ingress rule for that one little service account. So you can imagine that on a production scale, what that might look like and the number of violations that you might encounter. But by doing this, by going",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "into your aggregated logs and looking at individual projects and then looking at the services that are running in those projects. And then checking the supported products and limitations page, you can generally get rid of a lot of that noise pretty quickly.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Now I want to call out that the example I used today was for a Google managed serverless service. But you'll also need to keep an eye out for legitimate flows from things like partners or vendors, like security scanners or IEC tooling. Whenever possible, don't",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "allow list by identity alone. Compromised credentials, especially things like leaked service account keys, are still a leading cause of data breaches. So layer your attributes like an identity must be coming from a specific CIDR range",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "or from a specific project if the vendor or partner is on Google Cloud. The more attributes you can layer, the less likely a compromised credential could be used to exfill data from your environment. So to recap. Aggregating your logs is the first step",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "to auditing and then allow listing for services you're adding to your VPCs perimeter. Look for heavy hitters to get an idea where to start, and check the supported products and limitations page for each service before moving it to the enforced config.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And for third parties like vendors or partners, layer as many attributes as possible to reduce the risk from attack vectors like compromised credentials. To learn more about VPCs, watch our other videos or visit our product page.",
+      "start": 210,
+      "duration": 6
+    }
+  ]
+}

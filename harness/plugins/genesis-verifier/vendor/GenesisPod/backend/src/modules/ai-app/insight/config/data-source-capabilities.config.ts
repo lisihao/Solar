@@ -1,0 +1,208 @@
+/**
+ * Data Source Capabilities Configuration
+ *
+ * Describes each data source's abilities, use cases, and characteristics.
+ * Used by DataSourcePlannerService for AI-driven source selection.
+ *
+ * Extracted from DataSourcePlannerService to reduce class size.
+ */
+
+import {
+  DataSourceType,
+  DataSourceCapability,
+} from "../types/data-source.types";
+
+export const DATA_SOURCE_CAPABILITIES: DataSourceCapability[] = [
+  {
+    type: DataSourceType.WEB,
+    displayName: "Web Search",
+    description: "通用网络搜索，覆盖新闻、博客、企业网站等广泛内容",
+    useCases: ["市场分析", "行业新闻", "企业信息", "产品评测", "用户评论"],
+    characteristics: ["覆盖面广", "时效性好", "内容多样", "权威性参差不齐"],
+    requiresApiKey: true,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.ACADEMIC,
+    displayName: "Academic (arXiv)",
+    description:
+      "arXiv 学术预印本搜索，涵盖 AI、物理、数学、计算机科学等领域。⚠️ 限速严格(~1 req/s)，并发研究时容易触发 429",
+    useCases: [
+      "前沿技术研究",
+      "算法原理",
+      "学术论文引用",
+      "理论基础",
+      "技术趋势",
+    ],
+    characteristics: [
+      "学术权威",
+      "技术深度",
+      "引用可追溯",
+      "偏理论性",
+      "限速严格",
+    ],
+    requiresApiKey: false,
+    isAvailable: true,
+    throughput: "low",
+  },
+  {
+    type: DataSourceType.GITHUB,
+    displayName: "GitHub Search",
+    description: "GitHub 开源仓库搜索，获取开源项目、代码实现、技术栈信息",
+    useCases: ["技术实现", "开源生态", "代码参考", "项目活跃度", "技术栈分析"],
+    characteristics: ["实践导向", "代码级细节", "社区活跃度", "技术趋势"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.HACKERNEWS,
+    displayName: "HackerNews",
+    description: "技术社区讨论，获取技术人员对新技术、产品、事件的看法",
+    useCases: ["技术讨论", "社区观点", "产品反馈", "行业事件", "技术争议"],
+    characteristics: ["技术社区视角", "讨论深入", "观点多元", "时效性强"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.FEDERAL_REGISTER,
+    displayName: "Federal Register",
+    description: "美国联邦公报，包含行政命令、法规、拟议规则、机构通知",
+    useCases: ["政策法规", "行政命令", "监管动态", "政府公告", "合规要求"],
+    characteristics: ["官方权威", "法规原文", "政策导向", "美国联邦层面"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.CONGRESS,
+    displayName: "Congress.gov",
+    description: "美国国会立法信息，包含法案、决议、投票记录",
+    useCases: ["立法动态", "法案追踪", "政策变化", "两党态度", "委员会活动"],
+    characteristics: ["立法权威", "法案全文", "立法进程", "美国国会层面"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.WHITEHOUSE,
+    displayName: "White House News",
+    description: "白宫新闻和声明，包含总统声明、政策公告、行政行动",
+    useCases: ["政府政策", "总统声明", "行政行动", "政府优先级", "外交政策"],
+    characteristics: ["最高行政权威", "政策风向", "时效性强", "美国行政层面"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.RSS,
+    displayName: "RSS Feeds",
+    description: "RSS 订阅源搜索，基于预配置的行业媒体和博客",
+    useCases: ["行业动态", "博客更新", "媒体报道", "专家观点", "定制来源"],
+    characteristics: ["可定制", "持续更新", "来源可控", "需要预配置"],
+    requiresApiKey: false,
+    isAvailable: false,
+  },
+  {
+    type: DataSourceType.LOCAL,
+    displayName: "Local Knowledge Base",
+    description: "本地资源库搜索（RAG），搜索用户上传的文档和报告",
+    useCases: ["内部文档", "历史报告", "私有知识", "已验证资料", "上下文补充"],
+    characteristics: ["私有数据", "已验证", "语义搜索", "需要预先上传"],
+    requiresApiKey: false,
+    isAvailable: false,
+  },
+  {
+    type: DataSourceType.SOCIAL_X,
+    displayName: "X/Twitter",
+    description: "X/Twitter 社媒热点搜索，获取实时社交媒体讨论和舆情",
+    useCases: [
+      "舆情监测",
+      "社会热点",
+      "用户反馈",
+      "品牌声誉",
+      "实时事件",
+      "KOL观点",
+    ],
+    characteristics: [
+      "实时性强",
+      "覆盖面广",
+      "情绪分析",
+      "影响力指标",
+      "需要 Grok 模型",
+    ],
+    requiresApiKey: true,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.SEMANTIC_SCHOLAR,
+    displayName: "Semantic Scholar",
+    description:
+      "Semantic Scholar 学术论文搜索，覆盖全领域高质量论文，包含引用网络。⚠️ 无 Key 时限速 1 req/s，并发时易 429",
+    useCases: [
+      "学术文献综述",
+      "引用分析",
+      "研究趋势",
+      "高影响力论文",
+      "跨学科研究",
+    ],
+    characteristics: [
+      "论文引用数据",
+      "全学科覆盖",
+      "开放获取标记",
+      "作者网络",
+      "语义搜索",
+      "限速较严格",
+    ],
+    requiresApiKey: false,
+    isAvailable: true,
+    throughput: "low",
+  },
+  {
+    type: DataSourceType.PUBMED,
+    displayName: "PubMed",
+    description: "NCBI PubMed 生物医学文献搜索，覆盖医学、生命科学、生物技术",
+    useCases: ["医学研究", "生物技术", "药物开发", "临床试验", "公共卫生"],
+    characteristics: ["生物医学权威", "MeSH 术语", "临床证据", "同行评审"],
+    requiresApiKey: false,
+    isAvailable: true,
+    throughput: "medium",
+  },
+  {
+    type: DataSourceType.OPENALEX,
+    displayName: "OpenAlex",
+    description:
+      "OpenAlex 开放学术数据库，2.5亿+学术作品，跨学科覆盖，免费无限制访问。✅ 无限速，并发友好，推荐作为学术搜索首选",
+    useCases: [
+      "大规模文献调研",
+      "引用网络分析",
+      "开放获取论文",
+      "跨学科研究",
+      "学术趋势分析",
+    ],
+    characteristics: [
+      "全学科覆盖",
+      "开放获取标记",
+      "引用计数",
+      "免费无Key",
+      "无限速高吞吐",
+    ],
+    requiresApiKey: false,
+    isAvailable: true,
+    throughput: "high",
+  },
+  {
+    type: DataSourceType.FINANCE_API,
+    displayName: "Finance Data API",
+    description: "金融数据搜索，获取公司信息、股票行情、市场数据",
+    useCases: ["公司分析", "股票研究", "行业对比", "市场数据", "投资研究"],
+    characteristics: ["实时行情", "公司基本面", "行业分类", "全球市场"],
+    requiresApiKey: true,
+    isAvailable: true,
+  },
+  {
+    type: DataSourceType.WEATHER_API,
+    displayName: "Weather Data API",
+    description: "天气和气候数据搜索，获取全球天气预报和历史气候数据",
+    useCases: ["气候研究", "农业分析", "能源需求", "灾害评估", "旅游规划"],
+    characteristics: ["全球覆盖", "实时数据", "历史记录", "免费开放"],
+    requiresApiKey: false,
+    isAvailable: true,
+  },
+];

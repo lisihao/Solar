@@ -1,0 +1,1539 @@
+{
+  "videoId": "5ID22ACI7IM",
+  "title": "Mergeable by default: Building the context engine to save time and tokens — Peter Werry, Unblocked",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 76499,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "All right, thanks everyone. Sorry about\nthe wait.\nThis is going to be a bit of a strange\nsession because there is a workshop\ncomponent to this. So I guess everyone\nwill be coding on their laps. Sorry.\nUm but anyway, sorry, I'm here and this\nis my colleague Brandon.\nUm so we're we're going to break this\nthis session into two different parts.\nOne is a\nsort of a talk that I'm going to give\nabout what context engines are are\nuseful for and and how you might go\nabout building one, what to think about.\nUm and then we'll we'll launch into the\nthe second part of it. So um just\nbriefly\num quick quick agenda\nwe're going to talk about three myths\nthat are circulating right now about\nabout context engines. And then I'll\nI'll go over a couple of less or a few\nlessons that we learned along the way\nbuilding one of these things.\nand then finally we'll do this. So we're\ngoing to build a social engineering\ngraph.\nUh this is a component that is super\nuseful\nin a context engine. And first just a\nshow of hands, does everyone know what I\nmean by context engine or does anyone\nwant clarification on that?\nOkay.\nSo in the world of AI agents\nuh you have agents that when you start\noff and you start coding, they are\nbasically at ground zero. They have no\ncontext about your code, your\norganization, nothing, okay?\nSo typically what happens is\nthe first thing they do is they start to\nrip around your code base based on the\ntask that you give them to try to gain\nsome understanding sort of background\nunderstanding before they start to do\ntheir task.\nSo context engineering is is kind of the\nart of supplying uh all the context that\nyou need and most importantly, none of\nthe context that you don't need in a\nhighly optimized way so that when the\nagent starts to run, it executes the\ntask uh in a streamlined way that's in\nline with your organization's best\npractices and expectations and so on.\nOkay.\nSo, we'll get to this after.\nSo, not long ago,\nas in like 4 years ago or less,\nuh you were the context engine, okay?\nSo, when when your agent needed\nsomething,\num you would prompt it, you'd grab the\nthe issue ticket, you'd hand it all of\nthe information that it needed to start\nits task. And in many cases, even when\nit was ripping around getting background\ncontext, when it got to the end of its\ntask, sometimes it it got it wrong. In\nfact, many times it did. And you'd have\nto kind of like reset it,\num re-guide it towards the solution that\nyou were thinking of. Um or if it\ncompletely missed the mark, you'd have\nto be like, \"No, not the\nnot the JavaScript, dummy. It's the\nPython source code that I want you to\nlook at.\"\nso,\nlet's just remember how you built\ncontext in an organization. Uh\nso, we're we're taking AI out of the\npicture for a for for just a sec. I just\nwant you to pretend that pre-AI,\nuh you just joined an organization.\nLet's remember how we built it up. So,\nover time, you would accumulate this\nkind of context through experience,\nright? You would start a job, maybe\nstart code splunking a little bit to\nfigure out um\nuh how things work. You'd maybe latch\nonto a mentor.\nand eventually, you'd you'd experience\nreal things like incidents and outages\nand things like that. Those are sort of\nthe the pain things that stick with you.\nThose are the battle scars, right?\nAnd that is what constitutes\norganizational context.\nIt's the\num it's the learnings along the way. The\nwhy did we do things the way we did it?\nAnd now you're good at your job because\nuh after all of that\nexperience of pain, now you know what\nquestions to ask. You know where to look\nwhen an incident happens. And this is\nthe goal. This is what we want to get\nfor our AI agents.\nSo, um I'm going to just lift this\nadoption curve from Basem El-Dath and uh\nI I may have butchered his last name,\nbut sorry sorry uh Basem if you see\nthis.\nUm so,\nlet's let's start at the beginning here.\nThis was like 4 years ago in 2022. Every\nEveryone remember remembers fancy\nautocomplete, right? Um so, back in\nthose days, context windows in AI were\npretty limited. I'm not sure if everyone\neven remembers this, but it was like 8\nkilobytes or or 8K tokens, I should say.\nAnd that's not a ton. And so, tokens\nwere highly optimized and um\nagentic IDEs like Cursor focused just on\nthe code that surrounded uh the code\nthat you wanted to go in and auto\ncomplete. So, basically they took some\ncode before, they took some code after,\nthey put it into a model, and they said\nthis user is working on this piece of\ncode. What's the most likely next thing?\nAnd that's what was printed out. Um it\ngot progressively better than that. ASTs\nwere uh were integrated, uh language\nservers, and then it you you were able\nto basically pull like callers of source\ncode, and pull all that into context.\nAnd then the LLMs were really good at at\ncompleting uh code.\nSo,\nat those levels,\nyou were the context engine. And uh in\nin many in many circumstances here,\nthis is kind of where\nmost people are here. They're at the uh\nuh parallel agents hooked up with MCP\nand skills, okay?\nJust super curious, has anyone gone\nbeyond curated context into to the the\nlast uh few degrees of of agentic\nfreedom, shall we say, where you have\nbackground agents running in the cloud\ndoing stuff in YOLO mode?\nIs anyone Anyone experimenting with\nthat? Okay, cool.\nThat's that's very cool. That's bleeding\nedge.\nUm but let's just take a moment to\nrecognize that bleeding edge today is\nlike yesterday's news in 6 months, okay?\nSo, the the puck I'm Canadian, so I'm\ngoing to say this. The puck is going\ndown down the line towards background\nagents, for sure.\nUm and one of the things that we run\ninto right now is this uh we're becoming\nthe bottleneck as humans, right? I'm not\nsure if if people have tried managing\nparallel agents and uh working on\nseveral tasks at once, but everyone's\nstarting to feel this like cognitive\ndisconnect cuz you're context switching\nall the time and it's just it's just\nreally really painful. Um it is very\ndifficult to move from that mode where\nyou're the human managing context into\nthe background agents mode unless you\nhave some kind of context engine that\nknows how your code operates, how your\norganization works, and understands the\nmotivations for historical changes and\nthings like that.\nSo, Andre Andre, he nailed it. Um\nsystems are intelligent. We're reaching\nthe exponential on on intelligence for\ncode pretty soon. Everyone's seen the\nthe release about Mythos. Um you though\nwe all haven't had a chance to really\ntry it out yet. Uh the promise is that\nfrom a code intelligence perspective,\nthis thing is like pretty much close to\nto perfect. Um\nbut so now the bottleneck is context, of\ncourse.\nWithout um without context, I'm just\ngoing to re-emphasize this point, you'll\nprobably end up in doom loops. Does\nanyone know what a doom loop is?\nA doom loop is like when you're\nuh you're struggling with the agent.\nIt's it's not quite doing what you want,\nand you have to keep iterating on it.\nThe worst-case scenario is you run this\nthing in Yolo mode, and it it finishes\nthe entire task, and it's completely\nwrong. You have to go back and correct,\nyou know, various stages.\nso when you have a context engine, you\ncan get there faster.\nThe problem is that access\ndoesn't equal understanding.\nSo, we have customers that are on\nvarious parts of I'm just going to go\nback to here. We have customers that are\non various parts of this journey.\nUm and one of the one of the interesting\nthings that we've noted is that uh\npeople feel that, you know, their their\nthey understand their organization best.\nSo, when it comes to feeding the right\ncontext to these agents, people will try\nto build some semblance of what a\ncontext engine actually is.\nThey'll maybe build a rag system, or\nthey'll build some way to like feed\norganizational data to an agent.\nso unfortunately, though,\nuh access doesn't mean understanding.\nSo, what that means is you could just\nwire up a bunch of MCP servers, um and\nit's not going to be able to understand\nwhat the relationships are\nuh between all that data, how it was how\nit got there, and how why it is the way\nit is.\nUm and then there's another problem\nwhich I'll talk about a a little bit\nlater called satisfaction of search. So,\njust remember that term, I'll come back\nto it.\nOkay.\nSo, I just wanted to show you this.\nUm this was something that\nuh we actually implemented and we did it\nin in two parts. One was just without\nany context engine, but wired up to a\nbunch of MCP servers.\nIt did a pretty good job. Um but then\nwhen we reached the end, um\nit it it missed the fact that we had\nsome legacy stuff that on this old um\nmethod of um of intelligence size to to\nEntropic. So, they have adaptive\nthinking now, but it used to be had to\nsupply a\nuh a token budget. And that's how like\nyou could increase the size of the\nthinking window. Um so, we we had some\ncode that kind of like depended on this\nand there were reasons for that um that\nthe agent didn't understand or see. And\nso, it just basically clobbered all that\ncode. Um but when we added the context\nengine, then it saw all those reasons\nand\nimplemented it the right way. So, it\nmade the appropriate changes in the\nright places, included backwards\ncompatibility for the code that was\nusing the old method.\nOkay, so now for the myths.\nMyth one, naive rag over my docs is a\ncontext engine.\nSo,\nif you implement um say like vector\nsearch\num or just a couple of search methods,\nyou're going to run into this you're\ngoing to run into a few issues. One is\nthe satisfaction of search problem\nwhere uh the agent will search like\ncrazy, consume your tokens, and then in\nthe worst case, you'll reach compaction.\nOkay, so\nwithout being able to find the the end\ngame.\nThere are a few different other\ntechniques like you you need to have\npersonalization when you build a\nretrieval system because if you just rag\nall your data, especially for very large\norganizations, there's going to be\nthings like conflicts that you have to\nresolve in the data. Um it won't be\nfocused on the task that you're trying\nto perform. It might pull in, you know,\nrelevant code from other parts of your\norganization that, especially if if you\nhave a really big organ, you've got tons\nof different repos,\num it's it's just going to create a huge\nmess. So, you need to have some element\nof personalization.\nAnd then, here again, uh connect a bunch\nof NCPs. I'm just going to reiterate\nthis point. I'm done. No, definitely\nnot. Um so, that that is the thing that\nthat really um\nputs an emphasis on the satisfaction of\nsearch point, and I'll explain that in a\nsec.\nAnd finally, a bigger context window\nwill solve this. Um\nSo,\nway back, you know, when the models were\nstarting to get big, people were really\nexcited about a million tokens in your\ncontext window.\nUh the first models that tried this, I\nthink it might have been Claude,\nactually. Was it Claude? I think it was\nCode actually. Oh.\nOh.\nOr Open AI? Okay. Okay. Gemini. Yes,\nsorry. I'm so sorry.\nUm so, yeah, Gemini first first model\nthat tried this, and it was really good\nat finding needle in a haystack. So, you\ncould feed like a huge document to it,\nand as long as you you knew what you\nwere looking for ahead of time,\nit could find it. Um but, it wasn't good\nat all at reasoning across different\ndata sources,\num understanding the real meaning behind\na problem, and then recommending the\nappropriate solution. So, none of that\nwas possible. Um obviously, things have\nthings have gotten much better. Now, the\nproblem is\nmost organizations have more than a\nmillion tokens worth of context. So,\ntrying to fit all that into their\ncontext window isn't going to work\nanyways. Let's project out to the future\nand imagine that you could fit like 10\nmillion tokens, 50 million tokens. Um at\nthe current uh rate of memory\nconsumption um just to operate the\nmodels, that's not going to be possible\nfor a really long time. Even if it was,\nand you fit all that context in your\ncontext window, you're still going to\nrun into problems with understanding\nwhat's true, what's false, um, how to\nselect the right information, okay?\nSo, now we're going to come back to this\nsecond point here.\nSatisfaction of search. This is a uh\nterm that actually comes out of uh the\nmedical field in radiology.\nAnd the idea is that um when doctors are\nlooking at X-rays,\nuh and they're looking for uh the cause\nof of of symptoms,\nthey might find something on the X-ray\nthat explains those symptoms, and then\nthey stop. Um,\nand that's that's kind of like a\ndangerous thing medically, because uh\nthere might be other indicators for\nthings like cancer that get missed. So,\nuh satisfaction of search is a is a real\nproblem in radiology, and there's lots\nof protocols to prevent just stopping as\nsoon as you find the first thing.\nUm, this is what happens with agents.\nWhen they search around in say uh Notion\nin your code, uh Confluence, they'll\nstumble across what looks like the the\nthing they're looking for, and they'll\nstop. And then they'll they'll proceed.\nBut the the real like golden nuggets of\ninformation might be in a different\nplace that the agent wouldn't think to\nlook, like in a in a past Slack\nconversation, or in an incident report,\nsomething like that.\nSo, here's the the classic iceberg meme.\nUm,\ncode that compiles, that's like the\nbaseline. Does the agent produce code\nthat compiles? Um, but everything that\nthat is actually important is happens\nunderneath here. So, understanding the\nuser's original intent, um, what was\nrejected in the past by the team and\ntried before, but failed.\nUh how are you going to surface that\nkind of content just by looking at docs\nand and code and stuff?\nso you need to understand that somehow.\nand even worse like it it's it's\nsometimes hard to know\nuh when things were deleted like in the\nabsence of information. So you need\nhistory as well leading up to decisions.\nSo this is why we think you need a\ncontext engine. Uh\na context engine understands who you\nare,\nwhat team you work on, who you work\nwith,\nwho the experts are in your\norganization,\num and and what the decisions were that\nled up to the current iteration of your\ncode base.\nIt's able to resolve conflicts.\nUh so this is like a truth and false\ntype situation. What's true, what's not?\nUm sometimes that truthiness is a gray\narea, right? So the context engine needs\nto also understand\nwhen to instruct the agent um that it\nwasn't able to resolve the conflicts and\nthen uh learn from additional user\ninput.\nUm this third point is super important\nof course in any large organization or\nenterprise.\nUm there's often, you know, repositories\nthat not everybody can access, secret\nprojects, that sort of thing.\nSo uh it's really important that you\nflow the access controls up. You have\nI'll give you a\nan example that everyone will appreciate\nwhich is Slack.\nUm our context engine integrates with\nSlack or Microsoft Teams.\nUm and when you have uh private\nchannels, that that's really highly\nsensitive, right? Like you could be\ndiscussing HR information or\nuh maybe something that you just really\ndon't want um everyone else to see.\nAnd so when when Unblocked answers\nquestions, uh it will use private\nchannel information, but it won't it it\nwill only use that information if the\nperson that's asking the question has\naccess to it. And then those answers are\nnot public. Okay? So, they're they're\nprivate to you.\nUm and then finally, of course,\ndelivering the right context at the\nright time. And this is about token\nefficiency. It's about getting to the\nanswer as quickly as possible.\nSo, here's a kind of a high-level\noverview of how how our context engine\nmight work. Um on the left we've got\ndata source inputs. So, things like\nplanning tools, docs, conversations,\ncode PRs. Basically, like anything\nthat's relevant to getting work done at\nthe engineering level.\nUm and then on the right side we have\nthe outputs. So, you know, the this all\ncan flow to coding agents and CP or CLI\ntools. Um you can custom build apps\nthrough the API. We've got it We have a\ncode review uh component that just plugs\nright into your SCM and provides code\nreviews. And of course, uh integrations\nwith social messaging apps.\nSo, the these are the kind of like broad\nsix requirements that we think are\nimportant. There's actually much more\nthan this, but these are the high-level\nthings.\nSo, again, unified system context. Um\nthis is about\nbuilding relationships between data.\nOkay?\nBut it's more than just um recognizing\nwhen uh one piece of data is related to\nanother. Like, for example, in in Slack,\nyou might have conversations about PRs.\nThat's an easy linkage because\nyou're posting links back and forth. So,\nthat's easy. Um what's less easy is\nunderstanding uh the reason why\ndecisions were made\nor your organization's best practices,\nright? So, to understand that, you have\nto go a little deeper.\nUm do do things like distill um,\nhistorical pull request comments on PRs.\nAnd uh,\ntry to distill those down to the their\ncore essence. And then when you see\nrepeated patterns, uh, you can pull\nthose patterns together and store them\nas, you know, {quote} {unquote}\nmemories. So that when uh, someone is\nworking on the similar piece of code,\nyou can load those memories and then the\nagent can see that and go, \"Oh yeah,\nright. Uh, this is the way this\norganization does this particular\nthing.\"\nUm,\nconflict resolution, super important.\nUm,\nwe took a uh, initially kind of a naive\napproach to this at first and based it\njust on recency, right? So we we would\nbias towards newer stuff.\nUh, unfortunately, when you have in the\nfullness of all your context, recency is\nnot enough.\nUm, often you have people\num, writing documents or chatting in in\ntheir messaging platforms and they might\nbe saying things that are not like\ncompletely aligned with uh, how the the\nsystem works.\nUm,\nuh, so, you know, then we started to\nbias towards code. So we had recency and\nwe're like, \"The main branch is\ndefinitely your source of truth.\"\nBut not always, because sometimes\num, what's important is what happens\nnext, not the way a system currently\nworks.\nLike when you when you're working on a\ntask, um, what you really want is for\nthe agent to understand where you're\ngoing, not necessarily where you've\nbeen. Where you've been helps it\nunderstand what not to do.\nWhere you're going helps it understand\nwhat you should do, okay? So, in in the\nSlack case, looking at the conversations\nthat your organization's experts are\nhaving\nis more important than just\nunderstanding what, you know, every\nrandom engineer is talking about.\nUm targeted retrieval and personal\nrelevance are very related, so I'll just\ntalk about them\nuh together briefly.\nSo, um\nagain, like\nwhen you're pulling context in, it's\nimportant that uh you're only pulling\ncontext in for the relevant task at\nhand, and probably relevant to you.\nSo, here's a technique that's kind of\ninteresting. Um you can understand what\nrepos a person works on most by the\nnumber of PRs they submit contributions.\nAnd then, if you do a if you're doing\nvector retrieval, you can do a uh deep\nretrieval on those focused repositories,\nand then a wider retrieval on, you know,\nthe rest of the source code, and then\nsort of bias the the selection towards\nuh the focused repositories, cuz that's\nmore likely where someone's going to be\nworking and spending their time.\nUm and then, you know, we've talked\nabout data governance, so I don't think\nI need to go over that again. Super\nimportant, though.\nThis was just a\na little experiment that we ran uh with\na larger task. Um I'm I fully admit that\nsome of these numbers are a bit wonky.\nThis is basically like Claude outputting\nnumbers, so don't don't trust it. Just\ntrust the the vibe of the thing and not\nnecessarily the numbers. Um\nbasically, what it's saying is that\nwhen we started out uh without the MCP\nserver act or sorry, without the context\nengine active, um it it really missed\nthe mark on a lot of stuff.\nUh and that's just because it didn't\nunderstand how um the existing\nimplementation really worked and why it\nwas the way it was, what was tried\nbefore, and failed. Um and so, it made a\nlot of those same mistakes. Uh with a\ncontext engine turn turned on,\nobviously, it it um it nailed it. The\nThe key numbers, though, are the the\ntime and the tokens that it took.\nSo, without\num the context engine, it took 2 and 1/2\nhours to finish this task with 21\nmillion tokens, which is a lot of\ntokens.\nUm but with the context engine, it took\nonly 25 minutes and 10 million tokens.\nSo, it's it's a pretty dramatic\ndifference.\nUm okay, so the hard lessons. These are\njust samples, by the way,\nbut the these are ones that we thought\nwere kind of interesting.\nSo, first of all, uh initially we\noptimized for access, not understanding.\nSo, our our first premise was if we just\nwire up a bunch of tools\num and provide a a knowledge graph, it\nwill be able to traverse the knowledge\ngraph and uh execute a bunch of\nretrieval-specific tools for particular\nintegrations and so on, and figure\neverything out. Um it that does not\nwork. So, uh\nyou'll have to go a little bit deeper\nthan that.\nUh second one is we hid conflicts\ninstead of surfacing them. So, um\nby con- by hiding conflicts, I don't\nmean that we just\nignored the conflicts. What we did\ninstead was we tried to resolve those\nconflicts using those naive strategies,\nand we didn't surface the conflicts that\nwe weren't able to resolve. So, this was\na a really good learning is that um a\ncontext engine, I mean, we'll get there\neventually, but uh it can't always tell\nuh what the truth elements are, and when\nit can't, you should surface that and\nlearn from it. That's the key thing.\nAnd then finally, uh\nI think a a lot of folks tried this.\nThis is a really bad idea. So, when when\na context engine supplies an answer,\num do not cache the answer and try to\nserve that same answer up again uh to a\nsimilar question. The reason is obvi- is\nis fairly obvious in retrospect, but um\neverything changes constantly, right?\nCode changes,\ndocs change, the reason for things\nchange. So, this just doesn't work.\nthe other thing is if you try to uh\nuse the the previous answers as context\nfor new answers, you regress towards the\nmean.\nSo, if the model is like misbehaving or\ndoing something bad, and you\ncontinuously bring that into context,\nyou're obviously going to pollute uh the\ncontext.\nAnd this is what happens.\nOkay, so let's now talk about where AI\nforward teams like like those that are\ndoing this like cloud-based agent thing\nare are using and taking advantage of\ncontext engines.\nUm definitely and especially during the\nplanning phase, okay?\nThis is where you get the biggest bang\nfor buck unquestionably.\nUm get the context engine involved, use\na skill to bring it in,\nconnect it to the MCP server and and\nwatch it do its thing. It This is where\nyou get the biggest bang for buck.\nIt's also useful to do this during\nreview.\nSo, you get planning and review at the\nend.\nUm because, you know, if if you got it\nan agent to do review,\nit's basically just going to pay\nattention to the code and try to\nunderstand where the breakpoints are,\nsecurity concerns, that kind of thing.\nBut, without the organizational context,\nit doesn't understand the motivation for\nit. So, that's the really important\nthing.\nTicket enrichment. Um this is a a super\ncool use case. So, you create a ticket\nfor a new feature, and then you just ask\nthe agent that's connected to a context\nengine to fill in the blanks.\nWorks.\nTriage. Uh I use this all the time. When\nI see an issue in production, I just\nwhack it into in my agent connected the\ncontext engine and it just like\ninstantly brings up all the past\nissues related to this and\nstarts operating right away.\nIncreasingly we're seeing this one,\nincident management, okay? So we we just\nwired up DataDog\nand this I'm sorry? Sentry. Sentry and\nDataDog, sorry. Um and this is already\nproving like super cool use case. It\nit can see the signals and then it can\nact on all the signals and relate that\nto code uh relate it to past incidents\nthat you and and discussions you've had\nin Slack. Having all those things come\ntogether at once is is almost like\nmagical.\nAnd finally, I think this one's actually\nmy favorite one and it's the one that\ncustomers use the most\nis uh customer success and sales and\nengineering support.\nSo what what a lot of big teams do is\nthey have engineering support channels\nwhere other teams can come in and ask\nquestions. If you put a context engine\ninto one of these things, you can have\nit automatically answer a lot of\nquestions and save engineers a ton of\ntime.\nAll right, so how teams make a context\nengine their own? Skills.\nSo definitely build uh skills that you\ncan use to curate context in a GitHub\nrepo.\nUm and you can build other skills around\nit like typing ticket enrich.\nGive it the issue ID\nand then it\nit can use the context engine to build\nthe enrichment.\nUh workflows like this one prepare\nprepare an incident timeline.\nUm and then you can just send it off to\nyour agent again, context engine, blah\nblah brings everything together,\nmagical.\nAnd this thing here um\nyou can wire this up to all kinds of\nagents. I've got um Uh, one one of the\nthings that a lot of customers like to\ndo is wire this up to Claude code in\ntheir CI system.\nUm, we actually do have a code review\ncomponent, so you don't have to do this\nif you're using Unblocked.\nUm, but people use this for other\nthings, not just code review. As soon as\nyou wire up a context engine in the\nbackground, give it an API key, let it\nlet it run on its own, it it can do some\npretty insane stuff.\nUm, so I'm just going to show a quick\num,\nexample of what\nwiring up a context engine can do. So,\nthis is a PR that, uh, my colleague\nwrote.\nAnd, uh,\nit it Unblocked like went through and\nprovided a a kind of review to this\nthing.\nAnd at the bottom of this review,\nhere's the review part.\nUm,\nyou can see that Richie, who was the\nauthor of this PR, was like, \"Very cool.\nThis is something I would say.\"\nUh, now the reason for the comment,\nwhich was, \"You've basically duplicated\na bunch of text. Plus, you can you can\nkind of dry that up a little bit.\"\nis because, um,\nthis was a best practice that was\ndistilled from a bunch of other PRs. And\nthe the funny part is that the author of\nthose PRs was Richie.\nSo, he's the one that actually instilled\nthe best practice in the organization.\nUh, so that was that was just a cool\nlittle moment when we discovered that.\nUm, here's another example. So, this was\na it's a fairly long transcript. I'm not\ngoing to like show the whole thing, but\nwe we sent it on a on a mission to do a\nbig large task. Without, uh, Unblocked,\nit it, uh, took quite a while. Like you\ncan see the transcript's quite long. Um,\nand it it missed a whole bunch of stuff.\nWith Unblocked, uh, it was a lot more\ncompact. It it got to the answer like\nvery quickly and correctly.\nAnd just because we're now AI forward\nand lazy, um,\nwe took both of those transcripts and\nran them into Claude and just said,\n\"Hey, Claude, why don't you just do a an\nanalysis of both these things and give\nus your give us your result.\"\nUm so, it it went through I won't, you\nknow, bore you with the details, but\njust to say that at the end the verdict\nis that uh the context engine plan is is\nwhat I'd ship with.\nThis other one is good for a prototype,\nbut it's missing a whole bunch of stuff\nthat is important to this organization\nthat was previously discussed.\nOkay?\nSo,\nthis is essentially what what I've been\ntrying to say.\nUh AI-generated code should just feel\nlike it was written by someone that's\nbeen on your team for like 20 years,\nokay?\nUm it doesn't If it doesn't yet, that's\nfine. Uh\nit will.\nyou're If you wire up Unblocked, you'll\nyou'll see like a a huge difference in\nperformance of agents. And if you're\nbuilding one of these things,\nabsolutely, like take all these things\nand and build and and let's see where\nthat goes.\nSo, just before we get into the workshop\ncomponent, um maybe we'll just have like\n5 10 minutes of Q&A.\nWhat up? I'm Brandon. And this is\nBrandon, so he'll he'll help with Q\nThanks.\nUm so, it's clear what it does for you\nand what kind of problems it solves, but\nto me a big question mark is what is the\nthing? What is the artifact that\nthat fits the bill? Is it like a program\nyou install, an API that's hosted\nremotely, or\nan MCP server?\nWhat is it? It's it's all of those\nthings. So, a a context engine I'll\nexplain what Unblocked is. Maybe I can\njust show a quick demo of it. Um so,\nbroadly speaking, there's a bunch of\ndifferent surfaces to a context engine.\nYou want to get it into your agent flow\nand you can do that with an MCP server.\nYou can do that with a CLI tool, for\nexample.\nUm we also have this dashboard surface\nwhere you can ask questions about your\ncode. Um this is a pretty basic one, but\nyou can see it understands who I am and\nwhat I've been working on.\nand then uh we have a Slack We have\nSlack connectivity as well. So, you can\nbring Unblocked into Slack. Um drive it\nin conversations and have it auto answer\nthings. Does that make sense?\nDid I answer your question or\nI think my question will get answered in\nthe demo or in a minute. Okay.\nBut yes, API, CLI, MCP. Yeah. And\nproducts.\nIt's mostly API.\nYeah.\nOh, sorry. I got carried away. I forgot.\nThank you. Um so, my question is So, as\nfar as I understand, it's like a\nknowledge management and retrieval um\napplication. Yeah. And does this relate\nsomehow to\nthings like um LLM Wiki like it was made\npopular recently by Andrej Karpathy or\nthe decision traces\nand context graphs\n>> Yeah. which was discussed about a few\nmonths ago. Yeah. So, you can think of\nall of those things as kind of\nuh useful components to a context\nengine. Our context engine has to do\nmuch more than that because um so,\nagents are really good at recursing\nthrough a Wiki, for example.\nDepends on how you build this Wiki cuz\nthere's a bunch of things like\norganizational memories, best practices,\nyou know, experts in your organization\nand that are used as pivot points for\ncontext retrieval. So, a a Wiki doesn't\nsolve those problems unless it has like\na you know, you could build a structure\nwith it and I think uh Karpathy\ndiscovered that if you treat a wiki as\nkind of like a file system, you can\nbreak it down and have the agent uh walk\nthrough it like a file system. There by\nthe way, agents are like highly\noptimized for file system traversal.\nYeah, for the compilation step. Exactly.\nYeah.\nSorry. Maybe the same question but is it\nis it a general purpose context engine\nor is it targeted against code? Because\nwill it be useful as\nsay\nas a business domain expert or a sort of\nbuilding up a business domain and then\nhaving this context engine use my so I\ncould all my other AI agents could use\nthis as context for the business uh\nor would you say that this is more like\njust for the code part of it? Uh so it\nit's definitely engineering focused. The\nthe integrations are focused on\nengineering activities. So, you know,\nSCM integrations and other and other\ntools that engineers use. Um\nwe are increasingly seeing customers\nusing it for other purposes. So,\nbusiness intelligence is a key thing.\nUh and that's usually useful when\npeople in in business functions are\ntrying to get an understanding of the\nproduct and its function.\nUm we don't have like say Salesforce\nintegrations wired up for that. So, you\ncouldn't use it to understand um\nyou know, any anything that's sales\nrelated. It's it's really just primarily\nan engineering focused context engine.\nThat's not to say that that won't\nchange.\nYeah.\nOn the governance thing, if you're\nrespecting access rights, how can it do\nsort of synthesis across stuff and then\ndevelop new knowledge in in internally\nthat it could then surface to people.\nSo, that Yes, you're correct to point\nthat out. The The synthesis is\ncompartmentalized.\nSo, there are, you know, places that are\ncompartmentalized like individual\nrepositories. That's kind of the level\nof access. So, if you can synthesize\nhistorical data based off of that\num and then correlate that with public\nSlack information, then that's that's\none way to do synthesis without crossing\nthe the organizational boundaries.\nUm so,\nuh the you know, the other way is to\nlook at and tag when um\nit synthesizes information crosses those\norganizational boundaries and you can\ntake something like a group ID approach\nto that problem\nwhere you attach group ID tags to the\nsynthesized information and then only\nretrieve it if the person that uh has\naccess to that can can build it out. So,\nfirst take the compartmentalized\napproach cuz that's the where you'll get\nthe the most mileage and you kind of\nbuild up from there. I mean, this is the\ncore\nproblem with using a technology like\nGraph RAG, right? Because Graph RAG is\nlike a pyramid where it builds up in\nlayers and then basically summarizes at\neach layer, but that like unavoidably\ncrosses uh permissions boundaries. So,\nyou have to be\nyou have to create compartmentalized\npockets.\nYeah.\nThat's a good question.\nTime to hack after this, I think.\nYeah.\nUh yes, you've told us a lot about like\nall the different sources of information\nthat you consume and putting them all\ntogether. When it's like synthesizing\nthose down, is that still sort of like\nnaive RAG vector search all that stuff\nunder the hood or is it like agents\ndeciding what is appropriate and so So,\nwhat what or probably like combinations\nof all of them, but what is that sort of\nstep?\nUm yeah, you're right. It is a\ncombination of all of them. So,\nknowledge graph like knowledge graph\nbuild-up happens in a bunch of different\nways. Um the the PR thing that I showed\nyou for example is like a first you\nbuild a a naive knowledge graph\nprocedurally and then from there you can\nuse an LLM to distill down and summarize\nand build up um\nthose types of techniques.\nour context engine builds first like a\nknowledge graph from the base\nuh using trying to leverage like all the\ndifferent entities. It's kind of like a\npage rank thing where it builds up the\nrelationships procedurally.\nAnd then of course it vectorizes data.\nUm and then there are procedural tools\nthat fetch data at runtime.\nUm a lot of the distillation for uh\nyou know, conflict resolution happens in\ntwo places. So, one is like\nduring data ingestion time, there's\nthere are tags that relate data to each\nother so that we can see if we can\ndeconflict at that level and then like\nrank against each other at that level.\nAnd then of course at runtime you have\nto pass the things to a judge with the\ncriteria.\nUm and then it does additional\ndeconfliction in real time.\nDoes that make sense? Yeah. Okay. I have\none more question and then we'll switch.\nSo, uh I was curious you say conflicts,\nbut at some point you get conflicts that\nis something means revenue for one\ncompany, it means revenue for another\ncompany. It's a totally different\nmeaning how you can recognize that. So,\nhow do you get humans in the loop? How\ndo how do you use their ontologies and\nhow can you\nhow do you use it when you run into it?\nSo, I'm very curious about that actually\nhow you how you do\n>> Yeah, so if you I can show you just a\nquick thing here. So,\num you'll notice that at the bottom the\nthe references that were used for\nanswers are delivered both like to the\nhuman in this interface, but also to the\nagent. Yeah. So, um if the agent if the\ncontext engine isn't able to do the\ndeconfliction, then at this point here,\nthe human can step in and guide the\nagent when there are uh enough sig- If\nit doesn't do that, then so you So, you\ncan you can literally just reply and say\nlike that's not correct, or you can come\nhere Okay, yeah. and\nOh, yeah. Sorry, the player is going to\nbe Yeah, or you can you can do this,\nlike not helpful, and and give the\nreason why. Um like it it is a bit of a\nmanual process at this stage, but the\nsignals that build up over time It's\nfunny, right? So, you would just\nproduction business in some companies,\nyou might have\nyou catch a lot of human intelligence by\nthis, right? Yeah. That's amazing, you\nknow. Yeah.\nYeah. For for for a typical customer,\nhow much\ndo you have this volume of data metric\n>> Oh, it's huge. It's It's It's amazing.\nLike I I was actually really surprised\nby how willing people are to give\nfeedback. Um yeah, no, it's Can you give\nan example of one project that you catch\nthe thousands or hundreds of\nof these\nhuman feedback in I mean, at at small\nteam size, it's, you know, in the\nhundreds. At So, small team size being\nlike 20, 30 people. Yeah. At large team\nsize, 100 to 200 people, it's like\nhundreds and hundreds of Oh, wow.\nof feedback, yeah. That's cool.\nPeople just really like to interact with\nagents and tell them in natural language\nwhat's wrong. It's It's just a totally\nnatural thing to do.\nYeah.\nGood for us.\nCool.\nAll right. Um are we are we good for\nQ&A?\nAnd then we can get on\nYeah, let's let's get on to the Let's\nget on to the workshop part of this. So,\nwe have created a um\nFor actually, what I'll do is I'll just\ndo this\nfirst. So,\nyou can do this now if you like. Um I\nwill come back to this slide in a sec.\nSo,\nthe idea here is we're going to get\neveryone to join uh Slack workspace that\nwe created.\nAnd then we're going to get uh everyone\ninto a repo where this um where this\nsample code lives, and then we'll just\nstart hacking away on it together. Okay?\nYeah.\nNice.\nThe unblocked link will not work until\nyou do step two to get into the GitHub\norg.\nOh, no.\nIs it network? Yeah.\nUm okay, well while folks are doing\nthat, I'm just going to show you what\nwe're getting into here.\nSo, this is the uh GitHub organization.\nUm what we're what we're working on is a\nsocial graph builder.\nSo, what this is going to do\nis look at a source code repository. So,\nyou can run this on your own repo. It's\nnot going to upload anything. It's all\nlocal.\nUm so that you can see this thing\nbuilding up against your own\norganization.\nUm and it's going to do a bunch of\nthings. We're going to get basically a\nsocial graph out of it, and I'll show\nyou what that looks like.\nAnd we're going to understand who the\nexperts are and which parts of the code\nthey work on.\nUm and then there's going to be a little\nlike interactive visualization thing.\nSo, what what the goal of this exercise\nis is to get this thing up and running\nand start just start hacking away on it.\nSo, like start submitting PRs as soon as\nwe get this going.\nUm,\nSo, this is what it looks like.\nThis graph here is our organization,\nUnblocked, and what you're seeing here\nis a a relationship graph that shows\nwho's reviewing who's PRs um, and who's\nwho's getting reviewed essentially.\nThe\nthis thing is\na distillation of all the different\nteams within Unblocked. So, this is\nroughly accurate actually. Well, not\nroughly, it is pretty accurate. Um,\nwe've got I I did this all the way back\nto the start of 25, 2025. When you run\nthe thing, I'd recommend maybe doing it\nfor a shorter timeline cuz it will be a\nlittle bit slow\nif you go all the way back to 25. Could\ntake like 15 minutes. Um, but it's a\neffectively distilled who the teams are\nand\nyou the only AI step in this is to label\nthe teams. You don't have to run the AI\nstep if you don't want to. It'll just\nuse the the parts of the code that\npeople work on the most.\nUm, this tab here will show the experts\nin the organization and what they work\non. So, this is just broken down by\nproject area and path. Um, and shows\nlike what areas of the code have good\ncoverage. Coverage is defined mostly by\nwhether a a high contributing\norganizational expert is present and\nwhether it's it's an actively\ncontributed to part of the code.\nAnd then finally, I will have this\ninteractive graph that\nbreaks things down by team area\nand will show like, you know, who the\nmajor contributors are.\nI'm over here on the AI team.\nyeah.\nSo, that's it. Let's get everybody in\nand we'll start hacking away at this.\nYes, absolutely.\nYeah.\nMany of you should have an invite who\nhave put your GitHub already in. So,\nplease please give it a check. GitHub is\nthe worst.\nYeah. Yeah. We will It is an MIT\nlicense. We will be making it public\nlater, but for now we needed it locked\ndown.\nOh, did you Oh, you still not invited?\nWhat's your app? Just what's your\nGitHub? I'll invite you.\nk a s\nBut, you should have an invite.\nYeah, of course.\nJulian? Yeah, I got\nProbably faster. I'll show you. Look,\nI'm coming.\n>> I won't put it in.\nWhat have you done?\nLet me Let me type this out. Samantha's\nweird.\nI I keep trying to type TV and that's\nnot Yeah, I know. It's good for us. What\nis the spelling?\nI also have a slide to put it on.\nIt's my daughter's, so I just took it\nback. It's your daughter's. All right,\nyou got this.\nAnd that's Julian. And that was 5:15\nSo, I think that the rest of this\nsession is going to be now just like\nhacking away. So uh\nin a second here I think I'll I'll take\nthis this down if everyone's got it so\nthat Brian and I can concentrate on\nworking with you guys to build features.\nWhen you submit PRs by the way you'll\nnotice that unblocked is sitting there\nas a code reviewer so don't don't feel\nbadly if it\nsprays on your PR a little bit.\nIs is everyone good with this?\nI'll take it out. Okay, cool.\nThat is it.\nBrian you're you're on top of the\ninvites. Okay, cool.\nAmazing.\nThat's just where am in this list.\nOh.\nForgot to mention a couple of things\nhere, actually.\nYeah.\nComing back alive. Yeah, good.\nUm just a couple of things. So, if if uh\nyou're looking for\nsomething to implement and\nstarting with with any with coming up\nwith ideas and stuff, there is a uh\na set of sort of predefined issues that\nyou can hack away on, so you can just\ngrab one of these.\nWhack it into Clyde and see how it does\nwhen it's connected to the context\nengine.\nUm the MCP server for Unblocked is here.\nSo, if you want instructions on how to\nwire this up\nto uh Clyde Coder or another agent, then\nyou can grab it from the instructions\nfrom here.\n>> All right, so I'm at Lars. There's two\nmore in here, so I'm I'm still going, by\nthe way, for those just adding their\nnames to the role.\nWhat's going on, Brennan?\nOh, sorry. Just one of the usernames is\ninvalid. Oh, okay. I'm taking it.\nAll right.\nCat, you should have an invite. Andrea,\nyou're you're coming next.\nI'm just two too behind everything.\nChristopher, did you not get the invite\nyet? No, no, I didn't.\nThat's weird.\nLet me double-check. You should have\none, but\nYeah, I should You should have an email.\nI'm up to like 31 of you.\nIt worked.\nIt's like five clicks to add a member\nfrom like GitHub.\nI was going to say You should be able to\nuse the CLI for this. What's going on\nhere? We don't have an agent for it yet.\nThat's right. Not yet.\nNo, they keep putting it in my PR, and I\ndon't want it there.\nCopilot's going to review for me.\nVery poorly, but it will review for me.\nYeah, for sure.\nDude, hold on. Let me grab you the mic.\nHopefully that's on.\nDoes it work? Yes. Um\nso, I guess that context engine works\nvery well for asynchronous agents, so\nthat you don't need to specify things on\nyour keyboard because they can fetch\nwhat they need. That's one of the main\nuse case, I guess, I guess, and\num so, it plays very well,\nuh I think, with agents like Copilot on\nGitHub. Do Do you see a uh if you can\nshare it, uh which agents are used most\nuh with Unblocked? Whether it's more\nbecause on the wild as a developers with\nour laptops, I think Claude Code is much\nmore used than Copilot, but maybe you\nsee a different picture. Okay, so I'm\ngoing to take this off the screen for a\nsec.\nAnd try to see if I can pull that up for\nyou.\nbut the answer is yes, we do know\nroughly what that breakdown looks like.\nSo, let me grab that.\nOkay.\nI think this gives you kind of the rough\npicture.\nOkay, so this is kind of the rough the\nrough picture here.\nI unfortunately because of the way this\nis I I should probably dark mode extend\nthe screen, but I'll just step over\nhere. So,\nuh Cloud Code is\nby far the most used. Um followed\nThis is the the next one is cursor, so\nthat that seems pretty obvious.\nThis last one here is kind of a\ncatch-all, but what's really interesting\nis that a lot of people use Cloud\nDesktop.\nWhich which was very unexpected, but\nthis is the case.\nUm so, and then VS Code and CodeX\naccount for a smaller\ncomponent. But yeah, it seems like\neveryone's using either Cursor or Cloud\nCode. I would have expected more of, you\nknow, totally asynchronous agents like\nsomething that people would\nrun from a PR. Okay, you can run code\nfrom a PR, but it's less common. Maybe\nsometimes you use Copilot because it's\nbuilt in. Yeah, actually this this one\nhere Cloud Code\nmay may capture some of that traffic. So\nthat that's probably what you're seeing.\nPeople will wire up Cloud Code in CI.\nAnd do things like that. Thanks.\nNo problem.\nI've got a potentially dumb question.\nThere's no dumb questions. This Well,\nwe'll see.\nActually, you know you know I'll touch\nyou soon.\n>> I I I had a teacher in grade three that\nused to tell me there are no dumb\nquestions, only dumb people. Go on. I\ncould I could be one of them.\nHow like from from your point of view,\nright? You've got you you can use like\nsub agents from like an exploratory\nstandpoint. Yeah. How how\nhow does like that plus memory plus just\nlike storing\nsnippets of information that might be\nable I'm thinking of the like social\ngraph that you just showed, right?\n>> Yeah. Even in an organization that's\nlike several thousand people,\nyou would be able to store that in a\nvery small file. No.\n>> Um\nYou you would as the graph that you\nshowed.\nUh oh, I see. The social graph\ncomponent, yes. Yeah. It it can be\ncompact. I'm trying to understand how\nthis compares.\nLike what's the kind of like USB\ncompared to the exploratory agents and\nrepeating that? I I see what you're\nsaying. Okay.\nthere there are two there are two\ncomponents to that. One is that uh an\nexploratory agent would have to do this\nevery time.\nSo, when it starts from ground zero,\nyes, it might be possible for it to\nreconstitute\na sort of social graph hierarchy. But,\nit would have to do two things in order\nto do that. One is it would actually\nhave to write code in order to\nconstitute the the graph. At least the\nway that agents are today or the way\nthat the models are today, you wouldn't\nbe able to just have it like run basic\ntools around um\nthe the organization and figure out the\nwho's who.\nUm it would have to write kind of like\nwhat that social graph algorithm is, run\nit, and then get the distillation out\nthe back end. So, um at that point,\nyou're basically getting close to that\ncomponent anyways. So,\nthat you short circuit it and just run\nit and use it. Um maybe I should explain\nsome of the motivation for that thing,\nactually. I I realized now that I may\nnot have done that effectively. Um\nsocial graph is not just about conveying\ninformation about who the experts are.\nIt's used within the context engine as a\npivot point um into more like important\ncontext. So, understanding who the\nexperts are in a particular code area\nacts as a jump point because um another\npart of a context engine which happens\nat the ingestion and processing layer\nis um distilling the\num we call it bottling the expert, but\nit's essentially distilling what that\nindividual has worked on in the past, uh\nwhere they sit in the in the kind of\nhierarchy of the organization,\num the the decisions that they've made\nbased on Slack conversations that\nthey've had, based on their PR comments,\nall this kind of stuff.\nUm when you distill that down, it's and\nyou pass it to the agent, then what\nhappens is like let's say that I'm a new\nemployee and I'm coming to work on a\nparticular area of code.\nUm there are a bunch of different ways\nof loading context for that code. One\nis,\nyou know, semantic search via vector\nsearch, right? So, that's kind of layer\none.\nAnother layer is, uh pre-built memories.\nAnd then, the the third layer is\nbottling unbottling the expert for that\narea of code. And getting that expert's\nlearnings into context is is a really\npowerful mechanism. It helps drive the\nrest of the retrieval in an agentic\nloop. And it helps, um the agent, uh\ndirectionally, like, where to go next.\nDoes that make sense?\nI think everybody's in now. Awesome.\nOkay. So, I think we're If we're all in,\nthen\nthe next thing here is,\nonce I get this back up on the screen,\nI'm still\nI'm still sending invites. I saw someone\njust went So, please keep coming. And\nbut if we'll we can keep going as Yep.\nSo, um feel free\nbasically just fire this repo at your\nagent and get it to, like, run it. If\nyou If you literally just say to Claude\ncode, \"Run this against my repo.\" Um be\nsure to give it a time range or a PR\nlimit, otherwise it'll go off the rails\nand take a really long time to finish.\nSo, just say, like,\n\"Process the last, like, 300 PRs or\nprocess up till, you know, September\n2025.\" or something like that.\nUm there's enough information in the\nread me that it should be able to just\ndo it. And just run it against your\nrepo.\nThis morning, I did clone said, \"Read\nthe read me and make it happen, Claude.\"\nYep.\nCan I ask you another question? What's\nyour road map for\nIf you have a road map, what what's your\nplans for the coming\nyear or so?\n>> For for Unblocked?\nIs it Is it about Unblocked or or about\nthis\nthis sort of side project?\nThis\nYeah.\nSo, I mean\nI've I've sort of alluded to this\nbefore, but like where the puck is going\nis with fully autonomous agents.\nSo, we're very focused on making sure\nthat autonomous agent flows are highly\noptimized.\nYou As I was saying at the beginning of\nthe conversation, you cannot run those\nthings effectively without like um very\nfinely tuned context.\nYeah.\nI read things like tracing. What what do\nwe agents and you get run books out of\nthose? Is that Is that the path you're\nyou're\ninvesting in or what what is it\nretrieval? What what Are you Are you\ntalking specifically about incident\nmanagement then or Sorry? Are you Are\nyou speaking specifically about incident\nmanagement and that sort of thing? No,\nI'm I'm speaking about your I'm thinking\nactually more from a business\nperspective. How can we extract business\nknowledge\nthat's really deeply embedded into\nsystems and nobody knows anymore and\nsome people know think they know, but\nthey don't know. Yeah. Uh\nand and documents, uh human knowledge,\nright? Tested knowledge.\n>> Yeah.\nSo, I mean, there's there's two ways of\nservicing that.\nEither at the product level or um\nthrough the context engine itself. And\nincreasingly what we see\nis that people leverage uh agents to do\ntheir work even at that level. So,\nthey'll they'll go to Claude code,\nthey'll connect the Unblocked context\nengine, they'll be like \"Do this thing\nfor me.\" And then the Context Engine\nwill find all the things that it needs\nto do that task, and then it'll surface\nthat data. Yeah.\nFor us, that means the first near-term\nroadmap is API. Yes. It's like CLI. CLI\nAPI.\nYeah.\nCool. I'm going to lift this off again.\nHopefully people start submitting some\nPRs and then we can\nYeah.\nSo, this this org will stay up until the\nend of the week, um at which point we'll\nbasically bring it down and um\nrelease this uh\nas open source. And uh everyone that\ncontributes obviously is going to get\ncredited, so\nyour your name will be on it.\nYeah, just just clone the repo. Um you\nThe easiest thing to do is to take uh an\nagent like Claude and point it at um\njust launch it from that repo,\nfrom that directory and just say please\nbootstrap and launch this\nthis product and away we'll go.\nIf if you guys run into any kind of\ntechnical things, well, we're here\nobviously. Yeah.\nLet's hold on, let's get you the the\nmic. You got it. I've got it. I've got a\nlapel now, so Awesome. Cool.\nYeah. Can you hear me? Yeah, perfect.\nSo on the\non the slide where you had like the\nperformance and\nyou guys were like 80% and without\nUnblocked it was 20%.\n>> Yeah. And now I see that well, you are\nbasically hooking up like Unblocked to\nClaude Card, so\nin a way is it a fair comparison to say\nI will use vanilla Claude Card with\naccess to the MCP and to the skills.\nYeah. And then I will use Claude Card\nhooked with Unblocked with the same MCPs\nand the same skills. And here you can do\nthe performance comparison and here you\nstill have a lot of alpha from\nI I guess whatever you are cooking\ninside\nUnblocked. Is Was it the comparison that\nwas done or was it done without Was it\ndone with a vanilla Claude Card but\nwithout context?\n>> No, it was done with MCP servers like\nGitHub and Slack wired up. Yeah, cool\ncool. We basically got parity with all\nthe MCP servers of every SaaS vendor in\none. It was like vanilla Claude all MCPs\nand the other one was Claude with\nUnblocked only.\nAnd then do the task. Same context like\nthe same context files. Same same same\nprompt. And same access. Yeah. Yeah.\nIt's It's pretty fun, yeah. Oh, thank\nyou.\nUm maybe two questions. So one is uh\nI see that like a lot of these like\nsocial graphs are built with like the\ntraditional network kind of calculation\nand the net statistical aspects of\nnetworks. Um is this like the approach\nthat you began with and it already\nworked the best or\nuh did you like cuz most of memory\nsystems they work more on like filtering\nout like episodic memory, something\nelse, something else, something else and\nthis is like really scoring really nice\nscoring system. Yeah. Uh that's first\nquestion. Is it like also with the\nUnblocked? Second question.\nUm you mentioned that it works with\nTeams, uh Microsoft environment. I\nwonder what's the uh differences that\nyou observed between building social\ngraphs for different environments cuz on\nGitHub I imagine it's very different\nthan on SharePoint, Teams, etc. etc.\nIs it also like these network stats\nbased or is it something different?\nUm so I mean our first implementation\nwas was incredibly naive, right? It was\njust using\nthe numbers of PR contributions and\ncomparing that directly with\nuh the number of PRs reviewed by each\nperson. So just a simple like numbers\ngame.\nUm what that that didn't produce\naccurate team clusters. So then we we\ngot onto um the algorithms that you see\nhere.\nUm Unblocked does a little bit more than\nthan this. So this is kind of like a\nmiddle road. Um another strategy that\nUnblocked uses is um like experts by by\nvector clusters. So when we ingest the\nsource code and vectorize it um we\nunderstand like who the the the most\ncontributors are for that piece of\nsource code. So when we look up\nindividuals we can see\nwhat they've been working on and what\nthe um the clusters in proximity are and\nthen relate people based on their their\ncluster proximity. So that's more of\nlike an ML type approach.\nUm and then there's a a final layer\nwhich is um\nan sort of AI LLM heavy layer that does\ndistillations of uh\na whole bunch of different context\nelements. things that people worked on\nin the past, conversations that they've\nbeen having in Slack. Um and then when\nwhen you take all that and you weigh it\nagainst uh the like procedurally\ngenerated graph, you get a much more\naccurate distillation.\nThere this one here, you'll notice like\nsome some people will get pulled into\nteam clusters that you know are, you\nknow, operating across many different\nteams, for example, and this won't\naccount for that. Yeah.\nAnd what are the differences between\nuh like different environments, like\nApple versus Microsoft, like versus\nSlack? Like do you see\nDo you need like different algorithms,\ndifferent weights, let's say, that you\nabstract there? I mean, I don't want\nwant to take out all the This is uh No,\nno, this this algorithm is like purely\nSCM-based. So, the algorithms for you're\nyou're right, like um\nSlack, Teams, they're quite a bit\ndifferent because you don't have these\nreview points. So, then it becomes, you\nknow, who's the most active in\nparticular channels, and then you need a\ndistillation or a summary of what that\nchannel is about, and you need to\nvectorize that, and then you need to\nscore it against the the most frequent\ncontributors. Um but it's not enough.\nYou have to relate that back to the SCM\ndata in order to figure out who the real\nexperts are. One of one of the problems\nthat I I personally experienced in some\norganizations I've worked at is that you\nget like the noisy junior engineer,\nright? So, they're they're very noisy,\nthey love to talk, but the\nsignal-to-noise ratio is not great.\nAnd uh just because someone's not saying\na lot of things doesn't mean that their\nmessages are not impactful.\nSo, part of this game is about assessing\nthe impact of\nuh when people say certain things, you\nknow, how does that relate to\nthe PRs that get spawned off as as\nHow many of those PRs get merged, you\nknow, that sort of thing.\nYeah.\nOh.\nOh, is there not?\n>> be. Okay, check that.\nWell, you should be able to open a pull\nrequest. You can't push to main.\nSo, if that if that's the situation we\nshould but I mean, we'll check.\n>> Yeah, you should you should be able to\ncreate a branch. Oh,\nuh no, no. Can He can't fork the repo\neither. Oh, um yeah, forks\nmight be disabled.\n>> This will be open source like at the end\nof the week um and you're all your\ncontributions will be on it.\nWhat's really fun is using that social\ngraph tool later against your own repo\nand like showing your team.\nYeah.\nOh, sorry.\nOh, I'll do it. Yeah.\nCome on.\nI like that unblock tried to answer you\nfor that question.\nOh.\nYou see that?\nThe Slack auto response.\nSorry, just me.\nAre you in here?\nThat's a camera. Sorry.\nOh, it's okay. I was just going\n>> Oh, okay.\nUm, let me check to see\nthat should not be the case.\nOkay.\nLet me know if you still need to get an\ninvite.\nJust check the members. I think there\nmight Yeah, there might be an issue\nhere. Just a second.\nSick. Sick. Sick. Sick.\nOh, these were direct assignments. So, I\nthink we have to like pull people into\nthe\nproject cuz they're not they're not org\nassigned.\nOh, GitHub.\nI love you.\nZero nines of uptime. Yeah.\nYeah, we'll fix this one here. Yeah. And\nslam everybody in.\nIt's crazy.\nOh, come on.\nYou got enough? I'm trying to, so.\nCuz now we just need to add people. Good\nsigns.\nGood collaborators.\nAnd then\njust start\nUnblocked. You all have write access.\nIt is the name of the company. Just just\nvalidate that for us if you would.\nYeah, please.\nLet me know.\nOh.\nPerfect.\nAll right.\nWe're getting real PRs now. There we go.\nNice. Nice.\nHell yeah.\nNow, let's do fun things.\n>> Damn, nice. Looks good to me.\nWhat?\nI think we we have our our first\napproved PR.\nI'm send I'm just sending ridiculous\nchats to Unblocked so you can see it try\nto answer questions in Slack\nas as PRs come up.\nI'm going to see what it says about\nthis.\nAsk it to It's like, \"Oh, let me think\nabout it.\" Or did you ask it about the\nPR? Yeah, but the PR I think you\naccepted so we'll see we'll see what\nhappens.\nI mean, it did it did approve it so, you\nknow, Unblocked was like\n>> Unblocked was like, \"This looks good to\nme, man.\"\n>> Unblocked was down.\nOnly visible to you. Oh, no.\nWell, it's such a good answer though.\nNice PR.\nGood job, Unblocked. Great answer.\nYep.\nOh, yeah, yeah. I'll put it back up.\nI'll put it back up one sec.\nUh where did it go actually? I lost the\nOkay,\nthanks. It was over here.\nBoom.\nThank you. Yeah.\nDo you want\nYeah, for sure. Yeah.\nOh, yeah, yeah. Yeah, of course.\nWe were focused on you building, but\nyeah.\nOh, no, it's okay. I mean, let's go. Oh,\noh, you\nOh, I'm sorry. So, this this\nthis thing that I showed before, it it\nis the project that exists in that repo.\nSo, the\nOh, so the idea is like\num think think about features that you\nwant to add or things that you want to\nto fix or like new components and then\njust\nuh hack away at it and submit a PR and\nYeah.\ndo you want to open up like a terminal\nsession and show the MCP?\nOh, sure. Yeah. Cuz I'm like people can\nobviously use it, but they don't have\nall our source. Yeah.\nYeah.\nThank you.\nYeah.\nWell, I mean, well, like one thing that\nyou could do um if you're\nvisiting clients is uh you can ask them\nif they run the tool on their\nuh on their um repo and then it will\ngenerate this result for them, so they\ncan see on their own projects what the\nvalue is, right? I think Peter, I think\nhe's just asking about our product\nspecifically, not this.\n>> Oh, Unblock. He's asking about\nUnblocked.\nMy bad, man.\nWe're driving this way.\n>> Sorry. Sorry. Single track mind. Um\nokay.\nSo, your your question is how can you\ndemonstrate the value of Unblocked to\ncustomers or See the value.\nYeah.\nSorry. Yeah. You can make conflicts\nemerge in in your app, but I um and then\nthere is the compliance layer, which is\nvery interesting for corporate clients.\n>> Yeah. I was thinking how this um is\ntranslated to a UX because you know\nmany people are known\nI understand it's mainly for coding.\n>> Yeah. And whether this is for technical\npeople or maybe\nyou know, people overseeing some uh\nengineers or the engineer itself. I\nmean, just see how your platform works.\nBut if it this is out of context, I\nmean, I it's a it's okay. I No, no,\nthat's that's totally fine. So, this\nthis dashboard is kind of like the\nthe the sort of front-end customer\ninterface to the product.\nSo, you know, you come in here and you\ncan ask any question about your code\nbase or your or your organization.\nGet an answer for it here. Um this is\nright now, you know, attached to Sorry,\nI lost my cursor. This is attached to um\nthis test org that we have, but I could\nuse it against Unblocked and I could say\nlike, you know,\num Whoop, I have a little hot thing here\nthat I can show.\nWhoops.\nSo, the Sourcegraph engine is uh an\ninternal component that we use to track\nsource code changes through time\nincluding like where\nyou know changes move between files and\nso on.\nSo as a demonstration\nyou know\nyou can show off I mean you can book\nyour your customers into a demo with us\nand we can demonstrate this or you can\nwire it up to your own organization and\ndemonstrate this flow to customers\nand try to find you know\nuse cases where data sources can\nand demonstrate that. The the challenge\nwith context engines is that it's really\nhard to demonstrate the value to someone\nwithout actually wiring it up.\nSo there there is a little bit of\noverhead there where people have to\nconnect it to all of their integrations.\nNow the good thing is\nUnblocked has a free enterprise trial\nperiod so people can try out the\nproducts in its fullest form before\npaying for it.\nYeah.\nSo if some of that information is\nincorrect you can just reply in the\nchatbot or flag it in the references.\n>> Yeah.\nSo you can just you can reply here or\nyou can say not helpful and explain why.\nAnd then it will\ndistill it for the next the next round.\nSo it will adjust some weights or\nconfidence scores internally. Well\ninternally what it does is it constructs\ntask memory.\nSo it looks for those kind of repeated\nsignals and it this is actually where\nthe experts graph comes in it's used a\nlot. The experts graph\nprovides like weight. So when an expert\ncomes in and says that's not correct\nit's going to get some some more weight\nand distill a memory for it.\nIf if it's just a new engineer that says\nthat's not right then that's not really\na trustworthy source yet so\nyou have to have\na trustworthy source to to base that on.\nDoes that make sense? Yeah, it makes a\nlot of sense. It's like social network.\nExactly.\n>> Somehow. Yeah.\nYeah. Thanks.\nNo problem.\nCool.\nWhat does your memory store look like?\nOh, under the hood? Um well,\nwhen it's presented to the AI, it's\npresented as as files.\nUm but under the hood, we store it in\nyou know, database tables and stuff.\nUm like the memories are are are\nconstituted from a bunch of different\nsources. So, they're not just like flat\nfile-based. You know, they'll be the\nwhole memory construct will be hydrated\nat runtime. So, yeah. And won't you just\ngive your agent tools to like query your\ndatabase\nbased on\nwhatever criteria the user is on? Yeah,\nwell, for Yeah, so yes, um there are a\nbunch of tools for data retrieval. For\nmemories specifically, um\nyou can't really leave it up to the\nagent to do memory hydration because\nthat's kind of like part of the seed\ncontext. In order to get the agent to go\nin the right direction, you have to seed\nit with the appropriate data. And\nexpert's context is a good jump-off\npoint for the agent. So,\nyeah.\nYep.\nUh is there any official benchmark that\nkind of track the type of value you try\nto bring? Like um Yeah, because I feel\nlike it's not exactly coding. Well, it\nis, but yeah, I'm curious if there's any\npublic things that you're tracking\nyourself against. So, we we we we do\nhave some internal benchmarks. Um you're\nright, it's a little bit squishy. Um\nSo, and throughout Have you Have you\nheard Boris Cherny talk um at Cloud\nCode? It's like The creator of Cloud\nCode. The creator of Cloud Code. Yeah,\nso he\ndid this interview where they were\ntalking about like\nhow they measure success\nfor cloud code internally. This may have\nchanged cuz there's a lot of benchmarks\nnow that they have. Like they they have\nlike that the talk benchmark. You\nguys have probably seen that one.\nBut it but what that really distills\ndown to is vibes.\nAnd so the most important thing in\nsystems like this is to capture\nsentiment.\nAnd so if your sentiment is is trending\nupwards, then\nthat's a good thing. Our our sentiment\nright now is on a scale of minus 100 to\n100, somewhere around 60\n60 score. So on a normalized scale,\nthat's like 0. 75 to 0.8. So so the vibe\nwould be captured by something like\nmaybe less back and forth on the PRs or\nmaybe I don't know you having less back\nand forth with cloud to get your stuff\ndone.\nThis type\n>> Yeah, so\nthe the vibes are like\nthey're they're people satisfied, right?\nSo satisfaction can come from a lot of\ndifferent sources and dissatisfaction\ncan come from a lot of different\nsources. So the way to think about that\nis that it it encodes all of those\nthings. But you can capture specific\nmetrics and we do how long things take\nand we're actually currently working\nreally hard to bring the\nresponse times down because um\nyou know, even though agents are\nhere's the interesting thing. As we move\ntowards a more autonomous universe,\nresponse times for MCP servers are\nactually less and less important. The\nmore important thing is that they get\nthe answer absolutely bang on. Yeah. And\nthe reason is because\nthe the amount of time that a contacts\nagent spends collecting all that\ninformation and distilling it is a\nmicrocosm of what the full task takes to\nimplement and to and to traverse.\nSo, if you can spend a little bit more\ntime and cut the implementation down by\nlike 60, 70, 80%, that's a huge win.\nRight.\nAnd go ahead. Yeah. Sorry, very small\nfollow-up. Actually, I'm curious, do you\nhave any\nrough\nnumbers on how much time does it spends\nretrieving context versus executing\nthings in the task? To your point, like\nis it 10% right now or 90%? Or is it\nI have no idea. I mean, I have my own\nexperience, but\nLike, yeah, um agent\ncontext collection is probably close to\nthat number. It's like 90%.\nUm the actual code writing part is\nreally, really fast. If If you can even\njust watch what an agent is doing, um\nwhen it writes the code that\noutput tokens are, by the way, the the\nthing that drags down um\nthe the performance.\nEveryone used to think it was input\ntokens. We've run tons of experience\nwith this. You can bring the input token\nsize up\nand, you know, time to first output\ntoken now is is pretty, pretty good.\nLike, it's pretty highly optimized. The\nthing that really impacts performance is\noutput tokens.\nSo, um\nyou have to be like judicious with the\nway that you collect and supply context\nback to the agent\nuh so that it\nremains tight on its output loops as\nwell.\nFor um for one benchmark that Peter\nmentioned in the talk, we we gave an\nambitious task cuz obviously it's prompt\ndependent how much time you're adding\nand like with the context engine. Um but\nthe ambitious task we gave was to\nimplement the new adaptive thinking mode\nin Anthropic's tool chain when they\nintroduced that, which as mentioned, it\nwent from a 25-minute wall clock time to\nit with with Unblock with the context\nengine. The other case without was 2 and\n1/2 hours. It was 2 hours and 25\nminutes, but the main reason for that\nwas we gave it all the data, we ran the\nprompt, and then its first output was\nlike totally wrong. So, you had to the\nhuman had to loop again and be like,\n\"No, no, this, this, this.\" And the next\noutput was wrong, and the next output.\nSo, once you do four loops, you have\nlike a 2 and 1/2 hour wall clock time\nversus obviously the 25-minute when it\ndid not need that when there's no\ncorrections required. Yeah. Um so, as\nmentioned, it's Think of it as a\nwaterfall. The more high-quality correct\nlike high signal context you have up\nfront, the better every single thing the\nagent's going to do until it says it's\ndone.\nWhether it got it right or not, yeah.\nYeah.\nMan's got it.\nYou also mentioned that uh the token\nusage on tool calls and like just\ninformation search really decreased. So,\nI know that a lot of these tools that\nprovide uh or\naggregators for tool use, they have\ninsane like token usage. So, maybe have\nlike some estimations on how like\nlet's say I need a Slack conversation,\nsome summary from one conversation to\nanother, or like how people interact\nthere\nwould be like 60k tokens on Compozio. I\nwonder how many tokens it would be like\nusing Unblocked. Yeah. It\nlo- lower.\nWe're still very vibes there. Like, it's\nhard to get real data from other\ncustomer or people in the market. Um but\nthe again, with that same I'm going to\nkeep talking to the same task as easy.\nThat one went from 21 million token\ntotal usage to 10 million token with the\ncontext engine.\nSo, a part of that though is cuz you\ndidn't have to doom loop.\nSo, when when the of course like that\nincreased a lot of the tokens expense.\nLike, so we did drop it by 50% on a\nlarge task. Again, obviously if if like,\n\"Yo, center a div.\" You're not going to\nget a lot of gain. It's like probably in\nthe training data.\nUm but yeah, like any feature uh fix.\nLike so a lot of like again, a lot of\nwhat people are putting through\nUnblocked or what an engineer is doing\nevery day, it's very rare that you're\ndoing a task that's like so\nI don't know, minor that like I mean\nthen again, I've asked I've asked Claude\nto do get push, so I'm not the only one,\nI bet.\nI was like, \"You do it.\" It's like, \"Why\ndid that cost me 30 cents?\"\nI don't know.\nYeah.\nI did all the effort to put my GPT keys\nin the right place, so I'm like,\n\"Claude,\ngo.\"\nAny more questions while y'all ship? Any\nconfusion? Anything I can unblock for\nyou?\nIt's my purpose in life.\nSorry, you may have answered this\nquestion already, but so you're are you\nusing knowledge base knowledge base rag\non in Unblocked or what exactly is the\ntech that you are surfacing? Oh, so many\nthings.\nUh I can come talk to you at the side.\nI'll take my mic off. I'm just going to\nanswer that question. Sure. That was\njust the\nOh, it's it's real time, basically. So,\nthere I guess there's there's two parts\nto that question. One is like\nhow much or how frequently Unblocked\nupdates the data on the back end. Um so\nit's it's real time for many of the\nintegrations and then on a a cron job\nfor others because for those for those\nparticular integrations they don't have\nwebhooks basically.\nYeah. But the the dis So that means that\nrebuilding the graph data has to happen\non a on a very frequent basis.\nYeah.\nNo, it's it's incremental.\nSo our our like, you know, social graph\nbuilder algorithm has an incremental\ncomponent to it. So we don't have to\nrerun the whole thing.\nUm but also uh social graphs are less\nsensitive to\nfrequent changes in data because it's\nunlikely that you know, a single change\nis going to make a huge impact on the\nexperts graph unless your organization\nis brand new.\nSo for\nYeah.\nYes. Yeah, so as an example um\nwe do best practices distillation on a\nmuch lower cadence. Like basically uh\nweek by week\nbecause uh yeah, it just doesn't change\nthat much. Yeah.\nYeah.\nDo you get an offer?\n>> Um well, the\nOh yeah.\nThe repeat your question. That's a good\nquestion. So, I want to make sure we get\nthat one done.\nOh.\nIn In terms of customer privacy, data\nretention,\num kind of Yeah. From From my point of\nview, I'm thinking of like enterprise\nSaaS or even like on-premise type\ndeployments, which I'm not suggesting\nthat you I'm just thinking of that\ncustomer kind of modality. Um\nyeah, do you get Do you get pushback? Do\nyou How do they feel about you holding\ndata as another processor in the loop?\nUm well, so the the the privacy\ndiscussions happen at the organizational\nlevel. So, it um\nwe don't actually run into a lot of\nfriction. Um there are definitely\nenvironments like in government and at\nbanks that have uh super sensitive\nneeds. And And so, for those needs, we\nhave an on-prem solution.\nBut, it's definitely not the path that I\nwould recommend. Like\nstaying cloud-based. Like we we have\nvery large enterprise organizations\nuh that are entirely cloud-based. Like\nfully cloud-based.\nUm the\nyou know, the\nthe secret sauce is kind of like less\nencoded in source code now and more\nencoded in um\nuh the reasoning.\nSo, organizations tend to be a little\nbit more sensitive around things like\nSlack data, for instance.\nBut, uh the way that we store\nuh data, like we have a whole white\npaper about how we protect customer\ndata.\nUm and it's never been a problem.\nYeah.\nPardon?\nYes. We We do have an on-prem solution,\nbut as I say like it's\nit's not the recommended approach. But\nfor sensitive environments for sure.\nYeah.\nOh, why it's not recommended? Um well,\nthe cloud-based integrations\nyou know,\nget updated more frequently and so\nthere's software patches. It's a little\nbit harder to maintain within an\norganization. Uh there's there's one\ncustomer, it's a bank, um\nwhere\nadministering\nuh the platform becomes quite difficult\nbecause they have network isolation.\nAnd so like now one of us has to you\nknow, sit within that network and\nadminister the platform or we have to\ntrain\nuh individuals within the company to\nadminister the platform. So it's just\nit's more of a a maintenance and um\nhand-holding exercise.\nBut yeah.\nYeah, exactly.\nThat's exactly right.\nYeah, thank you.\nThanks for coming.",
+  "segments": [
+    {
+      "text": "All right, thanks everyone. Sorry about the wait. This is going to be a bit of a strange session because there is a workshop component to this. So I guess everyone will be coding on their laps. Sorry. Um but anyway, sorry, I'm here and this",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "is my colleague Brandon. Um so we're we're going to break this this session into two different parts. One is a sort of a talk that I'm going to give about what context engines are are useful for and and how you might go about building one, what to think about.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "Um and then we'll we'll launch into the the second part of it. So um just briefly um quick quick agenda we're going to talk about three myths that are circulating right now about about context engines. And then I'll I'll go over a couple of less or a few",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "lessons that we learned along the way building one of these things. and then finally we'll do this. So we're going to build a social engineering graph. Uh this is a component that is super useful in a context engine. And first just a",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "show of hands, does everyone know what I mean by context engine or does anyone want clarification on that? Okay. So in the world of AI agents uh you have agents that when you start off and you start coding, they are basically at ground zero. They have no",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "context about your code, your organization, nothing, okay? So typically what happens is the first thing they do is they start to rip around your code base based on the task that you give them to try to gain some understanding sort of background",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "understanding before they start to do their task. So context engineering is is kind of the art of supplying uh all the context that you need and most importantly, none of the context that you don't need in a highly optimized way so that when the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "agent starts to run, it executes the task uh in a streamlined way that's in line with your organization's best practices and expectations and so on. Okay. So, we'll get to this after. So, not long ago, as in like 4 years ago or less,",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "uh you were the context engine, okay? So, when when your agent needed something, um you would prompt it, you'd grab the the issue ticket, you'd hand it all of the information that it needed to start its task. And in many cases, even when",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "it was ripping around getting background context, when it got to the end of its task, sometimes it it got it wrong. In fact, many times it did. And you'd have to kind of like reset it, um re-guide it towards the solution that you were thinking of. Um or if it",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "completely missed the mark, you'd have to be like, \"No, not the not the JavaScript, dummy. It's the Python source code that I want you to look at.\" so, let's just remember how you built context in an organization. Uh so, we're we're taking AI out of the",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "picture for a for for just a sec. I just want you to pretend that pre-AI, uh you just joined an organization. Let's remember how we built it up. So, over time, you would accumulate this kind of context through experience, right? You would start a job, maybe",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "start code splunking a little bit to figure out um uh how things work. You'd maybe latch onto a mentor. and eventually, you'd you'd experience real things like incidents and outages and things like that. Those are sort of",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "the the pain things that stick with you. Those are the battle scars, right? And that is what constitutes organizational context. It's the um it's the learnings along the way. The why did we do things the way we did it? And now you're good at your job because",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "uh after all of that experience of pain, now you know what questions to ask. You know where to look when an incident happens. And this is the goal. This is what we want to get for our AI agents. So, um I'm going to just lift this",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "adoption curve from Basem El-Dath and uh I I may have butchered his last name, but sorry sorry uh Basem if you see this. Um so, let's let's start at the beginning here. This was like 4 years ago in 2022. Every Everyone remember remembers fancy",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "autocomplete, right? Um so, back in those days, context windows in AI were pretty limited. I'm not sure if everyone even remembers this, but it was like 8 kilobytes or or 8K tokens, I should say. And that's not a ton. And so, tokens",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "were highly optimized and um agentic IDEs like Cursor focused just on the code that surrounded uh the code that you wanted to go in and auto complete. So, basically they took some code before, they took some code after, they put it into a model, and they said",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "this user is working on this piece of code. What's the most likely next thing? And that's what was printed out. Um it got progressively better than that. ASTs were uh were integrated, uh language servers, and then it you you were able",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "to basically pull like callers of source code, and pull all that into context. And then the LLMs were really good at at completing uh code. So, at those levels, you were the context engine. And uh in in many in many circumstances here, this is kind of where",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "most people are here. They're at the uh uh parallel agents hooked up with MCP and skills, okay? Just super curious, has anyone gone beyond curated context into to the the last uh few degrees of of agentic freedom, shall we say, where you have",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "background agents running in the cloud doing stuff in YOLO mode? Is anyone Anyone experimenting with that? Okay, cool. That's that's very cool. That's bleeding edge. Um but let's just take a moment to recognize that bleeding edge today is",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "like yesterday's news in 6 months, okay? So, the the puck I'm Canadian, so I'm going to say this. The puck is going down down the line towards background agents, for sure. Um and one of the things that we run into right now is this uh we're becoming",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "the bottleneck as humans, right? I'm not sure if if people have tried managing parallel agents and uh working on several tasks at once, but everyone's starting to feel this like cognitive disconnect cuz you're context switching",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "all the time and it's just it's just really really painful. Um it is very difficult to move from that mode where you're the human managing context into the background agents mode unless you have some kind of context engine that",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "knows how your code operates, how your organization works, and understands the motivations for historical changes and things like that. So, Andre Andre, he nailed it. Um systems are intelligent. We're reaching the exponential on on intelligence for",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "code pretty soon. Everyone's seen the the release about Mythos. Um you though we all haven't had a chance to really try it out yet. Uh the promise is that from a code intelligence perspective, this thing is like pretty much close to to perfect. Um",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "but so now the bottleneck is context, of course. Without um without context, I'm just going to re-emphasize this point, you'll probably end up in doom loops. Does anyone know what a doom loop is? A doom loop is like when you're",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "uh you're struggling with the agent. It's it's not quite doing what you want, and you have to keep iterating on it. The worst-case scenario is you run this thing in Yolo mode, and it it finishes the entire task, and it's completely",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "wrong. You have to go back and correct, you know, various stages. so when you have a context engine, you can get there faster. The problem is that access doesn't equal understanding. So, we have customers that are on various parts of I'm just going to go",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "back to here. We have customers that are on various parts of this journey. Um and one of the one of the interesting things that we've noted is that uh people feel that, you know, their their they understand their organization best.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "So, when it comes to feeding the right context to these agents, people will try to build some semblance of what a context engine actually is. They'll maybe build a rag system, or they'll build some way to like feed organizational data to an agent.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "so unfortunately, though, uh access doesn't mean understanding. So, what that means is you could just wire up a bunch of MCP servers, um and it's not going to be able to understand what the relationships are uh between all that data, how it was how",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "it got there, and how why it is the way it is. Um and then there's another problem which I'll talk about a a little bit later called satisfaction of search. So, just remember that term, I'll come back to it. Okay. So, I just wanted to show you this.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Um this was something that uh we actually implemented and we did it in in two parts. One was just without any context engine, but wired up to a bunch of MCP servers. It did a pretty good job. Um but then when we reached the end, um",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "it it it missed the fact that we had some legacy stuff that on this old um method of um of intelligence size to to Entropic. So, they have adaptive thinking now, but it used to be had to supply a uh a token budget. And that's how like",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "you could increase the size of the thinking window. Um so, we we had some code that kind of like depended on this and there were reasons for that um that the agent didn't understand or see. And so, it just basically clobbered all that",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "code. Um but when we added the context engine, then it saw all those reasons and implemented it the right way. So, it made the appropriate changes in the right places, included backwards compatibility for the code that was using the old method.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Okay, so now for the myths. Myth one, naive rag over my docs is a context engine. So, if you implement um say like vector search um or just a couple of search methods, you're going to run into this you're going to run into a few issues. One is",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "the satisfaction of search problem where uh the agent will search like crazy, consume your tokens, and then in the worst case, you'll reach compaction. Okay, so without being able to find the the end game. There are a few different other",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "techniques like you you need to have personalization when you build a retrieval system because if you just rag all your data, especially for very large organizations, there's going to be things like conflicts that you have to",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "resolve in the data. Um it won't be focused on the task that you're trying to perform. It might pull in, you know, relevant code from other parts of your organization that, especially if if you have a really big organ, you've got tons of different repos,",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "um it's it's just going to create a huge mess. So, you need to have some element of personalization. And then, here again, uh connect a bunch of NCPs. I'm just going to reiterate this point. I'm done. No, definitely not. Um so, that that is the thing that",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "that really um puts an emphasis on the satisfaction of search point, and I'll explain that in a sec. And finally, a bigger context window will solve this. Um So, way back, you know, when the models were starting to get big, people were really",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "excited about a million tokens in your context window. Uh the first models that tried this, I think it might have been Claude, actually. Was it Claude? I think it was Code actually. Oh. Oh. Or Open AI? Okay. Okay. Gemini. Yes, sorry. I'm so sorry.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "Um so, yeah, Gemini first first model that tried this, and it was really good at finding needle in a haystack. So, you could feed like a huge document to it, and as long as you you knew what you were looking for ahead of time,",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "it could find it. Um but, it wasn't good at all at reasoning across different data sources, um understanding the real meaning behind a problem, and then recommending the appropriate solution. So, none of that was possible. Um obviously, things have",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "things have gotten much better. Now, the problem is most organizations have more than a million tokens worth of context. So, trying to fit all that into their context window isn't going to work anyways. Let's project out to the future",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "and imagine that you could fit like 10 million tokens, 50 million tokens. Um at the current uh rate of memory consumption um just to operate the models, that's not going to be possible for a really long time. Even if it was,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "and you fit all that context in your context window, you're still going to run into problems with understanding what's true, what's false, um, how to select the right information, okay? So, now we're going to come back to this second point here.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Satisfaction of search. This is a uh term that actually comes out of uh the medical field in radiology. And the idea is that um when doctors are looking at X-rays, uh and they're looking for uh the cause of of of symptoms,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "they might find something on the X-ray that explains those symptoms, and then they stop. Um, and that's that's kind of like a dangerous thing medically, because uh there might be other indicators for things like cancer that get missed. So,",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "uh satisfaction of search is a is a real problem in radiology, and there's lots of protocols to prevent just stopping as soon as you find the first thing. Um, this is what happens with agents. When they search around in say uh Notion",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "in your code, uh Confluence, they'll stumble across what looks like the the thing they're looking for, and they'll stop. And then they'll they'll proceed. But the the real like golden nuggets of information might be in a different",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "place that the agent wouldn't think to look, like in a in a past Slack conversation, or in an incident report, something like that. So, here's the the classic iceberg meme. Um, code that compiles, that's like the baseline. Does the agent produce code",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "that compiles? Um, but everything that that is actually important is happens underneath here. So, understanding the user's original intent, um, what was rejected in the past by the team and tried before, but failed. Uh how are you going to surface that",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "kind of content just by looking at docs and and code and stuff? so you need to understand that somehow. and even worse like it it's it's sometimes hard to know uh when things were deleted like in the absence of information. So you need",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "history as well leading up to decisions. So this is why we think you need a context engine. Uh a context engine understands who you are, what team you work on, who you work with, who the experts are in your organization, um and and what the decisions were that",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "led up to the current iteration of your code base. It's able to resolve conflicts. Uh so this is like a truth and false type situation. What's true, what's not? Um sometimes that truthiness is a gray area, right? So the context engine needs to also understand",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "when to instruct the agent um that it wasn't able to resolve the conflicts and then uh learn from additional user input. Um this third point is super important of course in any large organization or enterprise. Um there's often, you know, repositories",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "that not everybody can access, secret projects, that sort of thing. So uh it's really important that you flow the access controls up. You have I'll give you a an example that everyone will appreciate which is Slack. Um our context engine integrates with",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "Slack or Microsoft Teams. Um and when you have uh private channels, that that's really highly sensitive, right? Like you could be discussing HR information or uh maybe something that you just really don't want um everyone else to see.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And so when when Unblocked answers questions, uh it will use private channel information, but it won't it it will only use that information if the person that's asking the question has access to it. And then those answers are",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "not public. Okay? So, they're they're private to you. Um and then finally, of course, delivering the right context at the right time. And this is about token efficiency. It's about getting to the answer as quickly as possible. So, here's a kind of a high-level",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "overview of how how our context engine might work. Um on the left we've got data source inputs. So, things like planning tools, docs, conversations, code PRs. Basically, like anything that's relevant to getting work done at the engineering level.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "Um and then on the right side we have the outputs. So, you know, the this all can flow to coding agents and CP or CLI tools. Um you can custom build apps through the API. We've got it We have a code review uh component that just plugs",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "right into your SCM and provides code reviews. And of course, uh integrations with social messaging apps. So, the these are the kind of like broad six requirements that we think are important. There's actually much more than this, but these are the high-level",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "things. So, again, unified system context. Um this is about building relationships between data. Okay? But it's more than just um recognizing when uh one piece of data is related to another. Like, for example, in in Slack,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "you might have conversations about PRs. That's an easy linkage because you're posting links back and forth. So, that's easy. Um what's less easy is understanding uh the reason why decisions were made or your organization's best practices,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "right? So, to understand that, you have to go a little deeper. Um do do things like distill um, historical pull request comments on PRs. And uh, try to distill those down to the their core essence. And then when you see repeated patterns, uh, you can pull",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "those patterns together and store them as, you know, {quote} {unquote} memories. So that when uh, someone is working on the similar piece of code, you can load those memories and then the agent can see that and go, \"Oh yeah, right. Uh, this is the way this",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "organization does this particular thing.\" Um, conflict resolution, super important. Um, we took a uh, initially kind of a naive approach to this at first and based it just on recency, right? So we we would bias towards newer stuff.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Uh, unfortunately, when you have in the fullness of all your context, recency is not enough. Um, often you have people um, writing documents or chatting in in their messaging platforms and they might be saying things that are not like",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "completely aligned with uh, how the the system works. Um, uh, so, you know, then we started to bias towards code. So we had recency and we're like, \"The main branch is definitely your source of truth.\" But not always, because sometimes",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "um, what's important is what happens next, not the way a system currently works. Like when you when you're working on a task, um, what you really want is for the agent to understand where you're going, not necessarily where you've",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "been. Where you've been helps it understand what not to do. Where you're going helps it understand what you should do, okay? So, in in the Slack case, looking at the conversations that your organization's experts are having is more important than just",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "understanding what, you know, every random engineer is talking about. Um targeted retrieval and personal relevance are very related, so I'll just talk about them uh together briefly. So, um again, like when you're pulling context in, it's",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "important that uh you're only pulling context in for the relevant task at hand, and probably relevant to you. So, here's a technique that's kind of interesting. Um you can understand what repos a person works on most by the",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "number of PRs they submit contributions. And then, if you do a if you're doing vector retrieval, you can do a uh deep retrieval on those focused repositories, and then a wider retrieval on, you know, the rest of the source code, and then",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "sort of bias the the selection towards uh the focused repositories, cuz that's more likely where someone's going to be working and spending their time. Um and then, you know, we've talked about data governance, so I don't think",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "I need to go over that again. Super important, though. This was just a a little experiment that we ran uh with a larger task. Um I'm I fully admit that some of these numbers are a bit wonky. This is basically like Claude outputting",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "numbers, so don't don't trust it. Just trust the the vibe of the thing and not necessarily the numbers. Um basically, what it's saying is that when we started out uh without the MCP server act or sorry, without the context engine active, um it it really missed",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "the mark on a lot of stuff. Uh and that's just because it didn't understand how um the existing implementation really worked and why it was the way it was, what was tried before, and failed. Um and so, it made a lot of those same mistakes. Uh with a",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "context engine turn turned on, obviously, it it um it nailed it. The The key numbers, though, are the the time and the tokens that it took. So, without um the context engine, it took 2 and 1/2 hours to finish this task with 21 million tokens, which is a lot of",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "tokens. Um but with the context engine, it took only 25 minutes and 10 million tokens. So, it's it's a pretty dramatic difference. Um okay, so the hard lessons. These are just samples, by the way, but the these are ones that we thought",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "were kind of interesting. So, first of all, uh initially we optimized for access, not understanding. So, our our first premise was if we just wire up a bunch of tools um and provide a a knowledge graph, it will be able to traverse the knowledge",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "graph and uh execute a bunch of retrieval-specific tools for particular integrations and so on, and figure everything out. Um it that does not work. So, uh you'll have to go a little bit deeper than that. Uh second one is we hid conflicts",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "instead of surfacing them. So, um by con- by hiding conflicts, I don't mean that we just ignored the conflicts. What we did instead was we tried to resolve those conflicts using those naive strategies, and we didn't surface the conflicts that",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "we weren't able to resolve. So, this was a a really good learning is that um a context engine, I mean, we'll get there eventually, but uh it can't always tell uh what the truth elements are, and when it can't, you should surface that and",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "learn from it. That's the key thing. And then finally, uh I think a a lot of folks tried this. This is a really bad idea. So, when when a context engine supplies an answer, um do not cache the answer and try to serve that same answer up again uh to a",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "similar question. The reason is obvi- is is fairly obvious in retrospect, but um everything changes constantly, right? Code changes, docs change, the reason for things change. So, this just doesn't work. the other thing is if you try to uh",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "use the the previous answers as context for new answers, you regress towards the mean. So, if the model is like misbehaving or doing something bad, and you continuously bring that into context, you're obviously going to pollute uh the context.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "And this is what happens. Okay, so let's now talk about where AI forward teams like like those that are doing this like cloud-based agent thing are are using and taking advantage of context engines. Um definitely and especially during the planning phase, okay?",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "This is where you get the biggest bang for buck unquestionably. Um get the context engine involved, use a skill to bring it in, connect it to the MCP server and and watch it do its thing. It This is where you get the biggest bang for buck.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "It's also useful to do this during review. So, you get planning and review at the end. Um because, you know, if if you got it an agent to do review, it's basically just going to pay attention to the code and try to understand where the breakpoints are,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "security concerns, that kind of thing. But, without the organizational context, it doesn't understand the motivation for it. So, that's the really important thing. Ticket enrichment. Um this is a a super cool use case. So, you create a ticket",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "for a new feature, and then you just ask the agent that's connected to a context engine to fill in the blanks. Works. Triage. Uh I use this all the time. When I see an issue in production, I just whack it into in my agent connected the",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "context engine and it just like instantly brings up all the past issues related to this and starts operating right away. Increasingly we're seeing this one, incident management, okay? So we we just wired up DataDog and this I'm sorry? Sentry. Sentry and",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "DataDog, sorry. Um and this is already proving like super cool use case. It it can see the signals and then it can act on all the signals and relate that to code uh relate it to past incidents that you and and discussions you've had",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "in Slack. Having all those things come together at once is is almost like magical. And finally, I think this one's actually my favorite one and it's the one that customers use the most is uh customer success and sales and engineering support.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "So what what a lot of big teams do is they have engineering support channels where other teams can come in and ask questions. If you put a context engine into one of these things, you can have it automatically answer a lot of",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "questions and save engineers a ton of time. All right, so how teams make a context engine their own? Skills. So definitely build uh skills that you can use to curate context in a GitHub repo. Um and you can build other skills around",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "it like typing ticket enrich. Give it the issue ID and then it it can use the context engine to build the enrichment. Uh workflows like this one prepare prepare an incident timeline. Um and then you can just send it off to",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "your agent again, context engine, blah blah brings everything together, magical. And this thing here um you can wire this up to all kinds of agents. I've got um Uh, one one of the things that a lot of customers like to do is wire this up to Claude code in",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "their CI system. Um, we actually do have a code review component, so you don't have to do this if you're using Unblocked. Um, but people use this for other things, not just code review. As soon as you wire up a context engine in the",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "background, give it an API key, let it let it run on its own, it it can do some pretty insane stuff. Um, so I'm just going to show a quick um, example of what wiring up a context engine can do. So, this is a PR that, uh, my colleague wrote. And, uh,",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "it it Unblocked like went through and provided a a kind of review to this thing. And at the bottom of this review, here's the review part. Um, you can see that Richie, who was the author of this PR, was like, \"Very cool. This is something I would say.\"",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "Uh, now the reason for the comment, which was, \"You've basically duplicated a bunch of text. Plus, you can you can kind of dry that up a little bit.\" is because, um, this was a best practice that was distilled from a bunch of other PRs. And",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "the the funny part is that the author of those PRs was Richie. So, he's the one that actually instilled the best practice in the organization. Uh, so that was that was just a cool little moment when we discovered that. Um, here's another example. So, this was",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "a it's a fairly long transcript. I'm not going to like show the whole thing, but we we sent it on a on a mission to do a big large task. Without, uh, Unblocked, it it, uh, took quite a while. Like you can see the transcript's quite long. Um,",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "and it it missed a whole bunch of stuff. With Unblocked, uh, it was a lot more compact. It it got to the answer like very quickly and correctly. And just because we're now AI forward and lazy, um, we took both of those transcripts and",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "ran them into Claude and just said, \"Hey, Claude, why don't you just do a an analysis of both these things and give us your give us your result.\" Um so, it it went through I won't, you know, bore you with the details, but",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "just to say that at the end the verdict is that uh the context engine plan is is what I'd ship with. This other one is good for a prototype, but it's missing a whole bunch of stuff that is important to this organization that was previously discussed. Okay? So,",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "this is essentially what what I've been trying to say. Uh AI-generated code should just feel like it was written by someone that's been on your team for like 20 years, okay? Um it doesn't If it doesn't yet, that's fine. Uh it will.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "you're If you wire up Unblocked, you'll you'll see like a a huge difference in performance of agents. And if you're building one of these things, absolutely, like take all these things and and build and and let's see where that goes.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "So, just before we get into the workshop component, um maybe we'll just have like 5 10 minutes of Q&A. What up? I'm Brandon. And this is Brandon, so he'll he'll help with Q Thanks. Um so, it's clear what it does for you and what kind of problems it solves, but",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "to me a big question mark is what is the thing? What is the artifact that that fits the bill? Is it like a program you install, an API that's hosted remotely, or an MCP server? What is it? It's it's all of those things. So, a a context engine I'll",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "explain what Unblocked is. Maybe I can just show a quick demo of it. Um so, broadly speaking, there's a bunch of different surfaces to a context engine. You want to get it into your agent flow and you can do that with an MCP server.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "You can do that with a CLI tool, for example. Um we also have this dashboard surface where you can ask questions about your code. Um this is a pretty basic one, but you can see it understands who I am and what I've been working on.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "and then uh we have a Slack We have Slack connectivity as well. So, you can bring Unblocked into Slack. Um drive it in conversations and have it auto answer things. Does that make sense? Did I answer your question or I think my question will get answered in",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "the demo or in a minute. Okay. But yes, API, CLI, MCP. Yeah. And products. It's mostly API. Yeah. Oh, sorry. I got carried away. I forgot. Thank you. Um so, my question is So, as far as I understand, it's like a knowledge management and retrieval um",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "application. Yeah. And does this relate somehow to things like um LLM Wiki like it was made popular recently by Andrej Karpathy or the decision traces and context graphs >> Yeah. which was discussed about a few months ago. Yeah. So, you can think of",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "all of those things as kind of uh useful components to a context engine. Our context engine has to do much more than that because um so, agents are really good at recursing through a Wiki, for example. Depends on how you build this Wiki cuz",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "there's a bunch of things like organizational memories, best practices, you know, experts in your organization and that are used as pivot points for context retrieval. So, a a Wiki doesn't solve those problems unless it has like",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "a you know, you could build a structure with it and I think uh Karpathy discovered that if you treat a wiki as kind of like a file system, you can break it down and have the agent uh walk through it like a file system. There by the way, agents are like highly",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "optimized for file system traversal. Yeah, for the compilation step. Exactly. Yeah. Sorry. Maybe the same question but is it is it a general purpose context engine or is it targeted against code? Because will it be useful as say",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "as a business domain expert or a sort of building up a business domain and then having this context engine use my so I could all my other AI agents could use this as context for the business uh or would you say that this is more like",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "just for the code part of it? Uh so it it's definitely engineering focused. The the integrations are focused on engineering activities. So, you know, SCM integrations and other and other tools that engineers use. Um we are increasingly seeing customers",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "using it for other purposes. So, business intelligence is a key thing. Uh and that's usually useful when people in in business functions are trying to get an understanding of the product and its function. Um we don't have like say Salesforce",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "integrations wired up for that. So, you couldn't use it to understand um you know, any anything that's sales related. It's it's really just primarily an engineering focused context engine. That's not to say that that won't change. Yeah.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "On the governance thing, if you're respecting access rights, how can it do sort of synthesis across stuff and then develop new knowledge in in internally that it could then surface to people. So, that Yes, you're correct to point that out. The The synthesis is",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "compartmentalized. So, there are, you know, places that are compartmentalized like individual repositories. That's kind of the level of access. So, if you can synthesize historical data based off of that um and then correlate that with public",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "Slack information, then that's that's one way to do synthesis without crossing the the organizational boundaries. Um so, uh the you know, the other way is to look at and tag when um it synthesizes information crosses those organizational boundaries and you can",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "take something like a group ID approach to that problem where you attach group ID tags to the synthesized information and then only retrieve it if the person that uh has access to that can can build it out. So, first take the compartmentalized",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "approach cuz that's the where you'll get the the most mileage and you kind of build up from there. I mean, this is the core problem with using a technology like Graph RAG, right? Because Graph RAG is like a pyramid where it builds up in",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "layers and then basically summarizes at each layer, but that like unavoidably crosses uh permissions boundaries. So, you have to be you have to create compartmentalized pockets. Yeah. That's a good question. Time to hack after this, I think. Yeah.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "Uh yes, you've told us a lot about like all the different sources of information that you consume and putting them all together. When it's like synthesizing those down, is that still sort of like naive RAG vector search all that stuff",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "under the hood or is it like agents deciding what is appropriate and so So, what what or probably like combinations of all of them, but what is that sort of step? Um yeah, you're right. It is a combination of all of them. So,",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "knowledge graph like knowledge graph build-up happens in a bunch of different ways. Um the the PR thing that I showed you for example is like a first you build a a naive knowledge graph procedurally and then from there you can",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "use an LLM to distill down and summarize and build up um those types of techniques. our context engine builds first like a knowledge graph from the base uh using trying to leverage like all the different entities. It's kind of like a",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "page rank thing where it builds up the relationships procedurally. And then of course it vectorizes data. Um and then there are procedural tools that fetch data at runtime. Um a lot of the distillation for uh you know, conflict resolution happens in",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "two places. So, one is like during data ingestion time, there's there are tags that relate data to each other so that we can see if we can deconflict at that level and then like rank against each other at that level. And then of course at runtime you have",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "to pass the things to a judge with the criteria. Um and then it does additional deconfliction in real time. Does that make sense? Yeah. Okay. I have one more question and then we'll switch. So, uh I was curious you say conflicts,",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "but at some point you get conflicts that is something means revenue for one company, it means revenue for another company. It's a totally different meaning how you can recognize that. So, how do you get humans in the loop? How",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "do how do you use their ontologies and how can you how do you use it when you run into it? So, I'm very curious about that actually how you how you do >> Yeah, so if you I can show you just a quick thing here. So, um you'll notice that at the bottom the",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "the references that were used for answers are delivered both like to the human in this interface, but also to the agent. Yeah. So, um if the agent if the context engine isn't able to do the deconfliction, then at this point here,",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "the human can step in and guide the agent when there are uh enough sig- If it doesn't do that, then so you So, you can you can literally just reply and say like that's not correct, or you can come here Okay, yeah. and Oh, yeah. Sorry, the player is going to",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "be Yeah, or you can you can do this, like not helpful, and and give the reason why. Um like it it is a bit of a manual process at this stage, but the signals that build up over time It's funny, right? So, you would just production business in some companies,",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "you might have you catch a lot of human intelligence by this, right? Yeah. That's amazing, you know. Yeah. Yeah. For for for a typical customer, how much do you have this volume of data metric >> Oh, it's huge. It's It's It's amazing.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "Like I I was actually really surprised by how willing people are to give feedback. Um yeah, no, it's Can you give an example of one project that you catch the thousands or hundreds of of these human feedback in I mean, at at small",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "team size, it's, you know, in the hundreds. At So, small team size being like 20, 30 people. Yeah. At large team size, 100 to 200 people, it's like hundreds and hundreds of Oh, wow. of feedback, yeah. That's cool. People just really like to interact with",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "agents and tell them in natural language what's wrong. It's It's just a totally natural thing to do. Yeah. Good for us. Cool. All right. Um are we are we good for Q&A? And then we can get on Yeah, let's let's get on to the Let's",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "get on to the workshop part of this. So, we have created a um For actually, what I'll do is I'll just do this first. So, you can do this now if you like. Um I will come back to this slide in a sec. So, the idea here is we're going to get",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "everyone to join uh Slack workspace that we created. And then we're going to get uh everyone into a repo where this um where this sample code lives, and then we'll just start hacking away on it together. Okay? Yeah. Nice. The unblocked link will not work until",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "you do step two to get into the GitHub org. Oh, no. Is it network? Yeah. Um okay, well while folks are doing that, I'm just going to show you what we're getting into here. So, this is the uh GitHub organization. Um what we're what we're working on is a",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "social graph builder. So, what this is going to do is look at a source code repository. So, you can run this on your own repo. It's not going to upload anything. It's all local. Um so that you can see this thing building up against your own organization.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "Um and it's going to do a bunch of things. We're going to get basically a social graph out of it, and I'll show you what that looks like. And we're going to understand who the experts are and which parts of the code they work on.",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "Um and then there's going to be a little like interactive visualization thing. So, what what the goal of this exercise is is to get this thing up and running and start just start hacking away on it. So, like start submitting PRs as soon as we get this going.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "Um, So, this is what it looks like. This graph here is our organization, Unblocked, and what you're seeing here is a a relationship graph that shows who's reviewing who's PRs um, and who's who's getting reviewed essentially. The this thing is",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "a distillation of all the different teams within Unblocked. So, this is roughly accurate actually. Well, not roughly, it is pretty accurate. Um, we've got I I did this all the way back to the start of 25, 2025. When you run",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "the thing, I'd recommend maybe doing it for a shorter timeline cuz it will be a little bit slow if you go all the way back to 25. Could take like 15 minutes. Um, but it's a effectively distilled who the teams are and you the only AI step in this is to label",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "the teams. You don't have to run the AI step if you don't want to. It'll just use the the parts of the code that people work on the most. Um, this tab here will show the experts in the organization and what they work on. So, this is just broken down by",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "project area and path. Um, and shows like what areas of the code have good coverage. Coverage is defined mostly by whether a a high contributing organizational expert is present and whether it's it's an actively contributed to part of the code.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "And then finally, I will have this interactive graph that breaks things down by team area and will show like, you know, who the major contributors are. I'm over here on the AI team. yeah. So, that's it. Let's get everybody in",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "and we'll start hacking away at this. Yes, absolutely. Yeah. Many of you should have an invite who have put your GitHub already in. So, please please give it a check. GitHub is the worst. Yeah. Yeah. We will It is an MIT license. We will be making it public",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "later, but for now we needed it locked down. Oh, did you Oh, you still not invited? What's your app? Just what's your GitHub? I'll invite you. k a s But, you should have an invite. Yeah, of course. Julian? Yeah, I got Probably faster. I'll show you. Look,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "I'm coming. >> I won't put it in. What have you done? Let me Let me type this out. Samantha's weird. I I keep trying to type TV and that's not Yeah, I know. It's good for us. What is the spelling? I also have a slide to put it on.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "It's my daughter's, so I just took it back. It's your daughter's. All right, you got this. And that's Julian. And that was 5:15 So, I think that the rest of this session is going to be now just like hacking away. So uh in a second here I think I'll I'll take",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "this this down if everyone's got it so that Brian and I can concentrate on working with you guys to build features. When you submit PRs by the way you'll notice that unblocked is sitting there as a code reviewer so don't don't feel badly if it",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "sprays on your PR a little bit. Is is everyone good with this? I'll take it out. Okay, cool. That is it. Brian you're you're on top of the invites. Okay, cool. Amazing. That's just where am in this list. Oh. Forgot to mention a couple of things here, actually.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. Coming back alive. Yeah, good. Um just a couple of things. So, if if uh you're looking for something to implement and starting with with any with coming up with ideas and stuff, there is a uh a set of sort of predefined issues that",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "you can hack away on, so you can just grab one of these. Whack it into Clyde and see how it does when it's connected to the context engine. Um the MCP server for Unblocked is here. So, if you want instructions on how to wire this up",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "to uh Clyde Coder or another agent, then you can grab it from the instructions from here. >> All right, so I'm at Lars. There's two more in here, so I'm I'm still going, by the way, for those just adding their names to the role. What's going on, Brennan?",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "Oh, sorry. Just one of the usernames is invalid. Oh, okay. I'm taking it. All right. Cat, you should have an invite. Andrea, you're you're coming next. I'm just two too behind everything. Christopher, did you not get the invite yet? No, no, I didn't.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "That's weird. Let me double-check. You should have one, but Yeah, I should You should have an email. I'm up to like 31 of you. It worked. It's like five clicks to add a member from like GitHub. I was going to say You should be able to",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "use the CLI for this. What's going on here? We don't have an agent for it yet. That's right. Not yet. No, they keep putting it in my PR, and I don't want it there. Copilot's going to review for me. Very poorly, but it will review for me. Yeah, for sure.",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "Dude, hold on. Let me grab you the mic. Hopefully that's on. Does it work? Yes. Um so, I guess that context engine works very well for asynchronous agents, so that you don't need to specify things on your keyboard because they can fetch",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "what they need. That's one of the main use case, I guess, I guess, and um so, it plays very well, uh I think, with agents like Copilot on GitHub. Do Do you see a uh if you can share it, uh which agents are used most uh with Unblocked? Whether it's more",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "because on the wild as a developers with our laptops, I think Claude Code is much more used than Copilot, but maybe you see a different picture. Okay, so I'm going to take this off the screen for a sec. And try to see if I can pull that up for you.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "but the answer is yes, we do know roughly what that breakdown looks like. So, let me grab that. Okay. I think this gives you kind of the rough picture. Okay, so this is kind of the rough the rough picture here. I unfortunately because of the way this",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "is I I should probably dark mode extend the screen, but I'll just step over here. So, uh Cloud Code is by far the most used. Um followed This is the the next one is cursor, so that that seems pretty obvious. This last one here is kind of a",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "catch-all, but what's really interesting is that a lot of people use Cloud Desktop. Which which was very unexpected, but this is the case. Um so, and then VS Code and CodeX account for a smaller component. But yeah, it seems like",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "everyone's using either Cursor or Cloud Code. I would have expected more of, you know, totally asynchronous agents like something that people would run from a PR. Okay, you can run code from a PR, but it's less common. Maybe",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "sometimes you use Copilot because it's built in. Yeah, actually this this one here Cloud Code may may capture some of that traffic. So that that's probably what you're seeing. People will wire up Cloud Code in CI. And do things like that. Thanks. No problem.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "I've got a potentially dumb question. There's no dumb questions. This Well, we'll see. Actually, you know you know I'll touch you soon. >> I I I had a teacher in grade three that used to tell me there are no dumb questions, only dumb people. Go on. I",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "could I could be one of them. How like from from your point of view, right? You've got you you can use like sub agents from like an exploratory standpoint. Yeah. How how how does like that plus memory plus just like storing",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "snippets of information that might be able I'm thinking of the like social graph that you just showed, right? >> Yeah. Even in an organization that's like several thousand people, you would be able to store that in a very small file. No. >> Um",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "You you would as the graph that you showed. Uh oh, I see. The social graph component, yes. Yeah. It it can be compact. I'm trying to understand how this compares. Like what's the kind of like USB compared to the exploratory agents and",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "repeating that? I I see what you're saying. Okay. there there are two there are two components to that. One is that uh an exploratory agent would have to do this every time. So, when it starts from ground zero, yes, it might be possible for it to reconstitute",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "a sort of social graph hierarchy. But, it would have to do two things in order to do that. One is it would actually have to write code in order to constitute the the graph. At least the way that agents are today or the way",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "that the models are today, you wouldn't be able to just have it like run basic tools around um the the organization and figure out the who's who. Um it would have to write kind of like what that social graph algorithm is, run",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "it, and then get the distillation out the back end. So, um at that point, you're basically getting close to that component anyways. So, that you short circuit it and just run it and use it. Um maybe I should explain some of the motivation for that thing,",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "actually. I I realized now that I may not have done that effectively. Um social graph is not just about conveying information about who the experts are. It's used within the context engine as a pivot point um into more like important",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "context. So, understanding who the experts are in a particular code area acts as a jump point because um another part of a context engine which happens at the ingestion and processing layer is um distilling the um we call it bottling the expert, but",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "it's essentially distilling what that individual has worked on in the past, uh where they sit in the in the kind of hierarchy of the organization, um the the decisions that they've made based on Slack conversations that they've had, based on their PR comments,",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "all this kind of stuff. Um when you distill that down, it's and you pass it to the agent, then what happens is like let's say that I'm a new employee and I'm coming to work on a particular area of code. Um there are a bunch of different ways",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "of loading context for that code. One is, you know, semantic search via vector search, right? So, that's kind of layer one. Another layer is, uh pre-built memories. And then, the the third layer is bottling unbottling the expert for that",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "area of code. And getting that expert's learnings into context is is a really powerful mechanism. It helps drive the rest of the retrieval in an agentic loop. And it helps, um the agent, uh directionally, like, where to go next. Does that make sense?",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "I think everybody's in now. Awesome. Okay. So, I think we're If we're all in, then the next thing here is, once I get this back up on the screen, I'm still I'm still sending invites. I saw someone just went So, please keep coming. And",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "but if we'll we can keep going as Yep. So, um feel free basically just fire this repo at your agent and get it to, like, run it. If you If you literally just say to Claude code, \"Run this against my repo.\" Um be sure to give it a time range or a PR",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "limit, otherwise it'll go off the rails and take a really long time to finish. So, just say, like, \"Process the last, like, 300 PRs or process up till, you know, September 2025.\" or something like that. Um there's enough information in the",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "read me that it should be able to just do it. And just run it against your repo. This morning, I did clone said, \"Read the read me and make it happen, Claude.\" Yep. Can I ask you another question? What's your road map for",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "If you have a road map, what what's your plans for the coming year or so? >> For for Unblocked? Is it Is it about Unblocked or or about this this sort of side project? This Yeah. So, I mean I've I've sort of alluded to this",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "before, but like where the puck is going is with fully autonomous agents. So, we're very focused on making sure that autonomous agent flows are highly optimized. You As I was saying at the beginning of the conversation, you cannot run those",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "things effectively without like um very finely tuned context. Yeah. I read things like tracing. What what do we agents and you get run books out of those? Is that Is that the path you're you're investing in or what what is it",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "retrieval? What what Are you Are you talking specifically about incident management then or Sorry? Are you Are you speaking specifically about incident management and that sort of thing? No, I'm I'm speaking about your I'm thinking",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "actually more from a business perspective. How can we extract business knowledge that's really deeply embedded into systems and nobody knows anymore and some people know think they know, but they don't know. Yeah. Uh and and documents, uh human knowledge,",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "right? Tested knowledge. >> Yeah. So, I mean, there's there's two ways of servicing that. Either at the product level or um through the context engine itself. And increasingly what we see is that people leverage uh agents to do",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "their work even at that level. So, they'll they'll go to Claude code, they'll connect the Unblocked context engine, they'll be like \"Do this thing for me.\" And then the Context Engine will find all the things that it needs",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "to do that task, and then it'll surface that data. Yeah. For us, that means the first near-term roadmap is API. Yes. It's like CLI. CLI API. Yeah. Cool. I'm going to lift this off again. Hopefully people start submitting some PRs and then we can Yeah.",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "So, this this org will stay up until the end of the week, um at which point we'll basically bring it down and um release this uh as open source. And uh everyone that contributes obviously is going to get credited, so your your name will be on it.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, just just clone the repo. Um you The easiest thing to do is to take uh an agent like Claude and point it at um just launch it from that repo, from that directory and just say please bootstrap and launch this this product and away we'll go.",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "If if you guys run into any kind of technical things, well, we're here obviously. Yeah. Let's hold on, let's get you the the mic. You got it. I've got it. I've got a lapel now, so Awesome. Cool. Yeah. Can you hear me? Yeah, perfect. So on the",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "on the slide where you had like the performance and you guys were like 80% and without Unblocked it was 20%. >> Yeah. And now I see that well, you are basically hooking up like Unblocked to Claude Card, so in a way is it a fair comparison to say",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "I will use vanilla Claude Card with access to the MCP and to the skills. Yeah. And then I will use Claude Card hooked with Unblocked with the same MCPs and the same skills. And here you can do the performance comparison and here you",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "still have a lot of alpha from I I guess whatever you are cooking inside Unblocked. Is Was it the comparison that was done or was it done without Was it done with a vanilla Claude Card but without context? >> No, it was done with MCP servers like",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "GitHub and Slack wired up. Yeah, cool cool. We basically got parity with all the MCP servers of every SaaS vendor in one. It was like vanilla Claude all MCPs and the other one was Claude with Unblocked only. And then do the task. Same context like",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "the same context files. Same same same prompt. And same access. Yeah. Yeah. It's It's pretty fun, yeah. Oh, thank you. Um maybe two questions. So one is uh I see that like a lot of these like social graphs are built with like the",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "traditional network kind of calculation and the net statistical aspects of networks. Um is this like the approach that you began with and it already worked the best or uh did you like cuz most of memory systems they work more on like filtering",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "out like episodic memory, something else, something else, something else and this is like really scoring really nice scoring system. Yeah. Uh that's first question. Is it like also with the Unblocked? Second question. Um you mentioned that it works with",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "Teams, uh Microsoft environment. I wonder what's the uh differences that you observed between building social graphs for different environments cuz on GitHub I imagine it's very different than on SharePoint, Teams, etc. etc. Is it also like these network stats",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "based or is it something different? Um so I mean our first implementation was was incredibly naive, right? It was just using the numbers of PR contributions and comparing that directly with uh the number of PRs reviewed by each",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "person. So just a simple like numbers game. Um what that that didn't produce accurate team clusters. So then we we got onto um the algorithms that you see here. Um Unblocked does a little bit more than than this. So this is kind of like a",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "middle road. Um another strategy that Unblocked uses is um like experts by by vector clusters. So when we ingest the source code and vectorize it um we understand like who the the the most contributors are for that piece of source code. So when we look up",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "individuals we can see what they've been working on and what the um the clusters in proximity are and then relate people based on their their cluster proximity. So that's more of like an ML type approach. Um and then there's a a final layer which is um",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "an sort of AI LLM heavy layer that does distillations of uh a whole bunch of different context elements. things that people worked on in the past, conversations that they've been having in Slack. Um and then when when you take all that and you weigh it",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "against uh the like procedurally generated graph, you get a much more accurate distillation. There this one here, you'll notice like some some people will get pulled into team clusters that you know are, you know, operating across many different",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "teams, for example, and this won't account for that. Yeah. And what are the differences between uh like different environments, like Apple versus Microsoft, like versus Slack? Like do you see Do you need like different algorithms,",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "different weights, let's say, that you abstract there? I mean, I don't want want to take out all the This is uh No, no, this this algorithm is like purely SCM-based. So, the algorithms for you're you're right, like um Slack, Teams, they're quite a bit",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "different because you don't have these review points. So, then it becomes, you know, who's the most active in particular channels, and then you need a distillation or a summary of what that channel is about, and you need to vectorize that, and then you need to",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "score it against the the most frequent contributors. Um but it's not enough. You have to relate that back to the SCM data in order to figure out who the real experts are. One of one of the problems that I I personally experienced in some",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "organizations I've worked at is that you get like the noisy junior engineer, right? So, they're they're very noisy, they love to talk, but the signal-to-noise ratio is not great. And uh just because someone's not saying a lot of things doesn't mean that their",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "messages are not impactful. So, part of this game is about assessing the impact of uh when people say certain things, you know, how does that relate to the PRs that get spawned off as as How many of those PRs get merged, you know, that sort of thing. Yeah. Oh.",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "Oh, is there not? >> be. Okay, check that. Well, you should be able to open a pull request. You can't push to main. So, if that if that's the situation we should but I mean, we'll check. >> Yeah, you should you should be able to create a branch. Oh,",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "uh no, no. Can He can't fork the repo either. Oh, um yeah, forks might be disabled. >> This will be open source like at the end of the week um and you're all your contributions will be on it. What's really fun is using that social",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "graph tool later against your own repo and like showing your team. Yeah. Oh, sorry. Oh, I'll do it. Yeah. Come on. I like that unblock tried to answer you for that question. Oh. You see that? The Slack auto response. Sorry, just me. Are you in here?",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "That's a camera. Sorry. Oh, it's okay. I was just going >> Oh, okay. Um, let me check to see that should not be the case. Okay. Let me know if you still need to get an invite. Just check the members. I think there might Yeah, there might be an issue",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "here. Just a second. Sick. Sick. Sick. Sick. Oh, these were direct assignments. So, I think we have to like pull people into the project cuz they're not they're not org assigned. Oh, GitHub. I love you. Zero nines of uptime. Yeah.",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, we'll fix this one here. Yeah. And slam everybody in. It's crazy. Oh, come on. You got enough? I'm trying to, so. Cuz now we just need to add people. Good signs. Good collaborators. And then just start Unblocked. You all have write access.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "It is the name of the company. Just just validate that for us if you would. Yeah, please. Let me know. Oh. Perfect. All right. We're getting real PRs now. There we go. Nice. Nice. Hell yeah. Now, let's do fun things. >> Damn, nice. Looks good to me. What?",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "I think we we have our our first approved PR. I'm send I'm just sending ridiculous chats to Unblocked so you can see it try to answer questions in Slack as as PRs come up. I'm going to see what it says about this. Ask it to It's like, \"Oh, let me think",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "about it.\" Or did you ask it about the PR? Yeah, but the PR I think you accepted so we'll see we'll see what happens. I mean, it did it did approve it so, you know, Unblocked was like >> Unblocked was like, \"This looks good to me, man.\" >> Unblocked was down.",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "Only visible to you. Oh, no. Well, it's such a good answer though. Nice PR. Good job, Unblocked. Great answer. Yep. Oh, yeah, yeah. I'll put it back up. I'll put it back up one sec. Uh where did it go actually? I lost the Okay, thanks. It was over here. Boom.",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "Thank you. Yeah. Do you want Yeah, for sure. Yeah. Oh, yeah, yeah. Yeah, of course. We were focused on you building, but yeah. Oh, no, it's okay. I mean, let's go. Oh, oh, you Oh, I'm sorry. So, this this this thing that I showed before, it it",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "is the project that exists in that repo. So, the Oh, so the idea is like um think think about features that you want to add or things that you want to to fix or like new components and then just uh hack away at it and submit a PR and Yeah.",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "do you want to open up like a terminal session and show the MCP? Oh, sure. Yeah. Cuz I'm like people can obviously use it, but they don't have all our source. Yeah. Yeah. Thank you. Yeah. Well, I mean, well, like one thing that you could do um if you're",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "visiting clients is uh you can ask them if they run the tool on their uh on their um repo and then it will generate this result for them, so they can see on their own projects what the value is, right? I think Peter, I think he's just asking about our product",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "specifically, not this. >> Oh, Unblock. He's asking about Unblocked. My bad, man. We're driving this way. >> Sorry. Sorry. Single track mind. Um okay. So, your your question is how can you demonstrate the value of Unblocked to customers or See the value. Yeah.",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "Sorry. Yeah. You can make conflicts emerge in in your app, but I um and then there is the compliance layer, which is very interesting for corporate clients. >> Yeah. I was thinking how this um is translated to a UX because you know many people are known",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "I understand it's mainly for coding. >> Yeah. And whether this is for technical people or maybe you know, people overseeing some uh engineers or the engineer itself. I mean, just see how your platform works. But if it this is out of context, I",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "mean, I it's a it's okay. I No, no, that's that's totally fine. So, this this dashboard is kind of like the the the sort of front-end customer interface to the product. So, you know, you come in here and you can ask any question about your code",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "base or your or your organization. Get an answer for it here. Um this is right now, you know, attached to Sorry, I lost my cursor. This is attached to um this test org that we have, but I could use it against Unblocked and I could say like, you know,",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "um Whoop, I have a little hot thing here that I can show. Whoops. So, the Sourcegraph engine is uh an internal component that we use to track source code changes through time including like where you know changes move between files and so on.",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "So as a demonstration you know you can show off I mean you can book your your customers into a demo with us and we can demonstrate this or you can wire it up to your own organization and demonstrate this flow to customers and try to find you know",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "use cases where data sources can and demonstrate that. The the challenge with context engines is that it's really hard to demonstrate the value to someone without actually wiring it up. So there there is a little bit of overhead there where people have to",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "connect it to all of their integrations. Now the good thing is Unblocked has a free enterprise trial period so people can try out the products in its fullest form before paying for it. Yeah. So if some of that information is incorrect you can just reply in the",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "chatbot or flag it in the references. >> Yeah. So you can just you can reply here or you can say not helpful and explain why. And then it will distill it for the next the next round. So it will adjust some weights or confidence scores internally. Well",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "internally what it does is it constructs task memory. So it looks for those kind of repeated signals and it this is actually where the experts graph comes in it's used a lot. The experts graph provides like weight. So when an expert",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "comes in and says that's not correct it's going to get some some more weight and distill a memory for it. If if it's just a new engineer that says that's not right then that's not really a trustworthy source yet so you have to have",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "a trustworthy source to to base that on. Does that make sense? Yeah, it makes a lot of sense. It's like social network. Exactly. >> Somehow. Yeah. Yeah. Thanks. No problem. Cool. What does your memory store look like? Oh, under the hood? Um well,",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "when it's presented to the AI, it's presented as as files. Um but under the hood, we store it in you know, database tables and stuff. Um like the memories are are are constituted from a bunch of different sources. So, they're not just like flat",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "file-based. You know, they'll be the whole memory construct will be hydrated at runtime. So, yeah. And won't you just give your agent tools to like query your database based on whatever criteria the user is on? Yeah, well, for Yeah, so yes, um there are a",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "bunch of tools for data retrieval. For memories specifically, um you can't really leave it up to the agent to do memory hydration because that's kind of like part of the seed context. In order to get the agent to go in the right direction, you have to seed",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "it with the appropriate data. And expert's context is a good jump-off point for the agent. So, yeah. Yep. Uh is there any official benchmark that kind of track the type of value you try to bring? Like um Yeah, because I feel",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "like it's not exactly coding. Well, it is, but yeah, I'm curious if there's any public things that you're tracking yourself against. So, we we we we do have some internal benchmarks. Um you're right, it's a little bit squishy. Um",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "So, and throughout Have you Have you heard Boris Cherny talk um at Cloud Code? It's like The creator of Cloud Code. The creator of Cloud Code. Yeah, so he did this interview where they were talking about like how they measure success",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "for cloud code internally. This may have changed cuz there's a lot of benchmarks now that they have. Like they they have like that the talk benchmark. You guys have probably seen that one. But it but what that really distills down to is vibes.",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "And so the most important thing in systems like this is to capture sentiment. And so if your sentiment is is trending upwards, then that's a good thing. Our our sentiment right now is on a scale of minus 100 to 100, somewhere around 60",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "60 score. So on a normalized scale, that's like 0. 75 to 0.8. So so the vibe would be captured by something like maybe less back and forth on the PRs or maybe I don't know you having less back and forth with cloud to get your stuff done. This type >> Yeah, so",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "the the vibes are like they're they're people satisfied, right? So satisfaction can come from a lot of different sources and dissatisfaction can come from a lot of different sources. So the way to think about that is that it it encodes all of those",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "things. But you can capture specific metrics and we do how long things take and we're actually currently working really hard to bring the response times down because um you know, even though agents are here's the interesting thing. As we move",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "towards a more autonomous universe, response times for MCP servers are actually less and less important. The more important thing is that they get the answer absolutely bang on. Yeah. And the reason is because the the amount of time that a contacts",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "agent spends collecting all that information and distilling it is a microcosm of what the full task takes to implement and to and to traverse. So, if you can spend a little bit more time and cut the implementation down by like 60, 70, 80%, that's a huge win.",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "Right. And go ahead. Yeah. Sorry, very small follow-up. Actually, I'm curious, do you have any rough numbers on how much time does it spends retrieving context versus executing things in the task? To your point, like is it 10% right now or 90%? Or is it",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "I have no idea. I mean, I have my own experience, but Like, yeah, um agent context collection is probably close to that number. It's like 90%. Um the actual code writing part is really, really fast. If If you can even just watch what an agent is doing, um",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "when it writes the code that output tokens are, by the way, the the thing that drags down um the the performance. Everyone used to think it was input tokens. We've run tons of experience with this. You can bring the input token size up",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "and, you know, time to first output token now is is pretty, pretty good. Like, it's pretty highly optimized. The thing that really impacts performance is output tokens. So, um you have to be like judicious with the way that you collect and supply context",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "back to the agent uh so that it remains tight on its output loops as well. For um for one benchmark that Peter mentioned in the talk, we we gave an ambitious task cuz obviously it's prompt dependent how much time you're adding",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "and like with the context engine. Um but the ambitious task we gave was to implement the new adaptive thinking mode in Anthropic's tool chain when they introduced that, which as mentioned, it went from a 25-minute wall clock time to",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "it with with Unblock with the context engine. The other case without was 2 and 1/2 hours. It was 2 hours and 25 minutes, but the main reason for that was we gave it all the data, we ran the prompt, and then its first output was",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "like totally wrong. So, you had to the human had to loop again and be like, \"No, no, this, this, this.\" And the next output was wrong, and the next output. So, once you do four loops, you have like a 2 and 1/2 hour wall clock time",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "versus obviously the 25-minute when it did not need that when there's no corrections required. Yeah. Um so, as mentioned, it's Think of it as a waterfall. The more high-quality correct like high signal context you have up",
+      "start": 1686,
+      "duration": 6
+    },
+    {
+      "text": "front, the better every single thing the agent's going to do until it says it's done. Whether it got it right or not, yeah. Yeah. Man's got it. You also mentioned that uh the token usage on tool calls and like just information search really decreased. So,",
+      "start": 1692,
+      "duration": 6
+    },
+    {
+      "text": "I know that a lot of these tools that provide uh or aggregators for tool use, they have insane like token usage. So, maybe have like some estimations on how like let's say I need a Slack conversation, some summary from one conversation to",
+      "start": 1698,
+      "duration": 6
+    },
+    {
+      "text": "another, or like how people interact there would be like 60k tokens on Compozio. I wonder how many tokens it would be like using Unblocked. Yeah. It lo- lower. We're still very vibes there. Like, it's hard to get real data from other",
+      "start": 1704,
+      "duration": 6
+    },
+    {
+      "text": "customer or people in the market. Um but the again, with that same I'm going to keep talking to the same task as easy. That one went from 21 million token total usage to 10 million token with the context engine. So, a part of that though is cuz you",
+      "start": 1710,
+      "duration": 6
+    },
+    {
+      "text": "didn't have to doom loop. So, when when the of course like that increased a lot of the tokens expense. Like, so we did drop it by 50% on a large task. Again, obviously if if like, \"Yo, center a div.\" You're not going to get a lot of gain. It's like probably in",
+      "start": 1716,
+      "duration": 6
+    },
+    {
+      "text": "the training data. Um but yeah, like any feature uh fix. Like so a lot of like again, a lot of what people are putting through Unblocked or what an engineer is doing every day, it's very rare that you're doing a task that's like so",
+      "start": 1722,
+      "duration": 6
+    },
+    {
+      "text": "I don't know, minor that like I mean then again, I've asked I've asked Claude to do get push, so I'm not the only one, I bet. I was like, \"You do it.\" It's like, \"Why did that cost me 30 cents?\" I don't know. Yeah. I did all the effort to put my GPT keys",
+      "start": 1728,
+      "duration": 6
+    },
+    {
+      "text": "in the right place, so I'm like, \"Claude, go.\" Any more questions while y'all ship? Any confusion? Anything I can unblock for you? It's my purpose in life. Sorry, you may have answered this question already, but so you're are you",
+      "start": 1734,
+      "duration": 6
+    },
+    {
+      "text": "using knowledge base knowledge base rag on in Unblocked or what exactly is the tech that you are surfacing? Oh, so many things. Uh I can come talk to you at the side. I'll take my mic off. I'm just going to answer that question. Sure. That was just the",
+      "start": 1740,
+      "duration": 6
+    },
+    {
+      "text": "Oh, it's it's real time, basically. So, there I guess there's there's two parts to that question. One is like how much or how frequently Unblocked updates the data on the back end. Um so it's it's real time for many of the integrations and then on a a cron job",
+      "start": 1746,
+      "duration": 6
+    },
+    {
+      "text": "for others because for those for those particular integrations they don't have webhooks basically. Yeah. But the the dis So that means that rebuilding the graph data has to happen on a on a very frequent basis. Yeah. No, it's it's incremental.",
+      "start": 1752,
+      "duration": 6
+    },
+    {
+      "text": "So our our like, you know, social graph builder algorithm has an incremental component to it. So we don't have to rerun the whole thing. Um but also uh social graphs are less sensitive to frequent changes in data because it's",
+      "start": 1758,
+      "duration": 6
+    },
+    {
+      "text": "unlikely that you know, a single change is going to make a huge impact on the experts graph unless your organization is brand new. So for Yeah. Yes. Yeah, so as an example um we do best practices distillation on a much lower cadence. Like basically uh",
+      "start": 1764,
+      "duration": 6
+    },
+    {
+      "text": "week by week because uh yeah, it just doesn't change that much. Yeah. Yeah. Do you get an offer? >> Um well, the Oh yeah. The repeat your question. That's a good question. So, I want to make sure we get that one done. Oh. In In terms of customer privacy, data",
+      "start": 1770,
+      "duration": 6
+    },
+    {
+      "text": "retention, um kind of Yeah. From From my point of view, I'm thinking of like enterprise SaaS or even like on-premise type deployments, which I'm not suggesting that you I'm just thinking of that customer kind of modality. Um",
+      "start": 1776,
+      "duration": 6
+    },
+    {
+      "text": "yeah, do you get Do you get pushback? Do you How do they feel about you holding data as another processor in the loop? Um well, so the the the privacy discussions happen at the organizational level. So, it um we don't actually run into a lot of",
+      "start": 1782,
+      "duration": 6
+    },
+    {
+      "text": "friction. Um there are definitely environments like in government and at banks that have uh super sensitive needs. And And so, for those needs, we have an on-prem solution. But, it's definitely not the path that I would recommend. Like",
+      "start": 1788,
+      "duration": 6
+    },
+    {
+      "text": "staying cloud-based. Like we we have very large enterprise organizations uh that are entirely cloud-based. Like fully cloud-based. Um the you know, the the secret sauce is kind of like less encoded in source code now and more encoded in um uh the reasoning.",
+      "start": 1794,
+      "duration": 6
+    },
+    {
+      "text": "So, organizations tend to be a little bit more sensitive around things like Slack data, for instance. But, uh the way that we store uh data, like we have a whole white paper about how we protect customer data. Um and it's never been a problem. Yeah. Pardon?",
+      "start": 1800,
+      "duration": 6
+    },
+    {
+      "text": "Yes. We We do have an on-prem solution, but as I say like it's it's not the recommended approach. But for sensitive environments for sure. Yeah. Oh, why it's not recommended? Um well, the cloud-based integrations you know, get updated more frequently and so",
+      "start": 1806,
+      "duration": 6
+    },
+    {
+      "text": "there's software patches. It's a little bit harder to maintain within an organization. Uh there's there's one customer, it's a bank, um where administering uh the platform becomes quite difficult because they have network isolation.",
+      "start": 1812,
+      "duration": 6
+    },
+    {
+      "text": "And so like now one of us has to you know, sit within that network and administer the platform or we have to train uh individuals within the company to administer the platform. So it's just it's more of a a maintenance and um hand-holding exercise. But yeah.",
+      "start": 1818,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, exactly. That's exactly right. Yeah, thank you. Thanks for coming.",
+      "start": 1824,
+      "duration": 6
+    }
+  ]
+}

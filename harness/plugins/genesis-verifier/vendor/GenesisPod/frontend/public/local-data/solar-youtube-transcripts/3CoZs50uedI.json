@@ -1,0 +1,459 @@
+{
+  "videoId": "3CoZs50uedI",
+  "title": "SREcon26 Americas - From Thundering Herd to Zero Outages: Building Reliable Inventory Sync",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 21640,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good afternoon everyone. I'm Rashikesh\nGhat Pande. Since 2018 I have been\nworking in the network virtualization\nand micro segmentation space at VMware\nnow Broadcom\nand typically our large scale customer\ndeployments consists of 100,000\nworkloads.\nthe we at VMware by Broadcom we provide\nall the underlying infrastructure\nsoftware to help them run these\nworkloads because these workloads are\nresponsible for for the customers to\nkeep their businesses moving uh running\nseamlessly.\nSo let's say a database VM comes up or\nan application container comes up.\nWhatever policy that the customer has\ndecided for a database class of VM or an\napplication class of container, those\nsecurity policies, network rules, they\nhave to be immediately applied. As a\nresult, both our customers and we we\nneed a central management plane with an\nwith a real-time view of the customer's\ninventory in the data center\nbecause if there is a workload which we\ncannot see or we cannot we are not able\nto secure it. Today I'll share how we\nbuilt a reliable inventory sync service\nwhich does just that. One that has been\nrunning for years with zero escalations.\nSo let me explain what we were trying to\nbuild. We were building a management\nplane. It needs to know about every\nworkload in the data center, every VM,\nevery container, 100,000 of them. So the\nworkflow would go something like this.\nThese workloads, they would register\nwith the management plane. They would\npush their configuration details and\nbased on the policies configured by the\nusers, we would push down the security\npolicies and network rules which match\nthe workloads the configuration.\nSo 100,000 workloads each maintaining a\npersistent connection and talking to one\nmanagement plane.\nNow imagine something happens, a network\nblip, a cluster restart, a data center\npower event, and all of the workloads\nthey try to reconnect at once, and your\nmanagement plane cannot keep up.\nWhat would you do?\nWell, one answer is you scale up your\nmanagement plane. You have autoscaling\nenabled in it. You let the elastic\ninfrastructure handle the spike.\nAnother is you add jitter. You have the\nworkloads re rand you randomize the\nreconnect times for the workloads so\nthat you uh space out the initial\nconnection spike from a few seconds to a\nfew minutes. But randomization is a very\npoor way of having deterministic\noutcomes. And second is you may control\nthe thundering herd of connections uh by\nrandomizing the reconnect times. But\nwhen these workloads they connect with\nthe management plane again they have to\nsend over their full configuration\nbecause the management plane is not\naware what has changed in the time when\nthe VM was not connected. For example,\nlet's say two new nicks were added and\nnow you need to protect these two new\nnicks.\nSo,\nso adding jitter it helps with the\nmanage the thundering herd of\nconnections but it really doesn't help\nwith managing the thundering herd of\ndata.\nAdd to it we had more constraints. We\nonly had 1 GB of memory for handling\nthese 100,000 workloads and we couldn't\nscale our inventory service horizontally\nor vertically.\nNow we our challenges are very different\nto a cloud-based solution. We our\nsoftware goes into customers on-prem\ndata center and we have to extract as\nmuch value from every from the resources\noffered to us as we can. We can't just\nscale in scale out in their data center\nbecause every gigabyte that we use is a\ngigabyte that they cannot use to run\ntheir business and especially now with\nAI workloads you know how precious\nmemory has been. So for us handling such\nscale challenges means approaching these\nproblems differently. In this case, it\nwas how do we manage the thundering herd\nbetter?\nAnd this is the evolution timeline of\nhow we did that. Our inventory sync\nprotocol, it evolved over 2 years of\nhitting real production scenarios and uh\nsolving for edge cases. I'll break I'll\nbreak down the evolution timeline.\nFirst, right from the onset, we realized\nthat we just won't be able to handle\n100,000 connections with just 1 GB of\nmemory. The math, it just doesn't add\nup.\nHence, we had to think of a different\ntopology. We had to reook at the\narchitecture itself. We came up with a\ntiered architecture.\nOur management plane, it had a lot of\nverticals as we started support\ndeveloping more and more features. And\nthen we decided that all these verticals\nthey should share the transport between\nthem to further reduce the connection\ncount.\nNow that we had a tiered architecture we\nneeded some form of a sync protocol\nat scale that sync protocol broke. We\nhad to introduce some form of flow\ncontrol. We did it through a handshake\nstage.\nWe carefully paid attention to all our\nconfig parameters. We used real\nmeasurements to configure all of them\nwhich helped us a lot as we scaled.\nAlso because we were using we were\nhaving a shared transport we realized\nthat just because the servers are\nconnected with the management plane\ndoesn't mean the applications are ready.\nSo we distinctly identified a connection\nbeing established from an application\nbeing ready through an app in its stage\nand thus a five-stage sync protocol was\nborn. Uh it took 2 years for this\nprotocol to mature and get for us to get\nit right but it has been running without\nescalations for the past four years.\nNow let me break down all the evolutions\none by one.\nSo our first evolution was coming up\nwith a three- tier architecture.\nNow in this architecture the workloads\nthey didn't register directly with the\nmanagement plane but they were managed\nseparately. So up top I have drawn a\ntier zero management plane. In it I have\nshown two services inventory service and\nconfig service. In reality there were a\nlot more verticals providing a lot more\nfeature. And this is where the customers\ncome to have a unified view of their\ninventory and configure uh universal\npolicies across their workload.\nAt tier one we have our servers. So now\nwe decided rather than uh workloads\ncoming and registering with the\nmanagement plane, it would be the\nservers on which these workloads reside.\nThey would be our first class citizens\nand they would be the ones who would be\nregistering with the management plane\nand these tier one servers they would be\nresponsible for informing all of the\ninventory that is running on top of\nthem. So for inventory service it had uh\na counterpart agent running on all the\nservers called inventory agent and this\ninventory agent was responsible for\naggregating the inventory running on\nthat server and informing the inventory\nservice.\nUh tier 2 was where the workloads lie.\nNow they were discovered resources on\nmanagement plane. they were no longer\nfirst class citizens. And one more point\nI wanted to bring up was as you see the\ninventory service is connected with all\nthe inventory agents on the servers and\nsimilarly the config service is\nconnected with all the uh config agents\non on the servers. So if you have\nthousand such servers and let's say five\nverticals then we had reduced our\nincoming connection count from 100,000\nconnections to say 5 into 2,000 which is\n5,000 which was very helpful for us to\nget started and scale better.\nBut then we realized that hey even 5,000\nconnections is a lot es especially as we\nare going to keep on adding new and\nnewer and newer features. That's when we\ndecided to come up with a common\nmessaging layer. Now you can see here\nthere's a management proxy on the\nmanagement plane site. All the services\nwhich sit on the management plane they\ntalk to the their counterpart agents on\nthe server through this management\nproxy. And similarly all the\ncommunication on the servers it goes via\nthe server proxy. The advantages of\nseparating out the messaging layer were\ntwofold. One we knew that as we scale\neven further we are we are going to need\nmore connections. Second is all the\nmessaging related uh complexity when it\ncomes to say transient disruptions or\njust handling the connection uh just the\nconnection handling it was taken care by\nthe messaging layer itself without the\napplications needing to worry about it.\nAnd in the future we also uh we started\nwith a custom RPC and C custom uh\nproxies but in the future we were also\nable to replace them with highly\nperformant envoy envoy proxy and gRPC\nwhile having very little impact on the\nverticals which sit behind them and in\nthis process we had reduced the number\nof connections again from 5,000 to just\na thousand because now there was just\none connection connection from every\nserver to the management plane. Uh that\nalso helped us scale better as we added\nmore and more features.\nBut now with a tiered architecture, we\nneeded some form of a sync protocol to\nsync and keep the inventory consistent\nat all the tiers. And this is how the\nfirst sync protocol looked like. It was\npretty straightforward. the servers they\nwould establish connection with the\nmanagement plane. They would aggregate\nall of the uh inventory data they are\nresponsible for and the inventory agent\nwould send this entire data we call it\nfull sync. Once the full sync is\ningested by the management plane any\nsubsequent updates let's say a VM moving\nfrom one host to another host a new nick\ngetting added they would just come in as\ndelta updates. So just a standard\nthree-step FSM. You establish\nconnection, you have full sync followed\nby delta sync. And anytime the\nconnection gets interrupted, you just go\nuh you you go in circle.\nAnd of course at scale this failed\nbecause what would happen is if\nmanagement plane restarts it would\nestablish connection with all the\nservers. All the servers would\nimmediately start sending over their\nfull sync data. The management plane\nwould get overloaded. It would crash and\nit would again restart. It would again\nestablish the connection. So it would\njust get caught in this sync storm and\nit would take quite a bit of time for\nthings to stabilize.\nSo that's when we knew that we need some\nform of a flow control which brought in\nthe third evolution which was the sync\nhandshake stage. In this stage the\nservers on connecting to the management\nplane instead of sending over their\nentire data they would just check in\nwith the management plane on if they\ncould send their data. So the workflow\nstarted looking something like this.\nServers would send a sync request. The\nmanagement plane would evaluate the\nsystem load it was under. If it was\nunder too much load, it would just say\nthat, hey, I'm not ready. The servers\nwould back off again. They would send a\nsync request again. This time around, if\nthe management plane thinks that, hey,\nit will be able to ingest this newly\ncoming data. It would send a sync ready\nmessage. That's when the servers would\nconsolidate the entire data and send\nover the full sync data.\nSo it turns out that\nthe idea of having flow control through\na sync handshake stage was the correct\nidea. However, the implementation uh\nneeded hardening because what would\nhappen is we had not really handled the\nthundering herd just yet. When let's say\n10 servers were sending over their full\nsync data, all the other servers would\njust keep on checking with the\nmanagement plane asking hey can we sync\nour data? Can we sync our data and all\nof this noise was just just needless. We\nwe could we could reduce it. Another\nthing was let's just say on on the same\nlines if there was a server 11 who was\nnot served because the management plane\nwas loaded what would happen is it would\nback off and then there would be other\nservers who would come in ahead of it\nand it they would be served first. So\nthe system was inherently unfair and\nespecially if you had a crash loop\nbacking servers which would just crash\nand come back and connect and ask to be\nsynced they would hog over and not allow\nsome of the healthy ones to to proceed.\nSo we we decided that the flow control\nshould be in the management plane's hand\nand not uh reside with the server. So\nthe management plane what it would do is\nit would record the first sync request.\nUh it would put that that particular\nserver in the queue. So all the servers\nwould have a fixed place in the queue\nand they would be served in a first come\nfirst-s serve basis.\nThis system was uh inherently fair and\nserved us well.\nOne more thing that we did is we\ncarefully reooked all our config\nparameters. We decided to take a look at\nall the timeout values, all the\nstrategies and that helped us immensely.\nWe we we used uh real measurements for\nthat.\nAnd what we realized is if we have a\nscale of uh uh thousand VMs and thousand\nservers and so having 100 VMs on an\naverage then we have a lot of config\nparameters. Here I have just shown five\nof them. All these config parameters are\nclosely related to each other or derived\nfrom each other and we know the why\nbehind them. So for example what we\nrealized is when given a scale of\nthousand servers and 100 VMs on an\naverage we are able to handle 50\nparallel syncs uh parallel sync so our\nbatch size was 50 host at the same time\nwe realized that if some of the host\ninitially were VMheavy uh then we we\ncould only handle a batch of 124 uh,024\nVMs. So whichever\nwhichever number is hit first that would\nbe our batch size. We arrived at this\nnumber by memory profiling our inventory\nservice. Uh and that's when we knew that\nhey this is a good enough scale given\njust 1 GB of memory. What we realized is\nit takes roughly 60 seconds for us to\nhandle all the incoming full sync data\nfrom one such batch. And if you just do\nthe math then uh when you have thousand\nthousand host and you serve 50 host in\nin 1 minute then it would the Q drain\ntime in total would be 20 minutes. So\nany workflow which existed on the host\nside it would consist of the timeout\nvalues would consist of more than 20\nminutes because the workflows on the\nhost side or the server side they know\nthat in the worst case scenario it can\ntake up to 20 minutes for my data to\nshow up on the management plane and me\nto get some subsequent policies for me\nto react that that's how we know that\nthe timeout has to be more than 20\nminutes again I had mentioned that we\nhad one one spot in uh for for every\nserver in the queue. But let's just say\nthat one of those servers it was a crash\nlooping server and it was not able to\nfully sync its data. Then after five\nfailed attempts we would quarantine it\nfor an hour and allow all the healthy\nservers to move through. And we\ndiscovered all of these all of these\nnuances after carefully looking at our\nconfig parameters.\nSo tomorrow if if we have to support\ntwice the scale with 50% more memory\nfootprint, we exactly know how to batch\nthings in the worst case scenario. How\nlong will it take for our data to be\neventually consistent and us to have an\naccurate accurate uh state of the\ninventory on the management plane side?\nThat's the level of confidence we\ndevelop when we really dive deep into\nour numbers.\nWith all these improvements, now the\nsync hand stage started looking a bit\nlike this wherein the servers after a\npersistent connection is established,\nthey would send a sync request. The\nmanagement plane because it was seeing\nthe sync request for the first time, it\nwould add that request to the queue.\nThen there would be a fixed backoff\ndelay of 20 minutes based on the\nexplanation I gave in the previous slide\nand it would again send a sync request.\nAt this time around this request was not\neven added to the queue because the\nmanagement plane already had it. It just\nhad not come to process it. Once the\nmanagement plane would dq the request\nbelonging to that server, it would send\na sync request accepted to the server.\nSo now it was the management plane\ncontrolling the flow. The that's when\nthe server would consolidate the entire\ndata and send the entire data as part of\nfull sync. So this particular change in\nthe sync handshake stage helped us get a\nvery good control over the incoming herd\nand we had in some ways managed our\nherd.\nBut then we realized something more.\nAlthough we had managed our herd even at\ntimes even when the system was not\nloaded it would happen that the data is\ntake that it is taking 20 minutes for\nthe data to be eventually consistent on\nmanagement plane side and it was very\nhard to explain why that was happening.\nSo that's when we realized that hey when\nthe management plane is coming up the\nmessaging layer is getting initialized\nfirst while the inventory service is\nstill getting initialized at times. So\nwhat would happen is earlier we the\nconnection would be established but the\nfirst sync request which was getting\nsent there was no one to really process\nit. So that that sync request would go\nunanswered because the inventory service\nwas still getting initialized. And then\nby the time the 20 minutes occur and the\nsecond uh second sync request comes in\nat that time of course the inventory\nservice was up healthy and it could\nprocess all the data and it would take\n20 minutes for the data to be\nconsistent. So that's when we realized\nthat hey just because we are connected\ndoesn't mean that the inventory service\nis ready. We have to aggressively check\nfor the readiness of the service itself.\nSo we came up with an app in it stage\nwherein the servers on connecting with\nthe management plane they would\naggressively check whether the backend\napplication which was the inventory\nservice was ready or not and it would\ncheck uh like the the maximum uh time\nout in it was 5 minutes. So we would\nknow within 5 minutes whether an\napplication was ready or not and then\nthe data would become eventually\nconsistent. So adding this app in it\nstage it helped us in average case get\nthe time to become eventually consistent\ndown to 5 minutes rather than it being\n20 minutes.\nSo this was our robust sync protocol. It\nevolved from a standard knives sync sol\nprotocol of three steps into a fivest\nstep uh five-step protocol. First we\nused to establish connection then we\nwould check whether the applications are\ntruly ready. If the application is ready\nthen we would have a flow control stage\nthrough a sync handshake and that's when\nwe would send over full sync data. uh\nand then the protocol would remain in\nthe delta sync stage wherein only the\ndelta updates were sent\nand these are the payoffs of moving to\nthis particular five-stage model. So\nfirst is it is battle hardened the\nprotocol it just didn't come overnight.\nIt evolved over two years of uh real\nproduction encounters and solving for\nedge cases. But ever since ever since we\nhave moved here we have had zero\nescalations in production. Also over the\nyears our scale has increased four\ntimes. Uh we just need to tune the\nparameters the central protocol it has\nremained the same. Also as our scale has\nincreased uh one one reason for the\nincrease in scale is we started\nsupporting new inventory types and the\nprotocol it just works fine. Uh we have\nalso replaced tier one servers with\nsimilar logical entities and things just\nseem to be working fine. And above all\nthe protocol is self-healing because as\nlong as we know that systems come back\nhealthy. We know that the data that\nyou're going to see in the management\nplane is going to be accurate and\nit is eventually going to converge.\nThese were some of the lessons that we\nlearned along the way. First was that\ndistributed systems have layers and uh\nthese layers the startup sequence is\ndifferent for for different layers. So\none shouldn't conflate two because\nthat's when you have a lot of silent\nfailures. In our in our case it was that\nwe had to re we had to separate out\ntransport layer readiness from\napplication readiness that helped us\nbecome eventually consistent faster.\nThen as I mentioned earlier we know the\nwhy behind every config parameters of\nours because if you don't know why a\ntimeout value is set to a certain number\nyou don't truly own that particular\ntimeout value. Also you have to design\nfor the worst minute not the average\nhour. That's because the resiliency of\nyour system is truly tested in that one\nminute when the world is trying to\nconnect to you and it also builds your\nthe reputation of your the software that\nyou you build you will be judged on on\nthat one minute instead of the whole\nhour. That's that's the unfortunate\nreality. Another point is fairness is\nnot free. Uh systems are unfair by\ndefault. You have lot of time bad\nbehavior being served served first while\npatience uh is usually punished. So if\nyou want to create uh fair systems, you\nhave to explicitly design for it. In our\nsituation, it was that the loudest\nclients, the broken clients were winning\nover the healthy ones. And we had to\ndesign for it.\nAnd as I have mentioned, we have\nincreased our sky our scale four four\ntimes now. And only thing we had to do\nis just take a look at our config\nparameters again tweak them to match the\nnew realities, new resources. We have\nnew SLAs we have promised and we have\nnot really touched the protocol any time\nover the past few years.\nSo these principles these principles\nhelped us get to a robust inventory sync\nservice when we had to support 100,000\nworkloads with just 1 GB of memory and\nthere was no way for us to scale. Thank\nyou everyone. Uh I'll open it up for\nquestions.",
+  "segments": [
+    {
+      "text": "Good afternoon everyone. I'm Rashikesh Ghat Pande. Since 2018 I have been working in the network virtualization and micro segmentation space at VMware now Broadcom and typically our large scale customer deployments consists of 100,000 workloads.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the we at VMware by Broadcom we provide all the underlying infrastructure software to help them run these workloads because these workloads are responsible for for the customers to keep their businesses moving uh running seamlessly.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So let's say a database VM comes up or an application container comes up. Whatever policy that the customer has decided for a database class of VM or an application class of container, those security policies, network rules, they",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "have to be immediately applied. As a result, both our customers and we we need a central management plane with an with a real-time view of the customer's inventory in the data center because if there is a workload which we",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "cannot see or we cannot we are not able to secure it. Today I'll share how we built a reliable inventory sync service which does just that. One that has been running for years with zero escalations. So let me explain what we were trying to",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "build. We were building a management plane. It needs to know about every workload in the data center, every VM, every container, 100,000 of them. So the workflow would go something like this. These workloads, they would register",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "with the management plane. They would push their configuration details and based on the policies configured by the users, we would push down the security policies and network rules which match the workloads the configuration.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "So 100,000 workloads each maintaining a persistent connection and talking to one management plane. Now imagine something happens, a network blip, a cluster restart, a data center power event, and all of the workloads they try to reconnect at once, and your",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "management plane cannot keep up. What would you do? Well, one answer is you scale up your management plane. You have autoscaling enabled in it. You let the elastic infrastructure handle the spike. Another is you add jitter. You have the",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "workloads re rand you randomize the reconnect times for the workloads so that you uh space out the initial connection spike from a few seconds to a few minutes. But randomization is a very poor way of having deterministic",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "outcomes. And second is you may control the thundering herd of connections uh by randomizing the reconnect times. But when these workloads they connect with the management plane again they have to send over their full configuration",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "because the management plane is not aware what has changed in the time when the VM was not connected. For example, let's say two new nicks were added and now you need to protect these two new nicks. So, so adding jitter it helps with the",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "manage the thundering herd of connections but it really doesn't help with managing the thundering herd of data. Add to it we had more constraints. We only had 1 GB of memory for handling these 100,000 workloads and we couldn't",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "scale our inventory service horizontally or vertically. Now we our challenges are very different to a cloud-based solution. We our software goes into customers on-prem data center and we have to extract as much value from every from the resources",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "offered to us as we can. We can't just scale in scale out in their data center because every gigabyte that we use is a gigabyte that they cannot use to run their business and especially now with AI workloads you know how precious",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "memory has been. So for us handling such scale challenges means approaching these problems differently. In this case, it was how do we manage the thundering herd better? And this is the evolution timeline of how we did that. Our inventory sync",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "protocol, it evolved over 2 years of hitting real production scenarios and uh solving for edge cases. I'll break I'll break down the evolution timeline. First, right from the onset, we realized that we just won't be able to handle",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "100,000 connections with just 1 GB of memory. The math, it just doesn't add up. Hence, we had to think of a different topology. We had to reook at the architecture itself. We came up with a tiered architecture. Our management plane, it had a lot of",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "verticals as we started support developing more and more features. And then we decided that all these verticals they should share the transport between them to further reduce the connection count. Now that we had a tiered architecture we",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "needed some form of a sync protocol at scale that sync protocol broke. We had to introduce some form of flow control. We did it through a handshake stage. We carefully paid attention to all our config parameters. We used real",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "measurements to configure all of them which helped us a lot as we scaled. Also because we were using we were having a shared transport we realized that just because the servers are connected with the management plane doesn't mean the applications are ready.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "So we distinctly identified a connection being established from an application being ready through an app in its stage and thus a five-stage sync protocol was born. Uh it took 2 years for this protocol to mature and get for us to get",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "it right but it has been running without escalations for the past four years. Now let me break down all the evolutions one by one. So our first evolution was coming up with a three- tier architecture. Now in this architecture the workloads",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "they didn't register directly with the management plane but they were managed separately. So up top I have drawn a tier zero management plane. In it I have shown two services inventory service and config service. In reality there were a",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "lot more verticals providing a lot more feature. And this is where the customers come to have a unified view of their inventory and configure uh universal policies across their workload. At tier one we have our servers. So now",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "we decided rather than uh workloads coming and registering with the management plane, it would be the servers on which these workloads reside. They would be our first class citizens and they would be the ones who would be registering with the management plane",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "and these tier one servers they would be responsible for informing all of the inventory that is running on top of them. So for inventory service it had uh a counterpart agent running on all the servers called inventory agent and this",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "inventory agent was responsible for aggregating the inventory running on that server and informing the inventory service. Uh tier 2 was where the workloads lie. Now they were discovered resources on management plane. they were no longer",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "first class citizens. And one more point I wanted to bring up was as you see the inventory service is connected with all the inventory agents on the servers and similarly the config service is connected with all the uh config agents",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "on on the servers. So if you have thousand such servers and let's say five verticals then we had reduced our incoming connection count from 100,000 connections to say 5 into 2,000 which is 5,000 which was very helpful for us to get started and scale better.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "But then we realized that hey even 5,000 connections is a lot es especially as we are going to keep on adding new and newer and newer features. That's when we decided to come up with a common messaging layer. Now you can see here",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "there's a management proxy on the management plane site. All the services which sit on the management plane they talk to the their counterpart agents on the server through this management proxy. And similarly all the communication on the servers it goes via",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the server proxy. The advantages of separating out the messaging layer were twofold. One we knew that as we scale even further we are we are going to need more connections. Second is all the messaging related uh complexity when it",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "comes to say transient disruptions or just handling the connection uh just the connection handling it was taken care by the messaging layer itself without the applications needing to worry about it. And in the future we also uh we started",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "with a custom RPC and C custom uh proxies but in the future we were also able to replace them with highly performant envoy envoy proxy and gRPC while having very little impact on the verticals which sit behind them and in this process we had reduced the number",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "of connections again from 5,000 to just a thousand because now there was just one connection connection from every server to the management plane. Uh that also helped us scale better as we added more and more features. But now with a tiered architecture, we",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "needed some form of a sync protocol to sync and keep the inventory consistent at all the tiers. And this is how the first sync protocol looked like. It was pretty straightforward. the servers they would establish connection with the",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "management plane. They would aggregate all of the uh inventory data they are responsible for and the inventory agent would send this entire data we call it full sync. Once the full sync is ingested by the management plane any",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "subsequent updates let's say a VM moving from one host to another host a new nick getting added they would just come in as delta updates. So just a standard three-step FSM. You establish connection, you have full sync followed by delta sync. And anytime the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "connection gets interrupted, you just go uh you you go in circle. And of course at scale this failed because what would happen is if management plane restarts it would establish connection with all the servers. All the servers would",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "immediately start sending over their full sync data. The management plane would get overloaded. It would crash and it would again restart. It would again establish the connection. So it would just get caught in this sync storm and",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "it would take quite a bit of time for things to stabilize. So that's when we knew that we need some form of a flow control which brought in the third evolution which was the sync handshake stage. In this stage the servers on connecting to the management",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "plane instead of sending over their entire data they would just check in with the management plane on if they could send their data. So the workflow started looking something like this. Servers would send a sync request. The management plane would evaluate the",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "system load it was under. If it was under too much load, it would just say that, hey, I'm not ready. The servers would back off again. They would send a sync request again. This time around, if the management plane thinks that, hey,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "it will be able to ingest this newly coming data. It would send a sync ready message. That's when the servers would consolidate the entire data and send over the full sync data. So it turns out that the idea of having flow control through",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "a sync handshake stage was the correct idea. However, the implementation uh needed hardening because what would happen is we had not really handled the thundering herd just yet. When let's say 10 servers were sending over their full",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "sync data, all the other servers would just keep on checking with the management plane asking hey can we sync our data? Can we sync our data and all of this noise was just just needless. We we could we could reduce it. Another",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "thing was let's just say on on the same lines if there was a server 11 who was not served because the management plane was loaded what would happen is it would back off and then there would be other servers who would come in ahead of it",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "and it they would be served first. So the system was inherently unfair and especially if you had a crash loop backing servers which would just crash and come back and connect and ask to be synced they would hog over and not allow",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "some of the healthy ones to to proceed. So we we decided that the flow control should be in the management plane's hand and not uh reside with the server. So the management plane what it would do is it would record the first sync request.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Uh it would put that that particular server in the queue. So all the servers would have a fixed place in the queue and they would be served in a first come first-s serve basis. This system was uh inherently fair and served us well.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "One more thing that we did is we carefully reooked all our config parameters. We decided to take a look at all the timeout values, all the strategies and that helped us immensely. We we we used uh real measurements for that.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "And what we realized is if we have a scale of uh uh thousand VMs and thousand servers and so having 100 VMs on an average then we have a lot of config parameters. Here I have just shown five of them. All these config parameters are",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "closely related to each other or derived from each other and we know the why behind them. So for example what we realized is when given a scale of thousand servers and 100 VMs on an average we are able to handle 50 parallel syncs uh parallel sync so our",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "batch size was 50 host at the same time we realized that if some of the host initially were VMheavy uh then we we could only handle a batch of 124 uh,024 VMs. So whichever whichever number is hit first that would be our batch size. We arrived at this",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "number by memory profiling our inventory service. Uh and that's when we knew that hey this is a good enough scale given just 1 GB of memory. What we realized is it takes roughly 60 seconds for us to handle all the incoming full sync data",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "from one such batch. And if you just do the math then uh when you have thousand thousand host and you serve 50 host in in 1 minute then it would the Q drain time in total would be 20 minutes. So any workflow which existed on the host",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "side it would consist of the timeout values would consist of more than 20 minutes because the workflows on the host side or the server side they know that in the worst case scenario it can take up to 20 minutes for my data to",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "show up on the management plane and me to get some subsequent policies for me to react that that's how we know that the timeout has to be more than 20 minutes again I had mentioned that we had one one spot in uh for for every",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "server in the queue. But let's just say that one of those servers it was a crash looping server and it was not able to fully sync its data. Then after five failed attempts we would quarantine it for an hour and allow all the healthy",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "servers to move through. And we discovered all of these all of these nuances after carefully looking at our config parameters. So tomorrow if if we have to support twice the scale with 50% more memory footprint, we exactly know how to batch",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "things in the worst case scenario. How long will it take for our data to be eventually consistent and us to have an accurate accurate uh state of the inventory on the management plane side? That's the level of confidence we",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "develop when we really dive deep into our numbers. With all these improvements, now the sync hand stage started looking a bit like this wherein the servers after a persistent connection is established, they would send a sync request. The",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "management plane because it was seeing the sync request for the first time, it would add that request to the queue. Then there would be a fixed backoff delay of 20 minutes based on the explanation I gave in the previous slide",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "and it would again send a sync request. At this time around this request was not even added to the queue because the management plane already had it. It just had not come to process it. Once the management plane would dq the request",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "belonging to that server, it would send a sync request accepted to the server. So now it was the management plane controlling the flow. The that's when the server would consolidate the entire data and send the entire data as part of",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "full sync. So this particular change in the sync handshake stage helped us get a very good control over the incoming herd and we had in some ways managed our herd. But then we realized something more. Although we had managed our herd even at",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "times even when the system was not loaded it would happen that the data is take that it is taking 20 minutes for the data to be eventually consistent on management plane side and it was very hard to explain why that was happening.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So that's when we realized that hey when the management plane is coming up the messaging layer is getting initialized first while the inventory service is still getting initialized at times. So what would happen is earlier we the",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "connection would be established but the first sync request which was getting sent there was no one to really process it. So that that sync request would go unanswered because the inventory service was still getting initialized. And then",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "by the time the 20 minutes occur and the second uh second sync request comes in at that time of course the inventory service was up healthy and it could process all the data and it would take 20 minutes for the data to be consistent. So that's when we realized",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "that hey just because we are connected doesn't mean that the inventory service is ready. We have to aggressively check for the readiness of the service itself. So we came up with an app in it stage wherein the servers on connecting with",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "the management plane they would aggressively check whether the backend application which was the inventory service was ready or not and it would check uh like the the maximum uh time out in it was 5 minutes. So we would know within 5 minutes whether an",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "application was ready or not and then the data would become eventually consistent. So adding this app in it stage it helped us in average case get the time to become eventually consistent down to 5 minutes rather than it being 20 minutes.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So this was our robust sync protocol. It evolved from a standard knives sync sol protocol of three steps into a fivest step uh five-step protocol. First we used to establish connection then we would check whether the applications are",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "truly ready. If the application is ready then we would have a flow control stage through a sync handshake and that's when we would send over full sync data. uh and then the protocol would remain in the delta sync stage wherein only the delta updates were sent",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "and these are the payoffs of moving to this particular five-stage model. So first is it is battle hardened the protocol it just didn't come overnight. It evolved over two years of uh real production encounters and solving for",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "edge cases. But ever since ever since we have moved here we have had zero escalations in production. Also over the years our scale has increased four times. Uh we just need to tune the parameters the central protocol it has",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "remained the same. Also as our scale has increased uh one one reason for the increase in scale is we started supporting new inventory types and the protocol it just works fine. Uh we have also replaced tier one servers with",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "similar logical entities and things just seem to be working fine. And above all the protocol is self-healing because as long as we know that systems come back healthy. We know that the data that you're going to see in the management",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "plane is going to be accurate and it is eventually going to converge. These were some of the lessons that we learned along the way. First was that distributed systems have layers and uh these layers the startup sequence is",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "different for for different layers. So one shouldn't conflate two because that's when you have a lot of silent failures. In our in our case it was that we had to re we had to separate out transport layer readiness from application readiness that helped us",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "become eventually consistent faster. Then as I mentioned earlier we know the why behind every config parameters of ours because if you don't know why a timeout value is set to a certain number you don't truly own that particular",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "timeout value. Also you have to design for the worst minute not the average hour. That's because the resiliency of your system is truly tested in that one minute when the world is trying to connect to you and it also builds your",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "the reputation of your the software that you you build you will be judged on on that one minute instead of the whole hour. That's that's the unfortunate reality. Another point is fairness is not free. Uh systems are unfair by default. You have lot of time bad",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "behavior being served served first while patience uh is usually punished. So if you want to create uh fair systems, you have to explicitly design for it. In our situation, it was that the loudest clients, the broken clients were winning",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "over the healthy ones. And we had to design for it. And as I have mentioned, we have increased our sky our scale four four times now. And only thing we had to do is just take a look at our config parameters again tweak them to match the",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "new realities, new resources. We have new SLAs we have promised and we have not really touched the protocol any time over the past few years. So these principles these principles helped us get to a robust inventory sync service when we had to support 100,000",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "workloads with just 1 GB of memory and there was no way for us to scale. Thank you everyone. Uh I'll open it up for questions.",
+      "start": 528,
+      "duration": 6
+    }
+  ]
+}

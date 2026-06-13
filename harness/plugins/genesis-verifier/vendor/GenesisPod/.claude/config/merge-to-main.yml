@@ -1,0 +1,153 @@
+# Merge to Main Agent Configuration
+# 代码合并策略和 CI/CD 监控配置
+
+# 合并配置
+merge:
+  # 允许的目标分支
+  allowed_targets:
+    - develop
+    - main
+
+  # 合并策略: no-ff (保留分支历史) | ff-only | squash
+  strategy: no-ff
+
+  # PR 审核要求
+  require_review:
+    develop: false # develop 分支不强制 PR 审核
+    main: true # main 分支必须经过 PR 审核
+
+  # 合并消息模板
+  message_template: "Merge {source} into {target}"
+
+# 预合并验证
+pre_merge:
+  enabled: true
+  checks:
+    # Git 状态检查
+    - name: git_status
+      enabled: true
+      fail_on: uncommitted_changes
+
+    # 提交信息格式（Conventional Commits）
+    - name: commit_message
+      enabled: true
+      pattern: "^(feat|fix|docs|style|refactor|test|chore)(\\(.+\\))?: .{1,72}$"
+
+    # 代码 Lint
+    - name: lint
+      enabled: true
+      command: "npm run lint"
+      timeout: 120000 # 2 分钟
+
+    # TypeScript 类型检查
+    - name: type_check
+      enabled: true
+      command: "npm run type-check"
+      timeout: 90000 # 1.5 分钟
+
+    # 单元测试
+    - name: unit_test
+      enabled: true
+      command: "npm run test:quick"
+      timeout: 300000 # 5 分钟
+
+    # 敏感信息扫描
+    - name: secret_scan
+      enabled: true
+      patterns:
+        - "password\\s*="
+        - "api_key\\s*="
+        - "secret\\s*="
+        - "token\\s*="
+
+# CI/CD 监控
+ci_monitoring:
+  enabled: true
+
+  # GitHub Actions 配置
+  github_actions:
+    workflow: ci.yml
+    required_jobs:
+      - quality-check
+      - backend-test
+      - frontend-test
+      - build
+
+  # 超时设置（秒）
+  timeout:
+    quality_check: 300 # 5 分钟
+    backend_test: 600 # 10 分钟
+    frontend_test: 600 # 10 分钟
+    build: 600 # 10 分钟
+    total: 1800 # 30 分钟总超时
+
+  # 轮询间隔（秒）
+  poll_interval: 30
+
+# 回滚策略
+rollback:
+  # 自动回滚（CI 失败时）
+  auto_rollback: true
+
+  # 回滚方法: revert (保留历史) | reset (删除历史，危险)
+  method: revert
+
+  # 回滚消息模板
+  message_template: "Revert: CI failed for merge {commit}"
+
+  # 通知配置
+  notification:
+    enabled: false
+    # slack_webhook: "https://hooks.slack.com/..."
+    # email:
+    #   enabled: true
+    #   recipients:
+    #     - "team@example.com"
+
+# 安全配置
+security:
+  # 扫描敏感信息
+  scan_secrets: true
+
+  # 禁止提交的文件模式
+  forbidden_files:
+    - "*.env"
+    - "*.env.*"
+    - "*.pem"
+    - "*.key"
+    - "credentials.json"
+    - "**/secrets/**"
+
+  # 强制推送保护
+  block_force_push:
+    develop: true
+    main: true
+
+# 审计日志
+audit:
+  enabled: true
+  log_file: ".claude/logs/merge-audit.jsonl"
+
+  # 记录的事件
+  events:
+    - merge_started
+    - merge_completed
+    - merge_failed
+    - rollback_triggered
+    - rollback_completed
+
+# 分支保护
+branch_protection:
+  develop:
+    require_up_to_date: true
+    require_tests_pass: true
+  main:
+    require_up_to_date: true
+    require_tests_pass: true
+    require_review: true
+    require_signed_commits: false
+
+---
+# 版本: 1.0
+# 最后更新: 2025-01-15
+# 维护者: DevOps Team

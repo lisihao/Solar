@@ -1,0 +1,52 @@
+# Journey: Create Topic via AI Insights
+id: ai-insights-create-topic
+tier: critical
+auth: session
+description: "Create a new research topic from the AI Insights dashboard"
+
+steps:
+  # ─── 1. Navigate to Dashboard ───
+  - navigate: /ai-insights
+  - wait: "h1, h2"
+  - screenshot: "insights-dashboard"
+
+  # ─── 2. Open Create Dialog ───
+  - click: "button:has-text('Create'), button:has-text('新建'), button:has(svg.lucide-plus)"
+  - wait: "[role='dialog']"
+  - screenshot: "create-dialog"
+  - assert:
+      - element_visible: "[role='dialog']"
+      - element_visible: "input, textarea"
+
+  # ─── 3. Fill Form ───
+  - fill:
+      "input[name='name'], input[placeholder*='topic'], input[placeholder*='主题']": "[E2E-TEST] Auto Topic"
+  - wait: 500
+
+  # ─── 4. Select Type (if present) ───
+  - click_if_exists: "button:has-text('TECHNOLOGY'), button:has-text('技术')"
+
+  # ─── 5. Submit ───
+  - click: "button[type='submit'], button:has-text('Create'), button:has-text('创建')"
+  - wait: 5000
+  - screenshot: "after-create"
+
+  # ─── 6. Verify ───
+  - assert:
+      - any_of:
+          - url_contains: "/ai-insights/topic/"
+          - text_visible: "[E2E-TEST] Auto Topic"
+        message: "Should navigate to topic detail or show in list"
+      - text_not_contains: "Error"
+      - text_not_contains: "Failed"
+
+  # ─── 7. Cleanup ───
+  - cleanup:
+      note: "Delete any [E2E-TEST] prefixed topics after test via API"
+      api: "DELETE /api/v1/topic-insights/topics/{created_id}"
+
+summary:
+  pass_criteria:
+    - "Create dialog opens"
+    - "Form submission succeeds"
+    - "Topic appears in list or redirects to detail"

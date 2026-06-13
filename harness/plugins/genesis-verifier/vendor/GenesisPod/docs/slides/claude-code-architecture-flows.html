@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code 源码架构 - 关键流程图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #7ee787;
+    --accent3: #d2a8ff;
+    --accent4: #ffa657;
+    --accent5: #ff7b72;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 60px 20px 40px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header h1 {
+    font-size: 2.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent3));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+  }
+  .header p {
+    color: var(--text-muted);
+    font-size: 1.15rem;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  /* Navigation */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13, 17, 23, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .nav a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(88, 166, 255, 0.08);
+  }
+
+  /* Sections */
+  .section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 60px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section:last-child { border-bottom: none; }
+  .section h2 {
+    font-size: 1.8rem;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section h2 .badge {
+    font-size: 0.7rem;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-core { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+  .badge-tool { background: rgba(126, 231, 135, 0.15); color: var(--accent2); }
+  .badge-perm { background: rgba(210, 168, 255, 0.15); color: var(--accent3); }
+  .badge-ctx  { background: rgba(255, 166, 87, 0.15); color: var(--accent4); }
+  .badge-ext  { background: rgba(255, 123, 114, 0.15); color: var(--accent5); }
+
+  .section .desc {
+    color: var(--text-muted);
+    margin-bottom: 28px;
+    font-size: 0.95rem;
+    max-width: 800px;
+  }
+
+  /* Diagram container */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    overflow-x: auto;
+    margin-bottom: 20px;
+  }
+  .diagram .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Key files table */
+  .files {
+    margin-top: 16px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+  .files code {
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+
+  /* Stats footer */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 24px 60px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-card .num {
+    font-size: 2rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stat-card .label {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-top: 4px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .header h1 { font-size: 1.8rem; }
+    .section { padding: 40px 16px; }
+    .section h2 { font-size: 1.4rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Claude Code Architecture Flows</h1>
+  <p>基于 claude-code-build/src/ 源码分析的 8 组关键流程图<br>1,966 files | 1,364 TS + 552 TSX | ~120K LOC</p>
+</div>
+
+<nav class="nav">
+  <a href="#flow1">1. 总体架构</a>
+  <a href="#flow2">2. 启动流程</a>
+  <a href="#flow3">3. 查询循环</a>
+  <a href="#flow4">4. 工具编排</a>
+  <a href="#flow5">5. 流式工具执行器</a>
+  <a href="#flow6">6. 权限决策</a>
+  <a href="#flow7">7. Hook 系统</a>
+  <a href="#flow8">8. 上下文压缩</a>
+</nav>
+
+<!-- ============================================================ -->
+<!-- Flow 1: Overall Architecture -->
+<!-- ============================================================ -->
+<div class="section" id="flow1">
+  <h2>1. 总体架构分层 <span class="badge badge-core">CORE</span></h2>
+  <p class="desc">Claude Code 采用 6 层架构：入口层 → 状态层 → UI 层 → 查询引擎层 → 服务层 → 工具层。全链路流式（AsyncGenerator），数据从 API 流到 UI 无阻塞。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+graph TB
+  subgraph L1["<b>L1 Entry & Bootstrap</b>"]
+    MAIN["main.tsx<br/><i>4683 行 · CLI 入口</i>"]
+    INIT["entrypoints/init.ts<br/><i>初始化 telemetry/auth/config</i>"]
+    STATE["bootstrap/state.ts<br/><i>全局状态容器</i>"]
+  end
+
+  subgraph L2["<b>L2 UI Layer (React/Ink)</b>"]
+    REPL["screens/REPL.tsx<br/><i>终端 REPL 主界面</i>"]
+    COMP["components/**<br/><i>消息渲染/权限对话框/进度</i>"]
+    INK["ink/**<br/><i>终端布局引擎</i>"]
+  end
+
+  subgraph L3["<b>L3 Query Engine</b>"]
+    QUERY["query.ts<br/><i>1729 行 · 对话轮次循环</i>"]
+    CONFIG["query/config.ts<br/><i>构建查询配置</i>"]
+    BUDGET["query/tokenBudget.ts<br/><i>Token 预算追踪</i>"]
+  end
+
+  subgraph L4["<b>L4 Service Layer</b>"]
+    API["services/api/claude.ts<br/><i>Anthropic API 流式调用</i>"]
+    COMPACT["services/compact/**<br/><i>上下文压缩 (auto/reactive/snip)</i>"]
+    MCP["services/mcp/**<br/><i>MCP Server 管理</i>"]
+    HOOKS["services/tools/toolHooks.ts<br/><i>Hook 执行引擎</i>"]
+    ANALYTICS["services/analytics/**<br/><i>遥测 & GrowthBook</i>"]
+  end
+
+  subgraph L5["<b>L5 Tool Layer</b>"]
+    TOOL_DEF["Tool.ts<br/><i>792 行 · 工具协议定义</i>"]
+    ORCH["services/tools/toolOrchestration.ts<br/><i>工具批处理编排</i>"]
+    EXEC["services/tools/toolExecution.ts<br/><i>单工具执行 + Hook</i>"]
+    STREAM["services/tools/StreamingToolExecutor.ts<br/><i>流式工具执行器</i>"]
+  end
+
+  subgraph L6["<b>L6 Extensions</b>"]
+    PLUGINS["plugins/**<br/><i>插件系统</i>"]
+    SKILLS["skills/**<br/><i>技能系统</i>"]
+    TASKS["tasks/**<br/><i>子 Agent/后台任务</i>"]
+    COMMANDS["commands/**<br/><i>80+ CLI 命令</i>"]
+  end
+
+  MAIN --> INIT --> STATE
+  STATE --> REPL
+  REPL --> QUERY
+  QUERY --> API
+  QUERY --> COMPACT
+  QUERY --> STREAM
+  STREAM --> ORCH
+  ORCH --> EXEC
+  EXEC --> HOOKS
+  EXEC --> TOOL_DEF
+  REPL --> COMP
+  COMP --> INK
+  QUERY --> BUDGET
+  QUERY --> CONFIG
+  PLUGINS --> SKILLS
+  PLUGINS --> COMMANDS
+  TASKS -.-> QUERY
+
+  classDef l1 fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  classDef l2 fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  classDef l3 fill:#231a2e,stroke:#d2a8ff,stroke-width:2px,color:#e6edf3
+  classDef l4 fill:#2a2218,stroke:#ffa657,stroke-width:2px,color:#e6edf3
+  classDef l5 fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+  classDef l6 fill:#1a2222,stroke:#79c0ff,stroke-width:2px,color:#e6edf3
+
+  class MAIN,INIT,STATE l1
+  class REPL,COMP,INK l2
+  class QUERY,CONFIG,BUDGET l3
+  class API,COMPACT,MCP,HOOKS,ANALYTICS l4
+  class TOOL_DEF,ORCH,EXEC,STREAM l5
+  class PLUGINS,SKILLS,TASKS,COMMANDS l6
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>main.tsx</code> <code>query.ts</code> <code>Tool.ts</code> <code>screens/REPL.tsx</code> <code>services/api/claude.ts</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 2: Startup -->
+<!-- ============================================================ -->
+<div class="section" id="flow2">
+  <h2>2. 启动流程 <span class="badge badge-core">CORE</span></h2>
+  <p class="desc">启动优化是 Claude Code 的亮点：MDM 子进程、Keychain 预取、GrowthBook 初始化全部并行执行，节省 ~100ms。Feature flag 在编译时消除死代码。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  START(["npm run claude / claude CLI"]) --> ENTRY["main.tsx 模块求值"]
+
+  ENTRY --> PAR1["<b>并行启动 Side Effects</b>"]
+
+  PAR1 --> SE1["profileCheckpoint<br/><i>标记启动时间</i>"]
+  PAR1 --> SE2["startMdmRawRead<br/><i>MDM 子进程 (plutil/reg)</i>"]
+  PAR1 --> SE3["startKeychainPrefetch<br/><i>macOS Keychain 并行读取</i>"]
+
+  SE1 & SE2 & SE3 --> IMPORTS["重量级 import 加载<br/><i>~135ms, Commander/React/Ink/...</i>"]
+
+  IMPORTS --> FEATURE{"feature() 编译时<br/>Feature Flag 判定"}
+  FEATURE -->|BRIDGE_MODE| BRIDGE["加载 Bridge 模块"]
+  FEATURE -->|COORDINATOR_MODE| COORD["加载 Coordinator"]
+  FEATURE -->|KAIROS| KAIROS["加载 Assistant"]
+  FEATURE -->|标准模式| STD["标准 CLI 模式"]
+
+  STD --> INIT_PHASE["<b>初始化阶段</b>"]
+  INIT_PHASE --> I1["init() — Telemetry/Auth/Config"]
+  INIT_PHASE --> I2["initializeGrowthBook() — 实验配置"]
+  INIT_PHASE --> I3["loadPolicyLimits() — 策略限制"]
+  INIT_PHASE --> I4["initBuiltinPlugins() — 内置插件"]
+  INIT_PHASE --> I5["initBundledSkills() — 内置技能"]
+
+  I1 & I2 & I3 & I4 & I5 --> AUTH{"认证检查"}
+  AUTH -->|已登录| TRUST{"Trust Dialog<br/>已接受?"}
+  AUTH -->|未登录| LOGIN["OAuth 登录流程"]
+  LOGIN --> TRUST
+
+  TRUST -->|是| CONTEXT["构建上下文"]
+  TRUST -->|否| TRUST_DLG["显示 Trust Dialog"]
+  TRUST_DLG --> CONTEXT
+
+  CONTEXT --> CTX1["getSystemContext() — git status/branch"]
+  CONTEXT --> CTX2["getUserContext() — CLAUDE.md/memory"]
+  CONTEXT --> CTX3["getTools() — 注册 40+ 工具"]
+  CONTEXT --> CTX4["getCommands() — 注册 80+ 命令"]
+
+  CTX1 & CTX2 & CTX3 & CTX4 --> LAUNCH["launchRepl()"]
+  LAUNCH --> REPL(["REPL 交互循环开始"])
+
+  style START fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  style REPL fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style PAR1 fill:#2a2218,stroke:#ffa657,stroke-width:2px,color:#e6edf3
+  style INIT_PHASE fill:#231a2e,stroke:#d2a8ff,stroke-width:2px,color:#e6edf3
+  style FEATURE fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>main.tsx:1-120</code> <code>entrypoints/init.ts</code> <code>context.ts</code> <code>tools.ts</code> <code>commands.ts</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 3: Query Loop -->
+<!-- ============================================================ -->
+<div class="section" id="flow3">
+  <h2>3. 查询循环 (Query Loop) <span class="badge badge-core">CORE</span></h2>
+  <p class="desc">query.ts 是整个系统的心脏。每轮对话经过：预算检查 → 压缩 → API 流式调用 → 工具执行 → 恢复/继续。全部用 AsyncGenerator 实现流式背压。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  USER_INPUT(["用户输入"]) --> QUERY_ENTRY["query() 入口<br/><i>AsyncGenerator</i>"]
+
+  QUERY_ENTRY --> LOOP_START{"while(true) 循环"}
+
+  LOOP_START --> PREFETCH["并行预取<br/>• Memory relevance<br/>• Skill discovery"]
+
+  PREFETCH --> BUDGET_APPLY["applyToolResultBudget()<br/><i>裁剪过大的工具结果</i>"]
+
+  BUDGET_APPLY --> SNIP{"HISTORY_SNIP<br/>feature flag?"}
+  SNIP -->|Yes| SNIP_COMPACT["snipCompactIfNeeded()<br/><i>裁剪历史消息</i>"]
+  SNIP -->|No| MC
+  SNIP_COMPACT --> MC
+
+  MC["microcompact()<br/><i>即时裁剪旧消息对</i>"]
+  MC --> COLLAPSE{"CONTEXT_COLLAPSE<br/>feature flag?"}
+  COLLAPSE -->|Yes| CTX_COLLAPSE["applyCollapsesIfNeeded()<br/><i>上下文折叠</i>"]
+  COLLAPSE -->|No| AC
+  CTX_COLLAPSE --> AC
+
+  AC["autocompact()<br/><i>完整上下文压缩</i>"]
+  AC --> BLOCKING{"Token 达到<br/>阻塞限制?"}
+  BLOCKING -->|Yes| BLOCK_ERR["yield 错误消息<br/>return 'blocking_limit'"]
+  BLOCKING -->|No| API_CALL
+
+  API_CALL["<b>deps.callModel() 流式 API 调用</b><br/><i>Anthropic Streaming API</i>"]
+
+  API_CALL --> STREAM_LOOP{"for await 流式消息"}
+
+  STREAM_LOOP -->|AssistantMessage| YIELD_MSG["yield message → UI"]
+  STREAM_LOOP -->|含 tool_use| ADD_TOOL["streamingToolExecutor.addTool()"]
+  STREAM_LOOP -->|流式降级| FALLBACK["discard() + 切换模型 + 重试"]
+
+  ADD_TOOL --> CHECK_RESULTS["getCompletedResults()<br/><i>检查已完成的工具</i>"]
+  CHECK_RESULTS --> YIELD_RESULT["yield toolResult → UI"]
+  YIELD_MSG --> STREAM_LOOP
+  YIELD_RESULT --> STREAM_LOOP
+
+  STREAM_LOOP -->|流结束| POST_STREAM
+
+  POST_STREAM{"needsFollowUp?<br/><i>有 tool_use block?</i>"}
+
+  POST_STREAM -->|No, 无工具调用| STOP_CHECK{"StopHook<br/>检查"}
+  STOP_CHECK -->|通过| TERMINAL(["return Terminal<br/><i>轮次结束</i>"])
+  STOP_CHECK -->|拒绝| INJECT_MSG["注入 stop hook 消息"] --> LOOP_START
+
+  POST_STREAM -->|Yes, 有工具| RUN_TOOLS
+
+  RUN_TOOLS["<b>非流式路径: runTools()</b><br/><i>或继续收集流式结果</i>"]
+  RUN_TOOLS --> COLLECT["收集 tool_results<br/>更新 toolUseContext"]
+
+  COLLECT --> ATTACHMENTS["getAttachmentMessages()<br/><i>Memory/Skill 附件</i>"]
+  ATTACHMENTS --> TOKEN_CHECK{"Token 预算<br/>检查"}
+
+  TOKEN_CHECK -->|超限| BUDGET_TERMINAL(["return 'token_budget'"])
+  TOKEN_CHECK -->|正常| TURN_CHECK{"maxTurns<br/>限制?"}
+  TURN_CHECK -->|超限| TURN_TERMINAL(["return 'max_turns'"])
+  TURN_CHECK -->|正常| UPDATE_STATE["更新 state.messages<br/>state.turnCount++"]
+  UPDATE_STATE --> LOOP_START
+
+  FALLBACK --> STREAM_LOOP
+
+  style USER_INPUT fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  style TERMINAL fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style BUDGET_TERMINAL fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style TURN_TERMINAL fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style API_CALL fill:#231a2e,stroke:#d2a8ff,stroke-width:2px,color:#e6edf3
+  style RUN_TOOLS fill:#2a2218,stroke:#ffa657,stroke-width:2px,color:#e6edf3
+  style BLOCK_ERR fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>query.ts:219-1729</code> <code>query/config.ts</code> <code>query/tokenBudget.ts</code> <code>query/stopHooks.ts</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 4: Tool Orchestration -->
+<!-- ============================================================ -->
+<div class="section" id="flow4">
+  <h2>4. 工具编排 (Tool Orchestration) <span class="badge badge-tool">TOOL</span></h2>
+  <p class="desc">工具调用按 isConcurrencySafe 分区：并发安全的工具同批并行（最多 10 并发），非安全的串行执行。Context modifier 在批次结束后按序应用。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  INPUT(["ToolUseBlock[]<br/><i>来自 API 响应的工具调用</i>"]) --> PARTITION
+
+  PARTITION["<b>partitionToolCalls()</b><br/><i>按 isConcurrencySafe 分区</i>"]
+
+  PARTITION --> BATCH_EX["遍历每个 Batch"]
+
+  BATCH_EX --> IS_SAFE{"batch.isConcurrencySafe?"}
+
+  IS_SAFE -->|Yes 并发安全| CONCURRENT["<b>runToolsConcurrently()</b>"]
+  IS_SAFE -->|No 非并发安全| SERIAL["<b>runToolsSerially()</b>"]
+
+  subgraph CONC["并发执行"]
+    CONCURRENT --> ALL["all() 并发生成器<br/><i>最大并发 = 10</i>"]
+    ALL --> T1["Tool A<br/><i>Read</i>"]
+    ALL --> T2["Tool B<br/><i>Grep</i>"]
+    ALL --> T3["Tool C<br/><i>Glob</i>"]
+    T1 & T2 & T3 --> QUEUE_MOD["队列 contextModifiers<br/><i>不立即应用</i>"]
+    QUEUE_MOD --> APPLY_MOD["<b>按工具顺序应用 modifier</b><br/><i>保证确定性</i>"]
+  end
+
+  subgraph SER["串行执行"]
+    SERIAL --> S1["Tool X<br/><i>Bash (非只读)</i>"]
+    S1 --> APPLY_IMM["立即应用 contextModifier"]
+    APPLY_IMM --> S2["Tool Y<br/><i>FileEdit</i>"]
+    S2 --> APPLY_IMM2["立即应用 contextModifier"]
+  end
+
+  APPLY_MOD --> YIELD_CTX["yield { newContext }"]
+  APPLY_IMM2 --> YIELD_CTX
+
+  YIELD_CTX --> NEXT{"还有下一个 batch?"}
+  NEXT -->|Yes| BATCH_EX
+  NEXT -->|No| DONE(["编排完成"])
+
+  style INPUT fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  style DONE fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style PARTITION fill:#231a2e,stroke:#d2a8ff,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph example["分区示例: 5 个工具调用"]
+    direction TB
+    E1["Read ✓"] --> E2["Grep ✓"] --> E3["Bash ✗"] --> E4["Read ✓"] --> E5["Edit ✗"]
+
+    B1["Batch 1<br/><b>并发</b><br/>Read + Grep"]
+    B2["Batch 2<br/><b>串行</b><br/>Bash"]
+    B3["Batch 3<br/><b>并发</b><br/>Read"]
+    B4["Batch 4<br/><b>串行</b><br/>Edit"]
+
+    E1 -.-> B1
+    E2 -.-> B1
+    E3 -.-> B2
+    E4 -.-> B3
+    E5 -.-> B4
+  end
+
+  style B1 fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style B2 fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+  style B3 fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style B4 fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>services/tools/toolOrchestration.ts</code> (189 行，核心算法)
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 5: Streaming Tool Executor -->
+<!-- ============================================================ -->
+<div class="section" id="flow5">
+  <h2>5. 流式工具执行器 (StreamingToolExecutor) <span class="badge badge-tool">TOOL</span></h2>
+  <p class="desc">在 API 流式返回的同时执行工具。工具在 tool_use block 到达时立即入队执行，结果按接收顺序输出（不按完成顺序），Progress 消息实时推送。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+sequenceDiagram
+  participant API as Anthropic API<br/>(Streaming)
+  participant STE as StreamingToolExecutor
+  participant TOOL as Tool Execution
+  participant UI as REPL UI
+
+  Note over API,UI: API 流式返回 + 工具并行执行
+
+  API->>STE: stream: AssistantMessage (text)
+  STE->>UI: yield message
+
+  API->>STE: stream: tool_use block A (Read)
+  STE->>STE: addTool(A) → status: queued
+  STE->>STE: tryStartNext() → A concurrencySafe
+  STE->>TOOL: execute A (async)
+  Note over STE: A status: executing
+
+  API->>STE: stream: tool_use block B (Grep)
+  STE->>STE: addTool(B) → status: queued
+  STE->>STE: tryStartNext() → B concurrencySafe
+  STE->>TOOL: execute B (async, parallel)
+
+  API->>STE: stream: tool_use block C (Bash)
+  STE->>STE: addTool(C) → status: queued
+  STE->>STE: tryStartNext() → C NOT safe, wait
+
+  TOOL-->>STE: A progress update
+  STE->>UI: yield progress (immediate)
+
+  TOOL-->>STE: A complete → results buffered
+  Note over STE: A status: completed
+
+  STE->>STE: getCompletedResults()
+  STE->>UI: yield A results (in order)
+  Note over STE: A status: yielded
+
+  TOOL-->>STE: B complete
+  STE->>UI: yield B results
+  Note over STE: B status: yielded
+
+  STE->>STE: tryStartNext() → C can start now
+  STE->>TOOL: execute C (exclusive)
+
+  API->>STE: stream ends
+  Note over STE: getRemainingResults()
+
+  TOOL-->>STE: C complete
+  STE->>UI: yield C results
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+stateDiagram-v2
+  [*] --> queued: addTool()
+  queued --> executing: tryStartNext()
+  executing --> completed: 执行完成
+  completed --> yielded: getCompletedResults()
+  yielded --> [*]
+
+  executing --> completed: 错误 (synthetic error)
+  queued --> completed: discard() / abort
+
+  note right of queued: 等待前方非并发工具完成
+  note right of executing: 并发安全工具可并行
+  note right of completed: 结果缓存, 等待按序输出
+  note right of yielded: 已推送到 UI
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>services/tools/StreamingToolExecutor.ts</code> · 状态机: queued → executing → completed → yielded
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 6: Permission System -->
+<!-- ============================================================ -->
+<div class="section" id="flow6">
+  <h2>6. 权限决策链 (Permission Decision) <span class="badge badge-perm">PERMISSION</span></h2>
+  <p class="desc">多层权限判定：工具自检 → 规则匹配 → PreToolUse Hook → 推测分类器 → 用户确认。每层可 allow/deny/ask，短路返回。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  TOOL_CALL(["模型请求调用工具<br/><i>tool_use block</i>"]) --> VALIDATE
+
+  VALIDATE["<b>1. Tool.validateInput()</b><br/><i>Zod schema 校验</i>"]
+  VALIDATE -->|失败| DENY_INVALID["deny: 输入无效"]
+  VALIDATE -->|通过| CHECK_PERM
+
+  CHECK_PERM["<b>2. Tool.checkPermissions()</b><br/><i>工具级权限逻辑</i>"]
+  CHECK_PERM -->|deny| DENY_TOOL["deny: 工具拒绝"]
+  CHECK_PERM -->|allow| ALLOW_TOOL
+  CHECK_PERM -->|ask| RULES
+
+  RULES["<b>3. 规则匹配</b><br/><i>alwaysAllowRules / alwaysDenyRules</i>"]
+  RULES -->|match deny| DENY_RULE["deny: 规则拒绝"]
+  RULES -->|match allow| ALLOW_RULE["allow: 规则放行"]
+  RULES -->|no match| HOOKS
+
+  HOOKS["<b>4. PreToolUse Hooks</b><br/><i>command/prompt/http/agent</i>"]
+  HOOKS -->|permissionDecision: deny| DENY_HOOK["deny: Hook 拒绝"]
+  HOOKS -->|permissionDecision: allow| ALLOW_HOOK["allow: Hook 放行"]
+  HOOKS -->|updatedInput| UPDATE["修改工具输入后继续"]
+  HOOKS -->|无决定| MODE
+
+  UPDATE --> MODE
+
+  MODE{"<b>5. 权限模式</b>"}
+  MODE -->|bypass| ALLOW_BYPASS["allow: bypass 模式"]
+  MODE -->|auto| CLASSIFIER["<b>6. 推测分类器</b><br/><i>后台安全评估</i>"]
+  MODE -->|default/plan| DIALOG
+
+  CLASSIFIER -->|safe| ALLOW_AUTO["allow: 分类器放行"]
+  CLASSIFIER -->|uncertain| DIALOG
+
+  DIALOG["<b>7. 用户确认对话框</b><br/><i>Allow / Deny / Always Allow</i>"]
+  DIALOG -->|Allow| ALLOW_USER["allow: 用户放行"]
+  DIALOG -->|Always Allow| SAVE_RULE["保存规则 + allow"]
+  DIALOG -->|Deny| DENY_USER["deny: 用户拒绝"]
+
+  ALLOW_TOOL & ALLOW_RULE & ALLOW_HOOK & ALLOW_BYPASS & ALLOW_AUTO & ALLOW_USER & SAVE_RULE --> EXECUTE(["执行工具"])
+  DENY_INVALID & DENY_TOOL & DENY_RULE & DENY_HOOK & DENY_USER --> REJECTED(["拒绝执行<br/><i>返回错误到模型</i>"])
+
+  style TOOL_CALL fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  style EXECUTE fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+  style REJECTED fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+  style MODE fill:#231a2e,stroke:#d2a8ff,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>services/tools/toolExecution.ts</code> <code>utils/permissions/</code> <code>hooks/useCanUseTool.ts</code> <code>tools/BashTool/bashPermissions.ts</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 7: Hook System -->
+<!-- ============================================================ -->
+<div class="section" id="flow7">
+  <h2>7. Hook 系统 <span class="badge badge-ext">EXTENSION</span></h2>
+  <p class="desc">11 种事件 × 4 种 Hook 类型的可编程扩展点。Hook 不只是回调——它可以修改工具输入/输出、注入上下文、阻断执行、甚至在后台异步运行并在失败时"唤醒"模型。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph events["<b>11 种 Hook 事件</b>"]
+    direction TB
+    E1["SessionStart"]
+    E2["UserPromptSubmit"]
+    E3["PreToolUse"]
+    E4["PostToolUse"]
+    E5["PostToolUseFailure"]
+    E6["PermissionRequest"]
+    E7["PermissionDenied"]
+    E8["CwdChanged"]
+    E9["FileChanged"]
+    E10["SubagentStart"]
+    E11["Notification"]
+  end
+
+  subgraph types["<b>4 种 Hook 实现</b>"]
+    direction TB
+    H1["command<br/><i>Shell 命令<br/>stdout → JSON</i>"]
+    H2["prompt<br/><i>LLM 评估<br/>小模型快速判断</i>"]
+    H3["http<br/><i>Webhook<br/>POST → JSON</i>"]
+    H4["agent<br/><i>子 Agent<br/>完整上下文验证</i>"]
+  end
+
+  subgraph response["<b>Hook 响应能力</b>"]
+    direction TB
+    R1["continue: false<br/><i>阻断执行</i>"]
+    R2["permissionDecision<br/><i>覆盖权限判定</i>"]
+    R3["updatedInput<br/><i>修改工具输入</i>"]
+    R4["updatedMCPToolOutput<br/><i>修改工具输出</i>"]
+    R5["additionalContext<br/><i>注入上下文消息</i>"]
+    R6["watchPaths<br/><i>监听文件变更</i>"]
+    R7["async: true<br/><i>后台运行</i>"]
+  end
+
+  events --> types --> response
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+sequenceDiagram
+  participant MODEL as Claude Model
+  participant EXEC as toolExecution
+  participant PRE as PreToolUse Hooks
+  participant TOOL as Tool.call()
+  participant POST as PostToolUse Hooks
+  participant FAIL as PostToolUseFailure
+
+  MODEL->>EXEC: tool_use { name, input }
+
+  EXEC->>PRE: runPreToolUseHooks()
+
+  alt Hook 返回 updatedInput
+    PRE-->>EXEC: { updatedInput: {...} }
+    Note over EXEC: 替换原始 input
+  end
+
+  alt Hook 返回阻断
+    PRE-->>EXEC: { continue: false }
+    EXEC-->>MODEL: tool_result (blocked)
+  end
+
+  alt Hook 返回 async
+    PRE-->>EXEC: { async: true }
+    Note over PRE: 后台继续运行
+    Note over EXEC: 不等待, 继续执行
+  end
+
+  PRE-->>EXEC: { continue: true }
+
+  EXEC->>TOOL: tool.call(input, context)
+
+  alt 执行成功
+    TOOL-->>EXEC: ToolResult
+    EXEC->>POST: runPostToolUseHooks()
+    POST-->>EXEC: { additionalContext? }
+    EXEC-->>MODEL: tool_result + context
+  end
+
+  alt 执行失败
+    TOOL-->>EXEC: Error
+    EXEC->>FAIL: runPostToolUseFailureHooks()
+    FAIL-->>EXEC: handled?
+    EXEC-->>MODEL: tool_result (error)
+  end
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>services/tools/toolHooks.ts</code> <code>schemas/hooks.ts</code> <code>types/hooks.ts</code> <code>utils/hooks.ts</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Flow 8: Context Compaction -->
+<!-- ============================================================ -->
+<div class="section" id="flow8">
+  <h2>8. 上下文压缩系统 <span class="badge badge-ctx">CONTEXT</span></h2>
+  <p class="desc">4 层压缩策略从轻到重依次触发：Snip → MicroCompact → Context Collapse → AutoCompact。还有 Reactive Compact 在 API 返回 413 时紧急恢复。</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  MSG(["消息队列<br/><i>messagesForQuery[]</i>"]) --> SNIP
+
+  subgraph L1_SNIP["<b>Layer 1: Snip Compact</b> (最轻)"]
+    SNIP{"HISTORY_SNIP<br/>enabled?"}
+    SNIP -->|Yes| SNIP_DO["snipCompactIfNeeded()<br/><i>裁剪最旧的消息段</i><br/><i>保留 tail 和 boundary</i>"]
+    SNIP -->|No| MC_START
+    SNIP_DO --> MC_START
+  end
+
+  subgraph L2_MC["<b>Layer 2: MicroCompact</b> (轻量)"]
+    MC_START["microcompact()"]
+    MC_START --> MC_CHECK{"上下文 > 90%?"}
+    MC_CHECK -->|No| COLLAPSE_START
+    MC_CHECK -->|Yes| MC_DO["删除最旧的 user→assistant 对<br/><i>透明执行, 不阻塞</i>"]
+    MC_DO --> COLLAPSE_START
+  end
+
+  subgraph L3_COLLAPSE["<b>Layer 3: Context Collapse</b> (中等)"]
+    COLLAPSE_START{"CONTEXT_COLLAPSE<br/>enabled?"}
+    COLLAPSE_START -->|Yes| COLLAPSE_DO["applyCollapsesIfNeeded()<br/><i>折叠老旧工具交互</i><br/><i>保留摘要, 删除细节</i>"]
+    COLLAPSE_START -->|No| AC_START
+    COLLAPSE_DO --> AC_START
+  end
+
+  subgraph L4_AC["<b>Layer 4: AutoCompact</b> (重量级)"]
+    AC_START["calculateTokenWarningState()"]
+    AC_START --> AC_CHECK{"tokens ><br/>threshold?"}
+    AC_CHECK -->|No| DONE(["继续 API 调用"])
+    AC_CHECK -->|Yes| AC_FAIL{"连续失败<br/>> 3 次?"}
+    AC_FAIL -->|Yes| AC_SKIP["跳过 (断路器)"]
+    AC_FAIL -->|No| AC_DO["compactConversation()<br/><i>LLM 生成全文摘要</i><br/><i>替换整个消息历史</i>"]
+    AC_DO --> AC_POST["buildPostCompactMessages()<br/>+ runPostCompactCleanup()"]
+    AC_POST --> DONE
+    AC_SKIP --> DONE
+  end
+
+  style MSG fill:#1a2332,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  style DONE fill:#1a2825,stroke:#7ee787,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+  subgraph REACTIVE["<b>Reactive Compact (紧急恢复)</b>"]
+    direction TB
+    API_ERR["API 返回 413<br/>prompt_too_long"] --> WITHHOLD["withhold 错误消息<br/><i>不立即 yield 到 UI</i>"]
+    WITHHOLD --> TRY_COLLAPSE{"有 staged<br/>collapses?"}
+    TRY_COLLAPSE -->|Yes| DRAIN["drain collapses<br/>重试 API"]
+    TRY_COLLAPSE -->|No| TRY_RC{"ReactiveCompact<br/>enabled?"}
+    TRY_RC -->|Yes| RC_DO["reactive compact<br/><i>紧急全量压缩</i><br/>重试 API"]
+    TRY_RC -->|No| SURFACE["surface 错误到 UI"]
+    DRAIN -->|仍然 413| TRY_RC
+    RC_DO -->|仍然 413| SURFACE
+  end
+
+  subgraph MAX_OUTPUT["<b>Max Output Tokens 恢复</b>"]
+    direction TB
+    MOT_ERR["API: max_output_tokens"] --> MOT_CHECK{"恢复次数<br/>< 3?"}
+    MOT_CHECK -->|Yes| MOT_DO["compact + 重试<br/><i>最多 3 次</i>"]
+    MOT_CHECK -->|No| MOT_FAIL["return 'max_output_recovery_failed'"]
+    MOT_DO --> MOT_RETRY["继续 query loop"]
+  end
+
+  style API_ERR fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+  style MOT_ERR fill:#2a1a1a,stroke:#ff7b72,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+  <div class="files">
+    核心文件: <code>services/compact/autoCompact.ts</code> <code>services/compact/compact.ts</code> <code>services/compact/reactiveCompact.ts</code> <code>services/compact/snipCompact.ts</code> <code>services/contextCollapse/</code>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Stats Footer -->
+<!-- ============================================================ -->
+<div class="stats">
+  <div class="stat-card">
+    <div class="num">1,966</div>
+    <div class="label">Total Files</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">40+</div>
+    <div class="label">Built-in Tools</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">80+</div>
+    <div class="label">CLI Commands</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">11</div>
+    <div class="label">Hook Event Types</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">4</div>
+    <div class="label">Compaction Layers</div>
+  </div>
+  <div class="stat-card">
+    <div class="num">6</div>
+    <div class="label">Architecture Layers</div>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#161b22',
+      primaryColor: '#1a2332',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#58a6ff',
+      lineColor: '#8b949e',
+      secondaryColor: '#1a2825',
+      tertiaryColor: '#231a2e',
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+      fontSize: '14px',
+      noteBkgColor: '#1a2332',
+      noteTextColor: '#e6edf3',
+      noteBorderColor: '#30363d',
+      actorBkg: '#1a2332',
+      actorTextColor: '#e6edf3',
+      actorBorder: '#58a6ff',
+      signalColor: '#8b949e',
+      labelBoxBkgColor: '#161b22',
+      labelBoxBorderColor: '#30363d',
+      labelTextColor: '#e6edf3',
+    },
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis',
+      padding: 15,
+    },
+    sequence: {
+      useMaxWidth: true,
+      actorMargin: 80,
+      mirrorActors: false,
+      messageMargin: 40,
+    },
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,699 @@
+{
+  "videoId": "QrrMyd6sPW4",
+  "title": "SREcon26 Americas - Autonomous Policy Validation: Building AI Agents to Analyze Logs and Identify...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 33081,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "All right, welcome everybody. Hope it's\nbeen a great conference so far.\nCertainly has been for me. Very\nenlightening talks uh across the board.\nUh so uh I'm going to try to chime in a\nlittle bit here. Not being an MLE uh but\nnot being an SR but an MLE uh maybe\nmaybe a little bit out of my depth here\nwith the technical details. Uh but like\nhopefully this is a uh useful\nconversation to have. All right. Uh real\nfast about us. My co-presenter Vina\nunfortunately couldn't make it. Uh she's\nout of London and the flight schedule\njust couldn't work out with passports\nand all that. Uh but she is a sweet here\non in central security. Uh who did bulk\nof the heavy lifting from an engineering\nperspective uh on this as well. So uh\nmoving on. So uh to start uh this is the\ntalk is going to be about like how do we\napply AI for log analysis and then we\nchose the UDAP or user data access\npolicy as a very specific use case uh in\nwhich you can provide some good\ngrounding around how you might use it to\nsolve real business problems. uh but\nthen the overall approach uh is not\nnecessarily limited to just the UDAP use\ncase uh which is our overall goal uh as\npart of this uh R&D effort uh over the\nlast uh couple month. Uh so we'll start\nwith the challenge uh of what the\nproblem we're really trying to solve uh\nand then our solution uh and the overall\nhigh level architecture uh the results\nuh from a both from a ML and practical\noutcomes perspective uh and what kind of\nlessons learned there might be uh as\nwell as like what are some of the next\nstep that we already have planned uh\nthat may some get some glimpse into the\nfuture.\nSo the problem um I think not\nnecessarily everybody here is familiar\nwith the concept of UDAP or uh UDAP\nviolations. So I'm going to kind of\nbriefly talk about that. It's uh\nessentially imagine a pol a policy in\nplace that your company may have uh that\nactually in this case meta uh basically\nsays yep we need to be extremely careful\nabout like accesses to user data. So uh\nany such violation uh will need to be\ncaught uh with basically 100% accuracy.\nUh and we have zero tolerance uh when it\ncomes to that. Uh and so a potential way\nin which this might manifest is a\nemployee John uh viewed the data 1 2 3 4\n5. Uh and some of the questions you may\nask of that particular event uh is okay\nwhat data was accessed? What was data 1\n2 3 D1 2 3 4 5 uh and why was this data\naccessed? Why would why did John did\nJohn have a legitimate reason to to need\nto actually access that data? uh and if\nnot that is something is considered as a\npolicy violation. So this is just kind\nof for a general grounding on what the\nproblem space look like uh that we\ngenerally want to answer.\nUm so I'm going to kind of talk about it\nfrom a very high level in a globalized\nlevel scale of what are the challenges\napplying AI uh in the LM form that is uh\nbecause AI as a field of study have been\naround for much longer than the LM\ncraze. uh but I'm going to use them\ninterchangeably just because of LM's a\nlittle bit tongue twister uh and so the\ngeneral application of AI on log\nanalysis all the way down to specifics\nof this particular uh UDAP problem uh\nhow it it manifests uh in terms of its\npeculiarities and the challenges we need\nto address. So uh in general for AI log\nanalysis I think one of the things that\nprobably is no stranger uh to this group\nhere uh like logs are extremely\nvoluminous like highly voluous right\nthere's we have probably have pabytes of\nlogs on in general for most of our\ncompanies uh that we have to plow\nthrough uh and the signal to noise ratio\non those logs is very very low. Um so\nthe things that you actually care about\nis maybe for a particular incident or\nparticular event it may only be like 50\nlogs out of the 50\ntrillion uh for example uh that you care\nabout. So um that con uh on top of that\nis well AI has a problem with context.\nUm it has a limited context window. uh\nthere is an increase in context window\nthese days to a million token plus with\nthings like mamba and linkformers and\nsuch techniques like that uh and your\ngeminis of the world and claude of the\nworld also has a million token context\nwindow now but try to fit five terabytes\nof data into a trillion context window\nthat's probably not going to fly too\nwell uh unless you have uh Silicon\nValley uh the show style of uh wiseman\nscore of 10,000 or something um And so\nthat causes a problem, right? Like how\ndo I fit the right context. So thinking\nthe needle in the haststack analogy a\nlot. It's like we have a planet full of\nhay stacks, but then we have 50 needles\nwe need to pull out. So which of the\nhaststacks do I pick to even put it into\nthe context window? That to do that\neffectively is very hard. Uh and often\ntimes what happens is that we don't do\nit effectively if you just throw all the\nlogs into the AI. Uh and we I will talk\na little bit more about that. We\nactually tried this and failed\nmiserably. Um and so uh the other one is\nwhen you're looking at the data that all\nthe log we have uh I don't know how many\nfolks here have fully schematized all\ntheir logs. Um if anybody that would\nlove to talk to you um we don't I have\nnever I found a number of companies none\nof my own companies do. uh and uh my I\nhad a lot of hundreds of customers that\nsecurity clients of mine that I don't\nthink a single one of them ever did have\n100% coverage in terms of fully\nschematized logs and even if you did uh\noftentimes it's not necessarily very\nclear on what the content of that log\neven is. So you because there are\ndifferent ways to call things. Uh you\ncan call call a host host uh by their\nname or you can call it by their uh full\nlike fqdn like kind of name. You can\ncall it by their IP address. Sometimes\npeople throw that into the host field\ntoo. Um like there's many many different\nways, right? There's a lot of ambiguity\nin terms of what the different fields in\nthe schema might even look like and\ninconsistency that exists there. Um and\nfrom an ML perspective like of trying to\nsay evaluate am I is my AI system for\nlog analysis even working correctly or\nnot is how do I know when this this is\nthis a particular problem I have I have\nI want to identify incidents but how\nmany incidents actually happen like for\nfor security context for example uh the\ngenuine incidents like fing knock on\nwood here and fingers crossed like we\nhave very very few in any given year,\nright? Uh and in meantime logs are\nturning like that pabyte of data every\nsingle day is not changing. It's still\ngoing. Uh but like we've have very very\nfew true ground truth label to learn\nfrom. Uh and that's a perpetual\nchallenge of apply machine learning in\nsecurity domain and I would imagine also\nin uh potentially s domain too uh as\nwell. Uh and then lastly uh and this is\nnot exhaustive list by the way. It's\njust the things that I thought are we've\nseen quite a lot. Uh and lastly on this\nis uh hallucinations uh and\noverconfidence from your AI agents. Uh\nhow many times have you guys uh searched\nasked AI for some like some questions\nand then it was very confidently wrong.\nUm and it was just I actually was\ntalking to some some of my teammates\nhere. Uh, I was like, \"Yeah, I asked my\ncalendar agent to help me clear up my\ncanceled uh events from my calendar so I\ndon't see five overloaded event invites\non the same hour.\" Uh, and it tell me\nstraight up like, \"You don't have any\ncanceled events.\" Uh, and then I'm like,\nI'm literally staring at one right now\nthat's next in the next hour. And then\ngive it example of that. And then it\nstill tells me it's not cancelled. uh\nthe amount of gaslighting AI does to to\npeople uh is sometimes needs to be\nquestioned and measured potentially. Um\nand in security domain uh specifically\nwe have extremely low risk tolerance,\nright? Because a severe security event\ncan actually be extremely detrimental.\nUh and this is oftenimes quantifiable by\nthe amount of of penalties you have to\npay and then also you will increase your\ncyber insurance. uh but let alone all\nthat it has a direct disruptive\ninfluence on your business operations\nwhich is the almost unquantifiable\namount of risk. So um security with that\nkind of high stakes essentially you\ncan't make mistakes. Uh and guess what\nuh in earlier talks by Michelle I think\nit was quoted of somewhere around like\n1.3% or 1.7% hallucineration rate that\nis not good when you are in an\nenvironment where you cannot make\nmistake. So uh in a lot in a lot of\ntimes you have to then effectively\nbalance this different uh the\ncombination of like automation and\noversight by manual efforts. But the\nproblem with that is manual efforts are\nextremely expensive. Like how are you\ngoing to validate potentially billions\nof alerts that is coming through the\nwindow, right? Uh and it's kind of like\nwhen we're on call as an SR in some\ncases, I mean non SR also on call as\nwell, but when you're on call, you just\nkeep on getting alerts. They just call\nit in the middle of the night. You're\nlike, man, this has nothing to do. This\nis not a problem. This is just a false\nalarm. Like, can we turn this off? and\nyou just hit the turn off button and\njust say forget about it. Uh so that\nthat is not good either. I'm not\npromoting that by the way. Um so a lot\nof these things require that kind of\nrigor uh and rigorous investigative\nprocess. It's almost like digging\nthrough an uh incident uh the actual\noperational security incident and you\nhave to do that investigative process uh\nand that extremely expensive\num and specifically to UDAP. Uh in this\ncase we also have to deal with an\nadditional layer of human defines policy\nright so we need to essentially say yeah\nlike we have to validate every single\nemployee do they follow the policy or\nnot uh and like for all of those like\nthe effect of having a lot of logs show\nup is like oh okay how do I know if it's\nI actually looked hard enough like did\nthey just did I not look hard enough to\nfind the right things or did they\ngenuinely not we're not supposed to do\nsomething that's bad that's not supposed\nto look at this the you the problem with\nthat the reason why that's important is\nthat like yes it's okay to find uh\nwhether or not a particular person\nviolated the policy uh and then it's\nactually easier to find when they didn't\nviolate the policy because it's like oh\nI already see the particular reason but\nhow do I know they didn't it's kind of\nlike uh I remember my my adviser back in\nthe college school he would tell me it's\nlike It's really easy for you to prove\nto me that you have a million dollars,\nbut it's very hard for you to prove to\nme you don't have a million dollars. Uh\ntry that because I could I could keep on\nsaying, \"Oh, you were just hiding an\noffshore account. You have it under your\nmattress. You could be like that\ndichotomy uh actually manifests in these\nkind of setup.\" So at what point do you\nstop, right? Adding those question. And\nso uh and then the other part of this is\nthat uh we have a matter of making sure\nwe need to be able to trust the\ndecisions that come out of any kind of\nautomation that goes through this\nprocess and that's something that is\nvery difficult to attain uh in genuine\nprobabilistic systems uh like applied ML\nsystems in the past.\nAll right. uh like I said uh we have\nalready tried a bunch of rand uh a bunch\nof these things and then many of them\nare actually just manifesting in the uh\nresults we saw earlier but we tried to\ndump all the logs into context just fix\na time window fix a few like oh all the\nactivities by a particular user uh and\nsee what happens uh yeah that didn't\nreally work uh the context window\nexploded uh in cases where it just\nliterally went over the context window\nand gave up uh and they als also all\npretty basically garbage because most of\nthe log that's put into it are\nirrelevant uh to the context of the\npolicy decision. All right. And then we\nthen do the classical temporal chunking\nuh so looking at a series of logs in\nsequence based on timeline uh and chunk\nthem 100 or a thousand at a time uh and\nthen putting into the memory into the\ncontext window uh and progressively\nsummarize along the way. What the\nproblem with that is a the information\ngets the relevant needles in these\nhaststacks right are actually could be\nfarther apart than being right next to\neach other temporally. Uh and two is\nthat like a lot of the important pieces\nof information through summarization\nactually gets erased. Um it's generally\nis considered as called a form of eraser\ninformation eraser. Uh and if folks are\nlike really into information theory, I'd\nlove to talk to you about this as well.\nUm and then the third way is through\nrag. Uh you can build a rag layer on top\nof your logs and then try to query\nthrough like a rag setup. Uh well\nthere's a problem with that too because\nlike uh it's not necessarily uh precise\nand then it still can lead to\nfragmentation because you can pull back\nthe wrong things um because the top end\nis still a relative uh form of that you\ndon't know what end should be. Uh and\ntwo is that the semantic relevance uh\nfrom most rag setup like from through\nvector search a lot of times not\nactually even relevant for your log data\nat all. like try to run log data and\nsemantic search, you would show a bunch\nof similar looking logs. Yes, because\nthey come from the same log source um\nbut not because they're\nactuallyformationally\nuh like relevant uh and because they no\nmatter how well you build these systems,\nrags are still using a similar kind of\nsetup uh in the back from an embedding\nperspective, right? All right. Uh so I\ntalk a lot about problems and there's\nplenty more where that come from if\nyou're ever interested. Um but like uh\nso how what do we do? Uh so we talk we\ncan talk about solutions real fast. Um I\nI think like um one of the key things in\nrealization when it comes to these kind\nof applied um LMS use cases is that um\nwhen the paper originally that where LMS\nare based out of the like attention is\nall you need uh paper from Google back\nin 2018 um like I'm trying to basically\nimitate that is like for agentic\npurposes like the right context is all\nit needs. So uh and what makes a context\nwhat what makes that good is that a\ncontext is good if you have it's concise\nand precise. Um so a concise context is\nshort like ideally right as short as you\ncan be right so information dense that\nis conciseness uh so we want to increase\nthe signal to noise ratio that I\nmentioned earlier uh and precise is that\nevery single piece of information that\nyou do put in it is actually relevant to\nanswering the question that you're\ntrying to get the agent to answer\nuh and I will say all this is easier\nsaid and done right um so uh and also\nit's not all it uh sorry I had to quote\nthe all you need uh part uh because it\nis not necessarily just that yes from a\na genic context processing and\nmanagement perspective that is all you\nneed but like how do you even decign\ndefine what this right even is um I mean\nthe organization known somewhat known as\na stickler for definitions uh these days\nuh But like I sound like a broken\nrecord, but being able to clearly define\nyour goals and then have a very crisp\ndefinitions of what you want the agents\nto even do is actually really important.\nAnd then this is the part in which a lot\nof people think they have it right, but\nthey they don't actually. Um, and\ninterestingly enough, the two points you\nwant on that too is conciseness and\npreciseness. Uh and like I gonna go a\nlittle bit on a tangent here in a\nrelated way like human like language is\ninherently I would argue different\nlanguage have different levels of this\nbut like human language which is how we\ninterface with LM agents right is\ninherently extremely imprecise.\nWe have to I I think that needs to be\nsomething we we need to really sink in\nhere. Like the modality in which we\ncommunicate with the agent in of itself\nis not precise. Like uh I should have\nactually pulled up like uh my\nlinguistics teacher back in the day\nactually showed this really interesting\nseven letter seven word sentence\nwritten exactly the same way. But if you\nchange your emphasis in terms on which\neach one a word you get seven completely\ndifferent meanings.\nthe agents are not hearing your\nintonations,\nthey're just reading, right? Uh so I\nthink there was an earlier talk I had an\nexample where it was like oh yeah um\ndon't change the configuration and it\njust deleted it. That is another example\nof this impreciseness uh of our of our\ndefinitions. So if you can get your\ndefinitions and your goal setting to be\nextremely concise and precise, you will\nhave a hell of a lot better time uh when\nit comes to the effectiveness of the\nagent. So how all that manifests is uh\nwe had a hypothesis that if we actually\ninstead of using language as the primary\nmedium like just words uh in sentence\nstructure as a primary medium for\nmanaging our context uh but instead use\na like a graph as the working memory\nlike that will potentially stabilize the\ncontext window uh problem uh for us. Uh\nand essentially uh that's what we did.\nuh so basically we build out the context\nin a progressive manner uh in an\niterative manner. Uh and we pulled one\nlet's say we start with one event that\nis something that we're interested in\nlooking at uh and we progressively look\nat oh what are the entities that this\nparticular event is describing and what\nare the relationship between them and\nare the relationships causal and then\nwhat type of rel how might that actually\nmanifest? uh and then we follow those\nrelationship and starts progressively\nsearching our databases uh for\nadditional information to enrich.\nSo uh I'm going to go into this a little\nmore detail in the architectural\ndiscussion. U but this is a method in\nwhich we will be able to then\nessentially construct what are truly the\nrelevant context to then feed into\nanother system for making the judgment\ncall.\nAnd uh there was a video but um\nnot exactly displaying.\nWe can get back to that later. Um yeah,\nthe the video is actually a uh recording\nof the prototype of the agent actually\nis doing this in action in a very visual\nmanner. Uh so yeah, wanted to give a\npreview of that before I talk about\narchitecture, but we can get that next\ntime. Um so architecture wise uh this is\nroughly how a very very high level how\nit looks like right uh attemp talks\nthrough this a little bit we extract the\nentities and relationships uh and we do\nthe enrichment uh we then do the graph\nconstruction which is actually all\nintertwined uh and then we do this loop\nover and over again uh until we get to a\npoint in which we are comfortable that\nall stones have been turned uh and this\nstep this kind of iterative kind of\nexercise. It requires essentially the\nagraph agent to constantly go to the log\nsources uh to iteratively search and\nthen configure what it needs to look for\nuh across the board.\nUh oh, and then it updates the graph\nworking memory uh like I mentioned\nearlier. Uh so that way it can actually\nbe uh able to take that working memory\nand then give it the business\njustification agent and and that\nbusiness justification determination is\nthe part in which I'll talk about in a\nbit.\nSo uh the first is entity extraction uh\nright like uh you have a log how do I\nextract out an entity? This is like the\ngood old days of using uh named entity\nrecognition in ER and any ML folks here.\nYeah then uh so um like uh this is LM\nactually does this fairly well uh\nsurprisingly. So well not surprisingly\ndeterminist there's deterministic ways\nto pull it. So use your schema and\npredefine like different like\ndescriptions of the fields. Uh you can\nuse regax on the logs uh and then just\npull all of those uh and you can also\nuse lm based unstructured text uh with\nfew uh few shot examples to also pull\nout the relevant uh information. Uh but\nwhat we found to be the most common and\nuseful is a combination of like the two\nin hybrid manner. So uh having a\nstructured uh extraction uh because like\nlogs are again I mentioned earlier LMS\nare not necessarily that good at reading\nlogs. So if you can actually pull them\nout into digestible chunks that are\nactually reasonable deterministically do\nso like I love determinism. Uh this\nwe're coming from an ML guy uh because\nwe live in nondeterministic world but\nlike where I can find determinism I will\nlove I I use it. Um but within those\nkind of deterministically extracted\nthings you often times would need to do\nthere's still unstructured text inside\nof it right uh like for example command\ncommand line prompts so you may have\nlike a uh extra a logging that's already\nstructured uh but the command lines are\nnot parsed uh correct it's just straight\nstring so do you build a custom parser\nfor that or just let take a rip at it\nlms does a fairly good job there Um and\nonce you have that then what we do is\ntake those entities and relationships\nand progressively search uh the data\nsources. Uh and in this case our data\nsources are logs and other inter\ninternal tools and all that. So like\nsomething like for example John view D12\n345 like the um actually I messed up\nthat slide but what it's supposed to say\nuh my bad what it's supposed to say is\nthat okay like who is John and then can\nI search that search more about John\nlike this particular person and then\nlike in like D12 345 is that a document\nor is that what type what type of file\nwhat kind of information is it and if\nit's a document we go read did and the\npower of agent here contrary to the\nstandard uh just pure ML approach than\nbefore is that we can actually read the\ncontents uh of the documents uh and then\nwe extract progressively again that\nbecomes a node right and you then\ntraverse and progressively retrieve uh\nand so through that exercise is how you\nbuild ends up with this graph um and\nlike I kind of just described this but\nessentially you're pulling all that\ncontent uh but then a very important\nimportant piece is pruning.\nNot all the things that you retrieve in\nan entity relationship extraction is\nactually relevant to your particular\ntask that you're asking the agent to do.\nSo, uh an important part of the graph\nconstruction process and the graph\nagents task is also decide which ones\nare not useful and get rid of them. Uh\nthis is how you increase the signal to\nnoise ratio. Uh and then you iterate\njust keep going, right? This is just\ngood old like page rank style graph\ntraversal algorithms that we used to\nlearn in school. I don't know if we\nstill do that these days. Um all right.\nAnd then um how do you then you have a\ndetermination step. This is the business\njustification agent uh portion that I\nmentioned earlier in the architecture\ndiagram. This is where it takes the\nexisting graph context that you have in\nthat graph working memory and then try\nto make a determination.\nIs this justified? Do have I already\nfound the justification for this? And if\nyou did, okay, we can stop. This is\ngood. Like we we don't need to keep on\ncrawling through all the pabytes of data\nover and over again. But if we haven't\nlike okay, maybe we need to go back. But\nhow many times do we need to go back\nfour? Uh becomes a se a question. Uh and\nin our case, this particular use case,\nwe use data to determine which how many\nexactly iterations do you really need in\norder to get a good result. Uh which\nturns out to be about uh three steps\naway from the original uh inbound uh if\nanybody's interested. Uh it's kind of\nlike this uh the six degrees of Kevin\nBacon. I'm not sure anybody still\nremember those. Um yeah, actually\nexactly half that, which is kind of\nfunny. Um cool. uh and talk about\nresults. Uh so um the methodology in\nwhich we run this is we run offline and\nonline evaluations. Uh I think\nevaluations are key when it comes to\ntrust of the agents uh and believe that\nit actually works. It's ways to prove\nourselves that it actually works. Uh so\nwhat we use is a combination of real\nworld and synthetic uh examples of both\npositive and negative negative cases. Uh\nso in UDAP for example will be policy\nviolations versus nonviolating uh\nevents. Uh and then we measure precision\nrecall and false positive rate across\nthat. Uh and we also use the compressed\ncontext effectiveness measurement. Uh\nand that's where we compare like uh the\nwhat the working memory essentially\nlooks like to what a human investigator\nthat we have done that have done\ninvestigation before and what they\nthought was the correct set of events\nthat were relevant uh and compared the\ntwo together uh using um IOU uh\nintersect over union not I owe you money\nthing. Um so based on those methods uh\nwe essentially get to this kind of\nactually measured outcome. So generally\nspeaking the amount of context that\nneeds that needs gets reduced by 16x um\nand that's a lower bound number for the\nmost part. Uh and so we can basically\nturn like tens of thousands of logs into\njust a few hundred logs that's actually\nrelevant uh for your use case. Uh and\nthen performance measurements uh against\nbaseline. The baseline is where we have\nan agent just dumped the uh with a uh\nchunk temporal chunking. That is the\nbaseline. Uh we've achieved 100 near\n100% recall. Uh recall uh means that uh\nwhenever there's a true incident, you\nactually catch it. Uh so basically we\nnever miss. Uh and then on top of that\nwe include the precision uh of our\nsystem. Precision is uh when you have\nwhen the model says that it's a true\npositive what's the percentage of that\nis actually true positive or like when\nyou model says this is a a a positive\noutcome like how many times you actually\nwrite about that essentially uh and then\nso we increase that by an order of\nmagnitude. Uh and then uh there are many\ntimes in which our original baseline\nagent was basically unable to make any\ndetermination whatsoever because the\ncontext window just exploded. uh and so\nin this case the graph power agent was\neffective on greater than 75% of the\nmost difficult uh use cases uh for those\nall right and uh I think the why it\nworks uh probably is rather self-evident\num like first of all first and foremost\nit preserves the relationships the\ncontextual relationship between things\nright rather than just using a random\ntimebased thing which is polluted with a\nlot of noise. Um, and the fact that it's\ncontext and task aware uh when it's\ntraversing and pruning uh the the me the\ncontext uh graph uh essentially is\nanother piece uh because otherwise you\nwouldn't know what's relevant or not. Um\nlike if you just train a classical model\nuh in some cases\nuh Asian context in this case it ends up\nbeing uh fairly well relatively speaking\nit will become like multiple orders of\nmagnitude more concise and precise. Uh\nand the another really important benefit\nof it is the decision process is\nactually explainable because the\nremember that justification uh like\ndeter determination agent being separate\nfrom graph agent the determination\nagent's input is just the path in which\nthat particular traversal went through\nright like it's the given the context of\nthe where the path has went through so\nwell you just need to surface the path\nas the justification like causal\ndecision uh timeline essentially.\nUm so a lot of lessons learned too. Uh\nbut I'm going to try to kind of distill\ninto a few key points. Um contextual uh\ninformation like in terms of um looking\nat the information uh and logs is better\nthan just temporal. Uh I think at this\npoint hopefully I don't need to explain\nwhy that might be. Uh but that\npreserving contextual relevance is\nactually really important. hybrid\nparsing actually worked performed the\nbest uh out of all the different\ncombinations. Uh and that is partly\nbecause our logs are just not the most\nperfect clean thing out there in the on\nin the world. Um and as we apply the\nonline so I didn't I didn't really\nmention the online way in which we did\nthis uh for evaluations which is we\nactually live run this in parallel in\nshadow mode against human investigators.\nUh what's fascinating is that the\nagentic process in which he does that\niteration which is I wish I can show you\nthe video because it will make it so\nmuch more obvious like how this why this\npart is true is like the agentive\nprocess ends up imitating the human\ninvestigative processes of keep on like\nexploring and like contracting exploring\ncontracting kind of like exercise uh and\nyou go down one path that didn't work\nokay go back backtrack try another one\nright that actually is exactly what the\nagent does uh when we visualized it uh\nin a visual form. So there's a bunch of\nchallenges of course um like how do you\neven determine what is considered like a\ncorrect or noisy entity uh like in in\nthe context of this right when the\nagent's traversing like how do how does\nit make that determination that it is\nthe correct thing that I should keep on\nlooking at versus not so for this we\nactually ended up using a number of\nthings like graph metrics uh to to\nmeasure this uh in classical NLP world\nwe use things like TF uh term frequency\ninverse document frequency uh as a it's\nactually still a very powerful\nclassifier by the way uh despite all the\nLM hype uh and super cheap uh to boot.\nUh so we use the same kind of technique\nuh on the graph as well uh to\nessentially get that sense of the if\nsomething happens a lot like a node has\na ton of connections to it is probably\nless important than something that's\nfairly unique um like from an\ninformation perspective.\nuh and LM reliability across different\nformats of logs is also limit there's\nthere's a active work on that we're\ntrying to figure out but like it doesn't\nalways work on every single type of log\nby the way uh it it works and that also\ndoesn't work on every single type of\ncommand uh and how do we balance between\nthe completeness versus we're just\noverloading uh information um and we\nwhile we have some solution it is not\nnecessarily fully generalized to every\nsingle use case we can think of uh and\nlatency from procedural generation and\nthis uh what you notice what I just\ndescribed as a very iterative process\nright and that takes time and it also\nturns through a ton of tokens which is\nnot ideal um when when you're budget\nconstraint uh and lastly is trust with\nautomation like just general trust about\nthe system uh from people\nuh so some uh as the key takeaway of\nthis talk uh like I think the main thing\nis context like being keeping it concise\nand precise is key to effective AI agent\nusage uh especially in the log analysis\nworld. Um and graph traversals as a\ngeneralizable context management tool is\nactually fairly useful uh like it's able\nto show the the results are uh what's\ndescribed and benefited from this right\num and continuous monitoring evaluation\nand feedback mechanisms is actually how\nwe keep the system healthy and\ntrustworthy. Uh so that part is really\nkey because otherwise uh like the system\nwon't like you can turn it on but then\nnobody trusts it. Uh then nobody will\nrely on its outcomes.\nUh so I have a minute left but then like\ngenerally speaking the next steps uh is\nabout generalization. Um, so the the\nother original video I want to show you\nwas actually a prototype out of this\nwhere we're trying to expand it beyond\njust the a policy validation type of use\ncase but also other kind of security use\ncases too. Uh the video was uh run on\nagainst infrastructure security logs\ninstead uh and do infrastructure\nsecurity um like uh incident uh\ninvestigation and remediation.\nuh so uh and more intelligent expansion\npruning uh and reasoning capabilities.\nThis is what I mentioned earlier. It's\nlike how do I decide what is relevant\nversus not like and how do I be more\nintelligent about the path traversal. Uh\nthis is something that we can take a\nless uh I used to do reinforcement\nlearning a lot. So this is a common\nproblem in multicolor research uh type\nof setup uh in the past. So we're doing\nthose kind of exploration right now. Uh\nand we're also looking to build a\nunified graph abstraction layer uh on\ntop of all of our data. Um and this is\nto help combat with the latency problems\nuh and how much we have we don't have to\nreconstruct every single time but\ninstead if there's already pre-extracted\ninto a graph then you can take that part\nout of it and then have the agent focus\non the reasoning capabilities. And I'm\nexactly at time. Uh so thank you. Uh and\nany questions?",
+  "segments": [
+    {
+      "text": "All right, welcome everybody. Hope it's been a great conference so far. Certainly has been for me. Very enlightening talks uh across the board. Uh so uh I'm going to try to chime in a little bit here. Not being an MLE uh but not being an SR but an MLE uh maybe",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "maybe a little bit out of my depth here with the technical details. Uh but like hopefully this is a uh useful conversation to have. All right. Uh real fast about us. My co-presenter Vina unfortunately couldn't make it. Uh she's",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "out of London and the flight schedule just couldn't work out with passports and all that. Uh but she is a sweet here on in central security. Uh who did bulk of the heavy lifting from an engineering perspective uh on this as well. So uh",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "moving on. So uh to start uh this is the talk is going to be about like how do we apply AI for log analysis and then we chose the UDAP or user data access policy as a very specific use case uh in which you can provide some good",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "grounding around how you might use it to solve real business problems. uh but then the overall approach uh is not necessarily limited to just the UDAP use case uh which is our overall goal uh as part of this uh R&D effort uh over the",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "last uh couple month. Uh so we'll start with the challenge uh of what the problem we're really trying to solve uh and then our solution uh and the overall high level architecture uh the results uh from a both from a ML and practical",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "outcomes perspective uh and what kind of lessons learned there might be uh as well as like what are some of the next step that we already have planned uh that may some get some glimpse into the future. So the problem um I think not",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "necessarily everybody here is familiar with the concept of UDAP or uh UDAP violations. So I'm going to kind of briefly talk about that. It's uh essentially imagine a pol a policy in place that your company may have uh that",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "actually in this case meta uh basically says yep we need to be extremely careful about like accesses to user data. So uh any such violation uh will need to be caught uh with basically 100% accuracy. Uh and we have zero tolerance uh when it",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "comes to that. Uh and so a potential way in which this might manifest is a employee John uh viewed the data 1 2 3 4 5. Uh and some of the questions you may ask of that particular event uh is okay what data was accessed? What was data 1",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "2 3 D1 2 3 4 5 uh and why was this data accessed? Why would why did John did John have a legitimate reason to to need to actually access that data? uh and if not that is something is considered as a policy violation. So this is just kind",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "of for a general grounding on what the problem space look like uh that we generally want to answer. Um so I'm going to kind of talk about it from a very high level in a globalized level scale of what are the challenges applying AI uh in the LM form that is uh",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "because AI as a field of study have been around for much longer than the LM craze. uh but I'm going to use them interchangeably just because of LM's a little bit tongue twister uh and so the general application of AI on log",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "analysis all the way down to specifics of this particular uh UDAP problem uh how it it manifests uh in terms of its peculiarities and the challenges we need to address. So uh in general for AI log analysis I think one of the things that",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "probably is no stranger uh to this group here uh like logs are extremely voluminous like highly voluous right there's we have probably have pabytes of logs on in general for most of our companies uh that we have to plow through uh and the signal to noise ratio",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "on those logs is very very low. Um so the things that you actually care about is maybe for a particular incident or particular event it may only be like 50 logs out of the 50 trillion uh for example uh that you care about. So um that con uh on top of that",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "is well AI has a problem with context. Um it has a limited context window. uh there is an increase in context window these days to a million token plus with things like mamba and linkformers and such techniques like that uh and your",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "geminis of the world and claude of the world also has a million token context window now but try to fit five terabytes of data into a trillion context window that's probably not going to fly too well uh unless you have uh Silicon",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Valley uh the show style of uh wiseman score of 10,000 or something um And so that causes a problem, right? Like how do I fit the right context. So thinking the needle in the haststack analogy a lot. It's like we have a planet full of",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "hay stacks, but then we have 50 needles we need to pull out. So which of the haststacks do I pick to even put it into the context window? That to do that effectively is very hard. Uh and often times what happens is that we don't do",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "it effectively if you just throw all the logs into the AI. Uh and we I will talk a little bit more about that. We actually tried this and failed miserably. Um and so uh the other one is when you're looking at the data that all",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "the log we have uh I don't know how many folks here have fully schematized all their logs. Um if anybody that would love to talk to you um we don't I have never I found a number of companies none of my own companies do. uh and uh my I",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "had a lot of hundreds of customers that security clients of mine that I don't think a single one of them ever did have 100% coverage in terms of fully schematized logs and even if you did uh oftentimes it's not necessarily very",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "clear on what the content of that log even is. So you because there are different ways to call things. Uh you can call call a host host uh by their name or you can call it by their uh full like fqdn like kind of name. You can",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "call it by their IP address. Sometimes people throw that into the host field too. Um like there's many many different ways, right? There's a lot of ambiguity in terms of what the different fields in the schema might even look like and",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "inconsistency that exists there. Um and from an ML perspective like of trying to say evaluate am I is my AI system for log analysis even working correctly or not is how do I know when this this is this a particular problem I have I have",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "I want to identify incidents but how many incidents actually happen like for for security context for example uh the genuine incidents like fing knock on wood here and fingers crossed like we have very very few in any given year,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "right? Uh and in meantime logs are turning like that pabyte of data every single day is not changing. It's still going. Uh but like we've have very very few true ground truth label to learn from. Uh and that's a perpetual challenge of apply machine learning in",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "security domain and I would imagine also in uh potentially s domain too uh as well. Uh and then lastly uh and this is not exhaustive list by the way. It's just the things that I thought are we've seen quite a lot. Uh and lastly on this",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "is uh hallucinations uh and overconfidence from your AI agents. Uh how many times have you guys uh searched asked AI for some like some questions and then it was very confidently wrong. Um and it was just I actually was talking to some some of my teammates",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "here. Uh, I was like, \"Yeah, I asked my calendar agent to help me clear up my canceled uh events from my calendar so I don't see five overloaded event invites on the same hour.\" Uh, and it tell me straight up like, \"You don't have any",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "canceled events.\" Uh, and then I'm like, I'm literally staring at one right now that's next in the next hour. And then give it example of that. And then it still tells me it's not cancelled. uh the amount of gaslighting AI does to to",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "people uh is sometimes needs to be questioned and measured potentially. Um and in security domain uh specifically we have extremely low risk tolerance, right? Because a severe security event can actually be extremely detrimental.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Uh and this is oftenimes quantifiable by the amount of of penalties you have to pay and then also you will increase your cyber insurance. uh but let alone all that it has a direct disruptive influence on your business operations",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "which is the almost unquantifiable amount of risk. So um security with that kind of high stakes essentially you can't make mistakes. Uh and guess what uh in earlier talks by Michelle I think it was quoted of somewhere around like",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "1.3% or 1.7% hallucineration rate that is not good when you are in an environment where you cannot make mistake. So uh in a lot in a lot of times you have to then effectively balance this different uh the combination of like automation and",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "oversight by manual efforts. But the problem with that is manual efforts are extremely expensive. Like how are you going to validate potentially billions of alerts that is coming through the window, right? Uh and it's kind of like",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "when we're on call as an SR in some cases, I mean non SR also on call as well, but when you're on call, you just keep on getting alerts. They just call it in the middle of the night. You're like, man, this has nothing to do. This",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "is not a problem. This is just a false alarm. Like, can we turn this off? and you just hit the turn off button and just say forget about it. Uh so that that is not good either. I'm not promoting that by the way. Um so a lot of these things require that kind of",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "rigor uh and rigorous investigative process. It's almost like digging through an uh incident uh the actual operational security incident and you have to do that investigative process uh and that extremely expensive um and specifically to UDAP. Uh in this",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "case we also have to deal with an additional layer of human defines policy right so we need to essentially say yeah like we have to validate every single employee do they follow the policy or not uh and like for all of those like",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "the effect of having a lot of logs show up is like oh okay how do I know if it's I actually looked hard enough like did they just did I not look hard enough to find the right things or did they genuinely not we're not supposed to do",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "something that's bad that's not supposed to look at this the you the problem with that the reason why that's important is that like yes it's okay to find uh whether or not a particular person violated the policy uh and then it's",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "actually easier to find when they didn't violate the policy because it's like oh I already see the particular reason but how do I know they didn't it's kind of like uh I remember my my adviser back in the college school he would tell me it's",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "like It's really easy for you to prove to me that you have a million dollars, but it's very hard for you to prove to me you don't have a million dollars. Uh try that because I could I could keep on saying, \"Oh, you were just hiding an",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "offshore account. You have it under your mattress. You could be like that dichotomy uh actually manifests in these kind of setup.\" So at what point do you stop, right? Adding those question. And so uh and then the other part of this is",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "that uh we have a matter of making sure we need to be able to trust the decisions that come out of any kind of automation that goes through this process and that's something that is very difficult to attain uh in genuine",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "probabilistic systems uh like applied ML systems in the past. All right. uh like I said uh we have already tried a bunch of rand uh a bunch of these things and then many of them are actually just manifesting in the uh results we saw earlier but we tried to",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "dump all the logs into context just fix a time window fix a few like oh all the activities by a particular user uh and see what happens uh yeah that didn't really work uh the context window exploded uh in cases where it just",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "literally went over the context window and gave up uh and they als also all pretty basically garbage because most of the log that's put into it are irrelevant uh to the context of the policy decision. All right. And then we",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "then do the classical temporal chunking uh so looking at a series of logs in sequence based on timeline uh and chunk them 100 or a thousand at a time uh and then putting into the memory into the context window uh and progressively",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "summarize along the way. What the problem with that is a the information gets the relevant needles in these haststacks right are actually could be farther apart than being right next to each other temporally. Uh and two is",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "that like a lot of the important pieces of information through summarization actually gets erased. Um it's generally is considered as called a form of eraser information eraser. Uh and if folks are like really into information theory, I'd",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "love to talk to you about this as well. Um and then the third way is through rag. Uh you can build a rag layer on top of your logs and then try to query through like a rag setup. Uh well there's a problem with that too because",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "like uh it's not necessarily uh precise and then it still can lead to fragmentation because you can pull back the wrong things um because the top end is still a relative uh form of that you don't know what end should be. Uh and",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "two is that the semantic relevance uh from most rag setup like from through vector search a lot of times not actually even relevant for your log data at all. like try to run log data and semantic search, you would show a bunch",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "of similar looking logs. Yes, because they come from the same log source um but not because they're actuallyformationally uh like relevant uh and because they no matter how well you build these systems, rags are still using a similar kind of",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "setup uh in the back from an embedding perspective, right? All right. Uh so I talk a lot about problems and there's plenty more where that come from if you're ever interested. Um but like uh so how what do we do? Uh so we talk we",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "can talk about solutions real fast. Um I I think like um one of the key things in realization when it comes to these kind of applied um LMS use cases is that um when the paper originally that where LMS are based out of the like attention is",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "all you need uh paper from Google back in 2018 um like I'm trying to basically imitate that is like for agentic purposes like the right context is all it needs. So uh and what makes a context what what makes that good is that a",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "context is good if you have it's concise and precise. Um so a concise context is short like ideally right as short as you can be right so information dense that is conciseness uh so we want to increase the signal to noise ratio that I",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "mentioned earlier uh and precise is that every single piece of information that you do put in it is actually relevant to answering the question that you're trying to get the agent to answer uh and I will say all this is easier",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "said and done right um so uh and also it's not all it uh sorry I had to quote the all you need uh part uh because it is not necessarily just that yes from a a genic context processing and management perspective that is all you",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "need but like how do you even decign define what this right even is um I mean the organization known somewhat known as a stickler for definitions uh these days uh But like I sound like a broken record, but being able to clearly define",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "your goals and then have a very crisp definitions of what you want the agents to even do is actually really important. And then this is the part in which a lot of people think they have it right, but they they don't actually. Um, and",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "interestingly enough, the two points you want on that too is conciseness and preciseness. Uh and like I gonna go a little bit on a tangent here in a related way like human like language is inherently I would argue different",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "language have different levels of this but like human language which is how we interface with LM agents right is inherently extremely imprecise. We have to I I think that needs to be something we we need to really sink in here. Like the modality in which we",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "communicate with the agent in of itself is not precise. Like uh I should have actually pulled up like uh my linguistics teacher back in the day actually showed this really interesting seven letter seven word sentence written exactly the same way. But if you",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "change your emphasis in terms on which each one a word you get seven completely different meanings. the agents are not hearing your intonations, they're just reading, right? Uh so I think there was an earlier talk I had an example where it was like oh yeah um",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "don't change the configuration and it just deleted it. That is another example of this impreciseness uh of our of our definitions. So if you can get your definitions and your goal setting to be extremely concise and precise, you will",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "have a hell of a lot better time uh when it comes to the effectiveness of the agent. So how all that manifests is uh we had a hypothesis that if we actually instead of using language as the primary medium like just words uh in sentence",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "structure as a primary medium for managing our context uh but instead use a like a graph as the working memory like that will potentially stabilize the context window uh problem uh for us. Uh and essentially uh that's what we did.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "uh so basically we build out the context in a progressive manner uh in an iterative manner. Uh and we pulled one let's say we start with one event that is something that we're interested in looking at uh and we progressively look",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "at oh what are the entities that this particular event is describing and what are the relationship between them and are the relationships causal and then what type of rel how might that actually manifest? uh and then we follow those",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "relationship and starts progressively searching our databases uh for additional information to enrich. So uh I'm going to go into this a little more detail in the architectural discussion. U but this is a method in which we will be able to then",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "essentially construct what are truly the relevant context to then feed into another system for making the judgment call. And uh there was a video but um not exactly displaying. We can get back to that later. Um yeah, the the video is actually a uh recording",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "of the prototype of the agent actually is doing this in action in a very visual manner. Uh so yeah, wanted to give a preview of that before I talk about architecture, but we can get that next time. Um so architecture wise uh this is",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "roughly how a very very high level how it looks like right uh attemp talks through this a little bit we extract the entities and relationships uh and we do the enrichment uh we then do the graph construction which is actually all",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "intertwined uh and then we do this loop over and over again uh until we get to a point in which we are comfortable that all stones have been turned uh and this step this kind of iterative kind of exercise. It requires essentially the",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "agraph agent to constantly go to the log sources uh to iteratively search and then configure what it needs to look for uh across the board. Uh oh, and then it updates the graph working memory uh like I mentioned earlier. Uh so that way it can actually",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "be uh able to take that working memory and then give it the business justification agent and and that business justification determination is the part in which I'll talk about in a bit. So uh the first is entity extraction uh",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "right like uh you have a log how do I extract out an entity? This is like the good old days of using uh named entity recognition in ER and any ML folks here. Yeah then uh so um like uh this is LM actually does this fairly well uh",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "surprisingly. So well not surprisingly determinist there's deterministic ways to pull it. So use your schema and predefine like different like descriptions of the fields. Uh you can use regax on the logs uh and then just pull all of those uh and you can also",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "use lm based unstructured text uh with few uh few shot examples to also pull out the relevant uh information. Uh but what we found to be the most common and useful is a combination of like the two in hybrid manner. So uh having a",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "structured uh extraction uh because like logs are again I mentioned earlier LMS are not necessarily that good at reading logs. So if you can actually pull them out into digestible chunks that are actually reasonable deterministically do",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "so like I love determinism. Uh this we're coming from an ML guy uh because we live in nondeterministic world but like where I can find determinism I will love I I use it. Um but within those kind of deterministically extracted",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "things you often times would need to do there's still unstructured text inside of it right uh like for example command command line prompts so you may have like a uh extra a logging that's already structured uh but the command lines are",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "not parsed uh correct it's just straight string so do you build a custom parser for that or just let take a rip at it lms does a fairly good job there Um and once you have that then what we do is take those entities and relationships",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "and progressively search uh the data sources. Uh and in this case our data sources are logs and other inter internal tools and all that. So like something like for example John view D12 345 like the um actually I messed up",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "that slide but what it's supposed to say uh my bad what it's supposed to say is that okay like who is John and then can I search that search more about John like this particular person and then like in like D12 345 is that a document",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "or is that what type what type of file what kind of information is it and if it's a document we go read did and the power of agent here contrary to the standard uh just pure ML approach than before is that we can actually read the",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "contents uh of the documents uh and then we extract progressively again that becomes a node right and you then traverse and progressively retrieve uh and so through that exercise is how you build ends up with this graph um and",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "like I kind of just described this but essentially you're pulling all that content uh but then a very important important piece is pruning. Not all the things that you retrieve in an entity relationship extraction is actually relevant to your particular",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "task that you're asking the agent to do. So, uh an important part of the graph construction process and the graph agents task is also decide which ones are not useful and get rid of them. Uh this is how you increase the signal to",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "noise ratio. Uh and then you iterate just keep going, right? This is just good old like page rank style graph traversal algorithms that we used to learn in school. I don't know if we still do that these days. Um all right.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "And then um how do you then you have a determination step. This is the business justification agent uh portion that I mentioned earlier in the architecture diagram. This is where it takes the existing graph context that you have in",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "that graph working memory and then try to make a determination. Is this justified? Do have I already found the justification for this? And if you did, okay, we can stop. This is good. Like we we don't need to keep on crawling through all the pabytes of data",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "over and over again. But if we haven't like okay, maybe we need to go back. But how many times do we need to go back four? Uh becomes a se a question. Uh and in our case, this particular use case, we use data to determine which how many",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "exactly iterations do you really need in order to get a good result. Uh which turns out to be about uh three steps away from the original uh inbound uh if anybody's interested. Uh it's kind of like this uh the six degrees of Kevin",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "Bacon. I'm not sure anybody still remember those. Um yeah, actually exactly half that, which is kind of funny. Um cool. uh and talk about results. Uh so um the methodology in which we run this is we run offline and online evaluations. Uh I think",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "evaluations are key when it comes to trust of the agents uh and believe that it actually works. It's ways to prove ourselves that it actually works. Uh so what we use is a combination of real world and synthetic uh examples of both",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "positive and negative negative cases. Uh so in UDAP for example will be policy violations versus nonviolating uh events. Uh and then we measure precision recall and false positive rate across that. Uh and we also use the compressed",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "context effectiveness measurement. Uh and that's where we compare like uh the what the working memory essentially looks like to what a human investigator that we have done that have done investigation before and what they thought was the correct set of events",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "that were relevant uh and compared the two together uh using um IOU uh intersect over union not I owe you money thing. Um so based on those methods uh we essentially get to this kind of actually measured outcome. So generally",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "speaking the amount of context that needs that needs gets reduced by 16x um and that's a lower bound number for the most part. Uh and so we can basically turn like tens of thousands of logs into just a few hundred logs that's actually",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "relevant uh for your use case. Uh and then performance measurements uh against baseline. The baseline is where we have an agent just dumped the uh with a uh chunk temporal chunking. That is the baseline. Uh we've achieved 100 near",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "100% recall. Uh recall uh means that uh whenever there's a true incident, you actually catch it. Uh so basically we never miss. Uh and then on top of that we include the precision uh of our system. Precision is uh when you have",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "when the model says that it's a true positive what's the percentage of that is actually true positive or like when you model says this is a a a positive outcome like how many times you actually write about that essentially uh and then",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "so we increase that by an order of magnitude. Uh and then uh there are many times in which our original baseline agent was basically unable to make any determination whatsoever because the context window just exploded. uh and so",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "in this case the graph power agent was effective on greater than 75% of the most difficult uh use cases uh for those all right and uh I think the why it works uh probably is rather self-evident um like first of all first and foremost",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "it preserves the relationships the contextual relationship between things right rather than just using a random timebased thing which is polluted with a lot of noise. Um, and the fact that it's context and task aware uh when it's",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "traversing and pruning uh the the me the context uh graph uh essentially is another piece uh because otherwise you wouldn't know what's relevant or not. Um like if you just train a classical model uh in some cases uh Asian context in this case it ends up",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "being uh fairly well relatively speaking it will become like multiple orders of magnitude more concise and precise. Uh and the another really important benefit of it is the decision process is actually explainable because the",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "remember that justification uh like deter determination agent being separate from graph agent the determination agent's input is just the path in which that particular traversal went through right like it's the given the context of",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "the where the path has went through so well you just need to surface the path as the justification like causal decision uh timeline essentially. Um so a lot of lessons learned too. Uh but I'm going to try to kind of distill",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "into a few key points. Um contextual uh information like in terms of um looking at the information uh and logs is better than just temporal. Uh I think at this point hopefully I don't need to explain why that might be. Uh but that",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "preserving contextual relevance is actually really important. hybrid parsing actually worked performed the best uh out of all the different combinations. Uh and that is partly because our logs are just not the most perfect clean thing out there in the on",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "in the world. Um and as we apply the online so I didn't I didn't really mention the online way in which we did this uh for evaluations which is we actually live run this in parallel in shadow mode against human investigators. Uh what's fascinating is that the",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "agentic process in which he does that iteration which is I wish I can show you the video because it will make it so much more obvious like how this why this part is true is like the agentive process ends up imitating the human",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "investigative processes of keep on like exploring and like contracting exploring contracting kind of like exercise uh and you go down one path that didn't work okay go back backtrack try another one right that actually is exactly what the",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "agent does uh when we visualized it uh in a visual form. So there's a bunch of challenges of course um like how do you even determine what is considered like a correct or noisy entity uh like in in the context of this right when the",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "agent's traversing like how do how does it make that determination that it is the correct thing that I should keep on looking at versus not so for this we actually ended up using a number of things like graph metrics uh to to",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "measure this uh in classical NLP world we use things like TF uh term frequency inverse document frequency uh as a it's actually still a very powerful classifier by the way uh despite all the LM hype uh and super cheap uh to boot.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "Uh so we use the same kind of technique uh on the graph as well uh to essentially get that sense of the if something happens a lot like a node has a ton of connections to it is probably less important than something that's fairly unique um like from an",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "information perspective. uh and LM reliability across different formats of logs is also limit there's there's a active work on that we're trying to figure out but like it doesn't always work on every single type of log by the way uh it it works and that also",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "doesn't work on every single type of command uh and how do we balance between the completeness versus we're just overloading uh information um and we while we have some solution it is not necessarily fully generalized to every",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "single use case we can think of uh and latency from procedural generation and this uh what you notice what I just described as a very iterative process right and that takes time and it also turns through a ton of tokens which is",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "not ideal um when when you're budget constraint uh and lastly is trust with automation like just general trust about the system uh from people uh so some uh as the key takeaway of this talk uh like I think the main thing",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "is context like being keeping it concise and precise is key to effective AI agent usage uh especially in the log analysis world. Um and graph traversals as a generalizable context management tool is actually fairly useful uh like it's able",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "to show the the results are uh what's described and benefited from this right um and continuous monitoring evaluation and feedback mechanisms is actually how we keep the system healthy and trustworthy. Uh so that part is really",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "key because otherwise uh like the system won't like you can turn it on but then nobody trusts it. Uh then nobody will rely on its outcomes. Uh so I have a minute left but then like generally speaking the next steps uh is about generalization. Um, so the the",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "other original video I want to show you was actually a prototype out of this where we're trying to expand it beyond just the a policy validation type of use case but also other kind of security use cases too. Uh the video was uh run on",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "against infrastructure security logs instead uh and do infrastructure security um like uh incident uh investigation and remediation. uh so uh and more intelligent expansion pruning uh and reasoning capabilities. This is what I mentioned earlier. It's",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "like how do I decide what is relevant versus not like and how do I be more intelligent about the path traversal. Uh this is something that we can take a less uh I used to do reinforcement learning a lot. So this is a common",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "problem in multicolor research uh type of setup uh in the past. So we're doing those kind of exploration right now. Uh and we're also looking to build a unified graph abstraction layer uh on top of all of our data. Um and this is",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "to help combat with the latency problems uh and how much we have we don't have to reconstruct every single time but instead if there's already pre-extracted into a graph then you can take that part out of it and then have the agent focus",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "on the reasoning capabilities. And I'm exactly at time. Uh so thank you. Uh and any questions?",
+      "start": 816,
+      "duration": 6
+    }
+  ]
+}

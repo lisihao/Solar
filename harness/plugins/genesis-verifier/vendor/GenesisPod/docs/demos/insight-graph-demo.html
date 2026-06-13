@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 前瞻 · 判断资产 Demo v0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f7f4ee;
+  --paper-2:#f2eee6;
+  --panel:#ffffff;
+  --panel-2:#fbf9f4;
+  --line:rgba(29,36,51,.09);
+  --line-strong:rgba(29,36,51,.2);
+  --txt:#1d2433;
+  --txt-dim:#5a6478;
+  --txt-faint:#98a0b0;
+  --amber:#b45309;
+  --amber-bright:#d97706;
+  --amber-soft:rgba(217,119,6,.09);
+  --blue:#0369a1;
+  --blue-soft:rgba(3,105,161,.07);
+  --red:#d6303a;
+  --red-soft:rgba(214,48,58,.08);
+  --green:#15803d;
+  --green-soft:rgba(21,128,61,.07);
+  --serif:'Noto Serif SC','Fraunces',serif;
+  --disp:'Fraunces','Noto Serif SC',serif;
+  --mono:'IBM Plex Mono','Noto Sans SC',monospace;
+  --sans:'Noto Sans SC',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--txt);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.6;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(1100px 480px at 18% -8%, rgba(217,119,6,.06), transparent 60%),
+    radial-gradient(900px 520px at 88% 0%, rgba(3,105,161,.045), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 47px, rgba(29,36,51,.035) 47px 48px),
+    repeating-linear-gradient(90deg, transparent 0 47px, rgba(29,36,51,.035) 47px 48px);
+}
+body::after{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.45;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+}
+.wrap{position:relative;z-index:1;max-width:1680px;margin:0 auto;padding:0 28px 80px}
+
+/* ============ header ============ */
+header{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+  padding:38px 4px 22px;
+  flex-wrap:wrap;
+}
+.brand .kicker{
+  font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:var(--amber);
+  text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:10px;
+}
+.brand .kicker::before{content:'';width:26px;height:2px;background:var(--amber-bright)}
+.brand h1{
+  font-family:var(--serif);font-weight:900;font-size:clamp(28px,3.4vw,44px);
+  letter-spacing:.04em;line-height:1.15;
+}
+.brand h1 em{font-style:normal;color:var(--amber-bright)}
+.brand .sub{
+  font-family:var(--mono);font-size:12px;color:var(--txt-dim);margin-top:8px;letter-spacing:.08em;
+}
+.stats{display:flex;gap:0;border:1px solid var(--line-strong);background:var(--panel);box-shadow:0 2px 10px rgba(29,36,51,.05)}
+.stat{padding:14px 26px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:none}
+.stat .num{
+  font-family:var(--disp);font-weight:700;font-size:30px;line-height:1;color:var(--txt);
+  font-variant-numeric:tabular-nums;
+}
+.stat.warn .num{color:var(--amber-bright)}
+.stat .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--txt-faint);margin-top:6px;text-transform:uppercase}
+
+/* ============ tab bar ============ */
+.tabbar{display:flex;flex-wrap:wrap;border-bottom:2px solid var(--txt);margin-top:8px}
+.tabbtn{
+  font-family:var(--sans);font-size:14px;font-weight:600;color:var(--txt-dim);
+  background:none;border:none;cursor:pointer;padding:13px 22px;position:relative;
+  display:flex;align-items:center;gap:9px;transition:color .15s;
+}
+.tabbtn .tno{font-family:var(--mono);font-size:10px;color:var(--txt-faint);letter-spacing:.08em}
+.tabbtn:hover{color:var(--txt)}
+.tabbtn.on{color:var(--txt)}
+.tabbtn.on::after{content:'';position:absolute;left:0;right:0;bottom:-2px;height:3px;background:var(--amber-bright)}
+.tbadge{
+  font-family:var(--mono);font-size:9.5px;min-width:18px;text-align:center;
+  padding:1px 6px;background:var(--amber-bright);color:#fff;border-radius:10px;display:none;
+}
+.tbadge.show{display:inline-block;animation:bpulse 1.2s ease 2}
+@keyframes bpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+.panel-tab{display:none;padding-top:20px}
+.panel-tab.on{display:block;animation:tabfade .3s ease}
+@keyframes tabfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============ section heads (in-tab) ============ */
+.sechead{
+  display:flex;align-items:baseline;gap:14px;margin:26px 4px 16px;
+  border-bottom:1px solid var(--line-strong);padding-bottom:10px;flex-wrap:wrap;
+}
+.sechead:first-child{margin-top:0}
+.sechead h2{font-family:var(--serif);font-weight:900;font-size:17px;letter-spacing:.06em}
+.sechead .en{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--txt-faint);text-transform:uppercase}
+.sechead .note{margin-left:auto;font-size:11.5px;color:var(--txt-dim)}
+
+/* ============ journey workbench ============ */
+.journey{
+  border:1px solid var(--line-strong);background:linear-gradient(180deg,var(--amber-soft),var(--panel) 75%);
+  padding:18px 22px 10px;box-shadow:0 2px 10px rgba(29,36,51,.05);
+}
+.jhead{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.jt{font-family:var(--serif);font-weight:900;font-size:19px}
+.js{font-family:var(--mono);font-size:11px;color:var(--txt-dim);letter-spacing:.08em;margin-top:2px}
+.tourbtn{
+  font-family:var(--sans);font-size:13px;font-weight:600;color:#fff;cursor:pointer;
+  background:var(--amber-bright);border:1px solid var(--amber-bright);padding:10px 22px;transition:all .15s;
+}
+.tourbtn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.flowstrip.jflow{margin:8px 0 0;border:none;box-shadow:none;background:none;padding:10px 0 12px}
+.tour-pop{
+  position:fixed;right:26px;bottom:26px;z-index:99;width:380px;max-width:calc(100vw - 52px);
+  background:var(--panel);border:2px solid var(--amber-bright);
+  box-shadow:0 16px 48px rgba(29,36,51,.28);padding:16px 18px;display:none;
+}
+.tour-pop.on{display:block;animation:tabfade .25s ease}
+.tour-pop .tp-step{font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.16em}
+.tour-pop b{display:block;font-family:var(--serif);font-size:15.5px;margin:5px 0 6px}
+.tour-pop p{font-size:12.5px;color:var(--txt-dim);line-height:1.7}
+.tour-pop .tp-act{display:flex;gap:8px;margin-top:13px;justify-content:flex-end}
+.tour-hl{outline:3px solid var(--amber-bright);outline-offset:5px}
+
+/* impact bar in review queue */
+.qimp{width:92px;display:flex;flex-direction:column;gap:3px;flex-shrink:0}
+.qimp i{display:block;height:4px;background:linear-gradient(90deg,#f59e0b,var(--red))}
+.qimp{background:rgba(29,36,51,.0)}
+.qimp em{font-style:normal;font-family:var(--mono);font-size:9px;color:var(--txt-dim);letter-spacing:.04em}
+
+/* scenario-conditioned confidence */
+.scn-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.scn-row .scn-n{font-size:11.5px;color:var(--txt);width:140px;flex-shrink:0}
+.scn-row .scn-bar{flex:1;height:5px;background:rgba(29,36,51,.08)}
+.scn-row .scn-bar i{display:block;height:100%;background:linear-gradient(90deg,#a78bfa,#6d28d9)}
+.scn-row .scn-c{font-family:var(--mono);font-size:10.5px;color:#6d28d9;width:36px;text-align:right}
+.scn-note{font-size:10.5px;color:var(--txt-dim);line-height:1.55;padding:7px 0 0}
+
+/* confidence ledger */
+.led-row{display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--line);font-size:11px;line-height:1.55}
+.led-row:last-child{border-bottom:none}
+.led-row .led-d{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);width:64px;flex-shrink:0}
+.led-row .led-c{font-family:var(--mono);font-size:10.5px;color:var(--txt);white-space:nowrap}
+.led-row .led-c b{color:var(--amber)}
+.led-row .led-r{color:var(--txt-dim)}
+
+/* forks */
+.fk{padding:9px 0;border-bottom:1px dashed var(--line)}
+.fk:last-child{border-bottom:none}
+.fk .fk-n{font-size:12.5px;font-weight:700}
+.fk .fk-q{font-size:11px;color:var(--txt-dim);margin:1px 0 6px}
+.fk-b{display:flex;align-items:center;gap:10px;padding:2px 0}
+.fk-b span:first-child{font-size:11px;color:var(--txt);width:120px;flex-shrink:0}
+.fk-b .dbar{flex:1;height:5px;background:rgba(29,36,51,.08)}
+.fk-b .dbar i{display:block;height:100%;background:linear-gradient(90deg,#a78bfa,#6d28d9)}
+.fk-b .fk-p{font-family:var(--mono);font-size:10.5px;color:#6d28d9;width:34px;text-align:right}
+.fk .fk-cards{margin-top:5px}
+
+/* overview review queue summary */
+.ovq-item{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);cursor:pointer}
+.ovq-item:hover{background:rgba(29,36,51,.03)}
+.ovq-item .qid{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);width:84px;flex-shrink:0}
+.ovq-item .qt{font-size:12.5px;font-weight:600;flex:1}
+.ovq-go{
+  margin-top:10px;font-family:var(--sans);font-size:12.5px;font-weight:600;cursor:pointer;
+  color:#fff;background:var(--amber-bright);border:1px solid var(--amber-bright);padding:7px 18px;
+}
+.ovq-go:hover{filter:brightness(1.06)}
+
+/* ============ overview ============ */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{
+  border:1px solid var(--line-strong);background:var(--panel);padding:16px 18px;
+  cursor:pointer;transition:all .18s;box-shadow:0 1px 3px rgba(29,36,51,.05);
+}
+.kpi:hover{border-color:var(--txt);transform:translateY(-2px);box-shadow:0 8px 22px rgba(29,36,51,.1)}
+.kpi b{font-family:var(--disp);font-weight:700;font-size:32px;line-height:1.1;display:block;font-variant-numeric:tabular-nums}
+.kpi.warn b{color:var(--amber-bright)}
+.kpi.danger b{color:var(--red)}
+.kpi.ok b{color:var(--green)}
+.kpi .kl{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--txt-faint);text-transform:uppercase;margin-top:6px}
+.kpi .kh{font-size:11px;color:var(--txt-dim);margin-top:4px}
+.ovgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:20px;align-items:start}
+@media (max-width:1100px){.ovgrid{grid-template-columns:1fr}}
+.ovcard{border:1px solid var(--line-strong);background:var(--panel);box-shadow:0 2px 10px rgba(29,36,51,.05)}
+.ovcard .oh{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--txt-dim);text-transform:uppercase;
+}
+.ovcard .oh .dot{width:7px;height:7px;border-radius:50%}
+.ovcard .ob{padding:14px 16px}
+.lh-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.lh-row:last-child{border-bottom:none}
+.lh-row .lid{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--amber-bright);width:30px}
+.lh-row .ln{font-size:12.5px;font-weight:600;width:88px}
+.lh-row .lbar{flex:1;height:5px;background:rgba(29,36,51,.08);overflow:hidden}
+.lh-row .lbar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,var(--amber-bright))}
+.lh-row .lconf{font-family:var(--mono);font-size:10px;color:var(--txt-dim);width:62px;text-align:right}
+.lh-row .ldirty{font-family:var(--mono);font-size:9px;padding:1px 7px;border:1px solid;min-width:48px;text-align:center}
+.lh-row .ldirty.zero{color:var(--green);border-color:rgba(21,128,61,.35)}
+.lh-row .ldirty.some{color:#fff;background:var(--amber-bright);border-color:var(--amber-bright);font-weight:600}
+.dist-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}
+.dist-row:last-child{border-bottom:none}
+.dist-row .sq{width:10px;height:10px;flex-shrink:0}
+.dist-row .dn{font-size:12.5px;flex:1}
+.dist-row .dbar{flex:1.4;height:5px;background:rgba(29,36,51,.08)}
+.dist-row .dbar i{display:block;height:100%}
+.dist-row .dc{font-family:var(--mono);font-size:11px;color:var(--txt-dim);width:24px;text-align:right}
+.act-item{display:flex;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:12px;line-height:1.6}
+.act-item:last-child{border-bottom:none}
+.act-item .at{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);white-space:nowrap;padding-top:2px;width:78px;flex-shrink:0}
+.act-item .ax{color:var(--txt-dim)}
+.act-item .ax b{color:var(--txt);font-weight:600}
+
+/* ============ signal console ============ */
+.console{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  border:1px solid var(--line-strong);background:linear-gradient(180deg,rgba(217,119,6,.06),rgba(255,255,255,.6) 70%);
+  padding:14px 18px;
+}
+.console .tag{
+  font-family:var(--mono);font-size:11px;letter-spacing:.24em;color:var(--amber);
+  display:flex;align-items:center;gap:8px;padding-right:14px;border-right:1px solid var(--line-strong);
+}
+.console .tag svg{width:14px;height:14px}
+.sig{
+  font-family:var(--sans);font-size:13px;color:var(--txt);cursor:pointer;
+  background:var(--panel);border:1px solid var(--line-strong);padding:9px 16px;
+  display:flex;align-items:center;gap:10px;transition:all .18s ease;position:relative;
+}
+.sig .sid{font-family:var(--mono);font-size:10px;color:var(--red);letter-spacing:.1em}
+.sig:hover{border-color:var(--red);background:var(--red-soft);transform:translateY(-1px)}
+.sig.active{border-color:var(--red);background:var(--red-soft);box-shadow:0 0 0 1px var(--red),0 6px 20px rgba(214,48,58,.15)}
+.reset{
+  margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.14em;cursor:pointer;
+  color:var(--txt-dim);background:none;border:1px solid var(--line-strong);padding:9px 16px;transition:all .18s;
+}
+.reset:hover{color:var(--txt);border-color:var(--txt)}
+.sig .sinfo{display:inline-flex;align-items:center;color:var(--txt-faint);margin-left:2px;transition:color .15s}
+.sig .sinfo:hover{color:var(--red)}
+.sig .sinfo svg{width:13.5px;height:13.5px}
+
+/* ============ signal basis dossier ============ */
+#sig-basis{display:none;border:1px solid rgba(214,48,58,.4);background:var(--panel);padding:18px 20px;margin-top:18px}
+#sig-basis.open{display:block;animation:tabfade .3s ease}
+.basis-h{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.basis-h .bsid{font-family:var(--mono);font-size:10px;color:var(--red);letter-spacing:.12em}
+.basis-h b{font-size:14.5px;font-weight:700}
+.grade{font-family:var(--mono);font-size:9px;letter-spacing:.1em;padding:3px 9px;color:#fff;background:var(--red);font-weight:600}
+.grade.weak{background:var(--txt-faint)}
+.basis-h .gnote{font-size:11px;color:var(--txt-dim)}
+.basis-grid{display:grid;grid-template-columns:1.1fr 1fr 1.2fr;gap:20px}
+@media (max-width:1000px){.basis-grid{grid-template-columns:1fr}}
+.basis-sec .sec-t{margin-top:0}
+.bfals{
+  font-size:12px;color:var(--txt-dim);line-height:1.65;padding:10px 12px;
+  background:var(--panel-2);border-left:3px solid var(--red);
+}
+.bfals .chip{margin-bottom:6px;display:inline-flex}
+.bthr{font-family:var(--mono);font-size:11.5px;line-height:2;color:var(--txt-dim)}
+.bthr b{color:var(--txt);font-weight:600}
+.bthr .hit{color:var(--red);font-weight:600}
+.basis-actions{display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px dashed var(--line)}
+.binject{
+  font-family:var(--sans);font-size:12.5px;font-weight:600;cursor:pointer;color:#fff;
+  background:var(--red);border:1px solid var(--red);padding:8px 18px;transition:all .15s;
+}
+.binject:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.bclose{
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;cursor:pointer;
+  color:var(--txt-dim);background:none;border:1px solid var(--line-strong);padding:8px 16px;
+}
+.bclose:hover{color:var(--txt);border-color:var(--txt)}
+
+/* ============ legend ============ */
+.legend{
+  display:flex;gap:22px;flex-wrap:wrap;padding:14px 4px 4px;
+  font-family:var(--mono);font-size:11px;color:var(--txt-dim);letter-spacing:.06em;
+}
+.legend span{display:flex;align-items:center;gap:8px}
+.lg-line{width:26px;height:0;border-top:2px solid rgba(29,36,51,.4)}
+.lg-dash{width:26px;height:0;border-top:2px dashed rgba(214,48,58,.6)}
+.lg-dot{width:9px;height:9px;border-radius:50%}
+
+/* ============ graph layout ============ */
+.main{display:grid;grid-template-columns:1fr 354px;gap:26px;margin-top:14px;align-items:start}
+@media (max-width:1180px){.main{grid-template-columns:1fr}}
+.graph{position:relative;padding:6px 0 30px}
+#edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+#labels{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:6}
+#edges path.e{fill:none;stroke:rgba(29,36,51,.16);transition:stroke .3s} /* 基础粗细按边权以 attribute 设置 */
+#edges path.e.constrain{stroke-dasharray:5 5;stroke:rgba(214,48,58,.38)}
+#edges path.e.hov{stroke:rgba(29,36,51,.55);stroke-width:1.6}
+#edges path.e.hl-down{stroke:var(--amber-bright);stroke-width:1.9}
+#edges path.e.hl-up{stroke:var(--blue);stroke-width:1.9}
+#edges path.e.flow{
+  stroke:var(--amber-bright);stroke-width:2.2;stroke-dasharray:7 7;
+  animation:dashflow 1s linear infinite;
+}
+#edges path.e.flow.constrain{stroke:var(--red)}
+@keyframes dashflow{to{stroke-dashoffset:-28}}
+.elabel{opacity:0;transition:opacity .3s;pointer-events:none}
+.elabel.show{opacity:1}
+.elabel rect{fill:#fffdf8;stroke:var(--line-strong);filter:drop-shadow(0 2px 6px rgba(29,36,51,.18))}
+.elabel.amber rect{stroke:var(--amber-bright)}
+.elabel.cyan rect{stroke:var(--blue)}
+.elabel text{font-family:var(--mono);font-size:10.5px;fill:var(--txt)}
+.elabel.amber text{fill:var(--amber)}
+.elabel.cyan text{fill:var(--blue)}
+
+.lane{
+  position:relative;display:flex;gap:22px;align-items:stretch;
+  padding:30px 0 30px 156px;border-bottom:1px dashed var(--line-strong);
+}
+.lane:last-child{border-bottom:none}
+.lane-rail{
+  position:absolute;left:0;top:30px;bottom:30px;width:106px;
+  display:flex;flex-direction:column;justify-content:center;gap:4px;
+  border-right:2px solid var(--txt);padding-right:16px;text-align:right;
+}
+.lane-rail .lid{font-family:var(--disp);font-weight:700;font-size:21px;color:var(--amber-bright);line-height:1}
+.lane-rail .lname{font-size:12px;font-weight:700;color:var(--txt);letter-spacing:.1em}
+.lane-rail .len{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--txt-faint)}
+.cards{display:flex;gap:22px;flex-wrap:wrap;flex:1}
+
+/* ============ card ============ */
+.card{
+  position:relative;width:252px;background:var(--panel);border:1px solid var(--line-strong);
+  padding:13px 15px 15px 18px;cursor:pointer;transition:all .2s ease;
+  box-shadow:0 1px 3px rgba(29,36,51,.05);
+}
+.card::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;background:var(--stage-c,transparent)}
+.stagechip{
+  font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:2px 6px;
+  border:1px solid;background:rgba(255,255,255,.6);
+}
+.card:hover{border-color:var(--txt);transform:translateY(-2px);box-shadow:0 8px 24px rgba(29,36,51,.12)}
+.card .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.card .cid{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--txt-faint)}
+.card .sens{font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:2px 7px;border:1px solid}
+.sens.high{color:var(--red);border-color:rgba(214,48,58,.45);background:var(--red-soft)}
+.sens.mid{color:var(--amber);border-color:rgba(180,83,9,.45);background:var(--amber-soft)}
+.sens.low{color:var(--txt-faint);border-color:var(--line-strong)}
+.card h3{font-size:14.5px;font-weight:700;letter-spacing:.02em;line-height:1.4;margin-bottom:6px}
+.card .claim{font-size:11.5px;color:var(--txt-dim);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .confbar{height:3px;background:rgba(29,36,51,.1);margin-top:11px;overflow:hidden}
+.card .confbar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,var(--amber-bright));transition:width .8s ease}
+.card .meta{display:flex;justify-content:space-between;margin-top:7px;font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);letter-spacing:.06em}
+.card .badge{
+  position:absolute;top:-9px;right:10px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+  padding:2px 9px;opacity:0;transform:scale(.8);transition:all .25s ease;
+}
+.card.dirty{border-color:var(--amber-bright);background:linear-gradient(180deg,var(--amber-soft),var(--panel) 65%)}
+.card.dirty .badge{opacity:1;transform:scale(1);background:var(--amber-bright);color:#fff;font-weight:600}
+.card.src{border-color:var(--red);background:linear-gradient(180deg,var(--red-soft),var(--panel) 65%);animation:srcpulse 1.6s ease infinite}
+.card.src .badge{opacity:1;transform:scale(1);background:var(--red);color:#fff;font-weight:600}
+@keyframes srcpulse{0%,100%{box-shadow:0 0 0 0 rgba(214,48,58,.3)}50%{box-shadow:0 0 0 7px rgba(214,48,58,0)}}
+.card.up{border-color:var(--blue);background:linear-gradient(180deg,var(--blue-soft),var(--panel) 65%)}
+.card.down{border-color:var(--amber-bright);background:linear-gradient(180deg,var(--amber-soft),var(--panel) 65%)}
+.card.selected{border-color:var(--txt);box-shadow:0 0 0 1.5px var(--txt),0 10px 28px rgba(29,36,51,.16)}
+body.focusmode .card:not(.selected):not(.up):not(.down):not(.src):not(.dirty){opacity:.38}
+.card.neu{animation:neuin 1.4s ease}
+@keyframes neuin{0%{box-shadow:0 0 0 8px rgba(3,105,161,.28);transform:scale(.95)}100%{box-shadow:none;transform:none}}
+
+/* ============ aside (detail) ============ */
+aside{position:sticky;top:20px;display:flex;flex-direction:column;gap:18px;max-height:calc(100vh - 40px)}
+.panel{border:1px solid var(--line-strong);background:rgba(255,255,255,.92);backdrop-filter:blur(6px);display:flex;flex-direction:column;min-height:0;box-shadow:0 2px 12px rgba(29,36,51,.06)}
+.panel-h{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--txt-dim);text-transform:uppercase;
+}
+.panel-h .dot{width:7px;height:7px;border-radius:50%}
+.panel-b{padding:16px;overflow-y:auto}
+.panel-b::-webkit-scrollbar{width:8px}
+.panel-b::-webkit-scrollbar-thumb{background:var(--line-strong)}
+.empty{font-size:12px;color:var(--txt-faint);text-align:center;padding:26px 10px;line-height:1.8}
+
+#detail .did{font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.1em;margin-bottom:6px;display:flex;justify-content:space-between}
+#detail h2{font-family:var(--serif);font-weight:900;font-size:19px;line-height:1.4;margin-bottom:10px}
+#detail .dclaim{font-size:12.5px;color:var(--txt-dim);line-height:1.7;padding:10px 12px;background:var(--panel-2);border-left:3px solid var(--amber-bright);margin-bottom:14px}
+.kv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.kv .k{background:var(--panel-2);border:1px solid var(--line);padding:8px 10px;text-align:center}
+.kv .k b{display:block;font-family:var(--disp);font-size:17px;font-weight:700;color:var(--txt)}
+.kv .k span{font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--txt-faint);text-transform:uppercase}
+.sec-t{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--txt-faint);margin:14px 0 8px;display:flex;align-items:center;gap:8px}
+.sec-t::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.sec-t.red{color:var(--red)}
+ul.flist{list-style:none}
+ul.flist li{
+  font-size:12px;color:var(--txt-dim);line-height:1.6;padding:7px 0 7px 18px;position:relative;
+  border-bottom:1px dashed var(--line);
+}
+ul.flist li:last-child{border-bottom:none}
+ul.flist li::before{content:'';position:absolute;left:2px;top:14px;width:7px;height:1.5px;background:var(--txt-faint)}
+ul.flist.red li::before{width:7px;height:7px;border-radius:50%;background:transparent;border:1.5px solid var(--red);top:11px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  font-family:var(--mono);font-size:10px;letter-spacing:.04em;padding:4px 9px;cursor:pointer;
+  border:1px solid var(--line-strong);color:var(--txt-dim);background:var(--panel);transition:all .15s;
+}
+.chip:hover{color:var(--txt);border-color:var(--txt)}
+.chip.upc{border-color:rgba(3,105,161,.45);color:var(--blue)}
+.chip.dnc{border-color:rgba(180,83,9,.45);color:var(--amber)}
+
+/* sources */
+.srcs{display:flex;flex-direction:column;gap:6px}
+a.srcb{
+  display:flex;align-items:center;gap:10px;padding:8px 11px;text-decoration:none;
+  border:1px solid var(--line);background:var(--panel-2);transition:all .15s;
+}
+a.srcb:hover{border-color:var(--blue);background:var(--blue-soft);transform:translateX(2px)}
+.stype{font-family:var(--mono);font-size:9px;letter-spacing:.1em;padding:2px 6px;border:1px solid;flex-shrink:0}
+.stype.vendor{color:var(--blue);border-color:rgba(3,105,161,.4);background:rgba(3,105,161,.05)}
+.stype.paper{color:#15803d;border-color:rgba(21,128,61,.4);background:rgba(21,128,61,.05)}
+.stype.report{color:var(--amber);border-color:rgba(180,83,9,.4);background:var(--amber-soft)}
+.stype.oss{color:#6d28d9;border-color:rgba(109,40,217,.35);background:rgba(109,40,217,.05)}
+.stype.std{color:var(--txt-dim);border-color:var(--line-strong);background:var(--panel)}
+a.srcb .smain{flex:1;min-width:0}
+a.srcb .sorg{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);letter-spacing:.05em}
+a.srcb .st{font-size:12px;color:var(--txt);line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+a.srcb svg{width:12px;height:12px;color:var(--txt-faint);flex-shrink:0}
+a.srcb:hover svg{color:var(--blue)}
+
+/* ============ feeds (radar / insight inboxes) ============ */
+.feeds{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media (max-width:1000px){.feeds{grid-template-columns:1fr}}
+.inbox{border:1px solid var(--line-strong);background:var(--panel);box-shadow:0 2px 10px rgba(29,36,51,.05)}
+.inbox-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.modtag{font-size:11px;font-weight:700;color:#fff;padding:3px 10px;letter-spacing:.08em}
+.inbox-h .iname{font-size:13px;font-weight:700}
+.inbox-h .ien{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--txt-faint);text-transform:uppercase}
+.inbox-h .icount{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--txt-dim)}
+.feed-item{display:flex;gap:12px;padding:13px 16px;border-bottom:1px dashed var(--line);align-items:flex-start}
+.feed-item:last-child{border-bottom:none}
+.fgrade{font-family:var(--mono);font-size:9px;letter-spacing:.1em;padding:3px 8px;border:1px solid;flex-shrink:0;margin-top:2px}
+.fgrade.strong{color:#fff;background:var(--red);border-color:var(--red);font-weight:600}
+.fgrade.weak{color:var(--amber);border-color:rgba(180,83,9,.45);background:var(--amber-soft)}
+.fgrade.none{color:var(--txt-faint);border-color:var(--line-strong)}
+.fi-main{flex:1;min-width:0}
+.fi-t{font-size:13px;font-weight:600;line-height:1.5}
+.fi-meta{font-size:11px;color:var(--txt-dim);margin-top:3px;line-height:1.6}
+.fi-meta .chip{margin-top:5px}
+.fi-act{flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.fi-btn{
+  font-family:var(--sans);font-size:11.5px;font-weight:600;cursor:pointer;color:#fff;
+  background:var(--red);border:1px solid var(--red);padding:6px 13px;transition:all .15s;white-space:nowrap;
+}
+.fi-btn:hover{filter:brightness(1.08)}
+.fi-btn.admit{background:var(--blue);border-color:var(--blue)}
+.fi-btn.done{background:#15803d;border-color:#15803d;cursor:default}
+.fi-note{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);letter-spacing:.04em;text-align:right;line-height:1.6;white-space:nowrap}
+.misn{font-family:var(--mono);font-size:9.5px;color:#c2366b;letter-spacing:.04em}
+
+/* ============ assumptions table ============ */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.filters select,.filters input{
+  font-family:var(--sans);font-size:12.5px;color:var(--txt);background:var(--panel);
+  border:1px solid var(--line-strong);padding:8px 12px;outline:none;
+}
+.filters input{min-width:240px}
+.filters input:focus,.filters select:focus{border-color:var(--txt)}
+.filters .fcount{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--txt-dim)}
+table.atable{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line-strong);box-shadow:0 2px 10px rgba(29,36,51,.05)}
+.atable th{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--txt-faint);text-transform:uppercase;
+  text-align:left;padding:11px 14px;border-bottom:2px solid var(--txt);white-space:nowrap;
+}
+.atable td{padding:11px 14px;border-bottom:1px dashed var(--line);font-size:12.5px;vertical-align:middle}
+.atable tr:last-child td{border-bottom:none}
+.atable tbody tr{cursor:pointer;transition:background .12s}
+.atable tbody tr:hover{background:var(--paper-2)}
+.atable .aid{font-family:var(--mono);font-size:10.5px;color:var(--txt-faint)}
+.atable .at-title{font-weight:600}
+.atable .cbar{width:74px;height:4px;background:rgba(29,36,51,.08);display:inline-block;vertical-align:middle;margin-right:8px}
+.atable .cbar i{display:block;height:100%;background:linear-gradient(90deg,#f59e0b,var(--amber-bright))}
+.atable .cnum{font-family:var(--mono);font-size:10.5px;color:var(--txt-dim)}
+.stagecell{font-family:var(--mono);font-size:9px;letter-spacing:.06em;padding:2px 7px;border:1px solid}
+.statuspill{font-family:var(--mono);font-size:9px;letter-spacing:.08em;padding:2px 8px;border:1px solid rgba(21,128,61,.4);color:var(--green)}
+.statuspill.dirty{border-color:var(--amber-bright);background:var(--amber-bright);color:#fff;font-weight:600}
+.statuspill.src{border-color:var(--red);background:var(--red);color:#fff;font-weight:600}
+
+/* ============ review workflow ============ */
+.flowstrip{
+  display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-bottom:18px;
+  border:1px solid var(--line-strong);background:var(--panel);padding:14px 18px;
+  box-shadow:0 2px 10px rgba(29,36,51,.05);
+}
+.fstep{display:flex;flex-direction:column;gap:2px;flex:1;min-width:130px}
+.fstep i{
+  font-family:var(--disp);font-style:normal;font-weight:700;font-size:15px;color:#fff;
+  width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+  background:var(--amber-bright);margin-bottom:4px;
+}
+.fstep b{font-size:13px;font-weight:700}
+.fstep small{font-size:10.5px;color:var(--txt-dim);line-height:1.5}
+.farrow{display:flex;align-items:center;color:var(--txt-faint)}
+.farrow::after{content:'→';font-family:var(--mono);font-size:16px}
+@media (max-width:900px){.farrow{display:none}}
+.rv-head{display:flex;align-items:center;gap:18px;margin-bottom:16px;flex-wrap:wrap}
+.rv-prog{flex:1;min-width:200px;height:7px;background:rgba(29,36,51,.08);overflow:hidden}
+.rv-prog i{display:block;height:100%;background:linear-gradient(90deg,#34d399,var(--green));transition:width .5s ease}
+.rv-stat{font-family:var(--mono);font-size:11px;color:var(--txt-dim)}
+#queue-effect{
+  display:none;font-size:12px;line-height:1.65;color:var(--txt);background:var(--red-soft);
+  border:1px solid rgba(214,48,58,.4);padding:10px 12px;margin-bottom:14px;
+}
+#queue-effect .sid{font-family:var(--mono);font-size:10px;color:var(--red);letter-spacing:.1em;display:block;margin-bottom:3px}
+.qwrap{border:1px solid var(--line-strong);background:var(--panel);box-shadow:0 2px 10px rgba(29,36,51,.05)}
+.qitem{
+  display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px dashed var(--line);
+  opacity:0;transform:translateX(10px);transition:all .35s ease;
+}
+.qitem:last-child{border-bottom:none}
+.qitem.in{opacity:1;transform:none}
+.qitem .depth{
+  font-family:var(--disp);font-weight:700;font-size:16px;color:var(--txt-faint);width:34px;flex-shrink:0;text-align:center;
+  border-right:1px solid var(--line);
+}
+.qitem .depth.d0{color:var(--red)}
+.qitem .qmain{flex:1;min-width:0;cursor:pointer}
+.qitem .qid{font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);letter-spacing:.06em}
+.qitem .qt{font-size:13px;font-weight:600}
+.qitem .qhint{font-size:11px;color:var(--txt-dim);margin-top:1px}
+.qitem .sens{flex-shrink:0}
+.qact{display:flex;gap:8px;flex-shrink:0}
+.qbtn{
+  font-family:var(--sans);font-size:11.5px;font-weight:600;cursor:pointer;padding:6px 13px;
+  border:1px solid;transition:all .15s;white-space:nowrap;
+}
+.qbtn.adj{color:#fff;background:var(--amber-bright);border-color:var(--amber-bright)}
+.qbtn.keep{color:var(--txt-dim);background:none;border-color:var(--line-strong)}
+.qbtn:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.qitem.resolved{opacity:.55}
+.qitem.resolved .qt{text-decoration:line-through;text-decoration-color:var(--txt-faint)}
+.qdecision{font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:3px 9px;border:1px solid;white-space:nowrap}
+.qdecision.adj{color:var(--amber);border-color:rgba(180,83,9,.45);background:var(--amber-soft)}
+.qdecision.keep{color:var(--green);border-color:rgba(21,128,61,.4);background:var(--green-soft)}
+
+/* ============ conclusions ============ */
+.concl{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+@media (max-width:1280px){.concl{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:760px){.concl{grid-template-columns:1fr}}
+.ccard{
+  position:relative;border:1px solid var(--line-strong);background:var(--panel);
+  padding:16px 17px;cursor:pointer;transition:all .2s ease;
+  box-shadow:0 1px 3px rgba(29,36,51,.05);display:flex;flex-direction:column;gap:9px;
+}
+.ccard:hover{border-color:var(--txt);transform:translateY(-2px);box-shadow:0 8px 24px rgba(29,36,51,.12)}
+.ccard .ctop{display:flex;justify-content:space-between;align-items:center}
+.ccard .cno{font-family:var(--disp);font-weight:700;font-size:14px;color:var(--amber-bright)}
+.cstat{font-family:var(--mono);font-size:9px;letter-spacing:.1em;padding:2px 8px;border:1px solid rgba(21,128,61,.45);color:#15803d;background:rgba(21,128,61,.05)}
+.ccard.hit{border-color:var(--amber-bright);background:linear-gradient(180deg,var(--amber-soft),var(--panel) 70%)}
+.ccard.hit .cstat{border-color:var(--amber-bright);color:#fff;background:var(--amber-bright);font-weight:600}
+.ccard h3{font-family:var(--serif);font-weight:900;font-size:15.5px;line-height:1.55}
+.ccard p{font-size:12px;color:var(--txt-dim);line-height:1.65;flex:1}
+.ccard .cact{
+  font-size:11.5px;color:var(--txt);line-height:1.6;padding:9px 11px;
+  background:var(--panel-2);border-left:3px solid var(--amber-bright);
+}
+.ccard .cact-t{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--amber);margin-bottom:5px}
+.ccard ol.cdec{margin:0;padding-left:18px}
+.ccard ol.cdec li{font-size:11.5px;color:var(--txt);line-height:1.6;padding:2px 0}
+.ccard ol.cdec li::marker{font-family:var(--mono);font-size:10px;color:var(--amber-bright);font-weight:600}
+.ccard .ctrg{
+  font-size:10.5px;color:var(--txt-dim);line-height:1.55;padding:7px 10px;
+  border:1px dashed rgba(214,48,58,.35);background:rgba(214,48,58,.025);
+}
+.ccard .cfoot{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--txt-faint);letter-spacing:.05em}
+
+footer{
+  margin-top:34px;padding-top:18px;border-top:1px solid var(--line-strong);
+  font-family:var(--mono);font-size:10.5px;color:var(--txt-faint);letter-spacing:.1em;
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <div class="kicker">Foresight · Compute Substrate 2028–2030</div>
+    <h1>AI 前瞻 <em>·</em> 判断资产</h1>
+    <div class="sub">ASSUMPTION GRAPH / 假设卡片 × 衰减传播 × 置信度账本 × 情景分叉 — Demo v0.4</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num" id="stat-cards">0</div><div class="lbl">假设 Assumptions</div></div>
+    <div class="stat"><div class="num" id="stat-edges">0</div><div class="lbl">影响边 Edges</div></div>
+    <div class="stat warn"><div class="num" id="stat-dirty">0</div><div class="lbl">待复核 Dirty</div></div>
+  </div>
+</header>
+
+<nav class="tabbar">
+  <button class="tabbtn on" data-tab="overview"><span class="tno">01</span>工作台</button>
+  <button class="tabbtn" data-tab="graph"><span class="tno">02</span>判断图谱</button>
+  <button class="tabbtn" data-tab="assumptions"><span class="tno">03</span>假设库</button>
+  <button class="tabbtn" data-tab="review"><span class="tno">04</span>复核<span class="tbadge" id="badge-review">0</span></button>
+  <button class="tabbtn" data-tab="conclusions"><span class="tno">05</span>洞察结论</button>
+</nav>
+
+<!-- ============ 01 工作台（Owner 一日巡检动线） ============ -->
+<section class="panel-tab on" id="panel-overview">
+  <div class="journey">
+    <div class="jhead">
+      <div>
+        <div class="jt">Owner 的一日巡检</div>
+        <div class="js">收信号 → 判冲击 → 复核裁定 → 校准结论 → 输出决策</div>
+      </div>
+      <button class="tourbtn" id="btn-tour">开始引导巡检</button>
+    </div>
+    <div class="flowstrip jflow">
+      <span class="fstep"><i>1</i><b>收信号</b><small>雷达信号 / 洞察草稿入站</small></span>
+      <span class="farrow"></span>
+      <span class="fstep"><i>2</i><b>判冲击</b><small>查验依据 → 注入传播</small></span>
+      <span class="farrow"></span>
+      <span class="fstep"><i>3</i><b>复核裁定</b><small>确认调整 / 维持原判</small></span>
+      <span class="farrow"></span>
+      <span class="fstep"><i>4</i><b>校准结论</b><small>受冲击结论复核恢复</small></span>
+      <span class="farrow"></span>
+      <span class="fstep"><i>5</i><b>输出决策</b><small>决策级结论 / 简报</small></span>
+    </div>
+  </div>
+
+  <div class="sechead">
+    <h2>① 今日入站</h2><span class="en">Inbound Today</span>
+    <span class="note">巡检起点：AI 雷达的候选信号 与 AI 洞察的草稿卡在此等你处理</span>
+  </div>
+  <div class="feeds" id="ov-feeds">
+    <div class="inbox">
+      <div class="inbox-h">
+        <span class="modtag" style="background:#0369a1">AI 雷达</span>
+        <span class="iname">信号收件箱</span><span class="ien">Signal Inbox</span>
+        <span class="icount" id="radar-count"></span>
+      </div>
+      <div id="radar-items"></div>
+    </div>
+    <div class="inbox">
+      <div class="inbox-h">
+        <span class="modtag" style="background:#c2366b">AI 洞察</span>
+        <span class="iname">沉淀收件箱</span><span class="ien">Draft Cards</span>
+        <span class="icount" id="draft-count"></span>
+      </div>
+      <div id="draft-items"></div>
+    </div>
+  </div>
+
+  <div class="sechead">
+    <h2>② 待我处理</h2><span class="en">My Queue</span>
+    <span class="note">信号冲击产生的复核待办 — 高敏假设优先</span>
+  </div>
+  <div class="ovcard">
+    <div class="ob" id="ov-review"></div>
+  </div>
+
+  <div class="sechead">
+    <h2>③ 体系状态</h2><span class="en">Asset Health</span>
+    <span class="note">判断资产健康度 — 一眼看出哪一层在晃</span>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="ovgrid">
+    <div class="ovcard">
+      <div class="oh"><span class="dot" style="background:var(--amber-bright)"></span>分层健康度 Layer Health</div>
+      <div class="ob" id="ov-layers"></div>
+    </div>
+    <div class="ovcard">
+      <div class="oh"><span class="dot" style="background:#6d28d9"></span>关键情景分叉 Forks</div>
+      <div class="ob" id="ov-forks"></div>
+    </div>
+    <div class="ovcard">
+      <div class="oh"><span class="dot" style="background:var(--blue)"></span>代际阶段分布 Stages</div>
+      <div class="ob" id="ov-stages"></div>
+    </div>
+    <div class="ovcard">
+      <div class="oh"><span class="dot" style="background:var(--green)"></span>最近动态 Activity</div>
+      <div class="ob" id="ov-activity"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 判断图谱 ============ -->
+<section class="panel-tab" id="panel-graph">
+  <div class="console">
+    <span class="tag">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      信号注入演练
+    </span>
+    <button class="sig" data-sig="S1"><span class="sid">SIG-01</span>HBM4 良率爬坡延期 12 个月<span class="sinfo" data-info="S1" title="查验信号依据"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></button>
+    <button class="sig" data-sig="S2"><span class="sid">SIG-02</span>Dense 旗舰推理成本反超 MoE<span class="sinfo" data-info="S2" title="查验信号依据"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></button>
+    <button class="sig" data-sig="S3"><span class="sid">SIG-03</span>电网接入排队超 4 年<span class="sinfo" data-info="S3" title="查验信号依据"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></button>
+    <button class="reset" id="btn-reset">RESET 复位</button>
+  </div>
+  <div id="sig-basis"></div>
+  <div class="legend">
+    <span><i class="lg-line" style="border-top-width:3px"></i>边粗细 = 传导强度（w 0.5–0.9）</span>
+    <span><i class="lg-dash"></i>约束反压</span>
+    <span><i class="lg-dot" style="background:var(--blue)"></i>上游依赖</span>
+    <span><i class="lg-dot" style="background:var(--amber-bright)"></i>下游影响 / 待复核</span>
+    <span><i class="lg-dot" style="background:var(--red)"></i>证伪信号命中</span>
+    <span style="margin-left:auto">传播冲击度沿边权连乘衰减，低于 0.30 不再标记</span>
+  </div>
+  <div class="legend" style="padding-top:6px">
+    <span style="color:var(--txt-faint)">代际阶段</span>
+    <span><i class="lg-dot" style="background:#15803d;border-radius:0"></i>当前落地</span>
+    <span><i class="lg-dot" style="background:#0369a1;border-radius:0"></i>演进中</span>
+    <span><i class="lg-dot" style="background:#d97706;border-radius:0"></i>探索验证</span>
+    <span><i class="lg-dot" style="background:#7c3aed;border-radius:0"></i>研究前沿</span>
+    <span style="color:var(--txt-faint)">（卡片左侧色条）</span>
+  </div>
+  <div class="main">
+    <div class="graph" id="graph">
+      <svg id="edges"></svg>
+      <svg id="labels"></svg>
+      <!-- lanes injected by JS -->
+    </div>
+    <aside>
+      <div class="panel" style="flex:1;min-height:300px">
+        <div class="panel-h"><span class="dot" style="background:var(--blue)"></span>假设卡片详情 Detail</div>
+        <div class="panel-b" id="detail">
+          <div class="empty">点击图谱中任意假设卡片<br>查看完整断言 / 信源 / 证伪信号 / 上下游血缘</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ 03 假设库 ============ -->
+<section class="panel-tab" id="panel-assumptions">
+  <div class="filters">
+    <input type="text" id="f-search" placeholder="搜索假设标题 / 断言…">
+    <select id="f-layer"><option value="">全部层级</option></select>
+    <select id="f-stage"><option value="">全部阶段</option></select>
+    <select id="f-sens"><option value="">全部敏感度</option><option value="high">高敏</option><option value="mid">中敏</option><option value="low">低敏</option></select>
+    <select id="f-status"><option value="">全部状态</option><option value="ok">稳固</option><option value="dirty">待复核</option></select>
+    <span class="fcount" id="f-count"></span>
+  </div>
+  <table class="atable">
+    <thead><tr>
+      <th>编号</th><th>假设</th><th>层级</th><th>阶段</th><th>敏感度</th><th>置信度</th><th>Horizon</th><th>信源</th><th>状态</th>
+    </tr></thead>
+    <tbody id="atbody"></tbody>
+  </table>
+</section>
+
+<!-- ============ 04 复核工作流 ============ -->
+<section class="panel-tab" id="panel-review">
+  <div class="sechead">
+    <h2>复核工作流</h2><span class="en">Review Queue</span>
+    <span class="note">信号传播标记的假设按 敏感度 × 传播深度 排序 — 逐项裁定后图谱状态实时解除</span>
+  </div>
+  <div class="flowstrip">
+    <span class="fstep"><i>1</i><b>信号命中</b><small>强信号过依据档案核验<br>（阈值 + 多源确认）</small></span>
+    <span class="farrow"></span>
+    <span class="fstep"><i>2</i><b>传播标记</b><small>沿影响边 BFS 标脏<br>敏感度 × 深度排序入列</small></span>
+    <span class="farrow"></span>
+    <span class="fstep"><i>3</i><b>认领裁定</b><small>层级 Champion 逐项裁定<br>确认调整 / 维持原判</small></span>
+    <span class="farrow"></span>
+    <span class="fstep"><i>4</i><b>状态落账</b><small>置信度修订写回卡片<br>图谱待复核标记解除</small></span>
+    <span class="farrow"></span>
+    <span class="fstep"><i>5</i><b>结论复稳</b><small>上游全部裁定完毕<br>受冲击结论自动恢复</small></span>
+  </div>
+  <div class="rv-head">
+    <span class="rv-stat" id="rv-stat">暂无待复核项</span>
+    <div class="rv-prog"><i id="rv-prog" style="width:0%"></i></div>
+  </div>
+  <div id="queue-effect"></div>
+  <div class="qwrap" id="queue">
+    <div class="empty">在「判断图谱」注入信号后，受影响假设在此入列<br>逐项裁定：确认调整（采纳置信度变化）或 维持原判（驳回冲击）</div>
+  </div>
+</section>
+
+<!-- ============ 05 洞察结论 ============ -->
+<section class="panel-tab" id="panel-conclusions">
+  <div class="sechead">
+    <h2>洞察结论</h2><span class="en">Conclusions · So What</span>
+    <span class="note">结论由假设推导得出 — 上游假设被信号冲击时，依赖它的结论自动标记待复核；复核完成后自动恢复</span>
+  </div>
+  <div class="concl" id="concl"></div>
+</section>
+
+<footer>
+  <span>GENESISPOD · AI FORESIGHT — PRODUCT DEMO v0.2</span>
+  <span>种子假设为示意数据 · 方法论：假设卡片 / Falsifier 信号 / DAG 脏标记传播 / 复核裁定</span>
+</footer>
+
+</div>
+
+<script>
+/* ================= data ================= */
+const LAYERS = [
+  {id:'L0', name:'业务负载', en:'WORKLOAD'},
+  {id:'L1', name:'模型架构', en:'MODEL ARCH'},
+  {id:'L2', name:'系统软件', en:'SYSTEM SW'},
+  {id:'L3', name:'系统级硬件', en:'SYSTEMS'},
+  {id:'L4', name:'芯片', en:'SILICON'},
+  {id:'L5', name:'物理底座', en:'PHYSICAL'},
+];
+
+const CARDS = [
+  {id:'A-L0-01', layer:'L0', title:'Agent 负载主体化', conf:.75, sens:'high', horizon:2028,
+   claim:'2028 年 Agent 产生的推理 token 占总推理量 >70%，人机直接对话退居次要负载形态。',
+   evidence:['2025–26 编码 / 研究类 Agent token 消耗年增 >20×','头部 API 平台 Agent 流量占比已过半'],
+   falsifiers:['Agent 商业化渗透率连续两季度低于预期','单位任务 token 消耗因蒸馏 / 缓存大幅下降']},
+  {id:'A-L0-02', layer:'L0', title:'长会话 + 突发 Prefill', conf:.70, sens:'high', horizon:2028,
+   claim:'Agent 单会话平均有效上下文 >256K，工具调用回填使 prefill : decode 突发比 >10:1。',
+   evidence:['主流 Agent 框架默认携带全量工具结果回填','上下文窗口商用上限 2 年内从 128K → 1M+'],
+   falsifiers:['记忆检索 / 上下文压缩使有效上下文需求回落','工具结果走结构化缓存而非重新 prefill']},
+  {id:'A-L0-03', layer:'L0', title:'Test-time Compute 扩张', conf:.65, sens:'high', horizon:2030,
+   claim:'推理算力需求 2026–2030 维持高速增长，训练 : 推理算力比降至 1:4 以下。',
+   evidence:['Reasoning 模型单查询 token 量较 chat 高 10–100×','头部实验室公开表态推理为算力支出主体'],
+   falsifiers:['推理蒸馏使单任务推理量级系统性下降','Agent 单位经济性恶化抑制需求增长']},
+  {id:'A-L0-04', layer:'L0', title:'MoA 混合专家 Agent', conf:.55, sens:'mid', horizon:2029,
+   claim:'Agent 组织形态从单体走向 MoA（Mixture of Agents）：异构专家 Agent 按任务动态路由混合编排，跨 Agent 上下文共享成为新负载形态。',
+   evidence:['MoA 编排在基准上超越单体大模型（arXiv:2406.04692）','头部实验室多 Agent 研究系统进入生产（编排者 + 子专家模式）'],
+   falsifiers:['单体模型能力增长使多 Agent 编排收益消失','跨 Agent 通信开销吞噬质量收益，行业回归单 Agent + 工具']},
+
+  {id:'A-L1-01', layer:'L1', title:'MoE 稀疏化主导', conf:.70, sens:'high', horizon:2028,
+   claim:'前沿模型全面 MoE 化，激活参数比 ≤ 1/15，总参数规模迈向 5T+。',
+   evidence:['DeepSeek-V3 / 前沿旗舰均采用细粒度 MoE','单位 token 成本压力使 dense 路线失去经济性'],
+   falsifiers:['某前沿实验室发布 Dense 旗舰且推理成本占优','HBM 容量增长低于路线图 30% 迫使架构折返']},
+  {id:'A-L1-02', layer:'L1', title:'KV Cache 第一性负载', conf:.75, sens:'high', horizon:2028,
+   claim:'KV cache 取代权重成为推理内存第一占用，会话级 KV 复用率成为成本关键变量。',
+   evidence:['长上下文 Agent 场景 KV 占用已超权重 2–5×','Prefix caching 命中率直接决定 $/token'],
+   falsifiers:['线性注意力 / SSM 路线在前沿规模验证成功','滑窗 + 检索混合架构使 KV 需求次线性增长']},
+  {id:'A-L1-03', layer:'L1', title:'多模态原生统一', conf:.55, sens:'mid', horizon:2029,
+   claim:'视频 / 音频原生进入主干模型，多模态 token 占总推理量 >40%。',
+   evidence:['原生多模态旗舰已成头部实验室标配方向'],
+   falsifiers:['多模态长期停留在外挂编码器 + 适配层路线','视频理解需求集中于专用小模型']},
+
+  {id:'A-L2-01', layer:'L2', title:'PD 分离标准化', conf:.80, sens:'mid', horizon:2027,
+   claim:'Prefill / Decode 分离 + 异构实例配比成为推理引擎默认架构。',
+   evidence:['vLLM / SGLang / Dynamo 等主流栈均已内置 PD 分离'],
+   falsifiers:['超大 SRAM 类芯片使统一调度反而占优']},
+  {id:'A-L2-02', layer:'L2', title:'KV 分层卸载体系', conf:.65, sens:'mid', horizon:2028,
+   claim:'HBM → DRAM → NVMe 三级 KV cache 体系商用化，分层命中率决定推理 TCO。',
+   evidence:['LMCache / Mooncake 类系统已在生产验证','DRAM 池化 + RDMA 取回延迟进入可用区间'],
+   falsifiers:['NVMe 取回延迟无法满足 decode SLA，卸载止步 DRAM']},
+  {id:'A-L2-03', layer:'L2', title:'会话感知调度', conf:.70, sens:'low', horizon:2028,
+   claim:'集群调度器从无状态请求路由演进为会话亲和 + KV 位置感知的有状态调度。',
+   evidence:['Agent 会话生命周期从秒级拉长到小时级'],
+   falsifiers:['KV 迁移成本低到调度无需位置感知']},
+
+  {id:'A-L3-01', layer:'L3', title:'Scale-up 域扩张', conf:.65, sens:'high', horizon:2028,
+   claim:'单 scale-up 域从 72 卡扩至 576+ 卡，域内呈现统一内存语义。',
+   evidence:['NVL72 → Kyber 576 路线图公开','MoE 专家并行通信量随稀疏度上升'],
+   falsifiers:['铜 / 光成本使 >144 卡域 TCO 不成立','EP 通信压缩使大域必要性显著下降']},
+  {id:'A-L3-02', layer:'L3', title:'KV 专用存储层', conf:.60, sens:'mid', horizon:2029,
+   claim:'存储系统分化出 KV / 上下文专用层：高 IOPS、微秒级延迟、近计算部署。',
+   evidence:['多家存储厂商发布 KV cache offload 专用产品线'],
+   falsifiers:['通用并行文件系统 + 客户端缓存即可满足 SLA']},
+  {id:'A-L3-03', layer:'L3', title:'Scale-out 以太网化', conf:.60, sens:'low', horizon:2028,
+   claim:'UEC 以太网在 scale-out 互联取代 InfiniBand 成为新建集群主流。',
+   evidence:['超大集群成本敏感度 + 多供应商诉求驱动'],
+   falsifiers:['UEC 生态成熟度不足，IB 在旗舰集群继续锁定']},
+  {id:'A-L3-04', layer:'L3', title:'三网合一（统一 Fabric）', conf:.50, sens:'mid', horizon:2030,
+   claim:'智算（scale-up / scale-out）、存储、通算三张网在以太网底座上融合为统一 fabric：UEC 承载 + 存储流量并网 + CXL 语义互通，独立存储网络逐步消失。',
+   evidence:['UEC 1.0 同时面向 AI 与存储流量设计','头部云厂新建集群已试点计算 / 存储共网'],
+   falsifiers:['尾延迟干扰使存储流量被迫重新独立组网','scale-up 域专用互联（NVLink 类）长期不向以太收敛']},
+
+  {id:'A-L4-01', layer:'L4', title:'HBM4 路线图兑现', conf:.60, sens:'high', horizon:2028,
+   claim:'HBM4 于 2026–27 量产，2028 单栈达 48GB / 2TB·s 级，供应不构成第一瓶颈。',
+   evidence:['三大 HBM 厂商路线图公开且节奏一致','头部买家已签长期产能协议'],
+   falsifiers:['HBM4 良率爬坡延期超过 2 个季度','头部买家锁产能造成结构性短缺']},
+  {id:'A-L4-02', layer:'L4', title:'推理 ASIC 分流', conf:.50, sens:'mid', horizon:2029,
+   claim:'自研 / 第三方推理 ASIC 按算力计承接 >30% 推理 token。',
+   evidence:['云厂自研芯片迭代至 3–4 代，推理性价比逼近 GPU'],
+   falsifiers:['CUDA 生态 + 快速迭代使 ASIC 始终慢一个身位','ASIC 拿不到足额 HBM 产能']},
+  {id:'A-L4-03', layer:'L4', title:'CPO 进入 Scale-up', conf:.55, sens:'mid', horizon:2029,
+   claim:'共封装光学（CPO）在 576 卡级 scale-up 域商用，替代部分铜互联。',
+   evidence:['交换机侧 CPO 已商用，XPU 侧路线图公开'],
+   falsifiers:['有源铜缆 + 机架架构折中将光推迟到 2030 后','CPO 可维护性 / 良率问题未解']},
+  {id:'A-L4-04', layer:'L4', title:'近存计算商用萌芽', conf:.45, sens:'low', horizon:2030,
+   claim:'3D 堆叠 / 近存计算在 KV 检索、attention 等访存密集环节出现商用产品。',
+   evidence:['PIM 原型在 attention kernel 上展示数倍能效'],
+   falsifiers:['编程模型碎片化导致无人愿意适配']},
+
+  {id:'A-L5-01', layer:'L5', title:'机架功率密度跃迁', conf:.75, sens:'high', horizon:2028,
+   claim:'旗舰 AI 机架功率从 130kW 走向 600kW–1MW，机架成为新的系统设计单元。',
+   evidence:['NVL72 实测 ~130kW，Rubin Ultra 代际公开指引 600kW 级'],
+   falsifiers:['散热 / 供电瓶颈迫使域扩张转向多机架低密度方案']},
+  {id:'A-L5-02', layer:'L5', title:'液冷全面渗透', conf:.70, sens:'low', horizon:2028,
+   claim:'新建 AI 数据中心液冷渗透率 >80%，DLC 为主、浸没式在高密段起量。',
+   evidence:['100kW+ 机架风冷物理不可行，无替代路线'],
+   falsifiers:['新型相变 / 喷淋方案改变渗透结构（仅影响形态）']},
+  {id:'A-L5-03', layer:'L5', title:'电力第一约束', conf:.70, sens:'high', horizon:2030,
+   claim:'GW 级园区常态化，电力获取（自备电 / SMR / 储能）成为算力扩张第一约束，并反压上层算力规划。',
+   evidence:['主要 Hub 电网接入排队 2–4 年','头部云厂均已布局核电 / 燃气自备电'],
+   falsifiers:['电网扩容 + 跨区调度超预期，电力回到普通成本项']},
+  {id:'A-L5-04', layer:'L5', title:'MW 级机架与 HVDC 供电', conf:.45, sens:'high', horizon:2030,
+   claim:'2030 旗舰机架功率突破 1MW，供电架构从 415V AC 转向 ±400V / 800V HVDC 直流母线，机架升格为数据中心的最小设计单元。',
+   evidence:['NVIDIA 公布 800V HVDC 机架供电路线（Rubin Ultra 之后代际）','Vertiv / Delta 等发布 800VDC 整机架电源方案'],
+   falsifiers:['散热与供电瓶颈使行业长期停在 600kW 平台期','多机架低密度方案 TCO 反超高密单机架']},
+];
+
+/* edges: 影响经由量化参数传导; type: flow | constrain
+   w = 传导强度(0-1): 传播冲击度按路径连乘衰减, 低于阈值不再标记 —— 防告警风暴 */
+const EDGES = [
+  {from:'A-L0-01', to:'A-L2-03', metric:'并发会话数 / 会话生命周期', w:.7},
+  {from:'A-L0-02', to:'A-L1-02', metric:'上下文长度分布', w:.9},
+  {from:'A-L0-02', to:'A-L2-01', metric:'prefill : decode 突发比', w:.7},
+  {from:'A-L0-03', to:'A-L1-01', metric:'$ / token 成本压力', w:.7},
+  {from:'A-L0-03', to:'A-L4-02', metric:'推理算力总盘', w:.6},
+  {from:'A-L0-03', to:'A-L5-03', metric:'总算力 → 总电力需求', w:.8},
+  {from:'A-L1-01', to:'A-L3-01', metric:'专家并行 EP 通信量', w:.8},
+  {from:'A-L1-02', to:'A-L2-01', metric:'KV 容量 / 迁移需求', w:.8},
+  {from:'A-L1-02', to:'A-L2-02', metric:'KV 容量分层曲线', w:.9},
+  {from:'A-L1-02', to:'A-L4-04', metric:'attention 访存密度', w:.5},
+  {from:'A-L1-03', to:'A-L1-02', metric:'多模态 token 膨胀系数', w:.6},
+  {from:'A-L2-01', to:'A-L3-01', metric:'PD 间 KV 迁移带宽', w:.6},
+  {from:'A-L2-02', to:'A-L3-02', metric:'二级存储 IOPS / 延迟 SLA', w:.8},
+  {from:'A-L2-03', to:'A-L3-03', metric:'东西向流量模式', w:.5},
+  {from:'A-L4-01', to:'A-L1-01', metric:'HBM 容量 / 带宽上限', type:'constrain', w:.8},
+  {from:'A-L4-01', to:'A-L4-02', metric:'HBM 产能分配', type:'constrain', w:.7},
+  {from:'A-L3-01', to:'A-L4-03', metric:'互联距离 × 带宽密度', w:.7},
+  {from:'A-L3-01', to:'A-L5-01', metric:'域内功率密度', w:.9},
+  {from:'A-L4-03', to:'A-L5-01', metric:'互联功耗占比', w:.5},
+  {from:'A-L5-01', to:'A-L5-02', metric:'单机架热密度', w:.9},
+  {from:'A-L5-01', to:'A-L5-03', metric:'园区供电需求', w:.8},
+  {from:'A-L5-03', to:'A-L0-03', metric:'可用算力上限（反压）', type:'constrain', w:.6},
+  /* 2026-06-12 扩充：MoA / 三网合一 / MW 级机架 */
+  {from:'A-L0-01', to:'A-L0-04', metric:'任务复杂度分布', w:.6},
+  {from:'A-L0-04', to:'A-L1-02', metric:'跨 Agent 上下文共享量', w:.6},
+  {from:'A-L0-04', to:'A-L2-03', metric:'Agent 间路由 / 编排开销', w:.6},
+  {from:'A-L3-03', to:'A-L3-04', metric:'以太网语义覆盖度', w:.7},
+  {from:'A-L2-02', to:'A-L3-04', metric:'存储流量并网比例', w:.5},
+  {from:'A-L3-04', to:'A-L5-01', metric:'网络功耗 / 布线密度', w:.5},
+  {from:'A-L5-01', to:'A-L5-04', metric:'代际功率曲线', w:.7},
+  {from:'A-L5-04', to:'A-L5-03', metric:'单机架供电需求（HVDC）', w:.6},
+];
+
+const SIGNALS = {
+  S1:{target:'A-L4-01', targetConf:.35, name:'HBM4 良率爬坡延期 12 个月',
+      effect:'证伪信号命中 A-L4-01「HBM4 路线图兑现」— 裁定后置信度 0.60 → 0.35。HBM 容量约束沿图谱向模型架构、推理 ASIC、scale-up 域规划传导。'},
+  S2:{target:'A-L1-01', targetConf:.45, name:'前沿实验室发布 Dense 旗舰，推理成本反超 MoE',
+      effect:'证伪信号命中 A-L1-01「MoE 稀疏化主导」— 裁定后置信度 0.70 → 0.45。EP 通信量假设失效，scale-up 域扩张的必要性需重估。'},
+  S3:{target:'A-L5-03', targetConf:.85, name:'北美主要 Hub 电网接入排队超 4 年',
+      effect:'约束收紧：A-L5-03「电力第一约束」裁定后置信度 0.70 → 0.85。物理层约束沿反压边向上传导，总算力供给假设需下修。'},
+};
+
+/* 置信度账本: 每次修订留痕（谁/何时/为什么/从多少到多少） */
+const HIST = {
+  'A-L4-01':[
+    {d:'2026-05-12', f:.70, t:.60, by:'Champion-L4', r:'渠道传闻 HBM4 良率爬坡偏慢，季度复核下调'},
+    {d:'2026-03-02', f:.65, t:.70, by:'Champion-L4', r:'三大厂商量产时间表官宣一致，上调'}],
+  'A-L5-01':[
+    {d:'2026-06-09', f:.70, t:.75, by:'Champion-L5', r:'Kyber 600kW 级机架实测数据公开，上调'}],
+  'A-L1-01':[
+    {d:'2026-04-20', f:.65, t:.70, by:'Owner', r:'两家前沿实验室旗舰均确认细粒度 MoE，上调'}],
+};
+
+/* 情景分叉: 分叉收敛前, 单点置信度是多情景的加权坍缩 —— 高敏决策须看条件置信度 */
+const FORKS = [
+  {name:'推理范式', q:'推理算力需求是否延续高增长？',
+   branches:[{n:'延续高增', p:.60},{n:'效率革命压缩需求', p:.40}], cards:['A-L0-03']},
+  {name:'机架密度路线', q:'走向 1MW 高密集中化，还是多机架低密分布？',
+   branches:[{n:'高密集中化', p:.55},{n:'低密分布式', p:.45}], cards:['A-L5-04','A-L5-01']},
+  {name:'推理芯片格局', q:'ASIC 能否拿走推理算力大头？',
+   branches:[{n:'GPU 主导延续', p:.55},{n:'ASIC 分流成立', p:.45}], cards:['A-L4-02']},
+];
+const SCN = {
+  'A-L0-03':[{s:'延续高增 (p 0.60)', conf:.80},{s:'效率革命 (p 0.40)', conf:.42}],
+  'A-L5-04':[{s:'高密集中化 (p 0.55)', conf:.65},{s:'低密分布式 (p 0.45)', conf:.21}],
+  'A-L4-02':[{s:'ASIC 分流成立 (p 0.45)', conf:.78},{s:'GPU 主导延续 (p 0.55)', conf:.27}],
+};
+
+/* 信号依据档案 */
+const SIGNAL_BASIS = {
+  S1:{
+    bind:{card:'A-L4-01', falsifier:'HBM4 良率爬坡延期超过 2 个季度', dir:'证伪方向 — 命中后置信度下调'},
+    threshold:'延期 > 2 个季度', observed:'≈ 4 个季度（12 个月）',
+    grade:'strong', gradeNote:'多源独立确认：厂商财报口径 + 渠道研报交叉验证',
+    sources:[
+      {org:'SK hynix', title:'季度财报电话会 — HBM4 量产指引调整', type:'vendor', url:'https://news.skhynix.com'},
+      {org:'TrendForce', title:'HBM 供需季度研报 — 量产节奏下修', type:'report', url:'https://www.trendforce.com'},
+    ]},
+  S2:{
+    bind:{card:'A-L1-01', falsifier:'某前沿实验室发布 Dense 旗舰且推理成本占优', dir:'证伪方向 — 命中后置信度下调'},
+    threshold:'Dense 旗舰发布 且 同级任务 $/token 低于 MoE 旗舰', observed:'两项条件均满足（技术报告 + 第三方基准）',
+    grade:'strong', gradeNote:'架构信息来自官方技术报告，成本数据来自独立基准平台',
+    sources:[
+      {org:'arXiv', title:'旗舰模型技术报告（架构披露）', type:'paper', url:'https://arxiv.org'},
+      {org:'Artificial Analysis', title:'跨模型推理成本独立基准', type:'report', url:'https://artificialanalysis.ai'},
+    ]},
+  S3:{
+    bind:{card:'A-L5-03', falsifier:'监测条件：主要 Hub 接入排队时长突破基线（2–4 年）', dir:'约束收紧方向 — 命中后置信度上调'},
+    threshold:'排队时长 > 4 年（任一主要 Hub 区域）', observed:'PJM / ERCOT 区域 > 4 年',
+    grade:'strong', gradeNote:'权威年度报告 + 国际机构交叉验证',
+    sources:[
+      {org:'LBNL', title:'Queued Up — 电网互联排队年度报告', type:'report', url:'https://emp.lbl.gov/queues'},
+      {org:'IEA', title:'Energy and AI（数据中心用电章节）', type:'report', url:'https://www.iea.org/reports/energy-and-ai'},
+    ]},
+};
+
+/* 信源 */
+const SOURCES = {
+  'A-L0-01':[
+    {org:'Anthropic', title:'Economic Index — Agent 任务占比追踪', type:'report', url:'https://www.anthropic.com/economic-index'},
+    {org:'OpenRouter', title:'模型 Token 消耗公开排行（Agent 应用占比）', type:'oss', url:'https://openrouter.ai/rankings'}],
+  'A-L0-02':[
+    {org:'Anthropic', title:'Building Effective Agents（工具结果回填模式）', type:'vendor', url:'https://www.anthropic.com/research/building-effective-agents'},
+    {org:'MCP', title:'Model Context Protocol 规范', type:'std', url:'https://modelcontextprotocol.io'}],
+  'A-L0-03':[
+    {org:'OpenAI', title:'Learning to Reason with LLMs（o 系列）', type:'vendor', url:'https://openai.com/index/learning-to-reason-with-llms/'},
+    {org:'Epoch AI', title:'AI 算力趋势数据库', type:'report', url:'https://epoch.ai/data'}],
+  'A-L1-01':[
+    {org:'DeepSeek', title:'DeepSeek-V3 Technical Report (arXiv:2412.19437)', type:'paper', url:'https://arxiv.org/abs/2412.19437'},
+    {org:'Mistral AI', title:'Mixtral of Experts (arXiv:2401.04088)', type:'paper', url:'https://arxiv.org/abs/2401.04088'}],
+  'A-L1-02':[
+    {org:'Moonshot AI', title:'Mooncake: KVCache-centric Disaggregation (arXiv:2407.00079)', type:'paper', url:'https://arxiv.org/abs/2407.00079'},
+    {org:'vLLM', title:'Automatic Prefix Caching 文档', type:'oss', url:'https://docs.vllm.ai'}],
+  'A-L1-03':[
+    {org:'Google DeepMind', title:'Gemini 原生多模态技术页', type:'vendor', url:'https://deepmind.google/technologies/gemini/'},
+    {org:'OpenAI', title:'Hello GPT-4o（原生全模态）', type:'vendor', url:'https://openai.com/index/hello-gpt-4o/'}],
+  'A-L2-01':[
+    {org:'PKU / UCSD', title:'DistServe: PD 分离推理 (arXiv:2401.09670)', type:'paper', url:'https://arxiv.org/abs/2401.09670'},
+    {org:'NVIDIA', title:'Dynamo 分布式推理框架', type:'vendor', url:'https://developer.nvidia.com/dynamo'}],
+  'A-L2-02':[
+    {org:'LMCache', title:'LMCache — KV 多级缓存开源实现', type:'oss', url:'https://github.com/LMCache/LMCache'},
+    {org:'Moonshot AI', title:'Mooncake 存算分离生产实践 (arXiv:2407.00079)', type:'paper', url:'https://arxiv.org/abs/2407.00079'}],
+  'A-L2-03':[
+    {org:'SGLang', title:'RadixAttention / 会话亲和调度', type:'oss', url:'https://github.com/sgl-project/sglang'},
+    {org:'vLLM', title:'生产环境调度文档', type:'oss', url:'https://docs.vllm.ai'}],
+  'A-L3-01':[
+    {org:'NVIDIA', title:'GB200 NVL72 产品页（72 卡域基线）', type:'vendor', url:'https://www.nvidia.com/en-us/data-center/gb200-nvl72/'},
+    {org:'SemiAnalysis', title:'GPU 集群与机架架构深度研报', type:'report', url:'https://semianalysis.com'}],
+  'A-L3-02':[
+    {org:'VAST Data', title:'AI 推理存储平台（KV cache offload）', type:'vendor', url:'https://www.vastdata.com'},
+    {org:'WEKA', title:'Augmented Memory Grid', type:'vendor', url:'https://www.weka.io'}],
+  'A-L3-03':[
+    {org:'UEC', title:'Ultra Ethernet Consortium 1.0 规范', type:'std', url:'https://ultraethernet.org'},
+    {org:'Broadcom', title:'Tomahawk 交换芯片产品线', type:'vendor', url:'https://www.broadcom.com/products/ethernet-connectivity/switching/strataxgs'}],
+  'A-L4-01':[
+    {org:'SK hynix', title:'HBM4 开发与量产节奏（Newsroom）', type:'vendor', url:'https://news.skhynix.com'},
+    {org:'TrendForce', title:'HBM 供需与价格季度研报', type:'report', url:'https://www.trendforce.com'}],
+  'A-L4-02':[
+    {org:'Google Cloud', title:'TPU 代际路线（Trillium / Ironwood）', type:'vendor', url:'https://cloud.google.com/tpu'},
+    {org:'AWS', title:'Trainium / Inferentia 自研芯片', type:'vendor', url:'https://aws.amazon.com/ai/machine-learning/trainium/'}],
+  'A-L4-03':[
+    {org:'NVIDIA', title:'Quantum-X / Spectrum-X Photonics（CPO 交换）', type:'vendor', url:'https://nvidianews.nvidia.com'},
+    {org:'Broadcom', title:'Bailly 51.2T CPO 平台', type:'vendor', url:'https://www.broadcom.com'}],
+  'A-L4-04':[
+    {org:'Samsung', title:'HBM-PIM 近存计算', type:'vendor', url:'https://semiconductor.samsung.com'},
+    {org:'SK hynix', title:'AiM（Accelerator-in-Memory）', type:'vendor', url:'https://news.skhynix.com'}],
+  'A-L5-01':[
+    {org:'NVIDIA', title:'GTC Keynote — Rubin Ultra / Kyber 600kW 机架', type:'vendor', url:'https://www.nvidia.com/gtc/keynote/'},
+    {org:'DCD', title:'Data Center Dynamics 高密机架追踪', type:'report', url:'https://www.datacenterdynamics.com'}],
+  'A-L5-02':[
+    {org:'Uptime Institute', title:'全球数据中心调查（液冷渗透率）', type:'report', url:'https://uptimeinstitute.com/resources'},
+    {org:'Vertiv', title:'DLC 直接液冷方案白皮书', type:'vendor', url:'https://www.vertiv.com'}],
+  'A-L5-03':[
+    {org:'IEA', title:'Energy and AI 报告', type:'report', url:'https://www.iea.org/reports/energy-and-ai'},
+    {org:'EPRI', title:'数据中心用电增长预测', type:'report', url:'https://www.epri.com'}],
+  'A-L0-04':[
+    {org:'Together AI', title:'Mixture-of-Agents (arXiv:2406.04692)', type:'paper', url:'https://arxiv.org/abs/2406.04692'},
+    {org:'Anthropic', title:'How we built our multi-agent research system', type:'vendor', url:'https://www.anthropic.com/engineering/built-multi-agent-research-system'}],
+  'A-L3-04':[
+    {org:'UEC', title:'Ultra Ethernet 1.0 — AI 与存储统一传输', type:'std', url:'https://ultraethernet.org'},
+    {org:'CXL Consortium', title:'CXL 3.x 规范（内存语义互联）', type:'std', url:'https://computeexpresslink.org'}],
+  'A-L5-04':[
+    {org:'NVIDIA', title:'800V HVDC 数据中心供电架构', type:'vendor', url:'https://developer.nvidia.com/blog'},
+    {org:'OCP', title:'Open Compute — 高压直流机架供电规范', type:'std', url:'https://www.opencompute.org'}],
+};
+
+/* ================= indexes ================= */
+const cardById = Object.fromEntries(CARDS.map(c=>[c.id,c]));
+const outEdges = {}, inEdges = {};
+EDGES.forEach((e,i)=>{
+  e.idx=i;
+  (outEdges[e.from] ||= []).push(e);
+  (inEdges[e.to] ||= []).push(e);
+});
+const SENS_TXT = {high:'高敏', mid:'中敏', low:'低敏'};
+const SENS_RANK = {high:0, mid:1, low:2};
+const TYPE_TXT = {vendor:'厂商', paper:'论文', report:'研报', oss:'开源', std:'标准'};
+
+const STAGE_DEF = {
+  current:  {name:'当前落地', color:'#15803d'},
+  evolving: {name:'演进中',   color:'#0369a1'},
+  exploring:{name:'探索验证', color:'#d97706'},
+  research: {name:'研究前沿', color:'#7c3aed'},
+};
+const STAGE = {
+  'A-L0-01':'evolving', 'A-L0-02':'evolving', 'A-L0-03':'evolving', 'A-L0-04':'exploring',
+  'A-L1-01':'current',  'A-L1-02':'current',  'A-L1-03':'exploring',
+  'A-L2-01':'current',  'A-L2-02':'evolving', 'A-L2-03':'exploring',
+  'A-L3-01':'evolving', 'A-L3-02':'exploring','A-L3-03':'evolving', 'A-L3-04':'exploring',
+  'A-L4-01':'evolving', 'A-L4-02':'evolving', 'A-L4-03':'exploring','A-L4-04':'research',
+  'A-L5-01':'evolving', 'A-L5-02':'current',  'A-L5-03':'evolving', 'A-L5-04':'research',
+};
+
+/* ================= tabs ================= */
+function switchTab(name){
+  document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on', b.dataset.tab===name));
+  document.querySelectorAll('.panel-tab').forEach(p=>p.classList.toggle('on', p.id==='panel-'+name));
+  if(name==='graph'){ requestAnimationFrame(()=>drawEdges()); }
+  if(name==='overview'){ renderOverview(); }
+  if(name==='assumptions'){ renderTable(); }
+}
+document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+function showGraphTab(cb){
+  switchTab('graph');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ cb && cb(); }));
+}
+
+/* ================= render lanes & cards ================= */
+const graph = document.getElementById('graph');
+const svg = document.getElementById('edges');
+LAYERS.forEach(ly=>{
+  const lane = document.createElement('div');
+  lane.className='lane';
+  lane.innerHTML = `
+    <div class="lane-rail">
+      <div class="lid">${ly.id}</div>
+      <div class="lname">${ly.name}</div>
+      <div class="len">${ly.en}</div>
+    </div>
+    <div class="cards" data-layer="${ly.id}"></div>`;
+  graph.appendChild(lane);
+});
+function createCardEl(c){
+  const el = document.createElement('div');
+  el.className='card';
+  el.dataset.id=c.id;
+  const stg = STAGE_DEF[STAGE[c.id]];
+  el.style.setProperty('--stage-c', stg.color);
+  el.innerHTML = `
+    <div class="badge"></div>
+    <div class="top"><span class="cid">${c.id}</span>
+      <span style="display:flex;gap:5px">
+        ${SCN[c.id]?'<span class="stagechip" style="color:#6d28d9;border-color:#6d28d9">分叉</span>':''}
+        <span class="stagechip" style="color:${stg.color};border-color:${stg.color}">${stg.name}</span>
+        <span class="sens ${c.sens}">${SENS_TXT[c.sens]}</span>
+      </span>
+    </div>
+    <h3>${c.title}</h3>
+    <p class="claim">${c.claim}</p>
+    <div class="confbar"><i style="width:${c.conf*100}%"></i></div>
+    <div class="meta"><span>CONF ${c.conf.toFixed(2)}</span><span>信源 ×${(SOURCES[c.id]||[]).length}</span><span>H·${c.horizon}</span></div>`;
+  graph.querySelector(`.cards[data-layer="${c.layer}"]`).appendChild(el);
+  el.addEventListener('click', ()=>selectCard(c.id));
+  el.addEventListener('mouseenter', ()=>hoverEdges(c.id,true));
+  el.addEventListener('mouseleave', ()=>hoverEdges(c.id,false));
+  return el;
+}
+CARDS.forEach(createCardEl);
+document.getElementById('stat-cards').textContent = CARDS.length;
+document.getElementById('stat-edges').textContent = EDGES.length;
+
+/* ================= edge drawing ================= */
+const NS='http://www.w3.org/2000/svg';
+const laneIdx = id => LAYERS.findIndex(l=>l.id===cardById[id].layer);
+let edgeEls=[], labelEls=[];
+
+function rectOf(id){
+  const g = graph.getBoundingClientRect();
+  const r = graph.querySelector(`.card[data-id="${id}"]`).getBoundingClientRect();
+  return {x:r.left-g.left, y:r.top-g.top, w:r.width, h:r.height};
+}
+function edgePath(e){
+  const a=rectOf(e.from), b=rectOf(e.to);
+  const la=laneIdx(e.from), lb=laneIdx(e.to);
+  const ax=a.x+a.w/2, bx=b.x+b.w/2;
+  if(lb-la <= -3){ /* long back-pressure edge: route via corridor between rail and cards */
+    const railX = 128;
+    const ay=a.y+a.h/2, by=b.y+b.h/2;
+    return `M ${a.x} ${ay} C ${railX+30} ${ay}, ${railX} ${ay-20}, ${railX} ${ay-80}`
+         + ` L ${railX} ${by+80} C ${railX} ${by+20}, ${railX+30} ${by}, ${b.x} ${by}`;
+  }
+  if(la===lb){
+    const ay=a.y+a.h/2, by=b.y+b.h/2;
+    const right = bx>ax;
+    const x1 = right? a.x+a.w : a.x, x2 = right? b.x : b.x+b.w;
+    const dx = Math.max(26, Math.abs(x2-x1)/2);
+    return `M ${x1} ${ay} C ${x1+(right?dx:-dx)} ${ay}, ${x2+(right?-dx:dx)} ${by}, ${x2} ${by}`;
+  }
+  const down = lb>la;
+  const y1 = down? a.y+a.h : a.y;
+  const y2 = down? b.y : b.y+b.h;
+  const dy = Math.max(34, Math.abs(y2-y1)/2);
+  return `M ${ax} ${y1} C ${ax} ${y1+(down?dy:-dy)}, ${bx} ${y2+(down?-dy:dy)}, ${bx} ${y2}`;
+}
+function drawEdges(){
+  if(!document.getElementById('panel-graph').classList.contains('on')) return;
+  const lsvg=document.getElementById('labels');
+  svg.innerHTML=''; lsvg.innerHTML='';
+  [svg,lsvg].forEach(s=>{
+    s.setAttribute('width', graph.scrollWidth);
+    s.setAttribute('height', graph.scrollHeight);
+  });
+  edgeEls=[]; labelEls=[];
+  EDGES.forEach(e=>{
+    const p=document.createElementNS(NS,'path');
+    p.setAttribute('class','e'+(e.type==='constrain'?' constrain':''));
+    p.setAttribute('d', edgePath(e));
+    /* 边粗细 = 传导强度（CSS 类的高亮宽度仍会覆盖此基础值） */
+    p.setAttribute('stroke-width', (0.6 + (e.w ?? .7) * 1.6).toFixed(2));
+    svg.appendChild(p);
+    edgeEls[e.idx]=p;
+  });
+  /* labels in top-layer svg, staggered along path to avoid pile-up */
+  EDGES.forEach(e=>{
+    const p=edgeEls[e.idx];
+    const t=[0.5,0.36,0.64][e.idx%3];
+    const mid=p.getPointAtLength(p.getTotalLength()*t);
+    const g=document.createElementNS(NS,'g');
+    g.setAttribute('class','elabel');
+    const tx=document.createElementNS(NS,'text');
+    tx.textContent=e.metric;
+    tx.setAttribute('x',mid.x); tx.setAttribute('y',mid.y+3.5);
+    tx.setAttribute('text-anchor','middle');
+    const r=document.createElementNS(NS,'rect');
+    g.appendChild(r); g.appendChild(tx); lsvg.appendChild(g);
+    const bb=tx.getBBox();
+    r.setAttribute('x',bb.x-8); r.setAttribute('y',bb.y-5);
+    r.setAttribute('width',bb.width+16); r.setAttribute('height',bb.height+10);
+    labelEls[e.idx]=g;
+  });
+  reapplyState();
+}
+let rT;
+window.addEventListener('resize', ()=>{clearTimeout(rT); rT=setTimeout(drawEdges,150)});
+
+/* ================= state ================= */
+let selected=null;
+let propagation=null;
+
+function classifyEdge(idx, cls, labelCls){
+  edgeEls[idx]?.classList.add(cls);
+  if(labelCls){ labelEls[idx]?.classList.add('show', labelCls); }
+}
+function clearEdgeStates(){
+  edgeEls.forEach(p=>p&&p.classList.remove('hl-up','hl-down','flow','hov'));
+  labelEls.forEach(g=>g&&g.classList.remove('show','amber','cyan'));
+}
+function clearCardStates(keepDirty){
+  document.querySelectorAll('.card').forEach(el=>{
+    el.classList.remove('up','down','selected');
+    if(!keepDirty) el.classList.remove('dirty','src');
+  });
+}
+function reapplyState(){
+  clearEdgeStates();
+  if(propagation){
+    propagation.visitedEdges.forEach(i=>classifyEdge(i,'flow','amber'));
+  }
+  if(selected) applySelection(selected);
+}
+function restoreFlow(){
+  if(propagation) propagation.visitedEdges.forEach(i=>classifyEdge(i,'flow','amber'));
+}
+
+function hoverEdges(id,on){
+  if(selected||propagation) return;
+  [...(outEdges[id]||[]),...(inEdges[id]||[])].forEach(e=>{
+    edgeEls[e.idx]?.classList.toggle('hov',on);
+    labelEls[e.idx]?.classList.toggle('show',on);
+  });
+}
+
+function bfs(start, edgeMap, nextOf){
+  const visited=new Set([start]), visitedEdges=[], levels=[];
+  let frontier=[start];
+  while(frontier.length){
+    const next=[];
+    for(const id of frontier){
+      for(const e of (edgeMap[id]||[])){
+        visitedEdges.push(e.idx);
+        const n=nextOf(e);
+        if(!visited.has(n)){ visited.add(n); next.push(n); }
+      }
+    }
+    if(next.length) levels.push(next);
+    frontier=next;
+  }
+  return {levels, visitedEdges, visited};
+}
+
+/* ================= card selection ================= */
+function applySelection(id){
+  const down=bfs(id,outEdges,e=>e.to), up=bfs(id,inEdges,e=>e.from);
+  document.querySelector(`.card[data-id="${id}"]`).classList.add('selected');
+  down.levels.flat().forEach(n=>{ if(n!==id) document.querySelector(`.card[data-id="${n}"]`).classList.add('down'); });
+  up.levels.flat().forEach(n=>{ if(n!==id && !down.visited.has(n)) document.querySelector(`.card[data-id="${n}"]`).classList.add('up'); });
+  down.visitedEdges.forEach(i=>classifyEdge(i,'hl-down','amber'));
+  up.visitedEdges.forEach(i=>{ if(!down.visitedEdges.includes(i)) classifyEdge(i,'hl-up','cyan'); });
+  document.body.classList.add('focusmode');
+  renderDetail(id);
+}
+function selectCard(id){
+  clearCardStates(true);
+  clearEdgeStates();
+  restoreFlow();
+  if(selected===id){ selected=null; document.body.classList.remove('focusmode'); renderDetailEmpty(); return; }
+  selected=id;
+  applySelection(id);
+}
+function renderDetailEmpty(){
+  document.getElementById('detail').innerHTML =
+    '<div class="empty">点击图谱中任意假设卡片<br>查看完整断言 / 信源 / 证伪信号 / 上下游血缘</div>';
+}
+function renderDetail(id){
+  const c=cardById[id];
+  const ups=(inEdges[id]||[]).map(e=>`<span class="chip upc" data-go="${e.from}">${e.from} · ${cardById[e.from].title}</span>`).join('');
+  const dns=(outEdges[id]||[]).map(e=>`<span class="chip dnc" data-go="${e.to}">${e.to} · ${cardById[e.to].title}</span>`).join('');
+  document.getElementById('detail').innerHTML = `
+    <div class="did"><span>${c.id}</span><span>${LAYERS.find(l=>l.id===c.layer).name} / ${c.layer}</span></div>
+    <h2>${c.title}</h2>
+    <div class="dclaim">${c.claim}</div>
+    <div class="kv">
+      <div class="k"><b>${c.conf.toFixed(2)}</b><span>置信度</span></div>
+      <div class="k"><b>${SENS_TXT[c.sens]}</b><span>敏感度</span></div>
+      <div class="k"><b>${c.horizon}</b><span>Horizon</span></div>
+    </div>
+    <div class="sec-t">证据 EVIDENCE</div>
+    <ul class="flist">${c.evidence.map(x=>`<li>${x}</li>`).join('')}</ul>
+    <div class="sec-t">信源 SOURCES</div>
+    <div class="srcs">${(SOURCES[id]||[]).map(s=>`
+      <a class="srcb" href="${s.url}" target="_blank" rel="noopener">
+        <span class="stype ${s.type}">${TYPE_TXT[s.type]}</span>
+        <span class="smain"><span class="sorg">${s.org}</span><span class="st">${s.title}</span></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>`).join('')}</div>
+    <div class="sec-t red">证伪信号 FALSIFIERS</div>
+    <ul class="flist red">${c.falsifiers.map(x=>`<li>${x}</li>`).join('')}</ul>
+    ${SCN[id]?`<div class="sec-t" style="color:#6d28d9">情景条件置信度 SCENARIO</div>
+      <div class="scn">${SCN[id].map(s=>`
+        <div class="scn-row"><span class="scn-n">${s.s}</span>
+          <span class="scn-bar"><i style="width:${s.conf*100}%"></i></span>
+          <span class="scn-c">${s.conf.toFixed(2)}</span></div>`).join('')}
+        <div class="scn-note">卡面置信度为情景加权综合 — 分叉收敛前，高敏决策须看条件置信度，避免对单一情景押满注</div>
+      </div>`:''}
+    ${(HIST[id]||[]).length?`<div class="sec-t">置信度账本 LEDGER</div>
+      <div class="ledger">${HIST[id].map(h=>`
+        <div class="led-row"><span class="led-d">${h.d}</span>
+          <span class="led-c">${h.f.toFixed(2)} → <b>${h.t.toFixed(2)}</b></span>
+          <span class="led-r">${h.by} · ${h.r}</span></div>`).join('')}</div>`:''}
+    ${ups?`<div class="sec-t">上游依赖 UPSTREAM</div><div class="chips">${ups}</div>`:''}
+    ${dns?`<div class="sec-t">下游影响 DOWNSTREAM</div><div class="chips">${dns}</div>`:''}`;
+  document.getElementById('detail').querySelectorAll('.chip').forEach(ch=>{
+    ch.addEventListener('click',()=>selectCard(ch.dataset.go));
+  });
+}
+
+/* ================= activity log ================= */
+const ACTIVITY = [
+  {t:'06-10 14:20', x:'雷达接入<b>弱信号</b>「ASIC 订单延后传闻」— 单源未确认，仅标记关注'},
+  {t:'06-09 09:00', x:'<b>A-L5-01 机架功率密度跃迁</b> 季度复核完成：置信度 0.70 → 0.75'},
+  {t:'06-08 18:42', x:'Mission「Agent 负载结构深度洞察」产出 <b>1 张草稿卡</b>待签收'},
+  {t:'06-05 11:15', x:'<b>C-04</b> 结论新建：会话状态成为系统设计第一公民'},
+];
+function logActivity(html){
+  ACTIVITY.unshift({t:'刚刚', x:html});
+  if(document.getElementById('panel-overview').classList.contains('on')) renderOverview();
+}
+
+/* ================= review workflow ================= */
+const REVIEW_ITEMS = []; /* {cardId, depth, isSrc, sigId, resolved, decision} */
+
+function pendingCount(){ return REVIEW_ITEMS.filter(r=>!r.resolved).length; }
+function isCardPending(id){ return REVIEW_ITEMS.some(r=>r.cardId===id && !r.resolved); }
+
+function updateReviewCounters(){
+  const pending=pendingCount(), total=REVIEW_ITEMS.length;
+  document.getElementById('stat-dirty').textContent=pending;
+  const badge=document.getElementById('badge-review');
+  badge.textContent=pending;
+  badge.classList.toggle('show', pending>0);
+  document.getElementById('rv-stat').textContent =
+    total===0 ? '暂无待复核项' : `已裁定 ${total-pending} / ${total}`;
+  document.getElementById('rv-prog').style.width = total===0?'0%':((total-pending)/total*100)+'%';
+}
+
+function renderReview(){
+  const q=document.getElementById('queue');
+  if(REVIEW_ITEMS.length===0){
+    q.innerHTML='<div class="empty">在「判断图谱」注入信号后，受影响假设在此入列<br>逐项裁定：确认调整（采纳置信度变化）或 维持原判（驳回冲击）</div>';
+    updateReviewCounters();
+    return;
+  }
+  q.innerHTML='';
+  const sorted=[...REVIEW_ITEMS].sort((a,b)=>{
+    if(a.resolved!==b.resolved) return a.resolved?1:-1;
+    return (b.isSrc?2:b.impact)-(a.isSrc?2:a.impact);
+  });
+  sorted.forEach(item=>{
+    const c=cardById[item.cardId];
+    const el=document.createElement('div');
+    el.className='qitem'+(item.resolved?' resolved':'');
+    const act = item.resolved
+      ? `<span class="qdecision ${item.decision}">${item.decision==='adj'
+            ? `已调整 ${item.confFrom.toFixed(2)} → ${item.confTo.toFixed(2)}`
+            : '维持原判'}</span>`
+      : `<div class="qact">
+           <button class="qbtn adj">确认调整</button>
+           <button class="qbtn keep">维持原判</button>
+         </div>`;
+    el.innerHTML=`
+      <div class="depth ${item.isSrc?'d0':''}">${item.isSrc?'×':'D'+item.depth}</div>
+      <div class="qmain">
+        <div class="qid">${c.id} · ${LAYERS.find(l=>l.id===c.layer).name} · 由 ${item.sigId} ${item.isSrc?'直接命中':'传播标记'}</div>
+        <div class="qt">${c.title}</div>
+        <div class="qhint">${item.isSrc?'信号源假设 — 需确认置信度调整':'上游假设变动 — 需复核本假设是否仍成立'}</div>
+      </div>
+      <span class="qimp" title="冲击度（沿边权连乘衰减）"><i style="width:${item.impact*100}%"></i><em>冲击 ${item.impact.toFixed(2)}</em></span>
+      <span class="sens ${c.sens}">${SENS_TXT[c.sens]}</span>
+      ${act}`;
+    el.querySelector('.qmain').addEventListener('click',()=>showGraphTab(()=>selectCard(item.cardId)));
+    el.querySelector('.qbtn.adj')?.addEventListener('click',()=>resolveItem(item,'adj'));
+    el.querySelector('.qbtn.keep')?.addEventListener('click',()=>resolveItem(item,'keep'));
+    q.appendChild(el);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('in')));
+  });
+  updateReviewCounters();
+}
+
+/* 裁定「确认调整」时真实修订置信度并写入账本 */
+function applyConfAdjust(item){
+  const c=cardById[item.cardId];
+  const sig=SIGNALS[item.sigId];
+  const old=c.conf;
+  let next;
+  if(item.isSrc){
+    next=sig.targetConf;
+  }else{
+    const delta=+(item.impact*0.15).toFixed(2); /* 传播项按冲击度比例下调 */
+    next=Math.min(.95, Math.max(.05, +(old-delta).toFixed(2)));
+  }
+  c.conf=next;
+  item.confFrom=old; item.confTo=next;
+  (HIST[c.id] ||= []).unshift({
+    d:'今天', f:old, t:next, by:'Owner 裁定',
+    r:`${item.sigId} 复核确认调整（冲击度 ${item.impact.toFixed(2)}）`,
+  });
+  const el=document.querySelector(`.card[data-id="${c.id}"]`);
+  if(el){
+    el.querySelector('.confbar i').style.width=(next*100)+'%';
+    el.querySelector('.meta span').textContent=`CONF ${next.toFixed(2)}`;
+  }
+  if(selected===c.id) renderDetail(c.id);
+}
+
+function resolveItem(item, decision){
+  item.resolved=true;
+  item.decision=decision;
+  if(decision==='adj') applyConfAdjust(item);
+  const el=document.querySelector(`.card[data-id="${item.cardId}"]`);
+  if(el && !isCardPending(item.cardId)){
+    el.classList.remove('dirty','src');
+  }
+  const c=cardById[item.cardId];
+  logActivity(`复核裁定：<b>${c.id} ${c.title}</b> — ${decision==='adj'
+    ? `确认调整，置信度 ${item.confFrom.toFixed(2)} → ${item.confTo.toFixed(2)}（已入账本）`
+    : '维持原判（驳回冲击）'}`);
+  renderReview();
+  recomputeConclusions();
+}
+
+function pushReview(cardId, depth, isSrc, sigId, impact){
+  REVIEW_ITEMS.push({cardId, depth, isSrc, sigId, impact, resolved:false, decision:null, confFrom:0, confTo:0});
+  renderReview();
+}
+
+/* ================= signal propagation ================= */
+const STEP=520;
+let timers=[];
+function clearTimers(){ timers.forEach(t=>clearTimeout(t)); timers=[]; }
+
+/* 冲击度 = 沿路径边权连乘的最大值; 低于阈值的不再标记 —— 衰减传播防告警风暴 */
+const IMPACT_THRESH = 0.30;
+function computeImpact(src){
+  const impact={[src]:1};
+  for(let k=0;k<10;k++){
+    let changed=false;
+    EDGES.forEach(e=>{
+      const base=impact[e.from];
+      if(base===undefined) return;
+      const v=base*(e.w ?? .7);
+      if(v > (impact[e.to] ?? 0) + 1e-9){ impact[e.to]=v; changed=true; }
+    });
+    if(!changed) break;
+  }
+  return impact;
+}
+
+function injectSignal(sigId){
+  resetAll(false);
+  showGraphTab(()=>{
+    document.querySelector(`.sig[data-sig="${sigId}"]`).classList.add('active');
+    const sig=SIGNALS[sigId];
+    const src=sig.target;
+    const impact=computeImpact(src);
+    const marked=Object.keys(impact).filter(id=>id!==src && impact[id]>=IMPACT_THRESH);
+    const observed=Object.keys(impact).filter(id=>id!==src && impact[id]>=0.15 && impact[id]<IMPACT_THRESH);
+    const markedSet=new Set(marked);
+    const {levels}=bfs(src,outEdges,e=>e.to);
+    const depthOf={[src]:0};
+    levels.forEach((lv,d)=>lv.forEach(n=>{ if(!(n in depthOf)) depthOf[n]=d+1; }));
+    propagation={srcId:src, visitedEdges:[]};
+
+    const eff=document.getElementById('queue-effect');
+    eff.style.display='block';
+    eff.innerHTML=`<span class="sid">${sigId} · SIGNAL</span>${sig.effect}<br>
+      <span style="font-family:var(--mono);font-size:10.5px">传播按边权衰减：<b>${marked.length}</b> 张冲击度 ≥ ${IMPACT_THRESH.toFixed(2)} 进入复核；${observed.length} 张低于阈值仅记录观察（${observed.map(n=>n+' '+impact[n].toFixed(2)).join('，')||'无'}），不打扰。</span>`;
+
+    const srcEl=document.querySelector(`.card[data-id="${src}"]`);
+    srcEl.classList.add('src');
+    srcEl.querySelector('.badge').textContent='信号命中';
+    pushReview(src,0,true,sigId,1);
+    logActivity(`信号注入：<b>${sig.name}</b> 命中 <b>${src}</b>，衰减传播开始`);
+
+    const maxDepth=marked.reduce((m,n)=>Math.max(m,depthOf[n]??1),0);
+    for(let d=1; d<=maxDepth; d++){
+      const lv=marked.filter(n=>(depthOf[n]??99)===d);
+      timers.push(setTimeout(()=>{
+        EDGES.forEach(e=>{
+          const fromIn = e.from===src || markedSet.has(e.from);
+          if(fromIn && markedSet.has(e.to) && depthOf[e.to]===d){
+            classifyEdge(e.idx,'flow','amber');
+            propagation.visitedEdges.push(e.idx);
+          }
+        });
+        lv.forEach(n=>{
+          const el=document.querySelector(`.card[data-id="${n}"]`);
+          el.classList.add('dirty');
+          el.querySelector('.badge').textContent='待复核';
+          pushReview(n, d, false, sigId, impact[n]);
+        });
+      }, d*STEP));
+    }
+
+    timers.push(setTimeout(()=>{
+      recomputeConclusions();
+      logActivity(`传播完成：${sigId} 超阈值 <b>${marked.length+1} 张</b>进入复核，${observed.length} 张衰减截止仅观察`);
+    },(maxDepth+1)*STEP));
+  });
+}
+
+/* ================= reset ================= */
+function resetAll(clearBanner=true){
+  clearTimers();
+  propagation=null; selected=null;
+  document.body.classList.remove('focusmode');
+  clearCardStates(false);
+  clearEdgeStates();
+  document.querySelectorAll('.sig').forEach(s=>s.classList.remove('active'));
+  REVIEW_ITEMS.length=0;
+  renderReview();
+  recomputeConclusions();
+  if(clearBanner){
+    document.getElementById('queue-effect').style.display='none';
+    renderDetailEmpty();
+    closeBasis();
+  }
+}
+document.getElementById('btn-reset').addEventListener('click',()=>resetAll(true));
+document.querySelectorAll('.sig').forEach(b=>b.addEventListener('click',()=>injectSignal(b.dataset.sig)));
+
+/* ================= signal basis dossier ================= */
+let basisOpen=null;
+function closeBasis(){
+  basisOpen=null;
+  document.getElementById('sig-basis').classList.remove('open');
+}
+function showBasis(sigId){
+  switchTab('graph');
+  if(basisOpen===sigId){ closeBasis(); return; }
+  basisOpen=sigId;
+  const sig=SIGNAL_BASIS[sigId], meta=SIGNALS[sigId];
+  const c=cardById[sig.bind.card];
+  const box=document.getElementById('sig-basis');
+  box.innerHTML=`
+    <div class="basis-h">
+      <span class="bsid">${sigId} · 信号依据档案 SIGNAL BASIS</span>
+      <b>${meta.name}</b>
+      <span class="grade ${sig.grade==='weak'?'weak':''}">${sig.grade==='strong'?'强信号 · 允许注入传播':'弱信号 · 仅标记关注'}</span>
+      <span class="gnote">${sig.gradeNote}</span>
+    </div>
+    <div class="basis-grid">
+      <div class="basis-sec">
+        <div class="sec-t red">绑定的预登记条件 PRE-REGISTERED</div>
+        <div class="bfals">
+          <span class="chip" data-go="${sig.bind.card}">${sig.bind.card} · ${c.title}</span><br>
+          「${sig.bind.falsifier}」<br>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--txt-faint)">${sig.bind.dir}</span>
+        </div>
+      </div>
+      <div class="basis-sec">
+        <div class="sec-t">判定阈值 vs 观测值 THRESHOLD</div>
+        <div class="bthr">
+          预登记阈值：<b>${sig.threshold}</b><br>
+          当前观测值：<span class="hit">${sig.observed}</span><br>
+          判定结果：<span class="hit">命中</span>
+        </div>
+      </div>
+      <div class="basis-sec">
+        <div class="sec-t">触发信源 TRIGGER SOURCES</div>
+        <div class="srcs">${sig.sources.map(s=>`
+          <a class="srcb" href="${s.url}" target="_blank" rel="noopener">
+            <span class="stype ${s.type}">${TYPE_TXT[s.type]}</span>
+            <span class="smain"><span class="sorg">${s.org}</span><span class="st">${s.title}</span></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>`).join('')}</div>
+      </div>
+    </div>
+    <div class="basis-actions">
+      <button class="binject">注入此信号并传播</button>
+      <button class="bclose">关闭</button>
+    </div>`;
+  box.classList.add('open');
+  box.querySelector('.binject').addEventListener('click',()=>{ closeBasis(); injectSignal(sigId); });
+  box.querySelector('.bclose').addEventListener('click',closeBasis);
+  box.querySelector('.chip[data-go]').addEventListener('click',ev=>showGraphTab(()=>selectCard(ev.target.dataset.go)));
+}
+document.querySelectorAll('.sinfo').forEach(ic=>{
+  ic.addEventListener('click',ev=>{ ev.stopPropagation(); showBasis(ic.dataset.info); });
+});
+
+/* ================= 供料链: AI 雷达 信号收件箱 ================= */
+const RADAR_FEED = [
+  {grade:'strong', title:'SK hynix 财报会下修 HBM4 量产指引',
+   src:'SK hynix · TrendForce（双源独立确认）', match:'A-L4-01',
+   fals:'良率爬坡延期 > 2 个季度', sig:'S1'},
+  {grade:'weak', title:'传闻某头部云厂推理 ASIC 订单延后两个季度',
+   src:'供应链单源传闻（未交叉确认）', match:'A-L4-02',
+   fals:'ASIC 拿不到足额 HBM 产能', sig:null},
+  {grade:'none', title:'某初创公司发布光子计算原型芯片',
+   src:'科技媒体报道', match:null, fals:null, sig:null},
+];
+const GRADE_TXT={strong:'强信号', weak:'弱信号', none:'未命中'};
+function renderRadarInbox(){
+  const box=document.getElementById('radar-items');
+  box.innerHTML='';
+  RADAR_FEED.forEach(f=>{
+    const el=document.createElement('div');
+    el.className='feed-item';
+    const matchHtml = f.match
+      ? `命中 <span class="chip" data-go="${f.match}">${f.match} · ${cardById[f.match].title}</span> 的预登记条件「${f.fals}」`
+      : '与全图 falsifier 清单匹配：无命中';
+    let act='';
+    if(f.grade==='strong') act=`<button class="fi-btn" data-sig="${f.sig}">查验依据 → 注入</button><span class="fi-note">已达注入门槛</span>`;
+    else if(f.grade==='weak') act=`<span class="fi-note">仅标记关注 · 不触发传播<br>等待第二信源确认</span>`;
+    else act=`<span class="fi-note">归档 · 不进入复核流</span>`;
+    el.innerHTML=`
+      <span class="fgrade ${f.grade}">${GRADE_TXT[f.grade]}</span>
+      <div class="fi-main">
+        <div class="fi-t">${f.title}</div>
+        <div class="fi-meta">来源：${f.src}<br>${matchHtml}</div>
+      </div>
+      <div class="fi-act">${act}</div>`;
+    box.appendChild(el);
+    el.querySelector('.chip[data-go]')?.addEventListener('click',ev=>showGraphTab(()=>selectCard(ev.target.dataset.go)));
+    el.querySelector('.fi-btn[data-sig]')?.addEventListener('click',ev=>showBasis(ev.currentTarget.dataset.sig));
+  });
+  document.getElementById('radar-count').textContent=`今日候选 ${RADAR_FEED.length} 条 · 命中 ${RADAR_FEED.filter(f=>f.match).length}`;
+}
+renderRadarInbox();
+
+/* ================= 供料链: AI 洞察 沉淀收件箱 ================= */
+const DRAFTS = [
+  {mission:'2028–2030 推理系统深度洞察', admitted:false,
+   stage:'exploring',
+   card:{id:'A-L2-04', layer:'L2', title:'跨集群推理编排标准化', conf:.50, sens:'mid', horizon:2029,
+     claim:'多区域 KV 路由 + 跨集群流量调度出现标准编排层，推理负载可跨地域迁移。',
+     evidence:['多云 / 多区域推理部署需求上升'],
+     falsifiers:['区域数据合规使跨域 KV 迁移不可行']},
+   sources:[{org:'AI 洞察 Mission', title:'2028–2030 推理系统深度洞察 · S6 结论', type:'report', url:'#'}],
+   edges:[{from:'A-L2-03', to:'A-L2-04', metric:'会话路由策略'},
+          {from:'A-L2-04', to:'A-L3-03', metric:'跨集群东西向流量'}]},
+  {mission:'Agent 负载结构深度洞察', admitted:false,
+   stage:'research',
+   card:{id:'A-L0-05', layer:'L0', title:'端云协同推理负载', conf:.50, sens:'mid', horizon:2030,
+     claim:'端侧模型承接低延迟轻任务，云端承接深度推理，端云上下文同步成为新负载形态。',
+     evidence:['旗舰终端 NPU 算力持续年增'],
+     falsifiers:['端侧模型质量不足，任务全部回流云端']},
+   sources:[{org:'AI 洞察 Mission', title:'Agent 负载结构深度洞察 · S6 结论', type:'report', url:'#'}],
+   edges:[{from:'A-L0-05', to:'A-L1-02', metric:'端云上下文同步量'}]},
+];
+function admitDraft(i, btn){
+  const d=DRAFTS[i];
+  if(d.admitted) return;
+  d.admitted=true;
+  CARDS.push(d.card);
+  cardById[d.card.id]=d.card;
+  STAGE[d.card.id]=d.stage;
+  SOURCES[d.card.id]=d.sources;
+  d.edges.forEach(e=>{
+    e.idx=EDGES.length; EDGES.push(e);
+    (outEdges[e.from] ||= []).push(e);
+    (inEdges[e.to] ||= []).push(e);
+  });
+  btn.textContent='已入库';
+  btn.classList.add('done');
+  btn.disabled=true;
+  document.getElementById('stat-cards').textContent=CARDS.length;
+  document.getElementById('stat-edges').textContent=EDGES.length;
+  logActivity(`草稿入库：<b>${d.card.id} ${d.card.title}</b>（来自 Mission「${d.mission}」），接入 ${d.edges.length} 条影响边`);
+  showGraphTab(()=>{
+    const el=createCardEl(d.card);
+    el.classList.add('neu');
+    setTimeout(()=>el.classList.remove('neu'),1600);
+    drawEdges();
+    el.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+}
+function renderDraftInbox(){
+  const box=document.getElementById('draft-items');
+  box.innerHTML='';
+  DRAFTS.forEach((d,i)=>{
+    const el=document.createElement('div');
+    el.className='feed-item';
+    el.innerHTML=`
+      <span class="fgrade weak" style="color:#c2366b;border-color:rgba(194,54,107,.45);background:rgba(194,54,107,.06)">草稿</span>
+      <div class="fi-main">
+        <div class="fi-t">${d.card.id} · ${d.card.title}</div>
+        <div class="fi-meta">${d.card.claim}<br>
+          <span class="misn">来自 Mission「${d.mission}」 · 携带 ${d.edges.length} 条候选影响边 · 待 Owner 审核</span>
+        </div>
+      </div>
+      <div class="fi-act"><button class="fi-btn admit"${d.admitted?' disabled':''}>${d.admitted?'已入库':'审核入库'}</button><span class="fi-note">入库后进入 ${d.card.layer} 层并接入图谱</span></div>`;
+    box.appendChild(el);
+    if(!d.admitted) el.querySelector('.fi-btn').addEventListener('click',ev=>admitDraft(i, ev.currentTarget));
+  });
+  document.getElementById('draft-count').textContent=`待签收草稿 ${DRAFTS.filter(d=>!d.admitted).length} 张`;
+}
+renderDraftInbox();
+
+/* ================= 洞察结论层 ================= */
+const CONCLUSIONS = [
+  {id:'C-01', title:'2026 H2 前锁定 HBM 产能，采购按 $/GB·s 而非 $/FLOPS 谈判',
+   body:'KV 需求 = 并发会话 × 上下文长度 × bytes/token：按 Agent 负载曲线推算，2028 推理集群内存成本占 BOM 从 ~35% 升至 50%+。HBM4 供应紧张下先锁产能者拿到结构性成本优势，等现货意味着溢价 30% 起。',
+   decisions:[
+     '2026 H2 前与 ≥2 家 HBM 供应方签 2028 产能框架协议，不接受单一供应',
+     '采购评估模型第一指标改为内存带宽利用率（$/GB·s），算力指标降为第二',
+     '推理栈必须支持 KV 分层卸载（DRAM/NVMe 可降 HBM 需求 30–50%），不支持的方案一票否决',
+   ],
+   trigger:'HBM4 现货价回落 >20%，或线性注意力在前沿规模验证成功 → 本结论降级重估',
+   upstream:['A-L4-01','A-L1-02','A-L2-02'], conf:.70, horizon:2028},
+  {id:'C-02', title:'2027 起新建机房必须按 ≥600kW/机架 + 液冷设计，否则错过 2029 旗舰代际',
+   body:'域扩张 576 卡 → 单机架 600kW（厂商公开指引），机房从设计到投产 24–36 个月：2027 年还按 130kW 风冷设计的机房，2029–2030 无法承接旗舰部署；事后改造成本是新建预留的 3–5 倍。',
+   decisions:[
+     '新建项目供电 / 楼板承重 / 液冷管路按 600kW–1MW 机架预留（MW 级为 2030 上限情景）',
+     '2026 年内完成液冷供应商认证 + 试点机柜运行数据',
+     '存量机房明确定位为低密推理 / 通算，不再投入追旗舰代际',
+   ],
+   trigger:'行业停在 600kW 平台期（A-L5-04 证伪）→ 1MW 预留要求降级',
+   upstream:['A-L3-01','A-L4-03','A-L5-01','A-L5-04'], conf:.65, horizon:2028},
+  {id:'C-03', title:'算力扩张必须电力先行：2030 目标容量的能源合约 2026–27 必须落定',
+   body:'主要 Hub 接入排队 2–4 年且持续恶化，GW 级园区从谈判到通电 ≥36 个月。决定 2029–2030 实际可部署算力的是电力获取节奏而非芯片供应——按当前排队曲线，2030 电力缺口约为行业规划量的 30–40%。',
+   decisions:[
+     '每 100MW 算力规划同步启动能源组合谈判（自备燃气 / 核电 PPA / 储能调峰）',
+     '选址权重重排：电力可得性 > 网络时延 > 地价',
+     '设电力里程碑门：能源合约未落定，不批准对应算力 CAPEX',
+   ],
+   trigger:'电网扩容超预期使排队 <2 年 → 电力降级为普通成本项',
+   upstream:['A-L5-03','A-L5-01','A-L0-03'], conf:.70, horizon:2030},
+  {id:'C-04', title:'所有新系统设计必须回答「会话状态放哪」——无状态假设已失效',
+   body:'Agent 会话拉长到小时级 × 256K 上下文，状态量级达 GB/会话；调度（亲和性）、存储（KV 分层）、网络（迁移带宽）三个域的设计被状态布局绑定，事后补救等于全链路重构。MoA 编排进一步增加跨 Agent 状态共享需求。',
+   decisions:[
+     '架构评审增加必答项：会话状态容量模型 / 放置策略 / 迁移成本三件套',
+     '中间件与调度选型必须支持 KV 位置感知，不支持的不进短名单',
+     'KV 命中率纳入容量规划 KPI——命中率每提升 10%，prefill 算力需求约降 8–12%',
+   ],
+   trigger:'SSM / 线性注意力在前沿规模验证成功 → KV 量级假设全线重估',
+   upstream:['A-L0-01','A-L0-02','A-L0-04','A-L1-02','A-L2-03'], conf:.75, horizon:2028},
+  {id:'C-05', title:'网络投资押注以太网底座，但存储并网保留独立逃生门',
+   body:'Scale-out 以太化（conf 0.60）是高置信方向，三网合一（conf 0.50）仍在探索期：统一 fabric 省 CAPEX 与布线功耗，但存储流量尾延迟干扰风险未消除，押满注会被单点证伪打穿。',
+   decisions:[
+     '新建集群 scale-out 直接选 UEC 以太网，停止 InfiniBand 新增投资',
+     '存储网先共物理层、保留逻辑隔离（VLAN/QoS 分级），并网失败可 6 个月内回退',
+     '跟踪 scale-up 开放互联（UALink / NVLink Fusion 类），每半年评估收敛时点',
+   ],
+   trigger:'旗舰集群出现 ≥2 例存储流量被迫重新独立组网 → 三网合一假设下调',
+   upstream:['A-L3-03','A-L3-04','A-L3-02'], conf:.60, horizon:2030},
+];
+function conclusionImpacted(cc){
+  return cc.upstream.some(u=>isCardPending(u));
+}
+function recomputeConclusions(){
+  document.querySelectorAll('#concl .ccard').forEach((el,i)=>{
+    const hit=conclusionImpacted(CONCLUSIONS[i]);
+    el.classList.toggle('hit', hit);
+    el.querySelector('.cstat').textContent = hit ? '受冲击 · 待复核' : '稳固';
+  });
+}
+function renderConclusions(){
+  const box=document.getElementById('concl');
+  box.innerHTML='';
+  CONCLUSIONS.forEach(cc=>{
+    const el=document.createElement('div');
+    el.className='ccard';
+    el.innerHTML=`
+      <div class="ctop"><span class="cno">${cc.id}</span><span class="cstat">稳固</span></div>
+      <h3>${cc.title}</h3>
+      <p>${cc.body}</p>
+      <div class="cact">
+        <div class="cact-t">决策建议 DECISIONS</div>
+        <ol class="cdec">${cc.decisions.map(d=>`<li>${d}</li>`).join('')}</ol>
+      </div>
+      <div class="ctrg">重估触发：${cc.trigger}</div>
+      <div class="cfoot"><span>依据假设 ×${cc.upstream.length}</span><span>CONF ${cc.conf.toFixed(2)}</span><span>H·${cc.horizon}</span></div>`;
+    el.addEventListener('click',()=>{
+      showGraphTab(()=>{
+        clearCardStates(true); clearEdgeStates(); restoreFlow();
+        selected=null;
+        cc.upstream.forEach(u=>document.querySelector(`.card[data-id="${u}"]`)?.classList.add('up'));
+        document.body.classList.add('focusmode');
+      });
+    });
+    box.appendChild(el);
+  });
+  recomputeConclusions();
+}
+renderConclusions();
+
+/* ================= 假设库 table ================= */
+LAYERS.forEach(l=>{
+  const o=document.createElement('option'); o.value=l.id; o.textContent=`${l.id} ${l.name}`;
+  document.getElementById('f-layer').appendChild(o);
+});
+Object.entries(STAGE_DEF).forEach(([k,v])=>{
+  const o=document.createElement('option'); o.value=k; o.textContent=v.name;
+  document.getElementById('f-stage').appendChild(o);
+});
+function cardStatus(id){
+  const el=document.querySelector(`.card[data-id="${id}"]`);
+  if(el?.classList.contains('src')) return 'src';
+  if(el?.classList.contains('dirty')) return 'dirty';
+  return 'ok';
+}
+function renderTable(){
+  const search=(document.getElementById('f-search').value||'').toLowerCase();
+  const fl=document.getElementById('f-layer').value;
+  const fs=document.getElementById('f-stage').value;
+  const fe=document.getElementById('f-sens').value;
+  const fst=document.getElementById('f-status').value;
+  const tbody=document.getElementById('atbody');
+  tbody.innerHTML='';
+  let shown=0;
+  CARDS.forEach(c=>{
+    const st=cardStatus(c.id);
+    if(search && !(c.title+c.claim).toLowerCase().includes(search)) return;
+    if(fl && c.layer!==fl) return;
+    if(fs && STAGE[c.id]!==fs) return;
+    if(fe && c.sens!==fe) return;
+    if(fst==='ok' && st!=='ok') return;
+    if(fst==='dirty' && st==='ok') return;
+    shown++;
+    const stg=STAGE_DEF[STAGE[c.id]];
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td class="aid">${c.id}</td>
+      <td class="at-title">${c.title}</td>
+      <td>${c.layer} ${LAYERS.find(l=>l.id===c.layer).name}</td>
+      <td><span class="stagecell" style="color:${stg.color};border-color:${stg.color}">${stg.name}</span></td>
+      <td><span class="sens ${c.sens}">${SENS_TXT[c.sens]}</span></td>
+      <td><span class="cbar"><i style="width:${c.conf*100}%"></i></span><span class="cnum">${c.conf.toFixed(2)}</span></td>
+      <td class="cnum">${c.horizon}</td>
+      <td class="cnum">×${(SOURCES[c.id]||[]).length}</td>
+      <td>${st==='src'?'<span class="statuspill src">信号命中</span>':st==='dirty'?'<span class="statuspill dirty">待复核</span>':'<span class="statuspill">稳固</span>'}</td>`;
+    tr.addEventListener('click',()=>showGraphTab(()=>selectCard(c.id)));
+    tbody.appendChild(tr);
+  });
+  document.getElementById('f-count').textContent=`${shown} / ${CARDS.length} 条`;
+}
+['f-search','f-layer','f-stage','f-sens','f-status'].forEach(id=>{
+  document.getElementById(id).addEventListener('input',renderTable);
+});
+
+/* ================= 总览 overview ================= */
+function renderOverview(){
+  const pending=pendingCount();
+  const impacted=CONCLUSIONS.filter(conclusionImpacted).length;
+  const kpis=[
+    {n:CARDS.length, l:'假设资产', h:'判断卡片总量', cls:'', tab:'assumptions'},
+    {n:EDGES.length, l:'影响边', h:'经量化参数传导', cls:'', tab:'graph'},
+    {n:pending, l:'待复核', h:pending>0?'信号冲击待裁定':'全部裁定完毕', cls:pending>0?'warn':'ok', tab:'review'},
+    {n:impacted, l:'受冲击结论', h:impacted>0?'依赖假设被动摇':'结论层稳固', cls:impacted>0?'danger':'ok', tab:'conclusions'},
+    {n:RADAR_FEED.filter(f=>f.match).length, l:'本周命中信号', h:'雷达候选 '+RADAR_FEED.length+' 条', cls:'warn', tab:'overview'},
+  ];
+  const kbox=document.getElementById('kpis');
+  kbox.innerHTML='';
+  kpis.forEach(k=>{
+    const el=document.createElement('div');
+    el.className='kpi '+k.cls;
+    el.innerHTML=`<b>${k.n}</b><div class="kl">${k.l}</div><div class="kh">${k.h}</div>`;
+    el.addEventListener('click',()=>switchTab(k.tab));
+    kbox.appendChild(el);
+  });
+  /* layer health */
+  const lbox=document.getElementById('ov-layers');
+  lbox.innerHTML='';
+  LAYERS.forEach(ly=>{
+    const cs=CARDS.filter(c=>c.layer===ly.id);
+    const avg=cs.reduce((s,c)=>s+c.conf,0)/cs.length;
+    const dirty=cs.filter(c=>cardStatus(c.id)!=='ok').length;
+    const row=document.createElement('div');
+    row.className='lh-row';
+    row.innerHTML=`
+      <span class="lid">${ly.id}</span><span class="ln">${ly.name}</span>
+      <span class="lbar"><i style="width:${avg*100}%"></i></span>
+      <span class="lconf">conf ${avg.toFixed(2)}</span>
+      <span class="ldirty ${dirty>0?'some':'zero'}">${dirty>0?dirty+' 待复核':'稳固'}</span>`;
+    lbox.appendChild(row);
+  });
+  /* stage distribution */
+  const sbox=document.getElementById('ov-stages');
+  sbox.innerHTML='';
+  Object.entries(STAGE_DEF).forEach(([k,v])=>{
+    const n=CARDS.filter(c=>STAGE[c.id]===k).length;
+    const row=document.createElement('div');
+    row.className='dist-row';
+    row.innerHTML=`
+      <span class="sq" style="background:${v.color}"></span>
+      <span class="dn">${v.name}</span>
+      <span class="dbar"><i style="width:${n/CARDS.length*100}%;background:${v.color}"></i></span>
+      <span class="dc">${n}</span>`;
+    sbox.appendChild(row);
+  });
+  /* activity */
+  const abox=document.getElementById('ov-activity');
+  abox.innerHTML='';
+  ACTIVITY.slice(0,7).forEach(a=>{
+    const el=document.createElement('div');
+    el.className='act-item';
+    el.innerHTML=`<span class="at">${a.t}</span><span class="ax">${a.x}</span>`;
+    abox.appendChild(el);
+  });
+  /* 关键情景分叉 */
+  const fbox=document.getElementById('ov-forks');
+  fbox.innerHTML='';
+  FORKS.forEach(f=>{
+    const el=document.createElement('div');
+    el.className='fk';
+    el.innerHTML=`
+      <div class="fk-n">${f.name}</div>
+      <div class="fk-q">${f.q}</div>
+      ${f.branches.map(b=>`
+        <div class="fk-b"><span>${b.n}</span>
+          <span class="dbar"><i style="width:${b.p*100}%"></i></span>
+          <span class="fk-p">${Math.round(b.p*100)}%</span></div>`).join('')}
+      <div class="chips fk-cards">${f.cards.map(id=>`<span class="chip" data-go="${id}">${id} · ${cardById[id].title}</span>`).join('')}</div>`;
+    el.querySelectorAll('.chip').forEach(ch=>ch.addEventListener('click',()=>showGraphTab(()=>selectCard(ch.dataset.go))));
+    fbox.appendChild(el);
+  });
+  /* ② 待我处理 — review queue summary（按冲击度降序，源在最前） */
+  const rbox=document.getElementById('ov-review');
+  const pend=REVIEW_ITEMS.filter(r=>!r.resolved)
+    .sort((a,b)=>(b.isSrc?2:b.impact)-(a.isSrc?2:a.impact));
+  if(pend.length===0){
+    rbox.innerHTML='<div class="empty" style="padding:12px">当前无待办 — 强信号注入后，受冲击假设会在这里排队等你裁定（可点「开始引导巡检」体验完整流程）</div>';
+  }else{
+    rbox.innerHTML = pend.slice(0,3).map(r=>{
+      const c=cardById[r.cardId];
+      return `<div class="ovq-item" data-go="${c.id}">
+        <span class="qid">${c.id}</span>
+        <span class="qt">${c.title}</span>
+        <span class="sens ${c.sens}">${SENS_TXT[c.sens]}</span>
+        <span class="qid" style="width:auto">${r.isSrc?'信号命中':'冲击 '+r.impact.toFixed(2)}</span>
+      </div>`;
+    }).join('') + `<button class="ovq-go">去复核处理（${pend.length} 项待裁定）</button>`;
+    rbox.querySelectorAll('.ovq-item').forEach(el=>el.addEventListener('click',()=>showGraphTab(()=>selectCard(el.dataset.go))));
+    rbox.querySelector('.ovq-go').addEventListener('click',()=>switchTab('review'));
+  }
+}
+renderOverview();
+updateReviewCounters();
+
+/* ================= 引导巡检 tour ================= */
+const TOUR=[
+  {tab:'overview', hl:'#ov-feeds', t:'第 1 步 · 收信号',
+   x:'每天打开工作台，先看「今日入站」：雷达送来 3 条候选，其中一条强信号（HBM4 延期）命中了你预登记的证伪条件——这就是今天要处理的事。'},
+  {tab:'graph', hl:'#sig-basis', t:'第 2 步 · 查验依据',
+   x:'注入前先核验信号依据档案：它绑定哪条预登记条件、阈值 vs 观测值、触发信源是否多源确认。依据不足的信号到不了这一步。',
+   act:()=>showBasis('S1')},
+  {tab:'graph', hl:'#graph', t:'第 3 步 · 注入传播',
+   x:'核验通过，注入信号。影响沿边权连乘衰减传播：冲击度高的逐层点亮，衰减到 0.30 以下的不再标记（注意反压边那一支就停在了进入 L0 之前）——告警不泛滥。',
+   act:()=>{ closeBasis(); injectSignal('S1'); }},
+  {tab:'review', hl:'#queue', t:'第 4 步 · 复核裁定',
+   x:'受影响假设按冲击度降序排成待办。「确认调整」会真实修订置信度并写入账本（卡片详情可查全部修订史），「维持原判」驳回冲击。现在就可以点第一项试试。'},
+  {tab:'conclusions', hl:'#concl', t:'第 5 步 · 校准结论',
+   x:'依赖被动摇假设的决策级结论自动标记「受冲击」，上游全部裁定后自动恢复稳固。这一层（带量化决策建议）就是给管理层的最终输出。'},
+  {tab:'overview', hl:'#kpis', t:'巡检完成',
+   x:'回到工作台：待办清零后体系回到稳态。这就是 AI 前瞻的日常循环——判断资产在信号的持续检验中保鲜，而不是写完就过期的报告。'},
+];
+let tourIdx=-1, tourHlEl=null;
+const tourPop=document.createElement('div');
+tourPop.className='tour-pop';
+document.body.appendChild(tourPop);
+function tourClearHl(){ tourHlEl?.classList.remove('tour-hl'); tourHlEl=null; }
+function endTour(){ tourIdx=-1; tourClearHl(); tourPop.classList.remove('on'); }
+function tourStep(i){
+  if(i>=TOUR.length){ endTour(); return; }
+  tourIdx=i;
+  const s=TOUR[i];
+  switchTab(s.tab);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    s.act && s.act();
+    tourClearHl();
+    setTimeout(()=>{
+      const el=document.querySelector(s.hl);
+      if(el){ el.classList.add('tour-hl'); tourHlEl=el; el.scrollIntoView({behavior:'smooth', block:'center'}); }
+    }, s.act?400:50);
+    tourPop.innerHTML=`
+      <div class="tp-step">引导巡检 ${i+1} / ${TOUR.length}</div>
+      <b>${s.t}</b>
+      <p>${s.x}</p>
+      <div class="tp-act">
+        <button class="bclose" data-tp="end">结束引导</button>
+        <button class="binject" style="background:var(--amber-bright);border-color:var(--amber-bright)" data-tp="next">${i===TOUR.length-1?'完成':'下一步'}</button>
+      </div>`;
+    tourPop.classList.add('on');
+    tourPop.querySelector('[data-tp="end"]').addEventListener('click',endTour);
+    tourPop.querySelector('[data-tp="next"]').addEventListener('click',()=>tourStep(i+1));
+  }));
+}
+document.getElementById('btn-tour').addEventListener('click',()=>{ resetAll(true); tourStep(0); });
+</script>
+</body>
+</html>

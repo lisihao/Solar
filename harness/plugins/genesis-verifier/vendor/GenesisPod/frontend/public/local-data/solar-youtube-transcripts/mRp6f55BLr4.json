@@ -1,0 +1,654 @@
+{
+  "videoId": "mRp6f55BLr4",
+  "title": "SREcon26 Americas - Intelligent Load Balancing in Kubernetes",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 31082,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. Uh my name is Gorav and I'm\nhere with my colleague Vincent. uh we\nwork on traffic management problems at\ndata bricks within the larger core\ninfrastructure group and today we love\nto talk about our journey of how we fix\nthe request imbalance problems uh at\ndata bricks and basically started from\nrudimentary kubernetes provided load\nbalancing to uh something custom\nsomething intelligent that we built\nspecific to custom tailor to our\nrequirements.\nSo before we deep dive into uh details u\nsorry I think\nsmall glitchy okay awesome yeah before\nwe deep dive into details let's quickly\nrecap what does datab bricks do so our\nmission at datab bricks is to empower\neverybody uh in an organization to have\naccess to all the data uh and AI and we\nwant to democratize this access for\neveryone in organization\nto that end we have built a unified\nplatform uh to provide for you to access\nto build and provide access for data and\nAI applications. We are the creators of\na lot of open-source technologies such\nas Apache Spark, Delta Lake, MLflow, and\nUnity catalog to name just a few. And\nthe company has been growing rapidly\nover the last few years. Uh last year we\ngrew more than 65% year-over-year at a\nrevenue run rate of about $5.5 billion.\nUh today we serve more than 20,000 plus\ncustomers and a majority of Fortune 500\ncompanies are our customers right now.\nAnd to power this kind of business\ngrowth this scale we operate a very\nlarge infra uh fleet uh distributed\nacross across the globe uh running at\nhighly distributed and latency sensitive\nuh systems. Uh today we are deployed in\nthree clouds AWS, Azure and GCP in more\nthan 70 plus regions u where we are\nrunning north of 1500 clusters across\nour control plane and data plane\ncomponents and uh to power this kind of\ndata processing requirements from our\ncustomers we have to deploy millions of\nVMs on a daily basis. Now you can see at\nthis kind of scale even a smaller\ninefficiency in a system can uh can\nbecome very visible and cause major\nproblems for us.\nOn the traffic management side we deal a\nlot of uh problems around like how do\nyou route traffic across these regions?\nHow do you uh channel traffic from\ningress to a particular service? How do\nyou do like uh communication across\nclusters across regions and now even\ncross clouds.\nuh but for this talk we'll focus largely\non how do you ensure that uh the\ncommunication happening within a cluster\nis seamless and we are effectively load\nbalancing a traffic among all of the\npart services running\nso let's get started our our story uh\nbegins with uh bad SLO violations and\nincidents right so there was a time long\nlong time ago when uh product teams\nwould see a lot of 5xx errors or higher\nP99 latency and it was particularly\nharder for them to debug and understand\nwhat was going on largely because these\nerrors would be like intermittent and\ncome and go and they're not adept at uh\nlike figuring out what's going on behind\nthe scenes and this wasn't happening for\none or two services this was a pattern\nthat was happening across the board uh\nfor various our products that we own\nAnd what is the first instinct right\nwhen you see these kind of spiky errors\nlike I'm sure uh a lot of in the\naudience will correlate with this thing\nthat the first instinct for a lot of\npeople is that hey might as well add\nsome more resources to the service let's\nadd more CPU some memory or maybe even\nworse let's add more pods but where does\nit lead us right it leads us to\nhighly provisioned services more than\nwhat they require and then you're\nwasting resources at that point in time\nso even though the services are\noverprovisioned but the underlying uh\nproblem is still not resolved like we\nstill don't know what's going on and\njust by throwing on throwing more\nresources doesn't get us where we want\nto be and that's where we come into\npicture u we also started to engage with\nthe product teams trying to understand\nwhat was the what was happening behind\nthe scenes right so one of the pattern\nwe started to observe across these\nincidents was like as you can see in\nthis graph uh the top one all these\ndifferent lines are QPS going to\ndifferent pods within a for a within the\nsame service.\nSo what we started to learn that the\ntraffic going to individual pods is\nactually not uniform. So there is a lot\nof variation and this is uh these are\ntwo pictures from to different services\nand in some extreme cases where we\nactually saw some incidents happening\nthe traffic uh difference the traffic\nskew was north of 4x 5x for to some of\nthe parts and now when you have that\nkind of skew you start to see a lot of\nlike latency spikes and errors are going\nhigher.\nOkay, so now we understand at least what\nwhat's happening. But then what is the\nroot cause like why was this happening\nin the first place?\nSo that's where we learned that\nKubernetes actually does not balance\nyour request across the pods. What it\nbalances is the connections. It's the\nconnections that are distributed, not\nthe requests. And why is so? It's\nbecause the load balancing in Kubernetes\nhappens when you try to establish a\nconnection at that time. It's the kernel\nwhich is going to pick one of the pods\nfor you from the list of the uh uh pods\nthat Q proxy has already coded somewhere\nin its control plane. So you will get a\nvery uniform connection distribution\nwith Kubernetes. But that's not\nsufficient, right? Because a lot of our\ntraffic at data bricks leverages gRPC\nand gRPC is built on top of HTTP2 and\nHTTP2 multiplexes your request over the\nsame connection. So now depending upon\nthe shape and size of your client, some\nof the connections might have like\nthousands of QPS going and other pods\nare getting like very minimal 10 QPS for\ninstance, right? So even though the\nconnections are very well load balanced\nbut the requests are not and that's\nlargely because of uh the the issue that\nwe understood with the Kubernetes load\nbalancing\nand it gets worse right so the diagram I\nhave here is very poorly drawn we have a\nclient it has two connections to each\nindividual pod right so now what happens\nlet's say your pod a you if believe my\nservice inner stress you will you're\ngoing to go add another pod but the\nmoment you add a pod it does not move\nthe connections connections stick to the\npods which they are already are right so\nyou added another resource to the system\nbut it does not actually uh help you\nmitigate an issue that you are probably\nfacing at that time and over the time\nit's going to get worse what if pod B\ngoes down and pod E and F comes up now\nyou have your previous connections are\nstill going to be with pod A and C or\nmaybe D only the new connections will\nstart to get balanced and it'll take\nsome time maybe for you to get uh the\nload balancing over the time but this\nproblem only gets worse and if the\nconnections are imbalanced in that case\nyour requests are going to get further\nimbalance right so the problems keep on\ngetting uh worse and worse over time\nanother case could be like some cases\nservices team would have this slow\nrollouts like when you are booting up a\nservice, you want to slowly onboard new\npods. Now, what if a client is waiting\nto establish 50 connections? All of\nthose are going to go to the first pod\nthat comes up and the rest of the pods\nare not going to get any traffic. So,\nthis is where we have to be very careful\nto understand our system and then\nconfigure our services accordingly.\nYeah. So now we we understand the\nproblem. We we understand the root\ncause. Uh so we we tried to fix it with\nmultiple approaches. So here are some of\nthose we tried and\nuh like for example first one is let's\njust reset the connections and force\nsome uh distribution of the connections\nor maybe we can use a headless service\nwhich can help us get some client side\nload balancing or we can just start\nrunning a service mesh in all of our\nclusters.\nLet me walk you through the pros and\ncons of each one of those approaches\nthat we tried and why did we not ended\nup going with any one of these uh\neventually. Our first solution was to\nhey let's reset connections let's reset\nconnections every x requests or maybe x\nuh minutes right so very simple idea we\nactually tried it in production and uh\nresults were good like we uh we started\nto see slight improvements in the\nrequest distribution it was still not\nwhere we would ideally want it to be but\nit did buy us time right so we we uh it\nwas a short-term solution work pretty\nwell. Uh but then there are there were\nenough shortcomings of the solution\nalso.\nWhat we have just done with this\napproach is uh we are only still\ndistributing connections at best. The\nunderlying root problem of u request\ngetting distributed is still not solved.\nSecond, there is a reason uh HTTP2 want\nto multiplex uh over the same\nconnections because if you start\nchurning the connection that's an\nexpensive operation, right? So um if you\nturn you have higher CPU and latency\nissues start to prop up uh again and\nlastly it's not we what we figured is\nit's very hard to tune this approach\nlike u after how many requests I should\nuh reset right if I delay too much then\nyou have the same problem right where\nyou have uh it's happening too\ninfrequently the request imbalance is\ngoing to come up if you start to do it\ntoo frequently in that case um you're\nyou're going to have you have to pay\nthat cost of like CPU overhead and\nhigher latency. Again\nsecond approach uh the headless service\nit's actually a lot of people lot of\npeople do this uh in their in production\nenvironments also uh it's a very simple\ntrivial fix like stop using cluster IP\nthat kubernetes provides which\nessentially gives you a virtual IP\naddress set cluster IP to none and this\nwill give an impression that we have\nkind of stopped using default load\nbalancing and you go to DNS\nHey, I want to talk to service B and DNS\nis going to give you back all the pod IP\naddresses. Now it's on the client to do\nthe load balancing on its own. So we\neffectively move from per connection L4\nload balancing to per request L7 load\nbalancing and that's a very good step in\nthe right direction and it's very cheap\nto implement this also. However, this\nalso has uh a lot of uh cons spec\nspecifically around the DNS caching.\nNow, when you are asking DNS to resolve\nthis URL for you, it's giving the list\nof pod ips instead of a single pod id\nthat you'll get earlier back and DNS\nlibraries tend to cache, right? You\ndon't want to be hitting DNS on every\nsingle request path. the moment you\nstart doing your DNS is under load and\nuh we have had dealt with our own set of\nproblems with DNS at scale right so this\nwas a major concern that we couldn't\neven run it in production at a larger\nscale and lastly uh when you start doing\nthis we effectively started to use DNS\nas a control plane now it is DNS is not\na control plane that you can configure\nyou can change you can't modify as per\nyour own requirement so they we started\nto have some advanced use cases I'll\ntalk about as we progress which could\nnot be supported by this as a possible\nsolution either\nand lastly the third approach was hey uh\nlet's use service mesh so what service\nmesh will give you you will start\nrunning on proxies on every node u but\nthen it comes at a cost like even though\nwe are running a very large fleet for\neven for us uh the cost of\noperationalizing these proxies on every\nnode and also add a hop for every\nservice to service communication. There\nwas a very high cost to pay and we\ndidn't have enough appetite to sign up\nfor it at that time. So we didn't go\nwith the service mesh approach also. And\nwe also had some past experiences which\nguided our decision not to move in this\ndirection.\nOkay. So coming back so we had these\nthree approaches. None of them really\nsolved the problems that we wanted to\nintend to solve or maybe they partially\nsolved it or added complexity or could\nnot capture all the signals that we\nwould want our load balancing solution\nto have. So this was a time when we took\na step back. It's like hey I think we\nneed a more intelligent solution and we\nshould step back and review all the\nrequirements that we would want to have\nin a load balancing solution. Right? So\nlet's quick quickly take a look at all\nof those requirements that we wanted to\nsee in our system.\nFirst uh and foremost we need fairness.\nWe want uniform request distribution. We\ndon't want to see any hot spots. Uh no\npart should be get getting overwhelming\ntraffic.\nSecond we want efficiency. Efficiency\nboth in control plane and data plane.\nNow what does it mean? Right? a pod\ncomes up and goes down, our load\nbalancer should immediately know and\nthere should not be any lag. That's the\ncontrol plan uh control plane part of\nit. And the second, we don't want to add\nany additional network overhead because\nthe systems that we are dealing with are\nextremely sensitive to latency. So\nthat's also a big no no for us.\nAnd lastly,\nuh this is where the intelligent part\ncomes into picture. We wanted our load\nbalancer solution to be smart to know\nhey this pod is experiencing some\nproblem maybe this pod is on a bad node\nor maybe some network connectivity issue\non that pod this is a bad part I don't\nwant to send traffic to this one another\nthing which is very specific to\ndatabicks is that purely for durability\nconcerns we deploy each service across\nmultiple availability zones. Now, if you\nhave your client and server both\ndeployed across three availability\nzones, you start to have a lot of this\ncrosszone traffic going on. And when\nyou're sending crosszone traffic, you\nare signing up for more latency. You're\nalso signing up for additional uh cost\nthat you have to pay to the cloud\nproviders. So like after reviewing all\nof these uh requirements, u one thing\nwas getting more and more clear to us.\nEven though we wanted all pods to be\nequal, uh all pods are equal, but some\npods are more equal than others. That\nwas our guiding principle uh to how we\ndesigned our system. Um and with that,\nI'll hand it over to Vincent who will\nwalk us through our final solution. Uh\nthank you so much.\n>> Thanks, Gar. Yeah. So extrapolating from\nall these requirements, we were able to\nidentify key features of kind of the\nend-to-end architecture that we wanted\nto eventually build out. So in order to\nminimize service discovery latency, we\nlooked at all kind of the the failures\nin terms of what the DNS-based solution\nwould have given us and we realized that\nin order to actually be able to\npropagate this information to clients as\nquickly as possible, we needed something\nthat would at least be pushbased instead\nof pullbased. In addition, in order to\nminimize impact to the data path itself,\nwe were motivated to avoid a solution\nthat would have intermediary proxy hops.\nAnd we wanted to have the client\nlibraries drive all the decision-\nmaking.\nAnd going further, we wanted our\nsolution to be as flexible as possible.\nUm, so in addition to things like pod\nload, pod health, uh, zonal metadata or\nother metadata associated with pods, we\nwanted a way to be able to expand the\nsystem over time and express both\nreal-time signals, signals that would\nchurn very frequently for every target\nservice pod along with static signals,\nuh, signals that would be more static\nand constrained to the lifetime of a\ngiven pod. And so it became very clear\nto us just looking all of these\nrequirements that we wanted to have a\nlot of customization throughout our\nstack. We wanted to not just have a\ncustom control plane that would be able\nto just uh drive some of these decisions\ncentrally but also we wanted the\nflexibility to be able to make our\nclient libraries make all the decisions.\nAnd we got a little bit lucky here um\nbecause internally within data bricks a\nlot of our services were already running\nunder a few homogeneous frameworks and\nthis kind of pushed us in a certain\ndirection. So on the ingress layer for\nall of our ingress traffic coming in we\nwere using basically just our set of\nopen source envoy proxies. And so for\nEnvoy itself, Envoy supports this um\ndiscovery protocol natively known as\nXDS. And while we have a little bit less\ncustomizability in terms of how we can\nconfigure Envoy itself, we found that\nXDS was very suitable for all the needs\nthat we expressed previously. Um the\nactual payload for the XDS protocol was\npushbased and kind of subject to\nwhatever the envoy proxies decided to\nsubscribe to. And the payload itself was\nquite flexible. Um it was basically just\nan encapsulation of IPs and a set of\nmetadata associated with every IP. And\none key thing for us that we realized\nvery early on is that even if we wanted\nto move away from the native envoy proto\num known as cluster load assignment um\nthe XDS protocol itself supported just\nsending any sort of flexible payload. So\nwe could decouple ourselves from the\nactual envoy proto if needed in the\nfuture. And so that brought us to our\nkind of other section of traffic, our\ninternal serviceto-service traffic,\nwhich didn't necessarily speak this\nenvoy protocol. We didn't want to bring\nup all these envoy sidecars on every\nnode either. But all these were\nprimarily Scala services. We were kind\nof born out of Spark as a company. And\nthis kind of grew into how we handled a\nlot of these control plane services. Um\nand we kind of standardized all these\nscholar services as well on a uniform\nframework known as aria. And one nice\nfeature was that we had quite a lot of\npotential customizability into how we\nwanted to build on top of that stack. So\nwe had the ability even though we didn't\nsupport it immediately to actually\nsupport the XDS protocol and whatever\nsort of client side integration we would\nwant into the server service to service\ntraffic.\nSo what did we do with this? Um we\ndecided to prototype. We built out what\nwas called an endpoint discovery service\nwhich is the canonical name for the\nprotocol that envoy expects to speak for\nthis type of IP delivery. And we decided\nto start sending these this pushbased\nprotocol and propagating these endpoint\nIPs into envoy and aria. And it was very\nimportant to us that we didn't try to\nreinvent the wheel. um we wanted to\nbuild something as quickly as possible.\nWe were running into these problems with\nbad request distribution and we wanted\nkind of an immediate solution that would\nwe would be confident in that would we\nthat would be robust and that we could\nroll out as quickly as possible. So\nother than the load balancing everything\nunder the hood for Kubernetes in this\ndomain was working quite well for us and\nwe didn't want to reinvent the wheel. We\ndidn't want to rebuild that. And so even\nthough we had this endpoint discovery\nservice that would send kind of its own\nprotocol over to our subscribing\nclients, the ultimate source for our\ncontrol plane was still Kubernetes under\nthe hood. Within EDS, we would just\nsubscribe via watches to the Kubernetes\nAPI service and everything would be\nderived from the resource contents of\nthe endpoints and services stored within\nKubernetes itself.\nBut this was only one half of the\nproblem. Now that we had this control\nplane, now that we had the ability to\ndistribute these IPs over to the\nclients, we still needed a way for the\nclients to be able to drive intelligent\ndecisions. We still needed a way for the\nclients to be able to distribute\nrequests in a way that would ensure\nreliability of our back-end servers. And\nso we wanted to start simple. Even\nthough we had kind of motivation to make\nthis more intelligent in the future, we\nmade an initial wager that hey, if we\niterate from here, if we start out\nsimple and just do something really\ndumb, we just roundroin across what we\nsend to, we can still probably get a\npretty good improvement over what we had\npreviously.\nAnd so you get kind of the expected\nresult. um you get a very even\ndistribution of requests across all your\nserver pods. We ran this across our\nvarious test beds to make sure\nintegration was correct. We wrote this\nout across our various deployments.\nEverything was fine and dandy. Um before\nthings were unbalanced. Now things were\nbalanced. Okay, perfectly great. We're\ndone here, right?\nUnfortunately, that wasn't quite the\ncase. uh we immediately started seeing\nthat there were various problems that\nthis didn't quite handle correctly. And\none very interesting problem that we\nquickly observed was that on every roll\nout or release of a service, we started\nseeing these upticks in errors\nassociated with the timing of every\nrelease. And so we realized that this\nwas very correlated with every new pod.\nFor every new pod that came up, when we\nstarted sending requests towards it, it\nstarted exhibiting symptoms of\ndegregation compared to pre-existing\npods. We would find higher latency. We\nwould find higher error rates. And we\nrealized there was a code start problem\nthat was previously hidden from us. and\nthat even though we had solved the\nprevious class of errors that we were\ntrying to handle of request imbalance,\nwe had uncovered some potential new\nclasses of errors that we needed to\nhandle. And so in the old world where\nevery client was just sending to these\nsticky connections and unable to detect\nthat this new pod had come up until the\nold connections had expired. this type\nof lag between a pod becoming fully\nready um was kind of hidden from us\nbecause they weren't even receiving\nrequests in the first place. And\nparadoxically,\nit was almost as if clients were now\ndiscovering pods too fast. as in even\nthough they were healthy from the p\nperspective of service discovery, even\nthough they were healthy from the\nperspective of Kubernetes, they were\nstill not as healthy as other pods. And\nso diving further back down into this,\nwe realized that there were whole\nclasses of other types of errors that we\nnow had the potential to avoid. Um, for\nexample,\njust naively sending X requests to every\nserver in our target backend, we\nrealized that there were multiple cases\nwhere there were pods that were not\nquite as healthy as others. uh just like\nthe rolling restart or release case of\ncode start even past that in stable\nstate we would encounter cases where a\ngiven pod would become overloaded in a\nway that was completely unrelated to the\nrequests that it was receiving. It would\nstart sending errors and we realized\nthat perhaps it would be good to try to\nbias away from these pods both from the\nerror rate perspective from the latency\nperspective and from other kind of\nsymptoms of overload. And so kind of\ngoing back to the requirements that we\nhad previously, we asked ourselves\nwas our goal to actually equally\ndistribute these requests.\nUm and so the answer that we gave\nourselves was actually no. We don't\nactually want to equally distribute\nthese requests. What we want to\nprioritize is the reliability of our\nservices. We want to actually maximize\nour client success rate. We want to\nmaximize our server stability and we\nwant to be able to efficiently utilize\nthe capacity that we have at hand. So it\nwas important to us even though round\nrobin gave us a pretty good improvement\nover our old world model of sending\nbased on connections to not just\ndistribute requests uniformly. But\nbefore we actually wanted to roll this\nout, we wanted to distribute them in a\nway that would bias away from these\noverloaded pods.\nAnd so the first thing we tried was to\nThere we go. The first thing we tried\nwas to bias away from\nuh pods that was exhibiting high CPU\nload. And so we wager that if a given\npod is exhibiting high CPU usage\nrelative to other pods, it's probably a\nlittle bit more overloaded than them, we\ncan bias away from them in a weighted\nroundroin fashion. And so we just throw\nsome math at it. We look at every pod,\nwe assign a score to them, and we try to\nsend away from them.\nBut unfortunately, it still was not\nenough. at least from the perspective of\nwhat we wanted to optimize. And we\nrealized that CPU as an indicator was a\nlittle bit of a mismatch of exactly what\nwe were trying to measure.\nTo start with, it was a little bit of a\ntrailing indicator. The way that we\nmeasured CPU was in terms of the amount\nof shares that a given pod was using\nover a historical window in the past\ntime. And so this didn't always\nnecessarily measure present overload and\nit wasn't always a good indicator of\nfuture overload either. The other\nproblem for us specifically was that in\norder to try to get this out as quickly\nas possible admittedly we relied on a\nseparate metrics\nuh export source in order to grab this\ninformation. And so from our control\nplane we would contact our actual\nmetrics uh system and we realized that\nthe frequency at which this was scraping\nthe relevant pods was misaligned with\nthe frequency at which we would want to\ndetect overload.\nAnd finally, we realized that this\ndidn't always capture all potential\ncauses of overload. Even if a given pod\nwas exhibiting uh relatively low CPU\nusage from its own perspective, it could\nstill suffer from symptoms such as noisy\nneighbors where the node it landed on\nmay be fully overloaded compared to\nother pods that are exhibiting the same\namount of CPU usage but perhaps have a\nlittle bit more room to burst. and it\nwas blind to other types of problems\nsuch as network blips or logic that\nwasn't particularly bound to CPU such as\nmemory usage patterns and so quickly we\nrealized that CPU failed to capture\neverything we wanted to optimize for and\nso again we went back to the drawing\nboard and we wanted to see okay in this\ncase what is a more perhaps indirect way\nwe can capture all types of overload.\nAnd after triing a few things, we\nsettled on a power of two choices based\nsolution as something that would work\nwell for us. And so for those that\naren't familiar with the overall\nalgorithm, it's very very simple. All it\nreally does is from the client point of\nview, you select two targets. You assign\nevery target some score associated with\nthem. And for the two targets that you\nhave randomly selected, you just pick\nthe one with a better score amongst the\ntwo. And what's very nice about power of\ntwo choices is that it's incredibly\nsimple. It's incredibly cheap both from\nan algorithmic point of view and also\nfrom an implementation point of view.\nAnd it's also very easily extendable. So\nwhen we started reusing power of two\nchoices, we started with using pending\nrequests as our main source of this\nscoring and we found that it indirectly\ncaptures signals such as uh a pod being\noverloaded just by the sheer nature of\nit being slower to respond to requests.\nBut as we iterated further, just having\nthis simple score that we could tweak,\nwe were able to find opportunities to\nadd things like accounting for latency,\naccounting for error rate, and we were\nable to continue to iterate further to\nbuild a more robust solution. And\nfinally, unlike something like a naive\nlease request algorithm where you always\nsend to something that has the least\npending requests and unlike an algorithm\nlike weighted round robin where you\nassign static weights, the\nnon-deterministic nature of power of two\nchoices just naturally avoided problems\nlike thundering a herd for us.\nAnd so we decided to roll this out\nagain. uh sent it through our test bed,\nsent it through our production services\nand just like roundroin just like a\nrandom distribution we found that in the\nstable state this gave very good\nresults. The request distribution uh\nfrom before on top and after on the\nbottom we found that everything became\nway more stable. um and not just on the\nrequest distribution end, we found that\nthis gave us great gains in terms of the\nlatency stability of our various\nservices. And just by increasing the\nstability of our expectations of all\nthese relevant metrics, we were able to\nfind that just automatically\nthe way that we were autoscaling our\nservices\nacross the board, the average size of\nour fleet decreased by around 20%. So we\nactually got a lot of like cost and\nefficiency gains from this as well. But\nmore importantly beyond the stable state\nas mentioned previously we were able to\nuse power of two choices as this base\nfoundation that we could keep building\non. So over in this graph we you can see\na very basic test that we were running\nwhere we would just have a set of\nservices receiving traffic from a set of\nclients. And we ran this through two\nsort of base implementations of powerup\ntwo choices. One that was just naively\nusing these requests as it metric in the\ngreen and one that was using some\nhistorical error observation as part of\nthe bias to our scoring in the yellow.\nAnd through our testing, we were able to\nfind that this greatly improved the\nrobustness of our services to hitting\nerrors to hitting latency. And this was\njust one way that we adjusted the score\nand just keep on uh the ability to keep\non building on top of it was very\nbeneficial to us. So to sum up kind of\nour our journey to how we moved away\nfrom Kubernetes load balancing to our\nown load balancing solutions, one of the\nkey takeaways that we had throughout the\nprocess was that one thing we quickly\nrealized was that default Kubernetes\nload balancing does not scale well as\nyou start building out your uh system.\nAnd even though it works very well uh in\nthe short term, understanding the\nabstractions that Kubernetes provides\nyou and the limitations that Kubernetes\nhas um allows you to identify where you\ncan optimize and where you can inject\neven very simple things um that still\nperhaps rely on Kubernetes but allow you\nmore freedom to actually customize your\ninternal control plane and data path.\nAnd finally, we found it was very\nhelpful to aim for incremental\nimprovements throughout the process. Um,\neven though we found that there were a\nlot of gaps with our initial solutions\nand initial attempts to try to replace\nour initial solution, um, they helped us\nuncover what exactly these gaps were and\nalso gave us stop gaps for uh, potential\nimprovements in the short term. And so\nthat kind of concludes our uh journey\nthrough load balancing here. Um we still\ncontinue to iterate and improve on top\nof what we have here. Um but\num essentially if you want to have more\nif you have more interest in seeing more\ndetails about what that looks like, we\ndo have a little bit more detail in a\nblog that we have linked over here in\nthe top right. And we can open the the\nboard to questions here.",
+  "segments": [
+    {
+      "text": "Hi everyone. Uh my name is Gorav and I'm here with my colleague Vincent. uh we work on traffic management problems at data bricks within the larger core infrastructure group and today we love to talk about our journey of how we fix",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the request imbalance problems uh at data bricks and basically started from rudimentary kubernetes provided load balancing to uh something custom something intelligent that we built specific to custom tailor to our requirements.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So before we deep dive into uh details u sorry I think small glitchy okay awesome yeah before we deep dive into details let's quickly recap what does datab bricks do so our mission at datab bricks is to empower everybody uh in an organization to have",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "access to all the data uh and AI and we want to democratize this access for everyone in organization to that end we have built a unified platform uh to provide for you to access to build and provide access for data and AI applications. We are the creators of",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "a lot of open-source technologies such as Apache Spark, Delta Lake, MLflow, and Unity catalog to name just a few. And the company has been growing rapidly over the last few years. Uh last year we grew more than 65% year-over-year at a",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "revenue run rate of about $5.5 billion. Uh today we serve more than 20,000 plus customers and a majority of Fortune 500 companies are our customers right now. And to power this kind of business growth this scale we operate a very",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "large infra uh fleet uh distributed across across the globe uh running at highly distributed and latency sensitive uh systems. Uh today we are deployed in three clouds AWS, Azure and GCP in more than 70 plus regions u where we are",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "running north of 1500 clusters across our control plane and data plane components and uh to power this kind of data processing requirements from our customers we have to deploy millions of VMs on a daily basis. Now you can see at",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "this kind of scale even a smaller inefficiency in a system can uh can become very visible and cause major problems for us. On the traffic management side we deal a lot of uh problems around like how do you route traffic across these regions?",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "How do you uh channel traffic from ingress to a particular service? How do you do like uh communication across clusters across regions and now even cross clouds. uh but for this talk we'll focus largely on how do you ensure that uh the",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "communication happening within a cluster is seamless and we are effectively load balancing a traffic among all of the part services running so let's get started our our story uh begins with uh bad SLO violations and incidents right so there was a time long",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "long time ago when uh product teams would see a lot of 5xx errors or higher P99 latency and it was particularly harder for them to debug and understand what was going on largely because these errors would be like intermittent and",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "come and go and they're not adept at uh like figuring out what's going on behind the scenes and this wasn't happening for one or two services this was a pattern that was happening across the board uh for various our products that we own",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "And what is the first instinct right when you see these kind of spiky errors like I'm sure uh a lot of in the audience will correlate with this thing that the first instinct for a lot of people is that hey might as well add",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "some more resources to the service let's add more CPU some memory or maybe even worse let's add more pods but where does it lead us right it leads us to highly provisioned services more than what they require and then you're",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "wasting resources at that point in time so even though the services are overprovisioned but the underlying uh problem is still not resolved like we still don't know what's going on and just by throwing on throwing more resources doesn't get us where we want",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "to be and that's where we come into picture u we also started to engage with the product teams trying to understand what was the what was happening behind the scenes right so one of the pattern we started to observe across these",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "incidents was like as you can see in this graph uh the top one all these different lines are QPS going to different pods within a for a within the same service. So what we started to learn that the traffic going to individual pods is",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "actually not uniform. So there is a lot of variation and this is uh these are two pictures from to different services and in some extreme cases where we actually saw some incidents happening the traffic uh difference the traffic",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "skew was north of 4x 5x for to some of the parts and now when you have that kind of skew you start to see a lot of like latency spikes and errors are going higher. Okay, so now we understand at least what what's happening. But then what is the",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "root cause like why was this happening in the first place? So that's where we learned that Kubernetes actually does not balance your request across the pods. What it balances is the connections. It's the connections that are distributed, not",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "the requests. And why is so? It's because the load balancing in Kubernetes happens when you try to establish a connection at that time. It's the kernel which is going to pick one of the pods for you from the list of the uh uh pods",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "that Q proxy has already coded somewhere in its control plane. So you will get a very uniform connection distribution with Kubernetes. But that's not sufficient, right? Because a lot of our traffic at data bricks leverages gRPC",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "and gRPC is built on top of HTTP2 and HTTP2 multiplexes your request over the same connection. So now depending upon the shape and size of your client, some of the connections might have like thousands of QPS going and other pods",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "are getting like very minimal 10 QPS for instance, right? So even though the connections are very well load balanced but the requests are not and that's largely because of uh the the issue that we understood with the Kubernetes load balancing",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "and it gets worse right so the diagram I have here is very poorly drawn we have a client it has two connections to each individual pod right so now what happens let's say your pod a you if believe my service inner stress you will you're",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "going to go add another pod but the moment you add a pod it does not move the connections connections stick to the pods which they are already are right so you added another resource to the system but it does not actually uh help you",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "mitigate an issue that you are probably facing at that time and over the time it's going to get worse what if pod B goes down and pod E and F comes up now you have your previous connections are still going to be with pod A and C or",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "maybe D only the new connections will start to get balanced and it'll take some time maybe for you to get uh the load balancing over the time but this problem only gets worse and if the connections are imbalanced in that case",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "your requests are going to get further imbalance right so the problems keep on getting uh worse and worse over time another case could be like some cases services team would have this slow rollouts like when you are booting up a",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "service, you want to slowly onboard new pods. Now, what if a client is waiting to establish 50 connections? All of those are going to go to the first pod that comes up and the rest of the pods are not going to get any traffic. So,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "this is where we have to be very careful to understand our system and then configure our services accordingly. Yeah. So now we we understand the problem. We we understand the root cause. Uh so we we tried to fix it with multiple approaches. So here are some of",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "those we tried and uh like for example first one is let's just reset the connections and force some uh distribution of the connections or maybe we can use a headless service which can help us get some client side load balancing or we can just start",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "running a service mesh in all of our clusters. Let me walk you through the pros and cons of each one of those approaches that we tried and why did we not ended up going with any one of these uh eventually. Our first solution was to",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "hey let's reset connections let's reset connections every x requests or maybe x uh minutes right so very simple idea we actually tried it in production and uh results were good like we uh we started to see slight improvements in the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "request distribution it was still not where we would ideally want it to be but it did buy us time right so we we uh it was a short-term solution work pretty well. Uh but then there are there were enough shortcomings of the solution also.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "What we have just done with this approach is uh we are only still distributing connections at best. The underlying root problem of u request getting distributed is still not solved. Second, there is a reason uh HTTP2 want to multiplex uh over the same",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "connections because if you start churning the connection that's an expensive operation, right? So um if you turn you have higher CPU and latency issues start to prop up uh again and lastly it's not we what we figured is it's very hard to tune this approach",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "like u after how many requests I should uh reset right if I delay too much then you have the same problem right where you have uh it's happening too infrequently the request imbalance is going to come up if you start to do it",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "too frequently in that case um you're you're going to have you have to pay that cost of like CPU overhead and higher latency. Again second approach uh the headless service it's actually a lot of people lot of people do this uh in their in production",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "environments also uh it's a very simple trivial fix like stop using cluster IP that kubernetes provides which essentially gives you a virtual IP address set cluster IP to none and this will give an impression that we have kind of stopped using default load",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "balancing and you go to DNS Hey, I want to talk to service B and DNS is going to give you back all the pod IP addresses. Now it's on the client to do the load balancing on its own. So we effectively move from per connection L4",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "load balancing to per request L7 load balancing and that's a very good step in the right direction and it's very cheap to implement this also. However, this also has uh a lot of uh cons spec specifically around the DNS caching.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Now, when you are asking DNS to resolve this URL for you, it's giving the list of pod ips instead of a single pod id that you'll get earlier back and DNS libraries tend to cache, right? You don't want to be hitting DNS on every",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "single request path. the moment you start doing your DNS is under load and uh we have had dealt with our own set of problems with DNS at scale right so this was a major concern that we couldn't even run it in production at a larger",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "scale and lastly uh when you start doing this we effectively started to use DNS as a control plane now it is DNS is not a control plane that you can configure you can change you can't modify as per your own requirement so they we started",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "to have some advanced use cases I'll talk about as we progress which could not be supported by this as a possible solution either and lastly the third approach was hey uh let's use service mesh so what service mesh will give you you will start",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "running on proxies on every node u but then it comes at a cost like even though we are running a very large fleet for even for us uh the cost of operationalizing these proxies on every node and also add a hop for every service to service communication. There",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "was a very high cost to pay and we didn't have enough appetite to sign up for it at that time. So we didn't go with the service mesh approach also. And we also had some past experiences which guided our decision not to move in this direction.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Okay. So coming back so we had these three approaches. None of them really solved the problems that we wanted to intend to solve or maybe they partially solved it or added complexity or could not capture all the signals that we",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "would want our load balancing solution to have. So this was a time when we took a step back. It's like hey I think we need a more intelligent solution and we should step back and review all the requirements that we would want to have",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "in a load balancing solution. Right? So let's quick quickly take a look at all of those requirements that we wanted to see in our system. First uh and foremost we need fairness. We want uniform request distribution. We don't want to see any hot spots. Uh no",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "part should be get getting overwhelming traffic. Second we want efficiency. Efficiency both in control plane and data plane. Now what does it mean? Right? a pod comes up and goes down, our load balancer should immediately know and",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "there should not be any lag. That's the control plan uh control plane part of it. And the second, we don't want to add any additional network overhead because the systems that we are dealing with are extremely sensitive to latency. So",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "that's also a big no no for us. And lastly, uh this is where the intelligent part comes into picture. We wanted our load balancer solution to be smart to know hey this pod is experiencing some problem maybe this pod is on a bad node",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "or maybe some network connectivity issue on that pod this is a bad part I don't want to send traffic to this one another thing which is very specific to databicks is that purely for durability concerns we deploy each service across",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "multiple availability zones. Now, if you have your client and server both deployed across three availability zones, you start to have a lot of this crosszone traffic going on. And when you're sending crosszone traffic, you",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "are signing up for more latency. You're also signing up for additional uh cost that you have to pay to the cloud providers. So like after reviewing all of these uh requirements, u one thing was getting more and more clear to us.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Even though we wanted all pods to be equal, uh all pods are equal, but some pods are more equal than others. That was our guiding principle uh to how we designed our system. Um and with that, I'll hand it over to Vincent who will",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "walk us through our final solution. Uh thank you so much. >> Thanks, Gar. Yeah. So extrapolating from all these requirements, we were able to identify key features of kind of the end-to-end architecture that we wanted to eventually build out. So in order to",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "minimize service discovery latency, we looked at all kind of the the failures in terms of what the DNS-based solution would have given us and we realized that in order to actually be able to propagate this information to clients as",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "quickly as possible, we needed something that would at least be pushbased instead of pullbased. In addition, in order to minimize impact to the data path itself, we were motivated to avoid a solution that would have intermediary proxy hops.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And we wanted to have the client libraries drive all the decision- making. And going further, we wanted our solution to be as flexible as possible. Um, so in addition to things like pod load, pod health, uh, zonal metadata or",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "other metadata associated with pods, we wanted a way to be able to expand the system over time and express both real-time signals, signals that would churn very frequently for every target service pod along with static signals,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "uh, signals that would be more static and constrained to the lifetime of a given pod. And so it became very clear to us just looking all of these requirements that we wanted to have a lot of customization throughout our stack. We wanted to not just have a",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "custom control plane that would be able to just uh drive some of these decisions centrally but also we wanted the flexibility to be able to make our client libraries make all the decisions. And we got a little bit lucky here um",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "because internally within data bricks a lot of our services were already running under a few homogeneous frameworks and this kind of pushed us in a certain direction. So on the ingress layer for all of our ingress traffic coming in we",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "were using basically just our set of open source envoy proxies. And so for Envoy itself, Envoy supports this um discovery protocol natively known as XDS. And while we have a little bit less customizability in terms of how we can",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "configure Envoy itself, we found that XDS was very suitable for all the needs that we expressed previously. Um the actual payload for the XDS protocol was pushbased and kind of subject to whatever the envoy proxies decided to",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "subscribe to. And the payload itself was quite flexible. Um it was basically just an encapsulation of IPs and a set of metadata associated with every IP. And one key thing for us that we realized very early on is that even if we wanted",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "to move away from the native envoy proto um known as cluster load assignment um the XDS protocol itself supported just sending any sort of flexible payload. So we could decouple ourselves from the actual envoy proto if needed in the",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "future. And so that brought us to our kind of other section of traffic, our internal serviceto-service traffic, which didn't necessarily speak this envoy protocol. We didn't want to bring up all these envoy sidecars on every node either. But all these were",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "primarily Scala services. We were kind of born out of Spark as a company. And this kind of grew into how we handled a lot of these control plane services. Um and we kind of standardized all these scholar services as well on a uniform",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "framework known as aria. And one nice feature was that we had quite a lot of potential customizability into how we wanted to build on top of that stack. So we had the ability even though we didn't support it immediately to actually",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "support the XDS protocol and whatever sort of client side integration we would want into the server service to service traffic. So what did we do with this? Um we decided to prototype. We built out what was called an endpoint discovery service",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "which is the canonical name for the protocol that envoy expects to speak for this type of IP delivery. And we decided to start sending these this pushbased protocol and propagating these endpoint IPs into envoy and aria. And it was very",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "important to us that we didn't try to reinvent the wheel. um we wanted to build something as quickly as possible. We were running into these problems with bad request distribution and we wanted kind of an immediate solution that would",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "we would be confident in that would we that would be robust and that we could roll out as quickly as possible. So other than the load balancing everything under the hood for Kubernetes in this domain was working quite well for us and",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "we didn't want to reinvent the wheel. We didn't want to rebuild that. And so even though we had this endpoint discovery service that would send kind of its own protocol over to our subscribing clients, the ultimate source for our",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "control plane was still Kubernetes under the hood. Within EDS, we would just subscribe via watches to the Kubernetes API service and everything would be derived from the resource contents of the endpoints and services stored within Kubernetes itself.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "But this was only one half of the problem. Now that we had this control plane, now that we had the ability to distribute these IPs over to the clients, we still needed a way for the clients to be able to drive intelligent",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "decisions. We still needed a way for the clients to be able to distribute requests in a way that would ensure reliability of our back-end servers. And so we wanted to start simple. Even though we had kind of motivation to make",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "this more intelligent in the future, we made an initial wager that hey, if we iterate from here, if we start out simple and just do something really dumb, we just roundroin across what we send to, we can still probably get a",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "pretty good improvement over what we had previously. And so you get kind of the expected result. um you get a very even distribution of requests across all your server pods. We ran this across our various test beds to make sure",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "integration was correct. We wrote this out across our various deployments. Everything was fine and dandy. Um before things were unbalanced. Now things were balanced. Okay, perfectly great. We're done here, right? Unfortunately, that wasn't quite the",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "case. uh we immediately started seeing that there were various problems that this didn't quite handle correctly. And one very interesting problem that we quickly observed was that on every roll out or release of a service, we started",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "seeing these upticks in errors associated with the timing of every release. And so we realized that this was very correlated with every new pod. For every new pod that came up, when we started sending requests towards it, it started exhibiting symptoms of",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "degregation compared to pre-existing pods. We would find higher latency. We would find higher error rates. And we realized there was a code start problem that was previously hidden from us. and that even though we had solved the",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "previous class of errors that we were trying to handle of request imbalance, we had uncovered some potential new classes of errors that we needed to handle. And so in the old world where every client was just sending to these",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "sticky connections and unable to detect that this new pod had come up until the old connections had expired. this type of lag between a pod becoming fully ready um was kind of hidden from us because they weren't even receiving requests in the first place. And",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "paradoxically, it was almost as if clients were now discovering pods too fast. as in even though they were healthy from the p perspective of service discovery, even though they were healthy from the perspective of Kubernetes, they were",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "still not as healthy as other pods. And so diving further back down into this, we realized that there were whole classes of other types of errors that we now had the potential to avoid. Um, for example, just naively sending X requests to every",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "server in our target backend, we realized that there were multiple cases where there were pods that were not quite as healthy as others. uh just like the rolling restart or release case of code start even past that in stable",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "state we would encounter cases where a given pod would become overloaded in a way that was completely unrelated to the requests that it was receiving. It would start sending errors and we realized that perhaps it would be good to try to",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "bias away from these pods both from the error rate perspective from the latency perspective and from other kind of symptoms of overload. And so kind of going back to the requirements that we had previously, we asked ourselves was our goal to actually equally",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "distribute these requests. Um and so the answer that we gave ourselves was actually no. We don't actually want to equally distribute these requests. What we want to prioritize is the reliability of our services. We want to actually maximize",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "our client success rate. We want to maximize our server stability and we want to be able to efficiently utilize the capacity that we have at hand. So it was important to us even though round robin gave us a pretty good improvement",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "over our old world model of sending based on connections to not just distribute requests uniformly. But before we actually wanted to roll this out, we wanted to distribute them in a way that would bias away from these overloaded pods.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "And so the first thing we tried was to There we go. The first thing we tried was to bias away from uh pods that was exhibiting high CPU load. And so we wager that if a given pod is exhibiting high CPU usage relative to other pods, it's probably a",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "little bit more overloaded than them, we can bias away from them in a weighted roundroin fashion. And so we just throw some math at it. We look at every pod, we assign a score to them, and we try to send away from them. But unfortunately, it still was not",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "enough. at least from the perspective of what we wanted to optimize. And we realized that CPU as an indicator was a little bit of a mismatch of exactly what we were trying to measure. To start with, it was a little bit of a trailing indicator. The way that we",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "measured CPU was in terms of the amount of shares that a given pod was using over a historical window in the past time. And so this didn't always necessarily measure present overload and it wasn't always a good indicator of future overload either. The other",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "problem for us specifically was that in order to try to get this out as quickly as possible admittedly we relied on a separate metrics uh export source in order to grab this information. And so from our control plane we would contact our actual",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "metrics uh system and we realized that the frequency at which this was scraping the relevant pods was misaligned with the frequency at which we would want to detect overload. And finally, we realized that this didn't always capture all potential",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "causes of overload. Even if a given pod was exhibiting uh relatively low CPU usage from its own perspective, it could still suffer from symptoms such as noisy neighbors where the node it landed on may be fully overloaded compared to",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "other pods that are exhibiting the same amount of CPU usage but perhaps have a little bit more room to burst. and it was blind to other types of problems such as network blips or logic that wasn't particularly bound to CPU such as",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "memory usage patterns and so quickly we realized that CPU failed to capture everything we wanted to optimize for and so again we went back to the drawing board and we wanted to see okay in this case what is a more perhaps indirect way",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "we can capture all types of overload. And after triing a few things, we settled on a power of two choices based solution as something that would work well for us. And so for those that aren't familiar with the overall algorithm, it's very very simple. All it",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "really does is from the client point of view, you select two targets. You assign every target some score associated with them. And for the two targets that you have randomly selected, you just pick the one with a better score amongst the",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "two. And what's very nice about power of two choices is that it's incredibly simple. It's incredibly cheap both from an algorithmic point of view and also from an implementation point of view. And it's also very easily extendable. So",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "when we started reusing power of two choices, we started with using pending requests as our main source of this scoring and we found that it indirectly captures signals such as uh a pod being overloaded just by the sheer nature of",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "it being slower to respond to requests. But as we iterated further, just having this simple score that we could tweak, we were able to find opportunities to add things like accounting for latency, accounting for error rate, and we were",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "able to continue to iterate further to build a more robust solution. And finally, unlike something like a naive lease request algorithm where you always send to something that has the least pending requests and unlike an algorithm",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "like weighted round robin where you assign static weights, the non-deterministic nature of power of two choices just naturally avoided problems like thundering a herd for us. And so we decided to roll this out again. uh sent it through our test bed,",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "sent it through our production services and just like roundroin just like a random distribution we found that in the stable state this gave very good results. The request distribution uh from before on top and after on the",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "bottom we found that everything became way more stable. um and not just on the request distribution end, we found that this gave us great gains in terms of the latency stability of our various services. And just by increasing the",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "stability of our expectations of all these relevant metrics, we were able to find that just automatically the way that we were autoscaling our services across the board, the average size of our fleet decreased by around 20%. So we",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "actually got a lot of like cost and efficiency gains from this as well. But more importantly beyond the stable state as mentioned previously we were able to use power of two choices as this base foundation that we could keep building",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "on. So over in this graph we you can see a very basic test that we were running where we would just have a set of services receiving traffic from a set of clients. And we ran this through two sort of base implementations of powerup",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "two choices. One that was just naively using these requests as it metric in the green and one that was using some historical error observation as part of the bias to our scoring in the yellow. And through our testing, we were able to",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "find that this greatly improved the robustness of our services to hitting errors to hitting latency. And this was just one way that we adjusted the score and just keep on uh the ability to keep on building on top of it was very",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "beneficial to us. So to sum up kind of our our journey to how we moved away from Kubernetes load balancing to our own load balancing solutions, one of the key takeaways that we had throughout the process was that one thing we quickly",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "realized was that default Kubernetes load balancing does not scale well as you start building out your uh system. And even though it works very well uh in the short term, understanding the abstractions that Kubernetes provides",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "you and the limitations that Kubernetes has um allows you to identify where you can optimize and where you can inject even very simple things um that still perhaps rely on Kubernetes but allow you more freedom to actually customize your",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "internal control plane and data path. And finally, we found it was very helpful to aim for incremental improvements throughout the process. Um, even though we found that there were a lot of gaps with our initial solutions and initial attempts to try to replace",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "our initial solution, um, they helped us uncover what exactly these gaps were and also gave us stop gaps for uh, potential improvements in the short term. And so that kind of concludes our uh journey through load balancing here. Um we still",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "continue to iterate and improve on top of what we have here. Um but um essentially if you want to have more if you have more interest in seeing more details about what that looks like, we do have a little bit more detail in a",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "blog that we have linked over here in the top right. And we can open the the board to questions here.",
+      "start": 762,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,1344 @@
+{
+  "videoId": "IvXTl3yj-4Y",
+  "title": "Stanford CME296 Diffusion & Large Vision Models | Spring 2026 | Lecture 6 - Model Training",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 68657,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello, everyone, and welcome\nto Lecture 6 of CME 296.\nSo today is a very\nexciting day because we'll\nbe talking about how to\ntrain a model in practice,\na text-to-image\ngeneration model.\nAnd as you know, the\nfirst half of this class\nwas all about preparing the\nfoundational theoretical\nfoundations for us to\nbe able to do that.\nAnd in this second part,\nwe'll be really talking about\nmore the practical aspects,\nand today will be no exception.\nSo as usual, before\nwe start, we're\ngoing to just recap\nwhat we saw last time.\nSo if you remember\nlast lecture, we\nsaw the main image\ngeneration architectures.\nAnd we started with\nthe big one, the UNet,\nwhich was trendy up until 2022.\nAnd we saw that\namong the things we\nwanted to see in an\nimage generation model,\nwe wanted the model that\nwas able to understand\nthe global structure\nof an image,\nalso capture the local\ndetails, able to receive\nexternal signals, for\ninstance, a condition,\nand be computationally\ntractable.\nAnd we saw that the UNet was\nrelying on an inductive bias.\nWhich was something that was\nreflected by the convolution\noperation, which is mimicking\nhow humans look at pictures.\nAnd we saw that the unit was\ncomposed of two main phases.\nThe first one is the\ndownsampling phases,\nwhere we put an input, a\nnoisy latent, that we then\nperform convolution operations\nand downsampling operations\nso that we can get a\nbigger receptive field that\nwould enable us to have\na global understanding\nof the input in the bottleneck.\nSo that was the first phase.\nAnd then the second phase\nwith the upsampling phase,\nwhich was composed of\nupsampling operations,\nfor instance, the transpose\nconvolution, where\nwe were able to get back to the\ndimension of interest, which\nis the same dimension\nas the input.\nAnd we saw that there are these\ncopy-and-crop connections that\nwere allowing us to transport\nthe local details that we were\nable to compute in the\ndownsampling phase and couple\nthat with the global\nunderstanding that we had,\nthe global structure\nunderstanding that we\nhad from the bottleneck.\nSo that was the UNet.\nWe saw that the UNet\nwas great, but the UNet\nhad a failure case,\nwhich was that there\nwas no direct connection\nbetween different local parts\nof the image.\nAnd for an example, such as\nsomeone looking at oneself\nin the mirror.\nYou need to be aware\nof the local details\nfrom two different\nparts of the image.\nSo this was motivating us to\nlook at another architecture,\nwhich is the diffusion\ntransformer, which was published\nin 2022, late 2022, which\nrelies on the concept\nof self-attention, where each\npatch of the input latents\nattends to one another, allowing\nthese direct connections\nto form.\nAnd as a result, we were able\nto have this concern mitigated.\nAnd we also saw a way\nto inject conditions\ninto the architecture.\nSo we spend some time on the\nadaptive layer normalization,\nwhich was taking the\ncondition and the time step\nas inputs that was modulating\nthe token embeddings\nvia this gates, shift,\nand scale factors.\nAnd we also saw that there were\nvery many variants, actually.\nIt was not just the\ndiffusion transformer,\nthere were many variants of\nthe diffusion transformer,\nsuch as the multi-modal\ndiffusion transformer, which\nis now more trendy, which was\nlooking at making the input\ntext as a standalone modality\nthat was being injected as input\nas opposed to an afterthought\nvia the modulation,\nmainly because the adaptive\nlayer norm was injecting\nthe condition across all patch\nembeddings in a uniform way.\nAnd we didn't want to have\nthat, so we also saw the MMD.\nAnd of course,\nthese architectures\nare not the only ones\nthat are out there.\nThere are many variations.\nSo hopefully, that\nlecture was a lecture\nthat gave you the intuitive\ntools to at least understand why\ncertain components are used.\nAll good on this?\nSo this was last lecture.\nWe also saw the timeline,\nwhich I briefly mentioned here.\nSo UNet largely dominated\nthe early 2020s,\nif I can say it like this.\nAnd then the DIT-based models\nare dominating the architectures\nthat are coming out nowadays,\nfrom end of 2022 onwards.\nAnd what are we\ngoing to do today?\nToday, we're going to focus\non practical applications,\non how we can actually train a\ntext to image generation model.\nAnd I know so far we have\nseen different components\nof that overall system.\nWe've seen the\nactual backbone that\nis allowing us to denoise\nthe noise latents,\nwhich is for instance\nhere a DIT-based model.\nWe've seen that there is\nalso another model involved,\nthe VAE, which is allowing us to\nhave a latent space in which we\ncan operate, which lowers\nthe computational burden\nof our training process\nand generation process.\nAnd we've also seen that there\nare multiple models we could\nuse that could embed\nconditions that we would then\nhave as input.\nSo to be clear,\ntoday we're going\nto focus on how to train the\nimage generation model itself,\nand we're not going to focus\non the VAE and the embedding\nmodels.\nSo just for reference,\nwe will actually\ndig into embedding models next\nweek with the multi-modal LLMs.\nBut I'm going to just\npush it for next week.\nMore on that soon.\nCool.\nSo let's start.\nAnd I just first want us to\nlook at this whole problem\nat a very high level.\nAnd in particular, look\nat the overall process\nthat allows us to go\nfrom an initialized model\nto a model that is able\nto work in production.\nSo the first step, we have\nour image generation model.\nWe first teach it how to\ngenerate images, any images.\nThis phase is typically\ncalled the pre-training phase.\nAnd it's quite\ncompute intensive.\nIt involves a lot of data and\na lot of work on the data side.\nSo that's number\none, and it's a phase\nthat all models go through.\nThen we have a second stage\nthat is called the post-training\nstage, where we take that\npre-trained model that already\nknows how to generate images,\nand we teach it how to generate\n\"good\" images.\nAnd we will see what good means.\nWe could also optionally\nalso personalize\nour model to generate\nspecific kinds of images.\nAnd we will see this\noptional third step,\nwhich is here called tuning.\nAnd then at the end\nof this lecture,\nwe'll also look at\nhow we can actually\nmake our model be able\nto work in production\nin an efficient way.\nAnd here we will look\nat distillation models\nor distillation\nmethods, I should\nsay, that allow our model to\ngenerate samples in fewer steps,\nbecause we've seen that usually\nthese image generation models,\nthey're working in\nan iterative fashion.\nSo you always have to have\none the initial noise as input\nto get the let's\nsay vector field,\nand then iterate on that\nmany times potentially.\nAnd here we want to\nshorten the amount of times\nwe need to do that so that we\ncan make this process just less\ncostly and reduce the latency,\nwhich is typically what we care\nabout for production use cases.\nEveryone good with\nthe big, big steps?\nSo we'll start with the first.\nEven before starting, actually,\nwe'll be talking about the loss\nthat we will use for\nour training process.\nAnd I think you\nalready what the loss\nis because we've spent the\nfirst three lectures talking\nabout three different\nperspectives on getting\nto that stage.\nSo here, this part\nis mainly around just\nall agreeing on what\nthose losses are and see\nwhat are the changes that happen\nin practice to these losses\nto make the training\nprocess more optimized.\nAnd you will see what I mean.\nSo first, I'm going to recap\nwhat we saw during the three\nfirst lectures.\nSo the first one, if you\nrecall, was diffusion with DDPM\nwhere our thought process was\nwe take clean images that we\ncorrupt step by step,\nso you have this xt that\nis a function of the clean image\nand the noise that you add.\nAnd we saw that we could\nderive a tractable loss,\nand you end up\nwith a formula that\nis allowing you to denoise\nthe noise with the formula\non the slides by\nparameterizing a model that\nis geared towards predicting the\nnoise to remove epsilon theta.\nAnd here, the loss\nis as follows.\nSo it's the expectation\nof just the L2 distance\nbetween your predicted\nnoise to remove\nand the actual noise\nthat was added,\nand it's an expectation\nover the time steps,\nthe clean images that are\npart of your training sets,\nand then the noise that\nis typically sampled\nfrom a Gaussian distribution.\nThen in Lecture 2, we had\nthis second perspective\nof looking at the same problem,\nwhich was, OK, in order\nto recover clean\nimages, let's actually\nlook at where the\nclean images are\nby estimating the score, which\nis acting like a compass.\nAnd here we saw that there\nwas a stochastic differential\nequation, way of putting\nthis, which was given by dx\nis equal to some drift term\nand some diffusion term,\nalong with the continuous noise,\nwhich was the Wiener process.\nSo this was the forward process.\nAnd then, the reverse\nprocess was something\nthat was popping up the score.\nAnd this just\nhighlighted the fact\nthat we needed to estimate\nthe score in order\nto denoise into clean images.\nAnd here, the last was an\nexpectation over the score\nthat you wanted to estimate\nminus the actual score\nof the noise distribution.\nSo that's the second\nloss that we saw.\nAnd then the third perspective,\nwhich was lecture 3,\nwas the flow\nperspective, where we\nsaid that in order to go\nfrom noise to our target\ndistribution, we're going\nto interpret that problem\nas a transport problem.\nAnd here, we focused\non the velocity\nor also known as\nthe vector field,\nthat could be used using an ODE\nsolver like the Euler method.\nAnd we had a loss that was\nregressing the vector field\nby just taking two points.\nSo one from the target\ndistribution, x1,\nand then x0 from the noisy\ndistribution, typically\na Gaussian distribution.\nAnd we ended up with\nthis last function.\nNow, one thing I want\nto say, and maybe\nI've said it some\ntime in the past,\nnowadays, people mainly focus on\nthe flow-matching perspective.\nSo I just want us to all be\naligned that moving forward,\nby default, we'll be\nusing the flow matching\nloss as the default loss.\nDoes that sound good?\nSo let's look at this loss.\nSo here what we're\ndoing is we're\noptimizing on the\nparameter theta\nsuch that we minimize\nthe loss on the slides\nin particular by taking\nthe expectation over time\nsteps over data points in\nthe training data, so pdata,\nand over noisy observations\nthat are part of a Gaussian\ndistribution.\nAnd in particular,\nwe are taking--\nso we were saying we\nwere taking t drawn\nfrom a uniform distribution.\nAnd I just want us to\npause on this statement\nand see if this\nactually makes sense.\nBut first, just as a\nreminder, here by t we\nlevel where t equals 0\ncorresponds to a lot of noise,\nt equal to 1 means\nno noise at all,\nand t is somewhere in between\nmeans a little bit noisy.\nSo I'm going to ask\nyou some questions.\nSo let's suppose we want to\nfigure out from an input that\nis extremely noisy,\nthink of it as x0,\nwhether making a prediction\non where to go from x0\nis an easy or a hard task.\nAnd so I'm just going\nto make our life easier.\nSo if you remember\nthe illustration\nwe had-- so we have the\nnoisy distribution that\nis the one on the left\nand then the target\ndistribution on the right.\nSo what we're saying is if\nwe sample a noisy latent that\nis very noisy, is the\ntask of predicting\nwhere to go an easy\ntask or a hard task?\nYeah, easy.\nDo you want to say easy?\nYes, so it's indeed easy.\nNow, why is it easy?\nSo at the very beginning,\nthe input that you have\nis actually void\nof all information.\nYou don't anything about\nwhere you're going.\nSo what your model will\nbe incentivized to do\nwill be to just try\nto predict if you\nwant the average direction,\nwhere you need to go.\nSo regardless of how much\ntime you spend learning that,\nit will just learn\nroughly where to go,\nwhich will be if you\nwant the mean of where\nall the observations in your\ntarget data distribution are.\nSo no matter how much time you\nspend in that region of noise,\nyou will be incentivized to\npredict the mean of where\nall the observations are.\nSo that's why I say\nit's an easy task.\nSo now, how about\nif t is close to 1,\nmeaning that we're already very,\nvery advanced in the denoising\nprocess and there is\nalmost no noise left?\nIs it an easy task or a hard\ntask to where to go from there?\nHard?\nYeah, OK, so we have one heart.\nYep.\nEasy again.\nOK, so let's see.\nSo let's try to think.\nSo when t is close\nto 1, what that means\nis that the input xt is\nalready almost clean.\nSo we're almost there.\nSo what that means\nis you only need\nto make a few tweaks\nto little details\nto have a fully denoised image.\nAnd in that sense, it\nis actually an easy task\nbecause you already have an\nimage that is almost clean\nand so on.\nThe illustration, it corresponds\nto if your observation is\nalready part of the\ntarget data distribution,\nand you just need to do a\nsmall step towards having\nyour final observation.\nOK, so let's do the last one.\nHow about if your input image is\nnot super, super, super noisy,\nit's not almost clean, it's\nsomewhere in the middle?\nIs the task easy?\nIs the task of knowing\nwhere to go easy or hard?\nYep.\nHard?\nAnd same here?\nOK, so yeah, you're\ncompletely right.\nAnd to illustrate the\npoint that you're saying,\nwe are indeed in\nthis space at a point\nwhere we need to figure\nout about where to go.\nBut even thinking about it\nfrom an intuitive perspective,\nlet's assume that your target\ndistribution is composed\nof images of teddy bears.\nIf you're in the\nmiddle, then it means\nthat roughly what the body is\nlike, what the head is like,\nyou know a little bit\nwhere the arms like,\nbut there's a lot of things\nthat you need to figure out\nabout where to place.\nYou need to figure out\nwhat kind of texture\nyou want your teddy\nbear to develop.\nYou need to put the eyes.\nYou need to put a\nbunch of things.\nAnd these are all hard\ndecisions that you\nneed to take at time steps that\nare typically in the middle.\nAnd for that reason,\nt equal to 0.5\nis a hard, hard\ntask for the model.\nSo if you remember,\nwhat we saw was\nthat we were drawing our time\nstep when computing the loss\nfrom a uniform distribution.\nSo what that means is\nwe're asking our model\nto try to be good at predicting\nthe target as many times\nfor easy tasks as much\nas for hard tasks.\nAnd this is the reason why,\nin practice, people actually\ndo not sample the time step\nfrom a uniform distribution.\nThey actually sample from\nanother distribution,\nwhich we're going to see in\na second, that emphasizes\non middle steps more\nthan it emphasizes\non either the early or\nthe late, late steps.\nAnd the distribution that\npeople in general use\ntypically is called the\nlogit-normal distribution.\nSo the formula on the\nslide may look scary,\nbut it's actually quite simple.\nSo what we're saying is--\nso first of all, I'm going\nto define what logit means.\nSo the logit of a\nquantity-- so let's suppose\nthe logit of our time step t.\n--is defined as the log of\nt over 1 minus t as follows.\nAnd so t is between 0 and 1.\nSo if t is between 0\nand 1, then logit of t\nis anywhere between minus\ninfinity to plus infinity.\nAnd what we're saying\nis if we sample\nx from a normal distribution,\nwhich is between minus infinity\nto plus infinity, then if we\nexpress t as a function of x,\nwhich--\nI'm looking at the time,\nwe will probably not do.\nYou will have something like\nthis, which is just a sigmoid.\nAnd that quantity will\nhave a distribution\nthat will be really\ncentered in the middle.\nSo you may ask me, \"Well, why do\nyou not sample directly t from\na normal distribution?\"\nMaybe it's a question you ask.\nBut the reason why you don't do\nthat is the normal distribution\nis a distribution that\ncan take any values,\nand you only want\nvalues between 0 and 1.\nSo that mathematical trick\nis just a way for you\nto guarantee that\nin between 0 and 1\nbecause here the sigmoid\nis between 0 and 1.\nDoes that make sense?\nOK, great.\nI just want this formula\nor this distribution\nto not seem like it's\ncoming out of nowhere.\nSo the good thing\nwith this distribution\nis you can tweak the way\nthe distribution is shaped.\nSo you can play with the mean\nand the standard deviation,\nso you can shift it towards the\ntime steps that you care about.\nSo for instance, if\nyou in your use case\ncare about the later\nsteps, you can do that.\nAnd so that is the reason why\npeople use that distribution.\nBut I'm not done\nwith time steps.\nThere's another thing I\nwant to talk to you about.\nSo we're talking\nabout noise levels,\nbut what we actually\ncare about is how much\nnoise is perceived by yourself.\nSo if you take the same\nimage, one in low resolution\nand the other one\nin high resolution--\nand if you apply the same amount\nof noise, which, from the slide,\nI hope you can see, that the one\non the left, the low resolution\none, feels more noisy\nthan the one on the right.\nSo same image,\ndifferent resolution,\nbut same noise level.\nThe one on the left feels more\nnoisy than the one on the right.\nSo something tells\nyou that you also\nneed to take that into\naccount in some way.\nSo right now, we're not taking\nthat into account, but not\nfor long.\nSo you will see that\nin papers, there\nis this concept of\ntime step shifting\nas a function of resolution,\nwhere the idea is to rescale\nthe noise level in a way that\nreflects the perceived noise\nthat you see.\nAnd so I just want to pause\non this concept for a second.\nWhy would you perceive a\nlow-resolution image would\nbe more noisy than a\nhigh-resolution one\nfor the same noise level?\nWhy would you have to do that?\nOr why would you think that?\nWell, there is one\nthing with images,\nwhich is that they have a\nlot of spatial correlation.\nMeaning for a given\npixel, you have--\nyou are very likely to have\npixels around it that have\nthe same value or same color.\nAnd so remember that\nwhen you add your noise,\nyou're adding Gaussian\nnoise with mean 0.\nSo what that means is if you\nhave very few pixels, when\nyou're in low resolution,\nthen if the pixel that\nis responsible for,\nlet's say, the color\nthat characterizes how good\nyour image looks, let's\nsay, at a particular angle--\nif that one gets noised, then\nyou're losing that information.\nYou're not able\nto see it anymore.\nBut in the\nhigh-resolution case, you\nhave multiple pixels\nsurrounding that region.\nSo even if one gets\nnoise, the other one\ngets noise the other way because\nremember that the mean should\nbe equal to 0, the mean\nof the noise, added noise,\nshould be equal to\n0, you will still\nhave an average value that\nwill reflect the underlying\npixels much more compared\nto the low-resolution case.\nSo for that reason, I hope\nthe statement that I'm making,\nwhich is, for a\ngiven noise level,\nthings feel more noisy for\nlow-resolution images compared\nto high-resolution ones--\nI hope that one is intuitive.\nI'm going to pause for a second.\nDoes everyone agree\nwith my statement?\nYep?\nOK, so there is, again, a very\nscary formula on the slides.\nThe reason why there\nis just to show you\nhow people shift time\nsteps in practice.\nSo I would first want us to\nlook at the chart on the right.\nSo you see tn and tm.\nSo here, let's assume you have\ntwo images, one of resolution n\nand the other one of resolution\nm, where n is smaller than m.\nSo here for a\ngiven tn, you would\nwant to have a higher tm because\nfor a low-resolution image,\nfor a given noise level,\nyou would want that noise\nlevel to be higher for\nthe high-resolution image,\nfor the perceived\nnoise to be the same.\nSo that is what this\nformula is saying.\nBut I know it's not\nintuitive, so what we'll do\nis we'll take 10 minutes\nto try to understand\nwhat that is about.\nSo the formula on the\nslide is all about\nreflecting the change in\nuncertainty of pixel values\nthat are noised under\ndifferent resolutions.\nSo let's assume that\nwe have an image,\nso you can think of\nit as this, with--\nOK, I'm being quick.\nSo you have, let's say,\nheight and some width.\nAnd let's say that n--\nso let's say m is this one.\nAnd let's say you have a\nsmaller image with, let's say,\nh, little h, and little w,\nand n is equal to h times w.\nI'm just saying that n is\na lower resolution than m.\nThat's just what I want to say.\nSo here, what we\nwant to do is to try\nto quantify the\nuncertainty of what\nthe underlying pixel values\nare in the case where\nwe have noise for both cases.\nSo what I propose to do is to\njust assume that these images--\nlet's assume that they all\nhave a certain value as pixels.\nSo pixels have three channels.\nLet's assume here that\nwe have only one channel,\none value by component.\nSo here, let's assume that\neach of these is, let's say,\nequal to some value\nc that is constant.\nSo far so good?\nSo let's assume that\nfor a given let's\nsay index i that tells you about\nwhere you are in the image,\nand for a given noise level\nt, the value at that index\nis something that is\ngiven as a function of C,\nthe value of your pixel,\nand the amount of noise\nthat you're adding to it.\nSo here I just need to\nput the noise level.\nSo I told you in\nlecture one that people\nuse different conventions\nfor time steps.\nAnd it just happens\nthat the formula here\nand the paper here, they\nused the reverse convention\nwhen it comes to time steps.\nAnd in particular, they used\nt equals 0, means clean, and t\nequals 1, means noise,\nwhich is the opposite\nof what usually people do.\nBut in order for us to\nbe consistent and end up\nat the same formula,\nwe will just\nassume that is the convention\nthat we're going to use.\nSo here, what we're going\nto say is it's 1 minus tc\nplus t epsilon.\nDoes everyone agree with me?\nSo this is the value of the\nnoise pixel at the noise level\nSo here epsilon is drawn\nfrom a normal distribution.\nAnd so what can we\nsay about this one?\nSo we assume that this\nquantity is a constant,\nbut we don't what that quantity\nis when we look at an image.\nSo our goal here is to\nquantify the uncertainty\nif we were to estimate\nc, which is a constant.\nSo what I'm going to do\nis to try to quantify\nthe uncertainty of c.\nSo here, just because\nwe have n elements,\nso m here and n\nhere n elements, I'm\njust going to leverage\nthe fact that we\nhave this n elements to take the\naverage over all pixel values.\nSo I'm going to sum\nover, let's say,\ni my index, that's between\n1 and the number of pixels,\nof the zi(t).\nAnd I'm going to call\nthis zt bar for average.\nSo here, this thing is a\nconstant, so it doesn't move.\nAnd this thing just gets--\nso here, I'm going to write\nthis here plus the average.\nSo I'm going to put the t here.\nThe sum of y from--\nsorry, sorry.\nThe sum of I from 1 to n of\nthe epsilons, which are--\nas a function of i.\nBecause the noise here\nis different from one\npixel to another.\nSo here what I wrote is that\nthe average value of a pixel\nis 1 minus t times\nc plus t over n\nof the sum of the noise values.\nSo you're going to\nsee why I did that.\nSo here, I just want\nto remember our--\nto remind you of our objective.\nOur objective is to quantify\nthe uncertainty in estimating c.\nSo I want us to first\nsee that zt bar is\nequal to a constant plus a\nsum of independent Gaussian\nvariables.\nSo what you can see\nabout-- what you\ncan say about this quantity\nis that its mean is\n1 minus t times c.\nAnd its variance-- let's see.\nSo t over n is a constant.\nSo the variance of a constant\nis just the constant squared.\nAnd then the variance\nof each epsilon i is 1,\nand you're adding n of them.\nSo it's n times 1, which\nis t squared over n.\nOK, great.\nSo why am I doing all of this?\nI just want to remind all of us\nthat what we know-- what we want\nis to estimate the\nuncertainty of C.\nSo what is a good\nestimator for C?\nSo C-- here, we\nsee that zt bar is\nequal to minus C times C plus\nsomething where the mean is 0.\nSo a good estimate of C could be\n1 over 1 minus t times zt bar.\nAnd what we want to quantify is\nthe uncertainty in estimating c.\nSo what is the uncertainty\naround estimating c.\nSo this thing is a constant.\nSo the variance of\na constant is just--\nso sorry, the\nvariance of a factor\nin front of something else\nis the constant squared\ntimes the variance of this\none, which is t squared over n.\nSo what we're saying is\nthat the standard deviation\nof our estimate is equal to the\nsquare root of the variance,\nwhich is t over 1 minus t\ntimes 1 over square root of n.\nOK, so what does that mean?\nThat means that the\nuncertainty that we have around\ndetermining what the pixel\nvalue, underlying pixel value,\nis a function of 1 over the\nsquare root of the resolution.\nSo as we increase\nthe resolution n,\nthat uncertainty gets smaller.\nAnd so in order to get\nthat derivation, which\nI don't think I will do,\nit is just some math,\nyou would just equal\nthat uncertainty for n.\nSo it's t under\nsubscript n here.\nAnd you do the same for m.\nSo you get exactly-- so the\nnoise level at time step--\nfor resolution m\nwill be as follows.\nAnd the goal that we have\nis to determine the time\nstep for resolution m such that\nthe uncertainty of determining\nthe pixel value is the same.\nSo you just need to take\nthese two quantities\nand just say that\nthey need to be equal,\nand you find tm as\na function of tn.\nDoes that make sense?\nSo the low-level derivation\nis not that important.\nWhat is important\nis just the mindset,\nwhich is that here we want to\nshift the time step for higher\nresolution, such that\nwe match this perceived\nnoise that we have.\nAnd so hopefully, when you\ntake a look at that formula,\nyou're not thinking, \"OK,\nwhere does that come from?\"\nOK, cool.\nSo I think we're done\nwith the time steps.\nAny questions on this?\nYep.\nWhat is c again?\nYes.\nSo the question is,\nWhat is c again?\nSo this was actually\na toy example\nthat we had where\nwe said let's assume\nthat we have an image where all\nthe pixel values are constants,\nall equal to c.\nSo c is the value of the\npixel that is across all\nour image in this toy example.\nAnd the only problem with\nc-- we know it's constant,\nbut we don't what c is because\nwe have noised that image.\nAnd this whole derivation\nis about quantifying\nour uncertainty of what c is\nif we were to estimate it.\nAnd what we said was that we\ncould quantify the uncertainty\nthrough this standard deviation.\nAnd what we said was,\ndepending on the resolution\nat which you're operating, that\nuncertainty is higher or lower.\nAnd in particular,\nthat uncertainty\nis lower as the\nresolution gets higher.\nAnd this is all because you can\nactually perform your estimation\nby averaging across\nall pixel values, which\nare getting bigger and bigger\nwhen the resolution increases.\nDoes that make sense?\nOK, perfect.\nYeah, yep.\nSo the question is, we said that\nthe diffusion process is taking\nplace in the latent space, so m\nand n are in the latent space?\nYes.\nYep.\nOK, perfect.\nLet's move on.\nWe're done with the time steps.\nNow we're going to the\nnext training trick\nthat I wanted to\ntalk about, which\nis helping our model with\nlearning representations faster.\nAnd how do we want to do that?\nSo here, the whole idea is to\nleverage the representation\nthat some already pre-trained\nencoders have learned\nand incorporate that,\nand incentivize our model\nto match that representation.\nSo in other words, it's as if\nyou want to learn about a topic,\nand I come and get you\na book about that topic.\nSo you can learn\nfaster about the topic,\nso it's exactly\nthe same mindset.\nSo here, REPA is the\nname of the method.\nIt stands for\nRepresentation Alignment.\nAnd it consists of\ncoupling your loss\nwith a loss that reflects how\nsimilar the representations\nthat you're obtaining within\nyour diffusion transformer\nis with respect to what the\npre-trained encoder is giving\nyou.\nSo that's what REPA is about.\nSo let's go step by step.\nHere, we mentioned\nthe L loss for REPA,\nbut we have not seen\nwhat that loss is.\nSo we're going to see now.\nSo here what we're saying is\nin the diffusion transformer,\nyou have several layers.\nSo what you're saying is you're\ntaking the encoded output\nof a given layer.\nSo let's call that ht.\nAnd here n, I believe,\nrepresents the patch,\nlet's say, for a given patch n.\nAnd let's project\nthat on a space where\nwe can compare the equivalent\nclean patch representation\nfrom the pretrained encoder,\nand then have a similarity\noperation between the two.\nSo in other words, we will\nbe penalizing our model\nfor having a projection of the\nencoded output of a given patch.\nThat is, noise we will penalize\nour model from this being\ndissimilar from\nthe representation\ngiven by the pre-trained encoder\nof that same patch, but cleaned.\nSo why do we do that?\nSo as I mentioned,\nwe're giving a book\nto someone who's\nlearning about a topic\nso that they can learn faster.\nAnd that's exactly what happens.\nSo what we're seeing\nwith this strategy\nis that it speeds up training\nsignificantly, so here\non the order of 18 times.\nSo this graph\nrepresents some measure\nof how good your images are\nas a function of the training\niteration.\nAnd what the\nauthors did was just\ntry out a bunch of different--\nthey tried a bunch of things.\nSo they tried different models.\nThey tried different layers.\nThey tried-- so they did\na lot of ablation studies.\nOne of the things\nthat they saw was\nif you were to perform that loss\non the embedding from earlier\nlayers, then you actually\nget better results.\nAnd I just want to pause\non that statement for a bit\njust to understand\nwhy that is the case.\nSo our diffusion\ntransformer gets\nto compute a prediction\nof where it wants to go.\nAnd in that sense,\nthe later layers\nmay actually involve\nmore local details\nrather than a semantic\nrepresentation\nof where you want to go.\nAnd so here that\npre-trained encoders,\nsome of them, what\nthey're good at\nis representing things in a\nsemantically meaningful way.\nAnd so one can\nunderstand these facts\nby saying that, OK, we actually\nwant the representation\nfrom a layer that is supposed\nto output something that\nis semantically\nmeaningful to align\nwith a semantic or semantically\nmeaningful representation.\nI just wanted to vocalize\na possible interpretation.\nAnd then the last\nthing I will say\nis that an interesting thing\nis that the bigger your model,\nthe faster or the more benefits\nyou have from this method.\nCool.\nAnd the REPA was\npublished in 2024,\nbut it is a technique\nthat I have personally\nseen in a lot of new papers,\nso worth keeping in mind.\nAnd that is concluding the\nfirst preliminary parts.\nSo now we're going\nto first start\nthe first step of the lifecycle,\ntraining lifecycle, which\nis pre-training.\nAnd so as a reminder,\nin this first step,\nthe goal is to teach our model\nhow to generate just images.\nAnd so here there\nis a lot of work\nthat goes into\nwhat kind of images\nyou want your model\nto learn from.\nAnd so I just have\nthis one slide,\nwhich is coming from-- so\nit's an image from the Quinn\ntechnical report,\nwhich just tells you\nthat this is a very\ntime-consuming work\nthat's involves data pipeline\nwith a bunch of filtering,\ndifferent resolutions,\ncleaning, and so on.\nSo I just have one slide\nto illustrate this,\nbut it's a very\ntime consuming step.\nSo just know that this is an\nimportant part of the process.\nThere is a concept that I\nwant to talk to you about,\nwhich is called\ncurriculum learning, which\nis about teaching your model on\nthings in a progressive manner\non the scale of difficulty.\nSo in other words,\nhere, what we want\nis to teach first our model\non doing the easy things\nbefore doing the hard things.\nAnd this is a practice\nthat is typically something\nthat people do as this just\nhelps the model learn better.\nAnd so here, by \"easy\" I mean\nlow-resolution images that are\nof very easy aspect\nratio, so fixed square.\nYou can think of that.\nAnd then the input text\nis simple and short,\nso for instance, a teddy bear.\nAnd then the hard\npart is if you want\nto predict something that\nis of high resolution,\ndifferent aspect ratios.\nIt's not a square anymore.\nAnd then, your prompt can be\nmuch, much more complicated,\nsuch as the one on the slides.\nAnd now you may ask me, well,\nhow would you handle images\nof different resolutions?\nAnd so I want us to remember\nthat the default architectures\nthese days are DIT-based.\nAnd in DIT, what you do is you\ndivide your input into patches\nwhere each patch is\nequivalent to some embedding.\nAnd so what happens\nis for low resolution,\nyou will have a certain\nnumber of patches,\nsome number of tokens.\nAnd for high resolution, you\nwill just have more tokens.\nYes, exactly.\nSo yeah, that's exactly that.\nIt's as if it was large context.\nAnd if you remember\nthe length t will\nbe i, which is the\ndimension of an input.\nSo if it's a squared\nover p squared.\nSo that's the order of\nmagnitude to have in mind.\nI will go ahead and move on to\nthe second step of the training\nlifecycle, which is\nthe post training step.\nAnd so here what\nwe want to do is\nto teach our model on how\nto generate good images.\nNow you may tell me, \"Well,\nwhat does good mean?\"\nWell, you have, of\ncourse several angles,\nbut I'll talk about\ntwo main names\nthat you will see out there.\nThe first one is called\ncontinued training, CT,\nwhich is around teaching your\nmodel on a bunch of other things\nthat you may care about\nin your task of interest.\nSo I'll give you an example.\nSo let's suppose you have a\nmodel that has been pre-trained\non a bunch of nature\nimages, and cars, and so on,\nbut what you want to do\nis to have a model that\ngenerates images of teddy bear.\nWell, what you'll\ndo here is you will\nhave a dataset of\nwhat you care about,\nand here that is teddy bears.\nAnd you will just continue\nyour training on that data set.\nSo that part, you\ncan think of it\nas focusing on increasing\nyour knowledge.\nThen you have another category\nof post-training methods, which\nare called supervised\nfine-tuning.\nSame thing, but\nhere the mindset is\nto focus on the behavior\nof your model as opposed\nto increasing the knowledge.\nSo in that case, what that means\nis generating an image that\nis more aesthetically pleasing,\nthat has better lighting,\nor that just follows\nthe text better.\nSo these are the kinds of\ndimensions that you care about.\nAnd up until now,\nwe've only seen\nhow to teach our\nmodel on what to do,\nbut we have not taught our\nmodel on what not to do.\nAnd that is the objective of\nthe second category of methods,\nwhich is preference tuning\nmethods, where for a given\nprompt, you may have two images\nwhere one of those images\nis something that you want to\nhappen more than another one.\nSo here I will illustrate an\nexample of the left image, which\nis an image of a teddy\nbear reading, very high\nresolution, good lighting,\nand aesthetically pleasing,\nand the one on the right,\nwhich is not as aesthetically\npleasing.\nAnd what you want to do is\nto incentivize your model\nto generate an\nimage that is more\naligned with human preferences.\nSo here the thumbs\nup and thumbs down\nare typically either human\nratings or some measure\nthat you can obtain\nwith some model\nthat we will talk\nabout next lecture.\nBut you will need to have some\nmeasure of pairwise comparison\nor listwise comparison\nof different images.\nAnd in this case, the left image\nbeing better than the right one.\nSo how do you do that?\nSo before we move\nfurther, I just\nwant to say that the field\nis still a developing field,\nand that next to it, there's\nalso the text field, the LLM\nfield, that has been growing.\nAnd so one observation\nis that you\nwill find the same\nkinds of techniques\nthat are used in\nthe LLM space be\nadapted for the text-to-image\ngeneration space.\nAnd that is something\nthat I'm going to show you\nin the slides that will follow.\nSo the first method that\nis around tuning your model\nto incentivize generating\nimages that are more\naligned with human\npreferences is a method called\nreward feedback learning.\nSo I'll go step by step\ninto what that does.\nSo as I mentioned, what you\ndo is you take a prompt,\nand then you have a bunch of\nimages related to that prompt.\nAnd what you do is you try to\nget some sense of which one\nis better than the other.\nSo you can either\nget pairwise ratings\nor even list wise ratings.\nSo for instance, A is better\nthan B, than C, et cetera.\nAnd from there, the idea\nis to train a reward model\nthat takes in a\nprompt and an image,\nand that gets you a\nscore that tells you\nhow good that image was\nwith respect to the score,\nor how good that image was\nwith respect to the prompt.\nAnd so here we will not\ngo through the math.\nSo in case you're\ninterested, we actually\nhave a whole lecture on that\nin our sister class, CME 295.\nBut long story short is that you\ncan use a pairwise loss based\non formulation called the\nBradley-Terry formulation\nand train a model that\ndoes that for you.\nSo at the end of this step,\nyou get a reward model\nthat takes in a prompt,\nthat takes in an image,\nand that tells you how good\nthat image was to this prompt.\nSo what you care\nabout is to tune\nyour text-to-image\ngeneration model\nto produce images\nthat are higher\nrewards, because the reward\nmodel that you trained\nis something that hopefully\naligns with human preferences.\nSo if the reward model\nsays that one is good,\nthen hopefully, it's\nsomething that is aligned\nwith what the human would say.\nAnd what you want is to\ntrain your image generation\nmodel in order to produce\nimages that are higher rewards.\nSo there is some math involved,\nbut at a very high level,\nwhat we do is we take\nthe noisy latent,\nwe predict or generate an image\nfor which we have the reward.\nBut in this case, the good\nthing is that we have the model.\nWe have the reward model.\nIt is a reward model that\nwe have at our disposal.\nSo it is actually something\nthat is differentiable.\nAnd so here, you\ncan back propagate\nthe loss or the\nobjective that you have,\nwhich is to maximize those\nrewards back into your image\ngeneration model in order\nto incentivize that model\nto produce images that\nare higher rewards.\nSo that is reward\nfeedback learning.\nThe second method\nI will introduce\nis called Flow Group Reward\nPolicy Optimization a.k.a.\nFlow-GRPO.\nSo for those of you who\nare also in the LLM field,\nyou may have heard\nthe term GRPO a lot\nduring the past year or so.\nAnd so here, the\nidea is to leverage\nthat algorithm in the\ncase of image generation.\nSo in a very similar\nfashion, what you do is you\ntake a look at images that\nare generated by your image\ngeneration model, and in\nthis case, what you want\nis for a given prompt to have a\ndiverse set of generated images.\nSo it's going a little\nbit into the details,\nbut the authors are\nframing this via an SDE\nthat increases the diversity\nof images that are generated,\nso this is all so\nthat we can have,\nfor a given prompt,\na diverse set\nof images that are generated.\nAnd from there, compute\nrelative rewards,\nmeaning you pass\neach prompt along\nwith each image to some\nblack-box reward model,\nand it tells you whether or\nnot that is a good image.\nAnd what you do is you\ncompute a relative measure\nof how good that image was\nwith respect to the other image\nin your group.\nSo that's why this\nmethod is called\ngroup Reward Policy\nOptimization,\nis because you\nactually compute--\nso an advantage, that's\nthe technical term,\nwhich is the reward relative\nto the reward in your group.\nAnd then based on that,\nyou update the policy which\nis your image generation model.\nAnd so one thing\nthat I want to say,\nand it's true for all of\nthese reward-based approaches,\nis your reward is not\nnecessarily something that\nis fully aligned with\nwhat you care about.\nAnd so you can have a problem\nof reward hacking, where\nyour model is being\nupdated too much in a way\nto optimize the reward\nthat is not perfectly\naligned with what you want.\nAnd so in order to have a\nway to mitigate that issue,\nyou typically have an\nextra term in your loss.\nAnd so here in the slide\nit's kind of small,\nbut it's a KL divergence term\nbetween the policy that you're\ntraining on and the old policy.\nSo it's just a\nway for you to not\nhave iterations, updates that\nare too far from the old model.\nAnd the last one I will\nmention, and here I'm\nsorry for this big\nformulas, but I\ncouldn't find a good\nillustration for this one.\nSo this one is\ncalled Diffusion DPO.\nAnd Diffusion DPO is\nthe diffusion equivalent\nof DPO, which is a supervised\nmethod used in the LLM world\nto tune the weights\nof your model\nwith respect to\nhuman preferences.\nAnd here, what you need to take\naway from these three lines\nof equations is that you want\nto incentivize your model\nto predict cities associated\nwith \"winning\" images.\nYou want to\nincentivize your model,\ndoing a better job\nat predicting those,\nand you want to incentivize\nyour model to do a worse job\nat predicting velocities\nof the \"bad\" images.\nSo if you do that,\nyou're going to have\na higher chance of having the\nwinning images be generated\nand a lower chance of having\nyour model generate the worse\nimages from being generated.\nDoes this part make sense?\nSo we have these three\nlines of equations.\nYou can stare at\nit after the class.\nIt's something\nthat also tells you\nthat we want the model to be\nbetter at predicting velocities\nof winning images, and\nworse at predicting\nloss velocity of losing images.\nSo yeah, so this is what this\nloss is telling you to do.\nOK, great.\nSo there is one last\nthing I want to tell you.\nWe want to make\nour images better.\nAnd I want you to\ntell me, or I'm\nasking if you would know\nwhat kind of prompts\nwould lead to that kind of\nimage at this point in time,\nin the training, if\nyou were to guess.\nSo here on the left, you\nhave a beautiful image\nof a Teddy bear reading a book.\nSo the question here is what\nprompt do you want to put?\nAnyone wants to try?\nCan be creative.\nYou think it's a trick question.\nSo I'm going to just\nfor the sake of time,\ntell you what the prompt was.\nSo it's actually a\ntruncated prompt,\nand I'll just read\nthe first few words.\nSo \"A warm, intimate indoor\nreading scene featuring a plush\nteddy bear as a central\nobject, and it talks about how\nthe objects are, how\nthe lighting is.\"\nAnd it's actually maybe four\ntimes what is on the slide.\nSo the point here is that\nthese alignment methods\nallow us to have much\ngreater control on what we\nwant the output image to be.\nAnd there is,\ntherefore, a mismatch\nbetween what we teach\nthe model and what\nusers tell to the model.\nBecause let's be\nhonest, you and I,\nif we want to create an\nimage of a teddy bear,\nwe'll just say \"a teddy\nbear reading a book.\"\nBut we want something\nthat looks like this.\nSo there needs to be\nsomething in between that\nis able to prompt our\nmodel well in a way that\nwill generate beautiful images.\nAnd there is a method called\nprompts enhancement, which\nwill take a given user\ninput and transform it\ninto a very elegant,\nlong, detailed prompt that\nwould be similar to\nthe kinds of prompts\nthat the model has\nbeen trained on.\nAnd so this is all for us to\nhave a beautiful image based\non a prompt that is in\ndistribution, if you want,\nand that is leveraging the\ncapabilities of the model.\nSo I just want to\ntake a pause here.\nSo I know I'm doing a lot\nof metaphors comparisons,\nbut let's try to recap all\nthe steps we've been through\nby taking the following analogy.\nSo let's assume that our\nimage generation model is us,\nis similar to us actually\nlearning how to cook.\nSo pre-training is about\nlearning how to generate images.\nSo here just learn about the\ndifferent kinds of foods.\nPost-training is about learning\nhow to generate \"good\" images.\nSo here, what does good mean?\nSo these are examples\nthat we give you,\nso supervised fine tuning\nand continued training.\nContinued training\nis new knowledge.\nSo here, it's as if I was\nreading about recipes.\nSo I read about recipes\nof how to make good food.\nAnd then supervised fine-tuning\nis about the aesthetics,\nit's about the prompts,\nthe instruction following.\nAnd so here, I'm just making\nsure that the food looks great.\nThe delivery is good.\nAnd then you have the\npreference tuning stage\nwhere you want to make sure\nto do more of the things\nthat you may like\nrather than not.\nAnd in this food\nanalogy case, you\nhave an inspector, food\ninspector that comes,\nand you cook several\ntimes the same dish.\nAnd inspector just\ntastes how good\neach of the dishes\nthat you prepared\nwas and it just tells\nyou which one was better.\nAnd you update your way\nof cooking based on that.\nAnd this prompt enhancement\nthing is the same as you being\nin a restaurant and a customer\nwalking in and telling you,\n\"I want meat.\"\nBut for you, you just know\nmedium-rare kind of meat\nwith a pinch of salt and so on.\nSo you will have a waiter\nbetween the customer\nand yourself that will\nrephrase the customer's request\nin a way that aligns with\nwhat you have learned.\nAnd this is exactly what\nprompts enhancement is.\nI hope this made sense.\nAnd with that, let's go to the\nthird stage of the training\nlifecycle, which is tuning.\nSo as I mentioned, tuning is\nabout personalizing your model\nfor a special use case\nthat you care about.\nAnd so here, the method that\nI want to talk to you about\nis a method that you may\nhave seen on the internet\nbecause a lot of people\nhave been using it.\nIt's called DreamBooth.\nAnd the idea is that you\nhave something of interest,\nlet's say a specific\nteddy bear, that you\nwant to have in the\nimages that you generate.\nYou don't want any teddy bear.\nYou want that\nspecific teddy bear.\nSo what you want is to\npersonalize your model\nto generate images of that\nvery specific teddy bear.\nSo here's what you would do.\nWhat you would do\nis taking your model\nand then having a few images\nof that very specific teddy\nbear that you have, take\nimages of that teddy bear\nwith different poses,\nand train your model\nto generate that teddy bear\nbased on a prompt that relies\non a rare token, that is here\nbracket V. That will teach\nyour model to associate\nthat specific person/object\nreference with that token.\nSo you do that.\nSo let's say you do that.\nDo you see an example or\nsomething that can go wrong.\nIf you train your model to\ngenerate these images based\non that prompt?\nOK, let's assume\nyou just do that.\nYep.\nSo the answer is it's\nnot diverse enough.\nSo I think you're very,\nvery-- you're touching exactly\nthe problem that we have at\nhand, which is that you will\nspecialize your model\ntoo much into generating\nthat and actually forgetting\nthe kinds of concepts,\nthe kinds of images it was\nable to produce before.\nAnd so for that reason,\nso it's a great answer\nfor that reason, what you\nwant is to also make sure\nthat your model does not lose\nthe ability that it had before.\nAnd so that's why what you\nwould want to do is to have some\nreference of text-to-image pairs\nthat it was able to generate\nsuccessfully, that you would\nalso tell it to generate\nsuccessfully and combine the\ntwo into a loss that tells you,\n\"I want to generate images\nwith that specific teddy bear,\nbut also preserving the\nperformance that I had\nin the past.\"\nAnd this is called the\nprior preservation loss.\nThat's second term.\nSo when you do that training--\nand so yeah.\nSo you prevent overfitting.\nSo when you do that training,\nwhat you're able to do\nis to use that rare special\ntoken that you have trained\nyour model on and then generate\nnew images in specific settings.\nSo here the special token\nteddy bear attending CME 296,\nso this is how teddy\nbear would look like.\nSo that method is great,\nand what we're doing\nis updating our model and\nin particular the model\nweights in order to reflect\nwhat we want to generate.\nWell, the problem is your\nmodel can be quite big.\nIt can be as big as\nbillions of parameters.\nI believe the biggest\ntext-to-image models\nthat are out there are in the\norder of tens of billions,\nthe open-source ones.\nAnd so you would not want to\nupdate all the weights, which\nis the reason why\nthere is a method that\nis very commonly used in the LLM\nworld, which is also something\nthat people use in this\ninstance, which is called LoRA,\nand stands for\nLow-Rank Adaptation.\nAnd what this method\ndoes is instead\nof training all the\nweights of your model, what\nit does is it only trains\na fraction by considering\nthat the weights of your model\nare the weights of the base\nmodel, plus two\nlow-rank matrices.\nAnd the reason why it's\ncalled low-rank adaptation\nis because it leads to A\ntimes B, that is low rank.\nAnd so when you do\nthat, it turns out\nthat you can preserve\nmost of the performance\nbut train that with a\nfraction of the cost.\nSo you will see methods that\nare called \"DreamBooth + LoRA.\"\nAnd that is what it is about.\nAnd I want to talk\nabout the pros\nand the cons of this approach.\nSo the pro is--\nthe good thing is if\nyou want to generate\nthousands and thousands of\nimages of your teddy bear, well,\nyou can do that.\nAnd the results are\npretty high fidelity.\nThey match pretty\nwell the details\nthat are in the input images.\nBut the con here\nis if you need--\nor if you need to do that\nfor a lot of special cases,\nwell, you need to absorb the\ntraining costs, which is pretty\ntime consuming and costly.\nAnd also, it's something\nthat you cannot really reuse\nif, for instance, you want\nsomething else in your images.\nAnd I would just conclude by\nsaying that this approach is\ngreat if you're in\na use case where\nyou need to generate many,\nmany, many, many images of one\nspecific subject, or\nperson, or object.\nAnd with that, I'll\ngive it to Shervin.\nThank you, Afshin.\nSo we're going to\ncontinue together\non that note of\nefficiency and looking\nat distillation\ntechniques which aim\nat preserving some\nof the high quality\nthat we were able to\ndevelop with these models,\nbut at a lower cost.\nSo all of these methods produce\nstate-of-the-art images,\nbut in real life, you might be a\nuser that uses a service that is\nhigh volume.\nSo the provider doesn't\nhave an incentive\nto spend a lot of\nmoney on each query.\nSo you don't want typically to\nhave 1,000 steps to generate\na single image.\nSimilarly, if you're\nin a business setting,\nyou want to achieve\na given goal,\nand your goal is not\nnecessarily to be\nthe best, but just good enough.\nAnd then that\ntrade-off between good\nin terms of quality\nand cost is something\nthat you're going\nto be interested in.\nAnd then you can cite\nother applications\nwhere real-time\nproperties are important.\nSo this is why it's\nworth investigating\ntechniques that are fast.\nAnd then all of these are, of\ncourse, linked to properties\nthat we care about\nas everyday users.\nSo we don't want to\nspend a lot, and we\ndon't want to spend\nresources inefficiently.\nAnd if I was to tell\nyou about distillation\nin the traditional world--\nso you would typically see\nsomething that looks like this.\nYou have a teacher\nmodel that is big\nand a student model that is\ntypically of a smaller size.\nAnd you both want to\npredict the same outputs.\nAnd here, for example, so\nI'm borrowing these slides\nfrom CME 295, where\nwe wanted to distill\nsome of the knowledge on\nnext token prediction.\nSo what is important in\nthis distillation technique\nis truly the shape of the\ndistribution that is learned.\nAnd you can see that you can\nget away with smaller models,\ndirectly anchoring\non it and then\nproducing a level of quality\nthat is almost just as high.\nSo just to give a\nquantitative example,\nyou may think of a\nBERT and DistilBERT,\nwhere you save\nquite a bit, I think\n60%, half of the\nparameters, roughly,\nand you retain 97%\nof the performance.\nSo this is something that\nwe are interested in doing\nas well here.\nSo in the LLM\nworld, for example,\nyou would do so with the KL\ndivergence between the two.\nSo here, the loss\nsays if we assume\nthat the teacher\ndistribution is a true one,\nhow bad is it to approximate\nit with a student one?\nAnd this is how you perform\nyour loss optimization process\nwith that kind of mindset.\nBut here in the image\nworld, well, you\ncan try to reduce the\nsize of the student model.\nAnd it typically leads\nto much worse quality.\nAnd then you have\nanother knob that you\nhave as a low-hanging fruit\nthat people typically tune,\nwhich is not the model size\nbut more the number of steps.\nSo you might remember from the\nfirst lecture that, for example,\nin diffusion you have,\nlet's say 1,000 steps.\nSimilarly, in the flow matching\nsetting that afshin mentioned,\nwe were considering\nhere, you typically\nhave more than one step.\nAnd you would want\nto make it one,\nso that just a single pass\ngives you what you want.\nSo here, we were not going\nto be doing typically\nKL divergence between\ndistribution over tokens,\nbut these kind of\nloss that regresses\nthe output with respect\nto the teacher output\nis something that\nyou are going to see.\nSo one way of doing it is\nwith the mean squared error.\nWe're going to see other\ntechniques as well.\nAnd I just want us\nto do this thought\nexercise of approximating in\none step directly the teacher\noutput.\nSo the issue is that it's\ntoo hard because you can--\nso just to take the analogy\nthat Afshin was taking\nlast week regarding\nthe painter, it's\nas if you ask a painter to\npaint a beautiful piece of art\nand then ask the\nstudents to do exactly\nthe same with a single stroke.\nSo it's way too much information\npacked for a single forward step\nto capture all at once.\nSo you need a more granular\nsubsequence of steps\nintuitively.\nAnd this is what the spirit\nof progressive distillation\nis, where we take steps and ask\nthe students to work on problems\nthat are of approximate\nconstant difficulty,\nand we iterate until we have a\nmodel that does what we want.\nSo in other words,\nthe formulation\nhere is that we want the number\nof total steps to go from big T\nto 1.\nSo here the method\nis as follows,\nevery time you try to\ndo what you were doing\nin half the number of steps.\nSo I want you to make\na thought experiment\nfor a second\nbetween Afshin and I\nand not suppose\nthat we are twins,\nbut instead, we\nare a tuple of size\nn of identical brothers, more\nprecisely of size log2 of number\nof steps.\nAnd here progressive\ndistillation\nwould be Afshin, for\nexample, being the master\npainter for the first step.\nAnd every two strokes I would\npaint one stroke, and so on.\nAnd then once the\nprocess finishes,\nI would be the master\npainter, and then\nthe next identical brother\nwould be the student.\nSo every two strokes\nthat I paint,\nhe would paint one stroke,\nso that at the end,\nyou reach what you\nwant in a single step.\nSo just to give a visual\nrepresentation of what\nwe have learned here--\nso you can see this\nas secant lines\nthat you draw in the\nspace at every halving\nof the number of steps,\nwhich is a simple problem\nto take in isolation.\nAnd then when you\ndo that iteratively,\nyou reach the end goal.\nSo looking at the results\nhere, the good thing\nabout this technique\nis that you can select\nthe number of\nfunction evaluations\nthat you're ready\nto spend, and you\nhave an association\nwith the end result.\nSo of course, if you\nspend more steps,\nyou're going to\nhave better quality,\nbut you have this\nlevel of granularity.\nAnd you see that you typically\nhave better performance\nif you were to compare\nan equal number of steps,\nfor example, in a deterministic\ntechnique like DDIM,\nlike we had seen in the\nfirst lecture, which is nice.\nBut here, one thing\nthat we're doing\nis that no matter\nhow hard the path\nto getting to the\nclean image is,\nwe're just taking it as a given.\nWe're not saying, OK, let's\nto make the problem simpler.\nWe're just taking the\nproblem as hard as it is\nand we're trying\nto work around it.\nAnd if you recall the third\nlecture on flow matching,\nthere is something that\nwe wish for that we\nmight be able to\nrealize, which is\nthe reflow technique that\nhelps in straightening paths\nin the space.\nSo maybe we could\nmake use of it.\nAnd this is what the paper\ncalled \"InstaFlow\" does.\nSo it follows up on this\nidea of rectified flow\nthat we had seen at\nthe third lecture.\nSo it does apply this method.\nAnd then on top of it, it\nadds a layer of distillation\nto further solidify\nthe fact that we\ncan get to the results\nin a single step.\nSo just to give you a recap on\nwhat reflow was, so you had--\nso let's say you sample\nfrom the easy distribution\nand then you integrate your\nODE to get to the sample.\nThen you take these\npairs of input-outputs\nand then you fit a new model,\nlike a new model in it.\nAnd what you get is\nstraighter path, typically,\nwhich allows you\nto take less Euler\nsteps to get to the answer.\nBut I have a question for you.\nLet's say the problem\nis not totally straight,\nwould you be inclined\nto do more reflow steps?\nSo it's a trick question.\nSo the answer is if you\ndo more reflow steps,\nthen you introduce\ndiscretization errors\nin your pairs.\nSo the answer is typically no.\nAnd this is why what is\npretty convenient to do\nis to give the task\nof still integrating\nthat ODE to some teacher model\nand then have a student fit\ndirectly on that output.\nSo this is what the\ndistillation step does.\nAnd then one interesting\nfact is that we use--\nso this concept of\ndistance between what\nthe teacher predicts and\nwhat the student gets to.\nSo you have this\nconcept of warm-up,\nof using a simple\ndistance metric like MSE.\nBut we have seen in\nthe previous lecture\nthat MSE is not great to give\na meaningful interpretation\ninto whether the quality\nof the image is good,\nbecause it focuses on the\nspecific value of each pixel\ninstead of the meaning\nof the feature,\nwhich is why this method\nuses the second loss\nformulation called LPIPS,\nLearned Perceptual Image Patch\nSimilarity.\nAnd here, you make the image\npass through a pre-trained model\nwith frozen weights,\nand then you\ncompare the L2 distance\nbetween the feature\nmaps instead over L layers.\nAnd this is what we just said.\nAnd then you see in practice,\nthat the first reflow step gives\nyou most of the\nstraightening behavior,\nso you meaningfully-- you\ndo not have an incentive\nto do more of them.\nAnd in terms of results,\nyou see that you exceed\nthe performance of whether--\nof the fact that you add this\nadditional distillation step\nis better than just doing a\nreflow and having a single step.\nSo it's the InstaFlow 0.9B\nversus the line just above that\nshows that.\nAnd yeah.\nSo one thing that is\ntough with InstaFlow\nis that every time\nyou do a reflow,\nit's an expensive process.\nSo you need to do some\npre work, which is--\nlike the cost you\nhave to pay here.\nAnd we're wondering\nif there is something\nwe could do better when it comes\nto the path that are drawn.\nIs there some information that\nwe could give to the student\ninstead of making the problem\nsimpler from the first place?\nBut before I move on\nto the next mindset\nthat I wanted to mention, I just\nwanted to pause for a second\nand see if there\nis any questions.\nYep.\nThe question is, Why wouldn't\nyou force straight path\nin the pre-training?\nYou already do that, because you\nselect a random noise at random\nand then a target point, and\nthen you draw a straight line.\nBut the thing is, these\npairings, they're not optimal.\nSo when you sample randomly--\nand then the fact that you\ndon't have these straight lines\nis not an intended\ndesign, but it's\na consequence of this MSE loss.\nSo the reflow procedure\nis our way to remedy that,\nand there is no way to do that\nas early as the first train.\nOK, awesome.\nSo I'm slightly late--\nso I'm going to go through\nthis next idea of leveraging\nlocal properties\nto train a better\nstudent with this notion of\nconsistency models, which\nhas an interesting property\nof looking at paths that\nare deterministic with\na mapping that maps\nevery point of that path\nto the end goal, such that\nno matter where you\nare on that path,\nif you train your model\nto predict the end image,\nthen you can make\nthe jump as early\nas when you are in the noise\nin the noise distribution.\nSo just putting a picture\nhere with our teddy bears\nand the flow matching case,\nif you have such a property,\nthen every point on a given\ngreen line would map to x1.\nAnd the way to do so is twofold.\nSo you can either do it with\nso-called consistency training,\nwhere you sample a\nclean image and then you\nnoise it at some level\nt, and you noise it\nat level t plus delta t.\nAnd what you do is that you\npass it through your model\nand try to make them\nmatch to the same value.\nSo this is one way of doing so.\nThere is a second\nway that leverages\nthis teacher-student\nrelationship, where denoising\nis not something that you\nwould artificially do,\nbut you would ask\na teacher model\nto do denoising, which\nreflects properties\nthat it has learned\nin the feature space,\nand then you ask a student\nmodel to make predictions that\nare consistent to each other.\nSo here, you might say,\n\"OK, very well, Sherwin.\nBut if you only force these\nrepresentations to be consistent\nwith each other, you could\nwell have a student that says,\nOK, don't worry, I\nwill always predict 0.\nThat way, they're\nalways consistent,\nand maybe my loss will\nnot be looking very pretty\nat the boundaries,\nbut it's fine.\"\nWell, you have a way to prevent\nthat collapse with two tools.\nSo one is this prediction\nthat you get at every step,\nis a parameterized function of\nweights that we put as design.\nSo we have it enforced.\nAnd then the second\ningredient in this recipe\nis to not backpropagate through\nboth students, where doing so\ncould lead to\nsymmetrical weights\nupdates that might\nnot be those that\nactually match a fixed target.\nSo we do that by keeping\none of the students\na slow-moving average and\nthe other one actually doing\nthe consistency prediction task.\nAnd when you look at\nwhat results it gets,\nit's quite competitive.\nAnd you can do so\nin the latent space.\nIt's called LCM.\nYou might see in the literature.\nBut all of these\nmethods, what they did\nis that they focused on\nmatching a given target.\nAnd one thing that you see\nwhen you have this L2-style\nregression loss is that you\nhave a regression to the mean,\nwhere images don't look as\ncrisp as you would like.\nAnd GAN solves this.\nSo let's see if there is\nsome adversarial objective\nthat we can introduce\nhere to make it better.\nSo before we even do that--\nso we were looking\nat the sample level,\nmaybe if we look at things from\na distribution perspective,\nwe could look at where we could\ngo in the sample space that\nlooks where we want to go rather\nthan a straight single point.\nAnd so the mindset here is\nto give a piece of noise\nto both the teacher\nand student model,\nand then based on\nthe student output,\nnoise it again and ask the\nteacher model, and then a model\nthat looks like the student\nto try to denoise it.\nAnd then use their results to\ninfer what pieces of advice\nthe teacher and student models\nwould give, respectively,\nto give the clean image,\nand use that signal as a way\nto inform what the student\nprediction should be.\nSo we're going to look at this\nloss in details in a second.\nAnd you complement\nthat by ensuring\nthat the student's\npredictions match roughly what\nthe teacher predictions do.\nAnd we see empirically that this\nhelps stabilize the training.\nSo looking at this\ndistribution loss--\nso what you're doing in\npractice is the KL divergence\nbetween the distribution of\nthe fake image with respect\nto the real image\nbased on a fake input.\nAnd when you take the\ngradient of it with respect\nto the parameters of\nthe student model,\nyou get this nice interpretation\nof a difference of scores\nthat you could see as a\ndifference of velocities\nin the field of flow matching.\nAnd these respectively\nmeans that we\nwant to do more of\nwhat the teacher says\nwe should do and less of what\nthe student says we should do.\nAnd we multiply-- we do a dot\nproduct such that the parameter\nupdates reflects that goal.\nOK, great.\nYeah, I want to\npause for one second\njust to check if\nthat makes sense.\nYeah, so here-- so the question\nis, What's real and fake?\nSo here the paper uses\nstandard denomination\nlike used in GAN to\ndenote respectively\nteacher and student.\nSo \"real\" would be\nyour true image,\nlike what generates the true\ndistribution that you want\nto reach.\nAnd then \"fake\" is corresponding\nto the distribution\nof the student that we want to\nmake it as close to the real\nones.\nSo respectively,\nteacher and student.\nYeah, great point.\nSo the question, Is there\na collapse here happening?\nSo it might.\nSo if you were not doing that\ncomparison between teacher\nand student advices, you\nwould collapse to the mode\nof the teacher advice.\nAnd then the paper does\nsome ablation study on it.\nAnd then the second piece\nthat I mentioned earlier on,\nif you do not regress\nwith the teacher's output,\nyou might see another--\nnot really collapse, but you\nwould not reach the desired\nteacher distribution.\nSo yeah, the answer\nis the collapse\nis bad if you were not\nconsidering this setup.\nBut based on this\nsetup, I think there\nis some hyperparameter tuning\non how to balance the regression\nand distribution loss.\nYep.\nAwesome.\nSo moving on-- so I'm going\nto make a series of complaints\nthat are very targeted.\nSo you're going to\nsee where I'm going.\nSo here we're comparing\nthings with respect\nto the teacher output, which\nis not the ground truth.\nSo what I've mentioned here.\nSo I've hovered over it.\nBut the teacher--\nthe student advice\nis actually a diffusion\nloop that you're running,\nwhich is quite expensive.\nAnd it's a bit of a duplicate\nconcept with respect\nto the student model that you're\ntraining in the first place.\nAnd this idea of providing\nsignal with respect\nto teacher minus student advice\nmight seem as a soft one.\nIs there a way to\nreframe it better?\nAnd yes, with GAN-like loss.\nSo this is what ADD does.\nAnd to be mindful\nof your time, I just\nwant to say the high-level\nis that it reframes\nas a classification\nproblem that makes\nthe problem harder in the sense\nthat it will lead the student\nmodel to make\npredictions crisper.\nBut the issue with\nall of this is\nthat you have a lot of\nback-and-forth going\nfrom the pixel to\nthe latent space\nthat later techniques, such\nas LADD, tries to mitigate.\nAnd this is what you're\ngoing to be used quite a bit\ntoday, so you can reformulate\nthat only in latent space.\nAnd just to give some\nfinal words here--\nso I want to say that\nall of these distillation\ntechniques-- they offer\nsome kind of trade-off.\nFor example,\nconsistency models--\nthey might be very\neasily tunable\nwith sets of LoRA weights,\nas Afshin mentioned,\nwhereas, for example if\nyou go into GAN territory,\nyou have some dynamics\nin the training process\nthat are hard to manage.\nAnd yet this duality between MSE\nand LPIPS loss for regression\nhappens quite a bit, and\nswitching the mindset\nto a distribution and\nGAN-based is great for quality.\nAnd yeah.\nAnd then trends are\nthese days to do\nall of this in latent space.\nAnd that's all I had for you.\nThanks, and have\na great weekend.",
+  "segments": [
+    {
+      "text": "Hello, everyone, and welcome to Lecture 6 of CME 296. So today is a very exciting day because we'll be talking about how to train a model in practice, a text-to-image generation model. And as you know, the first half of this class was all about preparing the",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "foundational theoretical foundations for us to be able to do that. And in this second part, we'll be really talking about more the practical aspects, and today will be no exception. So as usual, before we start, we're going to just recap what we saw last time.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So if you remember last lecture, we saw the main image generation architectures. And we started with the big one, the UNet, which was trendy up until 2022. And we saw that among the things we wanted to see in an image generation model, we wanted the model that",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "was able to understand the global structure of an image, also capture the local details, able to receive external signals, for instance, a condition, and be computationally tractable. And we saw that the UNet was relying on an inductive bias.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Which was something that was reflected by the convolution operation, which is mimicking how humans look at pictures. And we saw that the unit was composed of two main phases. The first one is the downsampling phases, where we put an input, a",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "noisy latent, that we then perform convolution operations and downsampling operations so that we can get a bigger receptive field that would enable us to have a global understanding of the input in the bottleneck. So that was the first phase.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "And then the second phase with the upsampling phase, which was composed of upsampling operations, for instance, the transpose convolution, where we were able to get back to the dimension of interest, which is the same dimension as the input.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "And we saw that there are these copy-and-crop connections that were allowing us to transport the local details that we were able to compute in the downsampling phase and couple that with the global understanding that we had, the global structure",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "understanding that we had from the bottleneck. So that was the UNet. We saw that the UNet was great, but the UNet had a failure case, which was that there was no direct connection between different local parts of the image. And for an example, such as",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "someone looking at oneself in the mirror. You need to be aware of the local details from two different parts of the image. So this was motivating us to look at another architecture, which is the diffusion transformer, which was published",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "in 2022, late 2022, which relies on the concept of self-attention, where each patch of the input latents attends to one another, allowing these direct connections to form. And as a result, we were able to have this concern mitigated. And we also saw a way",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "to inject conditions into the architecture. So we spend some time on the adaptive layer normalization, which was taking the condition and the time step as inputs that was modulating the token embeddings via this gates, shift, and scale factors.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And we also saw that there were very many variants, actually. It was not just the diffusion transformer, there were many variants of the diffusion transformer, such as the multi-modal diffusion transformer, which is now more trendy, which was",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "looking at making the input text as a standalone modality that was being injected as input as opposed to an afterthought via the modulation, mainly because the adaptive layer norm was injecting the condition across all patch embeddings in a uniform way.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "And we didn't want to have that, so we also saw the MMD. And of course, these architectures are not the only ones that are out there. There are many variations. So hopefully, that lecture was a lecture that gave you the intuitive",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "tools to at least understand why certain components are used. All good on this? So this was last lecture. We also saw the timeline, which I briefly mentioned here. So UNet largely dominated the early 2020s, if I can say it like this.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And then the DIT-based models are dominating the architectures that are coming out nowadays, from end of 2022 onwards. And what are we going to do today? Today, we're going to focus on practical applications, on how we can actually train a",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "text to image generation model. And I know so far we have seen different components of that overall system. We've seen the actual backbone that is allowing us to denoise the noise latents, which is for instance here a DIT-based model. We've seen that there is",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "also another model involved, the VAE, which is allowing us to have a latent space in which we can operate, which lowers the computational burden of our training process and generation process. And we've also seen that there are multiple models we could",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "use that could embed conditions that we would then have as input. So to be clear, today we're going to focus on how to train the image generation model itself, and we're not going to focus on the VAE and the embedding models. So just for reference,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "we will actually dig into embedding models next week with the multi-modal LLMs. But I'm going to just push it for next week. More on that soon. Cool. So let's start. And I just first want us to look at this whole problem at a very high level.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And in particular, look at the overall process that allows us to go from an initialized model to a model that is able to work in production. So the first step, we have our image generation model. We first teach it how to generate images, any images.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "This phase is typically called the pre-training phase. And it's quite compute intensive. It involves a lot of data and a lot of work on the data side. So that's number one, and it's a phase that all models go through. Then we have a second stage",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that is called the post-training stage, where we take that pre-trained model that already knows how to generate images, and we teach it how to generate \"good\" images. And we will see what good means. We could also optionally also personalize",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "our model to generate specific kinds of images. And we will see this optional third step, which is here called tuning. And then at the end of this lecture, we'll also look at how we can actually make our model be able to work in production in an efficient way.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "And here we will look at distillation models or distillation methods, I should say, that allow our model to generate samples in fewer steps, because we've seen that usually these image generation models, they're working in an iterative fashion.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So you always have to have one the initial noise as input to get the let's say vector field, and then iterate on that many times potentially. And here we want to shorten the amount of times we need to do that so that we can make this process just less",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "costly and reduce the latency, which is typically what we care about for production use cases. Everyone good with the big, big steps? So we'll start with the first. Even before starting, actually, we'll be talking about the loss that we will use for",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "our training process. And I think you already what the loss is because we've spent the first three lectures talking about three different perspectives on getting to that stage. So here, this part is mainly around just all agreeing on what",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "those losses are and see what are the changes that happen in practice to these losses to make the training process more optimized. And you will see what I mean. So first, I'm going to recap what we saw during the three first lectures. So the first one, if you",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "recall, was diffusion with DDPM where our thought process was we take clean images that we corrupt step by step, so you have this xt that is a function of the clean image and the noise that you add. And we saw that we could derive a tractable loss,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "and you end up with a formula that is allowing you to denoise the noise with the formula on the slides by parameterizing a model that is geared towards predicting the noise to remove epsilon theta. And here, the loss is as follows. So it's the expectation",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "of just the L2 distance between your predicted noise to remove and the actual noise that was added, and it's an expectation over the time steps, the clean images that are part of your training sets, and then the noise that is typically sampled",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "from a Gaussian distribution. Then in Lecture 2, we had this second perspective of looking at the same problem, which was, OK, in order to recover clean images, let's actually look at where the clean images are by estimating the score, which",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "is acting like a compass. And here we saw that there was a stochastic differential equation, way of putting this, which was given by dx is equal to some drift term and some diffusion term, along with the continuous noise, which was the Wiener process.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "So this was the forward process. And then, the reverse process was something that was popping up the score. And this just highlighted the fact that we needed to estimate the score in order to denoise into clean images. And here, the last was an",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "expectation over the score that you wanted to estimate minus the actual score of the noise distribution. So that's the second loss that we saw. And then the third perspective, which was lecture 3, was the flow perspective, where we said that in order to go",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "from noise to our target distribution, we're going to interpret that problem as a transport problem. And here, we focused on the velocity or also known as the vector field, that could be used using an ODE solver like the Euler method.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "And we had a loss that was regressing the vector field by just taking two points. So one from the target distribution, x1, and then x0 from the noisy distribution, typically a Gaussian distribution. And we ended up with this last function.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "Now, one thing I want to say, and maybe I've said it some time in the past, nowadays, people mainly focus on the flow-matching perspective. So I just want us to all be aligned that moving forward, by default, we'll be using the flow matching",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "loss as the default loss. Does that sound good? So let's look at this loss. So here what we're doing is we're optimizing on the parameter theta such that we minimize the loss on the slides in particular by taking the expectation over time",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "steps over data points in the training data, so pdata, and over noisy observations that are part of a Gaussian distribution. And in particular, we are taking-- so we were saying we were taking t drawn from a uniform distribution. And I just want us to",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "pause on this statement and see if this actually makes sense. But first, just as a reminder, here by t we level where t equals 0 corresponds to a lot of noise, t equal to 1 means no noise at all, and t is somewhere in between means a little bit noisy.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to ask you some questions. So let's suppose we want to figure out from an input that is extremely noisy, think of it as x0, whether making a prediction on where to go from x0 is an easy or a hard task. And so I'm just going",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "to make our life easier. So if you remember the illustration we had-- so we have the noisy distribution that is the one on the left and then the target distribution on the right. So what we're saying is if we sample a noisy latent that is very noisy, is the",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "task of predicting where to go an easy task or a hard task? Yeah, easy. Do you want to say easy? Yes, so it's indeed easy. Now, why is it easy? So at the very beginning, the input that you have is actually void of all information. You don't anything about",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "where you're going. So what your model will be incentivized to do will be to just try to predict if you want the average direction, where you need to go. So regardless of how much time you spend learning that, it will just learn roughly where to go,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "which will be if you want the mean of where all the observations in your target data distribution are. So no matter how much time you spend in that region of noise, you will be incentivized to predict the mean of where all the observations are.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "So that's why I say it's an easy task. So now, how about if t is close to 1, meaning that we're already very, very advanced in the denoising process and there is almost no noise left? Is it an easy task or a hard task to where to go from there? Hard?",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, OK, so we have one heart. Yep. Easy again. OK, so let's see. So let's try to think. So when t is close to 1, what that means is that the input xt is already almost clean. So we're almost there. So what that means is you only need to make a few tweaks",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "to little details to have a fully denoised image. And in that sense, it is actually an easy task because you already have an image that is almost clean and so on. The illustration, it corresponds to if your observation is already part of the",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "target data distribution, and you just need to do a small step towards having your final observation. OK, so let's do the last one. How about if your input image is not super, super, super noisy, it's not almost clean, it's somewhere in the middle?",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "Is the task easy? Is the task of knowing where to go easy or hard? Yep. Hard? And same here? OK, so yeah, you're completely right. And to illustrate the point that you're saying, we are indeed in this space at a point where we need to figure",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "out about where to go. But even thinking about it from an intuitive perspective, let's assume that your target distribution is composed of images of teddy bears. If you're in the middle, then it means that roughly what the body is like, what the head is like,",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "you know a little bit where the arms like, but there's a lot of things that you need to figure out about where to place. You need to figure out what kind of texture you want your teddy bear to develop. You need to put the eyes. You need to put a",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "bunch of things. And these are all hard decisions that you need to take at time steps that are typically in the middle. And for that reason, t equal to 0.5 is a hard, hard task for the model. So if you remember, what we saw was that we were drawing our time",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "step when computing the loss from a uniform distribution. So what that means is we're asking our model to try to be good at predicting the target as many times for easy tasks as much as for hard tasks. And this is the reason why, in practice, people actually",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "do not sample the time step from a uniform distribution. They actually sample from another distribution, which we're going to see in a second, that emphasizes on middle steps more than it emphasizes on either the early or the late, late steps.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "And the distribution that people in general use typically is called the logit-normal distribution. So the formula on the slide may look scary, but it's actually quite simple. So what we're saying is-- so first of all, I'm going to define what logit means.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "So the logit of a quantity-- so let's suppose the logit of our time step t. --is defined as the log of t over 1 minus t as follows. And so t is between 0 and 1. So if t is between 0 and 1, then logit of t is anywhere between minus infinity to plus infinity.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "And what we're saying is if we sample x from a normal distribution, which is between minus infinity to plus infinity, then if we express t as a function of x, which-- I'm looking at the time, we will probably not do. You will have something like",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "this, which is just a sigmoid. And that quantity will have a distribution that will be really centered in the middle. So you may ask me, \"Well, why do you not sample directly t from a normal distribution?\" Maybe it's a question you ask.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "But the reason why you don't do that is the normal distribution is a distribution that can take any values, and you only want values between 0 and 1. So that mathematical trick is just a way for you to guarantee that in between 0 and 1 because here the sigmoid",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "is between 0 and 1. Does that make sense? OK, great. I just want this formula or this distribution to not seem like it's coming out of nowhere. So the good thing with this distribution is you can tweak the way the distribution is shaped.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "So you can play with the mean and the standard deviation, so you can shift it towards the time steps that you care about. So for instance, if you in your use case care about the later steps, you can do that. And so that is the reason why",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "people use that distribution. But I'm not done with time steps. There's another thing I want to talk to you about. So we're talking about noise levels, but what we actually care about is how much noise is perceived by yourself. So if you take the same",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "image, one in low resolution and the other one in high resolution-- and if you apply the same amount of noise, which, from the slide, I hope you can see, that the one on the left, the low resolution one, feels more noisy than the one on the right.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "So same image, different resolution, but same noise level. The one on the left feels more noisy than the one on the right. So something tells you that you also need to take that into account in some way. So right now, we're not taking",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "that into account, but not for long. So you will see that in papers, there is this concept of time step shifting as a function of resolution, where the idea is to rescale the noise level in a way that reflects the perceived noise that you see.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "And so I just want to pause on this concept for a second. Why would you perceive a low-resolution image would be more noisy than a high-resolution one for the same noise level? Why would you have to do that? Or why would you think that? Well, there is one",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "thing with images, which is that they have a lot of spatial correlation. Meaning for a given pixel, you have-- you are very likely to have pixels around it that have the same value or same color. And so remember that when you add your noise,",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "you're adding Gaussian noise with mean 0. So what that means is if you have very few pixels, when you're in low resolution, then if the pixel that is responsible for, let's say, the color that characterizes how good your image looks, let's",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "say, at a particular angle-- if that one gets noised, then you're losing that information. You're not able to see it anymore. But in the high-resolution case, you have multiple pixels surrounding that region. So even if one gets noise, the other one",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "gets noise the other way because remember that the mean should be equal to 0, the mean of the noise, added noise, should be equal to 0, you will still have an average value that will reflect the underlying pixels much more compared to the low-resolution case.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So for that reason, I hope the statement that I'm making, which is, for a given noise level, things feel more noisy for low-resolution images compared to high-resolution ones-- I hope that one is intuitive. I'm going to pause for a second. Does everyone agree",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "with my statement? Yep? OK, so there is, again, a very scary formula on the slides. The reason why there is just to show you how people shift time steps in practice. So I would first want us to look at the chart on the right. So you see tn and tm.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "So here, let's assume you have two images, one of resolution n and the other one of resolution m, where n is smaller than m. So here for a given tn, you would want to have a higher tm because for a low-resolution image, for a given noise level,",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "you would want that noise level to be higher for the high-resolution image, for the perceived noise to be the same. So that is what this formula is saying. But I know it's not intuitive, so what we'll do is we'll take 10 minutes to try to understand",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "what that is about. So the formula on the slide is all about reflecting the change in uncertainty of pixel values that are noised under different resolutions. So let's assume that we have an image, so you can think of it as this, with-- OK, I'm being quick.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "So you have, let's say, height and some width. And let's say that n-- so let's say m is this one. And let's say you have a smaller image with, let's say, h, little h, and little w, and n is equal to h times w. I'm just saying that n is",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "a lower resolution than m. That's just what I want to say. So here, what we want to do is to try to quantify the uncertainty of what the underlying pixel values are in the case where we have noise for both cases. So what I propose to do is to",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "just assume that these images-- let's assume that they all have a certain value as pixels. So pixels have three channels. Let's assume here that we have only one channel, one value by component. So here, let's assume that each of these is, let's say,",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "equal to some value c that is constant. So far so good? So let's assume that for a given let's say index i that tells you about where you are in the image, and for a given noise level t, the value at that index is something that is given as a function of C,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "the value of your pixel, and the amount of noise that you're adding to it. So here I just need to put the noise level. So I told you in lecture one that people use different conventions for time steps. And it just happens that the formula here",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "and the paper here, they used the reverse convention when it comes to time steps. And in particular, they used t equals 0, means clean, and t equals 1, means noise, which is the opposite of what usually people do. But in order for us to",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "be consistent and end up at the same formula, we will just assume that is the convention that we're going to use. So here, what we're going to say is it's 1 minus tc plus t epsilon. Does everyone agree with me? So this is the value of the",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "noise pixel at the noise level So here epsilon is drawn from a normal distribution. And so what can we say about this one? So we assume that this quantity is a constant, but we don't what that quantity is when we look at an image. So our goal here is to",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "quantify the uncertainty if we were to estimate c, which is a constant. So what I'm going to do is to try to quantify the uncertainty of c. So here, just because we have n elements, so m here and n here n elements, I'm just going to leverage the fact that we",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "have this n elements to take the average over all pixel values. So I'm going to sum over, let's say, i my index, that's between 1 and the number of pixels, of the zi(t). And I'm going to call this zt bar for average. So here, this thing is a",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "constant, so it doesn't move. And this thing just gets-- so here, I'm going to write this here plus the average. So I'm going to put the t here. The sum of y from-- sorry, sorry. The sum of I from 1 to n of the epsilons, which are-- as a function of i.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "Because the noise here is different from one pixel to another. So here what I wrote is that the average value of a pixel is 1 minus t times c plus t over n of the sum of the noise values. So you're going to see why I did that. So here, I just want",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "to remember our-- to remind you of our objective. Our objective is to quantify the uncertainty in estimating c. So I want us to first see that zt bar is equal to a constant plus a sum of independent Gaussian variables. So what you can see about-- what you",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "can say about this quantity is that its mean is 1 minus t times c. And its variance-- let's see. So t over n is a constant. So the variance of a constant is just the constant squared. And then the variance of each epsilon i is 1, and you're adding n of them.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "So it's n times 1, which is t squared over n. OK, great. So why am I doing all of this? I just want to remind all of us that what we know-- what we want is to estimate the uncertainty of C. So what is a good estimator for C? So C-- here, we see that zt bar is",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "equal to minus C times C plus something where the mean is 0. So a good estimate of C could be 1 over 1 minus t times zt bar. And what we want to quantify is the uncertainty in estimating c. So what is the uncertainty around estimating c.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "So this thing is a constant. So the variance of a constant is just-- so sorry, the variance of a factor in front of something else is the constant squared times the variance of this one, which is t squared over n. So what we're saying is",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "that the standard deviation of our estimate is equal to the square root of the variance, which is t over 1 minus t times 1 over square root of n. OK, so what does that mean? That means that the uncertainty that we have around determining what the pixel",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "value, underlying pixel value, is a function of 1 over the square root of the resolution. So as we increase the resolution n, that uncertainty gets smaller. And so in order to get that derivation, which I don't think I will do, it is just some math,",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "you would just equal that uncertainty for n. So it's t under subscript n here. And you do the same for m. So you get exactly-- so the noise level at time step-- for resolution m will be as follows. And the goal that we have is to determine the time",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "step for resolution m such that the uncertainty of determining the pixel value is the same. So you just need to take these two quantities and just say that they need to be equal, and you find tm as a function of tn. Does that make sense?",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "So the low-level derivation is not that important. What is important is just the mindset, which is that here we want to shift the time step for higher resolution, such that we match this perceived noise that we have. And so hopefully, when you",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "take a look at that formula, you're not thinking, \"OK, where does that come from?\" OK, cool. So I think we're done with the time steps. Any questions on this? Yep. What is c again? Yes. So the question is, What is c again? So this was actually a toy example",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "that we had where we said let's assume that we have an image where all the pixel values are constants, all equal to c. So c is the value of the pixel that is across all our image in this toy example. And the only problem with c-- we know it's constant,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "but we don't what c is because we have noised that image. And this whole derivation is about quantifying our uncertainty of what c is if we were to estimate it. And what we said was that we could quantify the uncertainty through this standard deviation.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "And what we said was, depending on the resolution at which you're operating, that uncertainty is higher or lower. And in particular, that uncertainty is lower as the resolution gets higher. And this is all because you can actually perform your estimation",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "by averaging across all pixel values, which are getting bigger and bigger when the resolution increases. Does that make sense? OK, perfect. Yeah, yep. So the question is, we said that the diffusion process is taking place in the latent space, so m",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "and n are in the latent space? Yes. Yep. OK, perfect. Let's move on. We're done with the time steps. Now we're going to the next training trick that I wanted to talk about, which is helping our model with learning representations faster.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "And how do we want to do that? So here, the whole idea is to leverage the representation that some already pre-trained encoders have learned and incorporate that, and incentivize our model to match that representation. So in other words, it's as if",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "you want to learn about a topic, and I come and get you a book about that topic. So you can learn faster about the topic, so it's exactly the same mindset. So here, REPA is the name of the method. It stands for Representation Alignment. And it consists of",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "coupling your loss with a loss that reflects how similar the representations that you're obtaining within your diffusion transformer is with respect to what the pre-trained encoder is giving you. So that's what REPA is about. So let's go step by step.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "Here, we mentioned the L loss for REPA, but we have not seen what that loss is. So we're going to see now. So here what we're saying is in the diffusion transformer, you have several layers. So what you're saying is you're taking the encoded output",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "of a given layer. So let's call that ht. And here n, I believe, represents the patch, let's say, for a given patch n. And let's project that on a space where we can compare the equivalent clean patch representation from the pretrained encoder,",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "and then have a similarity operation between the two. So in other words, we will be penalizing our model for having a projection of the encoded output of a given patch. That is, noise we will penalize our model from this being dissimilar from",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "the representation given by the pre-trained encoder of that same patch, but cleaned. So why do we do that? So as I mentioned, we're giving a book to someone who's learning about a topic so that they can learn faster. And that's exactly what happens.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "So what we're seeing with this strategy is that it speeds up training significantly, so here on the order of 18 times. So this graph represents some measure of how good your images are as a function of the training iteration. And what the authors did was just",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "try out a bunch of different-- they tried a bunch of things. So they tried different models. They tried different layers. They tried-- so they did a lot of ablation studies. One of the things that they saw was if you were to perform that loss",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "on the embedding from earlier layers, then you actually get better results. And I just want to pause on that statement for a bit just to understand why that is the case. So our diffusion transformer gets to compute a prediction of where it wants to go.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "And in that sense, the later layers may actually involve more local details rather than a semantic representation of where you want to go. And so here that pre-trained encoders, some of them, what they're good at is representing things in a",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "semantically meaningful way. And so one can understand these facts by saying that, OK, we actually want the representation from a layer that is supposed to output something that is semantically meaningful to align with a semantic or semantically",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "meaningful representation. I just wanted to vocalize a possible interpretation. And then the last thing I will say is that an interesting thing is that the bigger your model, the faster or the more benefits you have from this method. Cool. And the REPA was",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "published in 2024, but it is a technique that I have personally seen in a lot of new papers, so worth keeping in mind. And that is concluding the first preliminary parts. So now we're going to first start the first step of the lifecycle,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "training lifecycle, which is pre-training. And so as a reminder, in this first step, the goal is to teach our model how to generate just images. And so here there is a lot of work that goes into what kind of images you want your model to learn from.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "And so I just have this one slide, which is coming from-- so it's an image from the Quinn technical report, which just tells you that this is a very time-consuming work that's involves data pipeline with a bunch of filtering, different resolutions,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "cleaning, and so on. So I just have one slide to illustrate this, but it's a very time consuming step. So just know that this is an important part of the process. There is a concept that I want to talk to you about, which is called curriculum learning, which",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "is about teaching your model on things in a progressive manner on the scale of difficulty. So in other words, here, what we want is to teach first our model on doing the easy things before doing the hard things. And this is a practice",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "that is typically something that people do as this just helps the model learn better. And so here, by \"easy\" I mean low-resolution images that are of very easy aspect ratio, so fixed square. You can think of that. And then the input text is simple and short,",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "so for instance, a teddy bear. And then the hard part is if you want to predict something that is of high resolution, different aspect ratios. It's not a square anymore. And then, your prompt can be much, much more complicated, such as the one on the slides.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "And now you may ask me, well, how would you handle images of different resolutions? And so I want us to remember that the default architectures these days are DIT-based. And in DIT, what you do is you divide your input into patches where each patch is",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "equivalent to some embedding. And so what happens is for low resolution, you will have a certain number of patches, some number of tokens. And for high resolution, you will just have more tokens. Yes, exactly. So yeah, that's exactly that.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "It's as if it was large context. And if you remember the length t will be i, which is the dimension of an input. So if it's a squared over p squared. So that's the order of magnitude to have in mind. I will go ahead and move on to",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "the second step of the training lifecycle, which is the post training step. And so here what we want to do is to teach our model on how to generate good images. Now you may tell me, \"Well, what does good mean?\" Well, you have, of course several angles,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "but I'll talk about two main names that you will see out there. The first one is called continued training, CT, which is around teaching your model on a bunch of other things that you may care about in your task of interest. So I'll give you an example.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "So let's suppose you have a model that has been pre-trained on a bunch of nature images, and cars, and so on, but what you want to do is to have a model that generates images of teddy bear. Well, what you'll do here is you will have a dataset of",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "what you care about, and here that is teddy bears. And you will just continue your training on that data set. So that part, you can think of it as focusing on increasing your knowledge. Then you have another category of post-training methods, which",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "are called supervised fine-tuning. Same thing, but here the mindset is to focus on the behavior of your model as opposed to increasing the knowledge. So in that case, what that means is generating an image that is more aesthetically pleasing,",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "that has better lighting, or that just follows the text better. So these are the kinds of dimensions that you care about. And up until now, we've only seen how to teach our model on what to do, but we have not taught our model on what not to do.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "And that is the objective of the second category of methods, which is preference tuning methods, where for a given prompt, you may have two images where one of those images is something that you want to happen more than another one.",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "So here I will illustrate an example of the left image, which is an image of a teddy bear reading, very high resolution, good lighting, and aesthetically pleasing, and the one on the right, which is not as aesthetically pleasing. And what you want to do is",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "to incentivize your model to generate an image that is more aligned with human preferences. So here the thumbs up and thumbs down are typically either human ratings or some measure that you can obtain with some model that we will talk about next lecture.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "But you will need to have some measure of pairwise comparison or listwise comparison of different images. And in this case, the left image being better than the right one. So how do you do that? So before we move further, I just want to say that the field",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "is still a developing field, and that next to it, there's also the text field, the LLM field, that has been growing. And so one observation is that you will find the same kinds of techniques that are used in the LLM space be adapted for the text-to-image",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "generation space. And that is something that I'm going to show you in the slides that will follow. So the first method that is around tuning your model to incentivize generating images that are more aligned with human preferences is a method called",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "reward feedback learning. So I'll go step by step into what that does. So as I mentioned, what you do is you take a prompt, and then you have a bunch of images related to that prompt. And what you do is you try to get some sense of which one",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "is better than the other. So you can either get pairwise ratings or even list wise ratings. So for instance, A is better than B, than C, et cetera. And from there, the idea is to train a reward model that takes in a prompt and an image, and that gets you a",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "score that tells you how good that image was with respect to the score, or how good that image was with respect to the prompt. And so here we will not go through the math. So in case you're interested, we actually have a whole lecture on that",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "in our sister class, CME 295. But long story short is that you can use a pairwise loss based on formulation called the Bradley-Terry formulation and train a model that does that for you. So at the end of this step, you get a reward model",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "that takes in a prompt, that takes in an image, and that tells you how good that image was to this prompt. So what you care about is to tune your text-to-image generation model to produce images that are higher rewards, because the reward",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "model that you trained is something that hopefully aligns with human preferences. So if the reward model says that one is good, then hopefully, it's something that is aligned with what the human would say. And what you want is to train your image generation",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "model in order to produce images that are higher rewards. So there is some math involved, but at a very high level, what we do is we take the noisy latent, we predict or generate an image for which we have the reward. But in this case, the good",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "thing is that we have the model. We have the reward model. It is a reward model that we have at our disposal. So it is actually something that is differentiable. And so here, you can back propagate the loss or the objective that you have,",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "which is to maximize those rewards back into your image generation model in order to incentivize that model to produce images that are higher rewards. So that is reward feedback learning. The second method I will introduce is called Flow Group Reward",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "Policy Optimization a.k.a. Flow-GRPO. So for those of you who are also in the LLM field, you may have heard the term GRPO a lot during the past year or so. And so here, the idea is to leverage that algorithm in the case of image generation.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So in a very similar fashion, what you do is you take a look at images that are generated by your image generation model, and in this case, what you want is for a given prompt to have a diverse set of generated images. So it's going a little",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "bit into the details, but the authors are framing this via an SDE that increases the diversity of images that are generated, so this is all so that we can have, for a given prompt, a diverse set of images that are generated. And from there, compute",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "relative rewards, meaning you pass each prompt along with each image to some black-box reward model, and it tells you whether or not that is a good image. And what you do is you compute a relative measure of how good that image was",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "with respect to the other image in your group. So that's why this method is called group Reward Policy Optimization, is because you actually compute-- so an advantage, that's the technical term, which is the reward relative to the reward in your group.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "And then based on that, you update the policy which is your image generation model. And so one thing that I want to say, and it's true for all of these reward-based approaches, is your reward is not necessarily something that is fully aligned with",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "what you care about. And so you can have a problem of reward hacking, where your model is being updated too much in a way to optimize the reward that is not perfectly aligned with what you want. And so in order to have a way to mitigate that issue,",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "you typically have an extra term in your loss. And so here in the slide it's kind of small, but it's a KL divergence term between the policy that you're training on and the old policy. So it's just a way for you to not have iterations, updates that",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "are too far from the old model. And the last one I will mention, and here I'm sorry for this big formulas, but I couldn't find a good illustration for this one. So this one is called Diffusion DPO. And Diffusion DPO is the diffusion equivalent",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "of DPO, which is a supervised method used in the LLM world to tune the weights of your model with respect to human preferences. And here, what you need to take away from these three lines of equations is that you want to incentivize your model",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "to predict cities associated with \"winning\" images. You want to incentivize your model, doing a better job at predicting those, and you want to incentivize your model to do a worse job at predicting velocities of the \"bad\" images. So if you do that,",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "you're going to have a higher chance of having the winning images be generated and a lower chance of having your model generate the worse images from being generated. Does this part make sense? So we have these three lines of equations. You can stare at",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "it after the class. It's something that also tells you that we want the model to be better at predicting velocities of winning images, and worse at predicting loss velocity of losing images. So yeah, so this is what this loss is telling you to do. OK, great.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "So there is one last thing I want to tell you. We want to make our images better. And I want you to tell me, or I'm asking if you would know what kind of prompts would lead to that kind of image at this point in time, in the training, if you were to guess.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "So here on the left, you have a beautiful image of a Teddy bear reading a book. So the question here is what prompt do you want to put? Anyone wants to try? Can be creative. You think it's a trick question. So I'm going to just for the sake of time,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "tell you what the prompt was. So it's actually a truncated prompt, and I'll just read the first few words. So \"A warm, intimate indoor reading scene featuring a plush teddy bear as a central object, and it talks about how the objects are, how the lighting is.\"",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "And it's actually maybe four times what is on the slide. So the point here is that these alignment methods allow us to have much greater control on what we want the output image to be. And there is, therefore, a mismatch between what we teach",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "the model and what users tell to the model. Because let's be honest, you and I, if we want to create an image of a teddy bear, we'll just say \"a teddy bear reading a book.\" But we want something that looks like this. So there needs to be",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "something in between that is able to prompt our model well in a way that will generate beautiful images. And there is a method called prompts enhancement, which will take a given user input and transform it into a very elegant, long, detailed prompt that",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "would be similar to the kinds of prompts that the model has been trained on. And so this is all for us to have a beautiful image based on a prompt that is in distribution, if you want, and that is leveraging the capabilities of the model. So I just want to",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "take a pause here. So I know I'm doing a lot of metaphors comparisons, but let's try to recap all the steps we've been through by taking the following analogy. So let's assume that our image generation model is us, is similar to us actually",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "learning how to cook. So pre-training is about learning how to generate images. So here just learn about the different kinds of foods. Post-training is about learning how to generate \"good\" images. So here, what does good mean? So these are examples",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "that we give you, so supervised fine tuning and continued training. Continued training is new knowledge. So here, it's as if I was reading about recipes. So I read about recipes of how to make good food. And then supervised fine-tuning is about the aesthetics,",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "it's about the prompts, the instruction following. And so here, I'm just making sure that the food looks great. The delivery is good. And then you have the preference tuning stage where you want to make sure to do more of the things that you may like",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "rather than not. And in this food analogy case, you have an inspector, food inspector that comes, and you cook several times the same dish. And inspector just tastes how good each of the dishes that you prepared was and it just tells you which one was better.",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "And you update your way of cooking based on that. And this prompt enhancement thing is the same as you being in a restaurant and a customer walking in and telling you, \"I want meat.\" But for you, you just know medium-rare kind of meat",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "with a pinch of salt and so on. So you will have a waiter between the customer and yourself that will rephrase the customer's request in a way that aligns with what you have learned. And this is exactly what prompts enhancement is. I hope this made sense.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "And with that, let's go to the third stage of the training lifecycle, which is tuning. So as I mentioned, tuning is about personalizing your model for a special use case that you care about. And so here, the method that I want to talk to you about",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "is a method that you may have seen on the internet because a lot of people have been using it. It's called DreamBooth. And the idea is that you have something of interest, let's say a specific teddy bear, that you want to have in the images that you generate.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "You don't want any teddy bear. You want that specific teddy bear. So what you want is to personalize your model to generate images of that very specific teddy bear. So here's what you would do. What you would do is taking your model",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "and then having a few images of that very specific teddy bear that you have, take images of that teddy bear with different poses, and train your model to generate that teddy bear based on a prompt that relies on a rare token, that is here",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "bracket V. That will teach your model to associate that specific person/object reference with that token. So you do that. So let's say you do that. Do you see an example or something that can go wrong. If you train your model to generate these images based",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "on that prompt? OK, let's assume you just do that. Yep. So the answer is it's not diverse enough. So I think you're very, very-- you're touching exactly the problem that we have at hand, which is that you will specialize your model too much into generating",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "that and actually forgetting the kinds of concepts, the kinds of images it was able to produce before. And so for that reason, so it's a great answer for that reason, what you want is to also make sure that your model does not lose",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "the ability that it had before. And so that's why what you would want to do is to have some reference of text-to-image pairs that it was able to generate successfully, that you would also tell it to generate successfully and combine the",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "two into a loss that tells you, \"I want to generate images with that specific teddy bear, but also preserving the performance that I had in the past.\" And this is called the prior preservation loss. That's second term. So when you do that training--",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "and so yeah. So you prevent overfitting. So when you do that training, what you're able to do is to use that rare special token that you have trained your model on and then generate new images in specific settings. So here the special token",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "teddy bear attending CME 296, so this is how teddy bear would look like. So that method is great, and what we're doing is updating our model and in particular the model weights in order to reflect what we want to generate. Well, the problem is your",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "model can be quite big. It can be as big as billions of parameters. I believe the biggest text-to-image models that are out there are in the order of tens of billions, the open-source ones. And so you would not want to update all the weights, which",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "is the reason why there is a method that is very commonly used in the LLM world, which is also something that people use in this instance, which is called LoRA, and stands for Low-Rank Adaptation. And what this method does is instead of training all the",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "weights of your model, what it does is it only trains a fraction by considering that the weights of your model are the weights of the base model, plus two low-rank matrices. And the reason why it's called low-rank adaptation is because it leads to A",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "times B, that is low rank. And so when you do that, it turns out that you can preserve most of the performance but train that with a fraction of the cost. So you will see methods that are called \"DreamBooth + LoRA.\" And that is what it is about.",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "And I want to talk about the pros and the cons of this approach. So the pro is-- the good thing is if you want to generate thousands and thousands of images of your teddy bear, well, you can do that. And the results are pretty high fidelity. They match pretty",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "well the details that are in the input images. But the con here is if you need-- or if you need to do that for a lot of special cases, well, you need to absorb the training costs, which is pretty time consuming and costly. And also, it's something",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "that you cannot really reuse if, for instance, you want something else in your images. And I would just conclude by saying that this approach is great if you're in a use case where you need to generate many, many, many, many images of one specific subject, or",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "person, or object. And with that, I'll give it to Shervin. Thank you, Afshin. So we're going to continue together on that note of efficiency and looking at distillation techniques which aim at preserving some of the high quality that we were able to",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "develop with these models, but at a lower cost. So all of these methods produce state-of-the-art images, but in real life, you might be a user that uses a service that is high volume. So the provider doesn't have an incentive to spend a lot of",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "money on each query. So you don't want typically to have 1,000 steps to generate a single image. Similarly, if you're in a business setting, you want to achieve a given goal, and your goal is not necessarily to be the best, but just good enough. And then that",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "trade-off between good in terms of quality and cost is something that you're going to be interested in. And then you can cite other applications where real-time properties are important. So this is why it's worth investigating techniques that are fast.",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "And then all of these are, of course, linked to properties that we care about as everyday users. So we don't want to spend a lot, and we don't want to spend resources inefficiently. And if I was to tell you about distillation in the traditional world--",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "so you would typically see something that looks like this. You have a teacher model that is big and a student model that is typically of a smaller size. And you both want to predict the same outputs. And here, for example, so I'm borrowing these slides",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "from CME 295, where we wanted to distill some of the knowledge on next token prediction. So what is important in this distillation technique is truly the shape of the distribution that is learned. And you can see that you can get away with smaller models,",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "directly anchoring on it and then producing a level of quality that is almost just as high. So just to give a quantitative example, you may think of a BERT and DistilBERT, where you save quite a bit, I think 60%, half of the parameters, roughly,",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "and you retain 97% of the performance. So this is something that we are interested in doing as well here. So in the LLM world, for example, you would do so with the KL divergence between the two. So here, the loss says if we assume that the teacher",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "distribution is a true one, how bad is it to approximate it with a student one? And this is how you perform your loss optimization process with that kind of mindset. But here in the image world, well, you can try to reduce the size of the student model.",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "And it typically leads to much worse quality. And then you have another knob that you have as a low-hanging fruit that people typically tune, which is not the model size but more the number of steps. So you might remember from the",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "first lecture that, for example, in diffusion you have, let's say 1,000 steps. Similarly, in the flow matching setting that afshin mentioned, we were considering here, you typically have more than one step. And you would want to make it one,",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "so that just a single pass gives you what you want. So here, we were not going to be doing typically KL divergence between distribution over tokens, but these kind of loss that regresses the output with respect to the teacher output is something that",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "you are going to see. So one way of doing it is with the mean squared error. We're going to see other techniques as well. And I just want us to do this thought exercise of approximating in one step directly the teacher output. So the issue is that it's",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "too hard because you can-- so just to take the analogy that Afshin was taking last week regarding the painter, it's as if you ask a painter to paint a beautiful piece of art and then ask the students to do exactly the same with a single stroke.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "So it's way too much information packed for a single forward step to capture all at once. So you need a more granular subsequence of steps intuitively. And this is what the spirit of progressive distillation is, where we take steps and ask",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "the students to work on problems that are of approximate constant difficulty, and we iterate until we have a model that does what we want. So in other words, the formulation here is that we want the number of total steps to go from big T to 1.",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "So here the method is as follows, every time you try to do what you were doing in half the number of steps. So I want you to make a thought experiment for a second between Afshin and I and not suppose that we are twins, but instead, we are a tuple of size",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "n of identical brothers, more precisely of size log2 of number of steps. And here progressive distillation would be Afshin, for example, being the master painter for the first step. And every two strokes I would paint one stroke, and so on. And then once the",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "process finishes, I would be the master painter, and then the next identical brother would be the student. So every two strokes that I paint, he would paint one stroke, so that at the end, you reach what you want in a single step. So just to give a visual",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "representation of what we have learned here-- so you can see this as secant lines that you draw in the space at every halving of the number of steps, which is a simple problem to take in isolation. And then when you do that iteratively, you reach the end goal.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "So looking at the results here, the good thing about this technique is that you can select the number of function evaluations that you're ready to spend, and you have an association with the end result. So of course, if you spend more steps, you're going to",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "have better quality, but you have this level of granularity. And you see that you typically have better performance if you were to compare an equal number of steps, for example, in a deterministic technique like DDIM, like we had seen in the",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "first lecture, which is nice. But here, one thing that we're doing is that no matter how hard the path to getting to the clean image is, we're just taking it as a given. We're not saying, OK, let's to make the problem simpler. We're just taking the",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "problem as hard as it is and we're trying to work around it. And if you recall the third lecture on flow matching, there is something that we wish for that we might be able to realize, which is the reflow technique that helps in straightening paths",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "in the space. So maybe we could make use of it. And this is what the paper called \"InstaFlow\" does. So it follows up on this idea of rectified flow that we had seen at the third lecture. So it does apply this method. And then on top of it, it",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "adds a layer of distillation to further solidify the fact that we can get to the results in a single step. So just to give you a recap on what reflow was, so you had-- so let's say you sample from the easy distribution and then you integrate your",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "ODE to get to the sample. Then you take these pairs of input-outputs and then you fit a new model, like a new model in it. And what you get is straighter path, typically, which allows you to take less Euler steps to get to the answer.",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "But I have a question for you. Let's say the problem is not totally straight, would you be inclined to do more reflow steps? So it's a trick question. So the answer is if you do more reflow steps, then you introduce discretization errors in your pairs.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "So the answer is typically no. And this is why what is pretty convenient to do is to give the task of still integrating that ODE to some teacher model and then have a student fit directly on that output. So this is what the distillation step does.",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "And then one interesting fact is that we use-- so this concept of distance between what the teacher predicts and what the student gets to. So you have this concept of warm-up, of using a simple distance metric like MSE. But we have seen in the previous lecture",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "that MSE is not great to give a meaningful interpretation into whether the quality of the image is good, because it focuses on the specific value of each pixel instead of the meaning of the feature, which is why this method uses the second loss",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "formulation called LPIPS, Learned Perceptual Image Patch Similarity. And here, you make the image pass through a pre-trained model with frozen weights, and then you compare the L2 distance between the feature maps instead over L layers.",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "And this is what we just said. And then you see in practice, that the first reflow step gives you most of the straightening behavior, so you meaningfully-- you do not have an incentive to do more of them. And in terms of results, you see that you exceed",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "the performance of whether-- of the fact that you add this additional distillation step is better than just doing a reflow and having a single step. So it's the InstaFlow 0.9B versus the line just above that shows that. And yeah. So one thing that is",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "tough with InstaFlow is that every time you do a reflow, it's an expensive process. So you need to do some pre work, which is-- like the cost you have to pay here. And we're wondering if there is something we could do better when it comes",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "to the path that are drawn. Is there some information that we could give to the student instead of making the problem simpler from the first place? But before I move on to the next mindset that I wanted to mention, I just wanted to pause for a second",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "and see if there is any questions. Yep. The question is, Why wouldn't you force straight path in the pre-training? You already do that, because you select a random noise at random and then a target point, and then you draw a straight line.",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "But the thing is, these pairings, they're not optimal. So when you sample randomly-- and then the fact that you don't have these straight lines is not an intended design, but it's a consequence of this MSE loss. So the reflow procedure",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "is our way to remedy that, and there is no way to do that as early as the first train. OK, awesome. So I'm slightly late-- so I'm going to go through this next idea of leveraging local properties to train a better student with this notion of",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "consistency models, which has an interesting property of looking at paths that are deterministic with a mapping that maps every point of that path to the end goal, such that no matter where you are on that path, if you train your model",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "to predict the end image, then you can make the jump as early as when you are in the noise in the noise distribution. So just putting a picture here with our teddy bears and the flow matching case, if you have such a property, then every point on a given",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "green line would map to x1. And the way to do so is twofold. So you can either do it with so-called consistency training, where you sample a clean image and then you noise it at some level t, and you noise it at level t plus delta t.",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "And what you do is that you pass it through your model and try to make them match to the same value. So this is one way of doing so. There is a second way that leverages this teacher-student relationship, where denoising is not something that you",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "would artificially do, but you would ask a teacher model to do denoising, which reflects properties that it has learned in the feature space, and then you ask a student model to make predictions that are consistent to each other. So here, you might say,",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "\"OK, very well, Sherwin. But if you only force these representations to be consistent with each other, you could well have a student that says, OK, don't worry, I will always predict 0. That way, they're always consistent, and maybe my loss will",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "not be looking very pretty at the boundaries, but it's fine.\" Well, you have a way to prevent that collapse with two tools. So one is this prediction that you get at every step, is a parameterized function of weights that we put as design.",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "So we have it enforced. And then the second ingredient in this recipe is to not backpropagate through both students, where doing so could lead to symmetrical weights updates that might not be those that actually match a fixed target. So we do that by keeping",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "one of the students a slow-moving average and the other one actually doing the consistency prediction task. And when you look at what results it gets, it's quite competitive. And you can do so in the latent space. It's called LCM.",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "You might see in the literature. But all of these methods, what they did is that they focused on matching a given target. And one thing that you see when you have this L2-style regression loss is that you have a regression to the mean,",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "where images don't look as crisp as you would like. And GAN solves this. So let's see if there is some adversarial objective that we can introduce here to make it better. So before we even do that-- so we were looking at the sample level,",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "maybe if we look at things from a distribution perspective, we could look at where we could go in the sample space that looks where we want to go rather than a straight single point. And so the mindset here is to give a piece of noise to both the teacher",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "and student model, and then based on the student output, noise it again and ask the teacher model, and then a model that looks like the student to try to denoise it. And then use their results to infer what pieces of advice the teacher and student models",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "would give, respectively, to give the clean image, and use that signal as a way to inform what the student prediction should be. So we're going to look at this loss in details in a second. And you complement that by ensuring that the student's",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "predictions match roughly what the teacher predictions do. And we see empirically that this helps stabilize the training. So looking at this distribution loss-- so what you're doing in practice is the KL divergence between the distribution of",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "the fake image with respect to the real image based on a fake input. And when you take the gradient of it with respect to the parameters of the student model, you get this nice interpretation of a difference of scores that you could see as a",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "difference of velocities in the field of flow matching. And these respectively means that we want to do more of what the teacher says we should do and less of what the student says we should do. And we multiply-- we do a dot product such that the parameter",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "updates reflects that goal. OK, great. Yeah, I want to pause for one second just to check if that makes sense. Yeah, so here-- so the question is, What's real and fake? So here the paper uses standard denomination like used in GAN to denote respectively",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "teacher and student. So \"real\" would be your true image, like what generates the true distribution that you want to reach. And then \"fake\" is corresponding to the distribution of the student that we want to make it as close to the real ones. So respectively,",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "teacher and student. Yeah, great point. So the question, Is there a collapse here happening? So it might. So if you were not doing that comparison between teacher and student advices, you would collapse to the mode of the teacher advice.",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "And then the paper does some ablation study on it. And then the second piece that I mentioned earlier on, if you do not regress with the teacher's output, you might see another-- not really collapse, but you would not reach the desired teacher distribution.",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "So yeah, the answer is the collapse is bad if you were not considering this setup. But based on this setup, I think there is some hyperparameter tuning on how to balance the regression and distribution loss. Yep. Awesome. So moving on-- so I'm going",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "to make a series of complaints that are very targeted. So you're going to see where I'm going. So here we're comparing things with respect to the teacher output, which is not the ground truth. So what I've mentioned here. So I've hovered over it.",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "But the teacher-- the student advice is actually a diffusion loop that you're running, which is quite expensive. And it's a bit of a duplicate concept with respect to the student model that you're training in the first place. And this idea of providing",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "signal with respect to teacher minus student advice might seem as a soft one. Is there a way to reframe it better? And yes, with GAN-like loss. So this is what ADD does. And to be mindful of your time, I just want to say the high-level is that it reframes",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "as a classification problem that makes the problem harder in the sense that it will lead the student model to make predictions crisper. But the issue with all of this is that you have a lot of back-and-forth going from the pixel to the latent space",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "that later techniques, such as LADD, tries to mitigate. And this is what you're going to be used quite a bit today, so you can reformulate that only in latent space. And just to give some final words here-- so I want to say that all of these distillation",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "techniques-- they offer some kind of trade-off. For example, consistency models-- they might be very easily tunable with sets of LoRA weights, as Afshin mentioned, whereas, for example if you go into GAN territory, you have some dynamics",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "in the training process that are hard to manage. And yet this duality between MSE and LPIPS loss for regression happens quite a bit, and switching the mindset to a distribution and GAN-based is great for quality. And yeah. And then trends are these days to do",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "all of this in latent space. And that's all I had for you. Thanks, and have a great weekend.",
+      "start": 1590,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,198 @@
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { PrismaService } from '../common/prisma/prisma.service';
+
+/**
+ * 收藏服务
+ */
+@Injectable()
+export class CollectionsService {
+  private readonly logger = new Logger(CollectionsService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  /**
+   * 创建收藏夹
+   */
+  async createCollection(userId: string, name: string, description?: string) {
+    const collection = await this.prisma.collection.create({
+      data: {
+        userId,
+        name,
+        description,
+      },
+    });
+
+    this.logger.log(`Collection created: ${collection.id} by user ${userId}`);
+    return collection;
+  }
+
+  /**
+   * 获取用户的所有收藏夹
+   */
+  async getUserCollections(userId: string) {
+    const collections = await this.prisma.collection.findMany({
+      where: { userId },
+      include: {
+        _count: {
+          select: { resources: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return collections;
+  }
+
+  /**
+   * 获取收藏夹详情
+   */
+  async getCollection(collectionId: string, userId: string) {
+    const collection = await this.prisma.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+      include: {
+        resources: {
+          include: {
+            resource: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!collection) {
+      throw new NotFoundException('Collection not found');
+    }
+
+    return collection;
+  }
+
+  /**
+   * 添加资源到收藏夹
+   */
+  async addResourceToCollection(collectionId: string, resourceId: string, userId: string) {
+    // 验证收藏夹归属
+    const collection = await this.prisma.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+    });
+
+    if (!collection) {
+      throw new NotFoundException('Collection not found');
+    }
+
+    // 检查资源是否已在收藏夹中
+    const existing = await this.prisma.collectionResource.findFirst({
+      where: {
+        collectionId,
+        resourceId,
+      },
+    });
+
+    if (existing) {
+      return { message: 'Resource already in collection' };
+    }
+
+    // 添加资源
+    await this.prisma.collectionResource.create({
+      data: {
+        collectionId,
+        resourceId,
+      },
+    });
+
+    // 更新收藏夹的更新时间
+    await this.prisma.collection.update({
+      where: { id: collectionId },
+      data: { updatedAt: new Date() },
+    });
+
+    this.logger.log(`Resource ${resourceId} added to collection ${collectionId}`);
+
+    return { message: 'Resource added to collection' };
+  }
+
+  /**
+   * 从收藏夹移除资源
+   */
+  async removeResourceFromCollection(collectionId: string, resourceId: string, userId: string) {
+    // 验证收藏夹归属
+    const collection = await this.prisma.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+    });
+
+    if (!collection) {
+      throw new NotFoundException('Collection not found');
+    }
+
+    // 移除资源
+    await this.prisma.collectionResource.deleteMany({
+      where: {
+        collectionId,
+        resourceId,
+      },
+    });
+
+    this.logger.log(`Resource ${resourceId} removed from collection ${collectionId}`);
+
+    return { message: 'Resource removed from collection' };
+  }
+
+  /**
+   * 删除收藏夹
+   */
+  async deleteCollection(collectionId: string, userId: string) {
+    const collection = await this.prisma.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+    });
+
+    if (!collection) {
+      throw new NotFoundException('Collection not found');
+    }
+
+    await this.prisma.collection.delete({
+      where: { id: collectionId },
+    });
+
+    this.logger.log(`Collection ${collectionId} deleted`);
+
+    return { message: 'Collection deleted' };
+  }
+
+  /**
+   * 更新收藏夹
+   */
+  async updateCollection(collectionId: string, userId: string, name?: string, description?: string) {
+    const collection = await this.prisma.collection.findFirst({
+      where: {
+        id: collectionId,
+        userId,
+      },
+    });
+
+    if (!collection) {
+      throw new NotFoundException('Collection not found');
+    }
+
+    const updated = await this.prisma.collection.update({
+      where: { id: collectionId },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+        updatedAt: new Date(),
+      },
+    });
+
+    return updated;
+  }
+}

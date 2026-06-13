@@ -1,0 +1,379 @@
+{
+  "videoId": "8txf05vVVl4",
+  "title": "Code Mode: Let the Code do the Talking - Sunil Pai, Cloudflare",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 18117,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> Our next presenter created PartyKit, the\nopen-source tool for real-time\nmultiplayer apps. For his day job, he\nbuilds AI agents at Cloudflare. Please\njoin me in welcoming to the stage Sunil\nPai.\nUh 20 minutes to the pub.\nUh hi. Uh my name is Sunil Pai. Uh I\nwork at Cloudflare.\nUh I build agents over there uh for the\nagents SDK. I'm trying very hard for\nthis not to be a Cloudflare talk, but I\nthink we are on the sponsor board, so\nthat's nice.\nUh this is a talk about something we\ncall code mode. Uh I've been wearing the\nhat\nuh and uh\nthere's some prior art to it. We don't\nclaim to have invented it, but this is a\ntalk about the implications of something\nnew that we we're discovering.\nSo, um\nyou guys have built uh AI applications,\nand tool calling gets weird at scale.\nWhen it's just a couple of tools and\nvery short runs, it's fine. But the\nmoment you start stuffing in uh your\nGoogle services, your Jira, your wiki,\netc., and you have like hundreds\nhundreds of tools filling up the\ncontext, it starts breaking.\nand uh the composition is weird, and\nthere's this back and forth that you\nhave to do with\nuh the model that's really slow.\nwe decided to take a different act.\nInstead of doing this JSON back and\nforth thing,\nwe asked the model to generate code,\nusually JavaScript, that we could run\nagainst an environment.\nUh and some of the benefits seem a\nlittle obvious to us. Uh with code, you\nget a typed API, you can do type\nchecking, there are syntax errors. Uh\nmodels are trained on gigabytes, if not\nterabytes, of data already in the\ntraining set.\nUh and instead of doing this back and\nforth, you could write code that\nexecutes it all in one run, just one\nexecution.\nSo, uh so this is what I mean. Like\nthere are\nuh fundamental capabilities of code.\nYou're able to do looping, you're able\nto hold state, uh you're doing\nsequencing, parallelize parallelization,\nthings that you would normally do with\ncode anyway as an engineer.\nSo, the first place we applied this uh\nmy colleague Matt Carey, who's actually\ngoing to be speaking about this a little\nmore tomorrow, you should watch his\ntalk. Uh\nthe Cloudflare API surface is about\n2,600 API endpoints. If we exposed a\ntool for every single one of them, it's\nabout 1.2 million tokens in your first\ncall. Like it just blows. There's no way\nto create an MCP server for the entire\nCloudflare API surface.\nAnd he had a very clever idea where he\nexposes just two tool calls.\nUh search and execute. Both of these\nendpoints accept code as an input,\nliterally a string of code. For search,\nthe input to the function that you pass\nto it is the entire open API uh JSON\nspec.\nAnd once it does that, execute gives\ngives you a whole bunch of functions\nthat you can call against the things\nthat you called. And it reduced that\n1.2, 1.5 million token thing down to\n1,000 tokens. Kind of unheard of. I\nthink it's like 99.9%\nreduction.\nUh this is going to be scary. I actually\nhave I have a live demo of this, and uh\ndemos don't usually do me well on stage,\nbut uh but the point being that we were\nable to take a wide, super wide API\nsurface and make it incredibly fast.\nUh the prompt itself can be\nuh fairly generic. So, I should have\nkicked up the font size on this one. The\nprompt here is as a customer, you come\nin and say, \"We are getting DDoS'd. I\nwant you to find every offending IP\nthat's like attacking us and block\nthem.\"\nIn a moment of panic, when your website\nis going down,\nyou don't have the time to do menu\ndiving. Uh the Cloudflare dashboard is\nfamously a little cumbersome to handle.\nUh and you just want the thing done. And\nyou can't even get an AE, it's like 3:00\nin the morning.\nUh with a regular MCP thing, and this\nisn't even talking about stuffing 1.2\nmillion tokens. It would be about eight\nround trips to do each of those API\ncalls. Instead, the model can generate\nthis string of code, run it immediately\nright next to the API surface, and do it\nin one shot.\nAnd it's just running JavaScript. Just\nfunctions and um\njust things that you're exposing on the\nAPI surface.\nOkay, live demo. This is a demo of our\nmythical server.\nUh I hope I'm logged in, because if I'm\nnot, I'll need all of you to close your\neyes while I enter a password. Let's say\nI just want to like list my workers.\nOh, there it is. List my workers. I say\nsend.\nOkay, okay, then there's no password\nrequired. Okay, fine, that's fine. Okay,\nI give it only read-only access for this\ndemo.\nUh do the thing. Yes, allow, sure,\nwhatever.\nBa ba ba ba ba. Nice. Okay, it comes\nback, and uh\nyou'll see it'll start executing tool\ncalls. I should be able to open this up.\nIt has sent\nsaying, \"Hey, find me all API endpoints\nthat just say the words list workers or\nsomething like that.\"\nUh it then runs code,\nuh which Hey, yeah, it's like one single\nrequest for the API endpoint to get all\nthe workers.\nUh it must have received a whole bunch\nof these.\nIt's actually going through JavaScript\nerrors now. This is going to be fun to\nsee if it actually succeeds.\nYikes.\nOh, is it trying to do it like per page?\nIt's trying to paginate through the\nthing. Assume that this worked anyway,\nand I'll keep talking while it does\nthis.\nUh Love that this is happening to me on\nstage, because I did test it 10 times\nbefore coming on. Uh I need to pay for\nthe Mythos uh model to make this work\naccurately.\n>> [laughter]\n>> Uh\nBy the way, you can actually see it. It\nis actually like listing workers over\nhere. It might just be having trouble uh\nrendering it over here. Um the point\nbeing, uh we are able to shrink that\ndown. Now, if this was a talk about\noptimizing MCP servers, I would be done\nand dusted. I was like, \"Hey, you should\nthrow this, and trust me, it works when\nyou're not staring at it and have 800\npeople looking at you on the stage.\"\nBut it did give us an idea that there's\nsomething deeper going on here.\nThe ability to like run this code and uh\nfeels like there's a new way of\ninteracting with systems, with LLMs.\nhere's what I think. Like everyone here\nis a programmer. And I give you a\nproblem statement like you have 200\nphotos on your desktop. I need you to\ncategorize and rename them.\nFirst thing you do is you look you're\ngoing to open up an IDE. You're going to\nwrite a little script. Maybe you're\ngoing to pass every image to a vision\nmodel now, because you get a nice\ncaption for it. Uh rename it, and you're\ndone and dusted. That is how you\ninteract with systems.\nUh my mother's not going to do this. Her\noptions are to, well, call me up, or\njust that. There's going to be like\nlowest common denominator apps for photo\nmanagement, and it's $7 a month. And for\nsome reason, you have to install a\ndaemon, which is stealing your crypto or\nsome such stuff.\nUh and there's been this dichotomy, and\nit's fine. Like until now, this has been\nan acceptable\nuh this has been an acceptable trade-off\nthat non-technical people will have\ncustom-made interfaces built for their\nneeds and desires.\nLLMs are breaking this boundary.\nThey every human being on the planet now\nhas access to a buddy that can spit out\ncode that can interact with systems.\nUh it takes it takes a line like rename\nthese files by date and location,\nand generates code, and can run it on\nyour uh on whatever system you expose to\nit. Uh I say execute it safely here, and\nthat's the bit that I do want to talk\nabout in a minute.\nThe other example I have, so this is\nKenton. Kenton is the creator of\nCloudflare Workers. Uh famously, I'm So,\nhe does the work, and I like taking\ncredit for his work. This is our\nrelationship in the company.\nUh so, he he had a thread a little while\nago where he built he's built a little\nwhite coding environment for himself,\nbecause no one else does that in the\nworld right now. So unique. Build your\nown little white coding thing.\nUh the the thing he asked it to generate\nwas a canvas, one of these TLDraw,\nExcalidraw style canvases.\nUh and it did it it did a little canvas\nwith little brushes and colors. And the\nfirst thing Kenton did was draw a\ntic-tac-toe board on it with a little X\nin the corner. This is the finished\nstate, and I'll get to that in a second.\nHe did that.\nAnd uh what he told the model then is,\n\"I want you to play tic-tac-toe with me.\nThe model, as you can guess, it started\ngenerating a tic-tac-toe app.\nOkay?\nKenton stopped it immediately. He's\nlike, \"No.\nYou have access to the entire state of\nthe system. And the state of the system\nhere is an array of strokes. You know,\nlike just a whole bunch of points, grid\nline, grid line, X stroke, etc.\" He\nsaid, \"Inspect that and play it with\nme.\"\nimmediately, the model started it output\nthe state into its own context and it's\nlike, \"I recognize what this looks like.\nIt looks like a tic-tac-toe board and I\ncan see that you put an X in the top\nleft. Let me draw a perfect circle in\nthe middle of the app.\"\nTo be clear, there is no tic-tac-toe\ncode anywhere in this system.\nThe the emergent behavior is that the\nmodel has like, \"Sure, I now know how to\ninteract with the system with a set of\nstrokes.\"\nUh also, it lost. Uh by the way, it lost\nthe game and then when we saw the\nreasoning traces, we noticed that Opus\nlet Kenton win.\nWhich is a whole other weird area of\nalignment we're not talking about.\nAnyway, so this actually generated a lot\nof conversation internally and that's\nwhy like this talk is a little weird,\nit's a little woo-woo. I'm not even sure\nwhere we're going and I want to like\nspread the idea to you and have you\nfolks like integrated. So, the the\nphrase we've started using is it stopped\ngenerating a program and it instead\ninhabiting the state machine. Uh there's\na ghost in the shell reference here for\nanyone who's over the age of 40, you\nneed ibuprofen,\nuh you should go back home. Uh but no,\nlike it was a very strange thing to for\nnot to have a separate app generation\nstage that you then like interact with.\nThat is entirely the part of the thing.\nSo, what does this new software\narchitecture look like?\nUh everyone's building what they call a\nharness. Uh it's because over the last 3\nto 6 months, everyone has realized that\nthese coding agents are great\ngeneral-purpose computing machines. It's\nwhy they're running Claude code or code\nNo, they're running Pi on a Mac Mini,\nwhich is the wrong machine for this, by\nthe way. You don't have to spend $400\nfor a thing that makes API calls. Uh\nit's been driving me mad. If you check\nall the second-hand prices of Mac Minis\nhave like shot up. I got one before it,\nbut I got it because I'm special that\nway.\nUh you be everyone's building this\nharness and this architecture of the\nharness is not just that it can generate\ncode, but it has a safe space to execute\nthis code into which capabilities are uh\nexposed.\nUh and there are some\nattributes to this sandbox. We're\ncalling it a sandbox, which is again\nanother completely overloaded term and I\nhave friends in the industry, everyone's\nbuilding a different kind of sandbox. Uh\nwe have a sandbox SDK, which uses\ncontainers and VMs, but that's not even\nwhat I'm talking about right now. Uh\nthere are some capabilities to it.\nUnlike a container, which comes with all\nsorts of features that you surround with\nsecurity, you know, you do a bunch of\nthings from the outside, you start with\nsomething that has no capabilities. The\nonly thing it can do is execute code. It\ncan't do fetches, there's no exposed\nAPIs, no nothing.\nAnd then you grant capabilities to it\nexplicitly. Uh we have something called\ndynamic workers. I told you I'm it's not\nreally a Cloudflare code, someone else\nbuild something better if you think it's\nbetter, it's fine. Uh but this is what\nwe use. We use V8 isolates because they\nstart up really, really quickly and uh\nit's about 10 years of security\nhardening. Uh\nit's in our DNA, we care we care a lot\nabout that. Anyway, so we you start\nexposing capabilities as APIs, A.\nAnd we also can control all outgoing\nfetches and any network connections. In\nfact, the default way we recommend you\nuse this is no outgoing fetches, only\nAPIs. It has to be fast and you need\nabsolute full observability into it. You\nneed to know why last Tuesday it made a\ntrade for $2.3 million for I don't know,\nman, like llama poop or something,\nright? You need to go back to that code.\nAbsolute observability on these systems.\nIt can be V8 isolates like we use. Uh\nyou could use, I don't know, a web web\nassembly, a custom JavaScript\ninterpreter. Uh that's not the main\nstory here. You just want something\nthat's able to execute that you're able\nto expose capabilities to and run really\nquickly.\nFrom here, you can start getting really\nambitious. The example that I showed you\nwas a one-off, take some code, run it on\nan API, expand.\nNow, what if you could\nuh generate long-running workflows that\nrun for days, months, years? Uh what if\neach of those instances has some state\nthat it can carry with it uh through um\nthrough its lifetime?\nWhat if in this world of generative UI,\nyou can start generating a perfect\nperfectly custom UIs for every single\nuser that you have. Everyone who does\ne-commerce knows this problem. The more\npopular you get, the more UI becomes\nthis bland thing that has to work for\nevery single user. And then you bring in\nthe ML people and they're like, \"Oh,\nwhat if we change the color button this\nway if it's somebody else?\" No.\nYou can go absolutely custom. So, uh I I\nlike the fact that I got Opus to\ngenerate generative UI for a slide where\nI'm making a point about generative UI\nand it still looks a little bit like\nUh but the idea is everyone like\ne-com let me talk about that e-commerce.\nLike you have context about everything\nabout the user, the things they like,\nthe orders they have in their cart, the\nthings that might be making them mad.\nYou can surface these things as actions.\nThe UI doesn't have to be a blank chat\nbox. Though, honestly, blank chat box\ne-commerce might be a lot of fun.\nUh here I have two different use cases.\nIn the first one, it's uh I need to\nreturn these shoes and find something\nsimilar under $100. If the product\nengineers have not implemented this, how\nit's\nit's going to kind of suck in but you\ncan generate something on the fly versus\nwhat is happening with my uh delayed\norder.\nPoint being, we are now in a world where\nwe can generate completely different\nprograms backed by a system that you\nbuilt on your back end for every single\nuser. It's a new kind of software we're\nbuilding.\nAnd this harness idea isn't just built\ninto the product. A lot of people are\nfinding power by running the harness\ncloser to the user simply because then\nthey get to start mashing up all their\ndifferent services. This is an\nanti-Cloudflare talk at this point. I'm\nlike, you should be running the software\non your iPhone, like not so much on our\nservers. Please run it on our servers.\nUh but you but there you start getting\nto stitch together different systems in\nthis safe environment and you get to do\nit on a task-by-task basis.\nI put this in here because I'm a React\nprogrammer and I don't want to freak out\nthe React people by saying no one really\nwants to build UI anymore. But really,\nit's a harkening back to rethinking\neverything that we have thought about UI\nand for this new age. I keep thinking\nabout it as part of the tech tree we\nhave not really explored for 30 years\nbecause eval wasn't around, but now we\nhave a safe eval and we have these\nthings that generate code for you. But\nyou do need to be in a place where you\nunderstand that your next billion users\nare these little robots that are\ngenerating code for you. To be clear,\nyour customers are still humans. The\nthings interacting with your systems, uh\nif you really love your users, you need\nto find out where they hang out and they\ndon't hang out in the pub, they hang out\nin registries. They dream in types and\nsyntax errors, you know?\n>> [snorts]\n>> Uh you need to be thinking about what is\nthe developer experience for these\nagents. This is something a bunch of\ncompanies are already doing really well,\nby the way, you know? Docs which are\nmarkdown, uh\nerrors that let the agent know what to\ndo next, uh discoverability via search.\nThe big one that I do want to talk that\nI want you to\nembed in your head, I guess, is this\nidea of capability-based security.\nThis isn't even a JavaScript talk. It\ncan be in Python, it can be in WASM. Uh\nI hope it brings a resurgence of Lisp.\nIt's how I kind of learned how like ASTs\nwork, it kind of breaks your brain. Uh\nbut the but the attributes are still\nvery much the same. Events, sandboxing,\ncapability-based security, embeddable so\nthat it's really fast to start up and\nrun ephemerally.\nReact programmers simply be Well, UI\nprogrammers simply because they have so\nmuch uh they've been so close to users,\nI suspect that they'll do particularly\nwell here and that feels really good to\nme, by the way. I feel happy about it.\nSo, to end,\nfor the longest time,\nprogrammers like us, we got code, we had\ninfinite power to interact with any\nsystem that we could and complain about\nit on Twitter\nbecause our documentation doesn't have\nthe right CSS or something. JavaScript\nprogrammers super entitled, by the way.\nUh everyone else got buttons and forms.\nThat distinction is breaking. In a world\nlike this, you need to let the code do\nthe talking. The code is the thing that\ninteracts with all your systems. Uh come\ntalk to me about it at the pub. Like\nthis is like it feels like it's opening\nup a whole new area of research for us.\nUh and we have a lot of ideas and I get\nto finish my talk and the day with 6\nseconds left. How good is that?\nThank you very much. Appreciate it.\n>> [applause and cheering]\n[music]\n[applause]\n[music]",
+  "segments": [
+    {
+      "text": "[music] >> Our next presenter created PartyKit, the open-source tool for real-time multiplayer apps. For his day job, he builds AI agents at Cloudflare. Please join me in welcoming to the stage Sunil Pai. Uh 20 minutes to the pub.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Uh hi. Uh my name is Sunil Pai. Uh I work at Cloudflare. Uh I build agents over there uh for the agents SDK. I'm trying very hard for this not to be a Cloudflare talk, but I think we are on the sponsor board, so that's nice.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "Uh this is a talk about something we call code mode. Uh I've been wearing the hat uh and uh there's some prior art to it. We don't claim to have invented it, but this is a talk about the implications of something new that we we're discovering. So, um",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "you guys have built uh AI applications, and tool calling gets weird at scale. When it's just a couple of tools and very short runs, it's fine. But the moment you start stuffing in uh your Google services, your Jira, your wiki, etc., and you have like hundreds",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "hundreds of tools filling up the context, it starts breaking. and uh the composition is weird, and there's this back and forth that you have to do with uh the model that's really slow. we decided to take a different act. Instead of doing this JSON back and",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "forth thing, we asked the model to generate code, usually JavaScript, that we could run against an environment. Uh and some of the benefits seem a little obvious to us. Uh with code, you get a typed API, you can do type checking, there are syntax errors. Uh",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "models are trained on gigabytes, if not terabytes, of data already in the training set. Uh and instead of doing this back and forth, you could write code that executes it all in one run, just one execution. So, uh so this is what I mean. Like there are",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "uh fundamental capabilities of code. You're able to do looping, you're able to hold state, uh you're doing sequencing, parallelize parallelization, things that you would normally do with code anyway as an engineer. So, the first place we applied this uh",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "my colleague Matt Carey, who's actually going to be speaking about this a little more tomorrow, you should watch his talk. Uh the Cloudflare API surface is about 2,600 API endpoints. If we exposed a tool for every single one of them, it's",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "about 1.2 million tokens in your first call. Like it just blows. There's no way to create an MCP server for the entire Cloudflare API surface. And he had a very clever idea where he exposes just two tool calls. Uh search and execute. Both of these",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "endpoints accept code as an input, literally a string of code. For search, the input to the function that you pass to it is the entire open API uh JSON spec. And once it does that, execute gives gives you a whole bunch of functions",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "that you can call against the things that you called. And it reduced that 1.2, 1.5 million token thing down to 1,000 tokens. Kind of unheard of. I think it's like 99.9% reduction. Uh this is going to be scary. I actually have I have a live demo of this, and uh",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "demos don't usually do me well on stage, but uh but the point being that we were able to take a wide, super wide API surface and make it incredibly fast. Uh the prompt itself can be uh fairly generic. So, I should have kicked up the font size on this one. The",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "prompt here is as a customer, you come in and say, \"We are getting DDoS'd. I want you to find every offending IP that's like attacking us and block them.\" In a moment of panic, when your website is going down, you don't have the time to do menu",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "diving. Uh the Cloudflare dashboard is famously a little cumbersome to handle. Uh and you just want the thing done. And you can't even get an AE, it's like 3:00 in the morning. Uh with a regular MCP thing, and this isn't even talking about stuffing 1.2",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "million tokens. It would be about eight round trips to do each of those API calls. Instead, the model can generate this string of code, run it immediately right next to the API surface, and do it in one shot. And it's just running JavaScript. Just",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "functions and um just things that you're exposing on the API surface. Okay, live demo. This is a demo of our mythical server. Uh I hope I'm logged in, because if I'm not, I'll need all of you to close your eyes while I enter a password. Let's say",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "I just want to like list my workers. Oh, there it is. List my workers. I say send. Okay, okay, then there's no password required. Okay, fine, that's fine. Okay, I give it only read-only access for this demo. Uh do the thing. Yes, allow, sure, whatever.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Ba ba ba ba ba. Nice. Okay, it comes back, and uh you'll see it'll start executing tool calls. I should be able to open this up. It has sent saying, \"Hey, find me all API endpoints that just say the words list workers or something like that.\"",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Uh it then runs code, uh which Hey, yeah, it's like one single request for the API endpoint to get all the workers. Uh it must have received a whole bunch of these. It's actually going through JavaScript errors now. This is going to be fun to",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "see if it actually succeeds. Yikes. Oh, is it trying to do it like per page? It's trying to paginate through the thing. Assume that this worked anyway, and I'll keep talking while it does this. Uh Love that this is happening to me on",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "stage, because I did test it 10 times before coming on. Uh I need to pay for the Mythos uh model to make this work accurately. >> [laughter] >> Uh By the way, you can actually see it. It is actually like listing workers over",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "here. It might just be having trouble uh rendering it over here. Um the point being, uh we are able to shrink that down. Now, if this was a talk about optimizing MCP servers, I would be done and dusted. I was like, \"Hey, you should",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "throw this, and trust me, it works when you're not staring at it and have 800 people looking at you on the stage.\" But it did give us an idea that there's something deeper going on here. The ability to like run this code and uh feels like there's a new way of",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "interacting with systems, with LLMs. here's what I think. Like everyone here is a programmer. And I give you a problem statement like you have 200 photos on your desktop. I need you to categorize and rename them. First thing you do is you look you're",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "going to open up an IDE. You're going to write a little script. Maybe you're going to pass every image to a vision model now, because you get a nice caption for it. Uh rename it, and you're done and dusted. That is how you interact with systems.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "Uh my mother's not going to do this. Her options are to, well, call me up, or just that. There's going to be like lowest common denominator apps for photo management, and it's $7 a month. And for some reason, you have to install a",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "daemon, which is stealing your crypto or some such stuff. Uh and there's been this dichotomy, and it's fine. Like until now, this has been an acceptable uh this has been an acceptable trade-off that non-technical people will have",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "custom-made interfaces built for their needs and desires. LLMs are breaking this boundary. They every human being on the planet now has access to a buddy that can spit out code that can interact with systems. Uh it takes it takes a line like rename",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "these files by date and location, and generates code, and can run it on your uh on whatever system you expose to it. Uh I say execute it safely here, and that's the bit that I do want to talk about in a minute. The other example I have, so this is",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "Kenton. Kenton is the creator of Cloudflare Workers. Uh famously, I'm So, he does the work, and I like taking credit for his work. This is our relationship in the company. Uh so, he he had a thread a little while ago where he built he's built a little",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "white coding environment for himself, because no one else does that in the world right now. So unique. Build your own little white coding thing. Uh the the thing he asked it to generate was a canvas, one of these TLDraw, Excalidraw style canvases.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Uh and it did it it did a little canvas with little brushes and colors. And the first thing Kenton did was draw a tic-tac-toe board on it with a little X in the corner. This is the finished state, and I'll get to that in a second. He did that.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "And uh what he told the model then is, \"I want you to play tic-tac-toe with me. The model, as you can guess, it started generating a tic-tac-toe app. Okay? Kenton stopped it immediately. He's like, \"No. You have access to the entire state of",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "the system. And the state of the system here is an array of strokes. You know, like just a whole bunch of points, grid line, grid line, X stroke, etc.\" He said, \"Inspect that and play it with me.\" immediately, the model started it output",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "the state into its own context and it's like, \"I recognize what this looks like. It looks like a tic-tac-toe board and I can see that you put an X in the top left. Let me draw a perfect circle in the middle of the app.\" To be clear, there is no tic-tac-toe",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "code anywhere in this system. The the emergent behavior is that the model has like, \"Sure, I now know how to interact with the system with a set of strokes.\" Uh also, it lost. Uh by the way, it lost the game and then when we saw the",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "reasoning traces, we noticed that Opus let Kenton win. Which is a whole other weird area of alignment we're not talking about. Anyway, so this actually generated a lot of conversation internally and that's why like this talk is a little weird,",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "it's a little woo-woo. I'm not even sure where we're going and I want to like spread the idea to you and have you folks like integrated. So, the the phrase we've started using is it stopped generating a program and it instead",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "inhabiting the state machine. Uh there's a ghost in the shell reference here for anyone who's over the age of 40, you need ibuprofen, uh you should go back home. Uh but no, like it was a very strange thing to for not to have a separate app generation",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "stage that you then like interact with. That is entirely the part of the thing. So, what does this new software architecture look like? Uh everyone's building what they call a harness. Uh it's because over the last 3 to 6 months, everyone has realized that",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "these coding agents are great general-purpose computing machines. It's why they're running Claude code or code No, they're running Pi on a Mac Mini, which is the wrong machine for this, by the way. You don't have to spend $400",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "for a thing that makes API calls. Uh it's been driving me mad. If you check all the second-hand prices of Mac Minis have like shot up. I got one before it, but I got it because I'm special that way. Uh you be everyone's building this",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "harness and this architecture of the harness is not just that it can generate code, but it has a safe space to execute this code into which capabilities are uh exposed. Uh and there are some attributes to this sandbox. We're",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "calling it a sandbox, which is again another completely overloaded term and I have friends in the industry, everyone's building a different kind of sandbox. Uh we have a sandbox SDK, which uses containers and VMs, but that's not even",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "what I'm talking about right now. Uh there are some capabilities to it. Unlike a container, which comes with all sorts of features that you surround with security, you know, you do a bunch of things from the outside, you start with",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "something that has no capabilities. The only thing it can do is execute code. It can't do fetches, there's no exposed APIs, no nothing. And then you grant capabilities to it explicitly. Uh we have something called dynamic workers. I told you I'm it's not",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "really a Cloudflare code, someone else build something better if you think it's better, it's fine. Uh but this is what we use. We use V8 isolates because they start up really, really quickly and uh it's about 10 years of security hardening. Uh",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "it's in our DNA, we care we care a lot about that. Anyway, so we you start exposing capabilities as APIs, A. And we also can control all outgoing fetches and any network connections. In fact, the default way we recommend you",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "use this is no outgoing fetches, only APIs. It has to be fast and you need absolute full observability into it. You need to know why last Tuesday it made a trade for $2.3 million for I don't know, man, like llama poop or something,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "right? You need to go back to that code. Absolute observability on these systems. It can be V8 isolates like we use. Uh you could use, I don't know, a web web assembly, a custom JavaScript interpreter. Uh that's not the main story here. You just want something",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "that's able to execute that you're able to expose capabilities to and run really quickly. From here, you can start getting really ambitious. The example that I showed you was a one-off, take some code, run it on an API, expand. Now, what if you could",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "uh generate long-running workflows that run for days, months, years? Uh what if each of those instances has some state that it can carry with it uh through um through its lifetime? What if in this world of generative UI, you can start generating a perfect",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "perfectly custom UIs for every single user that you have. Everyone who does e-commerce knows this problem. The more popular you get, the more UI becomes this bland thing that has to work for every single user. And then you bring in",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "the ML people and they're like, \"Oh, what if we change the color button this way if it's somebody else?\" No. You can go absolutely custom. So, uh I I like the fact that I got Opus to generate generative UI for a slide where",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "I'm making a point about generative UI and it still looks a little bit like Uh but the idea is everyone like e-com let me talk about that e-commerce. Like you have context about everything about the user, the things they like,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "the orders they have in their cart, the things that might be making them mad. You can surface these things as actions. The UI doesn't have to be a blank chat box. Though, honestly, blank chat box e-commerce might be a lot of fun.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "Uh here I have two different use cases. In the first one, it's uh I need to return these shoes and find something similar under $100. If the product engineers have not implemented this, how it's it's going to kind of suck in but you",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "can generate something on the fly versus what is happening with my uh delayed order. Point being, we are now in a world where we can generate completely different programs backed by a system that you built on your back end for every single",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "user. It's a new kind of software we're building. And this harness idea isn't just built into the product. A lot of people are finding power by running the harness closer to the user simply because then they get to start mashing up all their",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "different services. This is an anti-Cloudflare talk at this point. I'm like, you should be running the software on your iPhone, like not so much on our servers. Please run it on our servers. Uh but you but there you start getting",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "to stitch together different systems in this safe environment and you get to do it on a task-by-task basis. I put this in here because I'm a React programmer and I don't want to freak out the React people by saying no one really",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "wants to build UI anymore. But really, it's a harkening back to rethinking everything that we have thought about UI and for this new age. I keep thinking about it as part of the tech tree we have not really explored for 30 years",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "because eval wasn't around, but now we have a safe eval and we have these things that generate code for you. But you do need to be in a place where you understand that your next billion users are these little robots that are",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "generating code for you. To be clear, your customers are still humans. The things interacting with your systems, uh if you really love your users, you need to find out where they hang out and they don't hang out in the pub, they hang out",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "in registries. They dream in types and syntax errors, you know? >> [snorts] >> Uh you need to be thinking about what is the developer experience for these agents. This is something a bunch of companies are already doing really well,",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "by the way, you know? Docs which are markdown, uh errors that let the agent know what to do next, uh discoverability via search. The big one that I do want to talk that I want you to embed in your head, I guess, is this idea of capability-based security.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "This isn't even a JavaScript talk. It can be in Python, it can be in WASM. Uh I hope it brings a resurgence of Lisp. It's how I kind of learned how like ASTs work, it kind of breaks your brain. Uh but the but the attributes are still",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "very much the same. Events, sandboxing, capability-based security, embeddable so that it's really fast to start up and run ephemerally. React programmers simply be Well, UI programmers simply because they have so much uh they've been so close to users,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "I suspect that they'll do particularly well here and that feels really good to me, by the way. I feel happy about it. So, to end, for the longest time, programmers like us, we got code, we had infinite power to interact with any",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "system that we could and complain about it on Twitter because our documentation doesn't have the right CSS or something. JavaScript programmers super entitled, by the way. Uh everyone else got buttons and forms. That distinction is breaking. In a world",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "like this, you need to let the code do the talking. The code is the thing that interacts with all your systems. Uh come talk to me about it at the pub. Like this is like it feels like it's opening up a whole new area of research for us.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Uh and we have a lot of ideas and I get to finish my talk and the day with 6 seconds left. How good is that? Thank you very much. Appreciate it. >> [applause and cheering] [music] [applause] [music]",
+      "start": 432,
+      "duration": 6
+    }
+  ]
+}

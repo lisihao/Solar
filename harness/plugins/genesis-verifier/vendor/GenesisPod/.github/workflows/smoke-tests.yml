@@ -1,0 +1,73 @@
+name: Smoke Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to test"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  smoke-test:
+    name: Smoke Tests - ${{ github.event.inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    if: ${{ vars.PRODUCTION_API_URL != '' || github.event.inputs.environment != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set URLs
+        id: url
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
+            echo "API_URL=${{ vars.STAGING_API_URL || 'https://staging-api.gens.team' }}" >> $GITHUB_OUTPUT
+            echo "WEB_URL=${{ vars.STAGING_WEB_URL || 'https://staging.gens.team' }}" >> $GITHUB_OUTPUT
+          else
+            echo "API_URL=${{ vars.PRODUCTION_API_URL || 'https://api.gens.team' }}" >> $GITHUB_OUTPUT
+            echo "WEB_URL=${{ vars.PRODUCTION_WEB_URL || 'https://gens.team' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Health check - API
+        run: |
+          response=$(curl -s -w "\n%{http_code}" ${{ steps.url.outputs.API_URL }}/api/v1/health)
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+          echo "Status: $http_code | Body: $body"
+          [ "$http_code" = "200" ] || { echo "API health check failed"; exit 1; }
+
+      - name: Health check - Frontend
+        run: |
+          http_code=$(curl -s -o /dev/null -w "%{http_code}" ${{ steps.url.outputs.WEB_URL }})
+          echo "Status: $http_code"
+          [ "$http_code" = "200" ] || { echo "Frontend health check failed"; exit 1; }
+
+      - name: API endpoint tests
+        run: |
+          API="${{ steps.url.outputs.API_URL }}"
+
+          for endpoint in "/api/v1/resources:200,401" "/api/v1/proxy/arxiv:200,404" "/api/v1/proxy/github:200,404" "/api/v1/proxy/hackernews:200,404"; do
+            path="${endpoint%%:*}"
+            codes="${endpoint##*:}"
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" "$API$path")
+            echo "$path -> $http_code"
+            echo "$codes" | tr ',' '\n' | grep -q "^$http_code$" || { echo "FAIL: $path returned $http_code"; exit 1; }
+          done
+
+      - name: Performance check
+        run: |
+          time=$(curl -s -o /dev/null -w "%{time_total}" ${{ steps.url.outputs.API_URL }}/api/v1/health)
+          echo "Response time: ${time}s"
+          (( $(echo "$time > 5" | bc -l) )) && { echo "Slow response"; exit 1; } || true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"

@@ -1,0 +1,1214 @@
+{
+  "videoId": "D7e7oUbtkFM",
+  "title": "Stanford Robotics Seminar ENGR319 | Winter 2026 | Gen Control, Action Chunking, Moravec’s Paradox",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 62090,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thanks, everyone.\nThanks for joining on a\nFriday afternoon for a talk\nunderground.\nSo I want to-- yeah, I'm\nreally excited to present\nsome of the work I've\nbeen thinking about.\nSo the way I'm going to\ntell the story for this talk\nis I'm going to start with\nthis observation that's\nbeen made by many who've\ndone robotics or AI research,\nbut often attributed\nto Moravec, which\nis that we often notice\nthat it's been historically\nharder to get\nrobots to do things\nthat we take for granted\nas humans like motion\nthrough the physical world,\nperception manipulation,\nthan it has been to learn how to\ndo things that involve reasoning\nor symbolic manipulation, like\nsolving math problems or chess.\nAnd so yet I think\nin recent years,\nwe've seen tremendous progress\nin the ability of robots\nto perform at least very\nnarrowly scoped manipulation\ntasks.\nAn example of this is one\nof my students, Tonghe.\nHe's doing a short folding\ndemo, which has now become\nalmost cliché in our field.\nBut I think even\nthree years ago,\ndoing some pure\npeer learning would\nhave been rather surprising\nand incredibly impressive.\nSo the technique he's\nusing for this is he's\ncollecting data with a\nbimanual teleoperation device,\nas many of you\nmight be familiar,\nusing that to train a policy\nbased on the teleoperation data\nto perform the action.\nAnd this approach often\ncalled behavior cloning.\nIt's not very new.\nIt's been around, I think, since\nthe late '80s motivated by early\nself-driving efforts.\nAnd then more recently,\nin the early 2000,\nthere was renewed interest\nin using these techniques\nfor things like\nrobotic manipulation.\nBut something\nhappened around 2023,\nwhere we saw this inflection\npoint in the capabilities\nthat we could acquire\nthrough behavior cloning,\nand that resulted in a wave\nof industrial interests\nand scaling these\ntechniques towards more\nambitious projects, form factors\nand greater levels of diversity.\nSo what I'm going to try\nto ask in this talk is,\nwhat is the thing that\ncaused this inflection point?\nAnd before going\nfurther, I'm going\nto give one obvious answer,\nwhich is that obviously, we\nstarted collecting more\ndata, and maybe you\ncould call this the pragmatic\nMoravec's paradox, which is just\nsimply getting\ndata for the things\nthat we do every day has\nhistorically been more\ndifficult than getting\ndata for symbolic tasks\nwhere we have internet\nscale repositories.\nBut I think in\naddition to this, there\nwere a couple key\nalgorithmic breakthroughs,\nwhich emboldened us to\nstart collecting more data\nand enabled us to learn better\nfrom the data that we collected.\nAnd so what I'm going\nto argue is that this\nis an algorithmic Moravec's\nparadox in the sense\nthat unless certain algorithmic\ninterventions are undertaken,\nit's going to be very difficult\nto learn from the data\nthat we collect.\nAnd these algorithmic choices\nare precisely the things\nthat enable data based scaling.\nSo in this talk, what\nI'm going to try to do\nis provide some mathematical\nevidence for this algorithmic\nMoravec's paradox\nview, demonstrating\nwhy learning from demonstration\nin areas like the physical world\ncan be fundamentally\nmore difficult\nthan in symbolic\nreasoning settings.\nAnd then finally,\ntrying to understand\nhow the key breakthrough is\nintroduced in this inflection\npoint.\nThey mitigated the fundamental\nchallenges that we bring up.\nSo that's going to be the point.\nAnd finally, there will be a lot\nthat we still don't understand.\nSo just so you what those key\nbreakthroughs are, many of you\nmight be familiar with them\nif you do practical robotics\nresearch.\nSo one of them is the\npractice of action chunking.\nSo action chunking is the\nsomewhat counterintuitive\npractice where rather than\nrunning your neural control\npolicy at full frequency, you'll\npredict a bunch of actions\nin sequence and execute them\nin open loop or chunk of them\nin open loop.\nAnd I think many of us recognize\nthat action chunking has\nbeen a foundational\ninnovation that\nunderlies a lot of the\ncapability of today's models.\nAnd the second intervention is\nthat of the generative control\npolicy, which basically,\nuses a generative model\nto predict the distribution\nof control actions\nwith the intention of modeling,\nfor example, bifurcations\nor multiple modes in\nthe action distribution.\nSo training policy to\npredict these distributions.\nSo will be the two\ninterventions that we studied.\nSo the unifying perspective\nthat we're going to have\nis that we can think about\na lot of these interventions\nas reparameterizing the closed\nloop dynamics between the robot\nand the learner.\nAnd by doing this\nreparameterization,\nthis actually puts\nus into the regime\nwhere it's scaling\nin the bitter lesson\nnow becomes effective\nand possible.\nSo I'll try to make that\nclaim throughout the talk.\nSo the first thing I\nwant to convince you of\nis why is this learning from\ndemonstration task so difficult\nin continuous control\nsettings like robotics.\nWhat's unique about robotics?\nSo we're going to\nuse an MDP formalism.\nSo many of us might be familiar.\nSo states are\nrepresented by S, actions\nby A. We can transition\nto new states\nby some transition probability.\nWe have rewards which are\nfunctions of state and action.\nAnd finally, some distribution\nof initial states.\nIn addition to this,\nwe're going to also have\nsome problem horizon.\nThe number of steps that\nwe're going to take.\nAnd that will be a key\nobject in some of the results\nthat we present.\nSo we're going to be\nstudying policies.\nPolicies are just ways of\ndescribing an agent's action\nin an [? MBP. ?]\nFocusing for now\non Markovian\npolicies, those which\nmapped states to distributions\nover single actions.\nAnd of course, this can be\ntrue in robotics as well as\nin language modeling settings.\nYou can view both as policies.\nAnd finally, our\ndesideratum is that\nof maximizing expected reward.\nSo we'll have some\nreward function.\nAnd what we care about is\nhow much reward the policy\naccumulates under the\ndistribution it induces.\nSo specifically, we draw states\nfrom our initial distribution\nof states.\nWe execute the policy\nto give US actions.\nWe get new states\nfrom the transition,\net cetera, et cetera.\nSo this is the thing\nthat we want to optimize.\nSo the behavior\ncloning paradigm,\nit takes place in the protocol\nof offline imitation learning\noftentimes called learning\nfrom demonstration.\nSo in learning\nfrom demonstration\nwe envision that our\ndata is collected\nby an expert, which itself can\nbe described by a policy pi\nstar.\nSo the expert collects\nn IID trajectories\ncoming from this distribution\ninduced by the expert policy.\nAnd finally, given\nthese trajectories,\nI run some algorithm.\nAnd that algorithm produces\na new policy pi hat.\nAnd pi hat is supposed\nto have the property\nthat its cumulative reward\nis close to that of pi star.\nSo for example,\nthe suboptimality\nis less than some\nnumber epsilon, which\nis shrinking as I\ncollect more data,\nas I collect more trajectories.\nSo one way of accomplishing\nimitation learning\nis via the behavior\ncloning algorithm,\nwhere pi hat just minimizes some\nnotion of supervised learning\nerror.\nSo for example, I'll\ntake my expert data.\nI'll specify some\nloss function, which\nwill be dependent on the way\nthat I describe my policies.\nFor example, mean\nsquared error could\nbe the a score matching loss.\nAnd finally, I'll optimize\nthis loss function\nover all policies in some\nreasonable class of policies.\nFor example, this might\nbe by doing gradient\nbased optimization on some given\nneural network architecture\nthat I've pre-specified.\nSo this is the behavior\ncloning algorithm.\nAnd why do we like\nbehavior cloning?\nWell, supervised learning\njust works really\nwell in machine learning both\nhistorically and theoretically.\nSo for example, that if you\ntrain on some distribution,\nyour test error on\nthat same distribution\nis typically bounded by\ngeneralization error, which\nwe typically expect to get\nsmaller and smaller as we\ncollect more data.\nBut the fundamental\nquestion in behavior cloning\nis not the generalization\nof the training data.\nIt's actually the\nmismatch between BC error\nand the cumulative reward.\nJust because we match\nour demonstration data\ndoesn't necessarily mean\nthat our cumulative reward\nis too small.\nSo in a little bit more detail,\nwhen we do behavior cloning,\nwe're essentially minimizing\nthe fitting error.\nBut anchor it at\nevery state that we\nsee in our training data.\nBut what we care about\nwhen we evaluate for reward\nis the policy rolled out on\nits own generations, which\ncan cause errors to accumulate\nin small amounts over time.\nAnd this is often called\nthe curse of horizon.\nThat the distribution we\ncare about is the one induced\nby the learned policy, not the\none induced by our expert data.\nSo now, we can ask ourselves,\nwhat's the right perspective\nto understand compounding\nerror in this setting.\nAnd one way to\nthink about this is\nto think of robot learning\nas a control problem.\nNow, what makes something\na control problem\ninstead of a general MDP.\nThere are many answers.\nOne of which I find useful is\nthe perspective of stability.\nSo roughly speaking, there's\na quantity called stability.\nIt's basically refers to\nthe sensitivity of a system\nto perturbations of its inputs.\nAnd it makes a lot-- it's very\nusable in continuous control\nsettings.\nSo we'll be in a\ncontinuous control setting\nhere, where, for example,\nour dynamics are going\nto be deterministic but smooth.\nAnd our policy is going to\nbe deterministic and smooth.\nAnd sensitivity and--\nstability will just\nmeasure the sensitivity\nof the system\nto perturbations of its inputs.\nAnd we'll describe this in more\ndetail later on in the talk.\nSo in particular, there are a\nbunch of different scenarios\nin which you may or\nmay not have stability.\nOne is open loop stability.\nSo open loop stability\ninformally just\nmeans perturbations of the\ninputs to the dynamics.\nAnd open loop\nincremental stability\nthe definition\nwill work with, is\nwhere if I make a\nperturbation to the dynamics,\nI have an exponentially fast\ncontraction back to what I would\nhave gotten had I not had one.\nNow, similarly, I can define\nclosed loop stability,\nwhere now I define stability\nbased on the closed loop\ndynamical system.\nSo this is a system which takes\nthe regular policy and considers\nwhat would happen if we added\nperturbations to the policies\naction on its own state.\nAnd I can define the same thing.\nNow, finally, an\nissue that can arise\nis closed loop\ninstability, specifically\nof the learned policy where\nsmall perturbations tend\nto accumulate quite massively.\nSo the question we're going to\nask then in terms of stability\nis how does test\ntime error arise.\nAnd essentially, the key\ndifficulty that we can show\nis that in fact, even if the\nexpert and if the dynamics are\nboth stable and open\nand closed loop,\nit may be the case that\nthe learned policy induces\ninstability.\nSo let me describe\nhow this happens.\nI'm going to prove--\nI'm going to state\na negative result.\nAnd to state the\nnegative result,\nI'm going to try to\nconvince you that it's\nin the nicest possible setting\nthat this result could hold.\nSo I'm going to\nconsider the following.\nThe learner is given a\nset of possible pairs\nof policies and dynamics.\nEach pair of these is smooth,\nis deterministic, is Markovian,\nmeaning that they only just\nthat every action of the policy\ndepends on the current state\nand the transition only\ndepends on the current state.\nAnd lastly, that they\nare stable in the sense\ndescribed earlier\non specifically\nthat errors are forgotten\nexponentially quickly\nboth in open loop and\nclosed loop of the expert.\nFinally, I'm going to tell\nyou that the learners promised\nthat the true policy and the\ntrue dynamics lie in this set\nthat I've constructed.\nSo they abide by these\nproperties in the set\nthat I know.\nSo we can try to think\nof these three conditions\nas specifying a really\nnice behavior cloning\nproblem, one that has all the\nproperties that we might want.\nAlso, all these\npairs, pi and f are\none step controllable\nto make it even nicer.\nSo the last condition\nis when we're\ngoing to restrict our--\none way we're going\nto restrict our algorithm.\nSo we're not going to tell\nyou what the algorithm can\nand cannot do in\nterms of how it's run.\nWe're instead going to restrict\nthe policies the algorithm is\nallowed to learn.\nSo what we're going to do is\nsay that the learner must return\npolicies which are smooth,\nwhich are Markovian,\nand which are deterministic.\nIn fact, you can remove the\ndeterministic condition,\nbut it just changes\nthings a little bit,\nmakes it more complicated.\nNow, why would you impose\nthese restrictions?\nWell, because\nsmoothness and Markovian\njust enforce that you have to\nmatch the expert distribution.\nYou just have to be basically--\nyour expert policy cannot be\nmuch more expressive or less\nexpressive than the expert.\nSo let's now understand\nunder these conditions\nhow easy it is to imitate.\nWhat we're going\nto study is the 0\nis just learning in\nthe square loss, which\nis a very natural and\nclassical style of loss\nthat you might consider.\nAnd we're going to consider\nbehavior cloning in this loss.\nNow, this is in contrast to more\ntraditional analyzes of behavior\ncloning, which have\nused the 0/1 loss,\nif you read classical\npapers by Drew and Bagnell.\nAnd we're going to\nuse the square loss,\nbecause when we have\ncontinuous action space,\nwe cannot get actions\nperfectly correct.\nInstead, we're going to have\nto use something that allows\nfor some degree of tolerance.\nAnd it turns out this is\nactually really important.\nSo now, let me tell you\nthe negative result.\nThe negative result is that\nthere exists a set of policies,\nor rather I'll say it this\nway, fix any scaling law.\nSo any rate of decrease in\nyour error that you would like\nn to the minus\nalpha for any alpha.\nYou can construct a set\nof policies and dynamics\nabiding by what we found on the\nprevious slide, which satisfy\nall the nicest\nassumptions of smoothness,\nstability, et cetera, which\nhave the following-- satisfy\nthe following conditions.\nSo the first is that if\nyou do supervised learning\non the square loss,\nyour error is going\nto decay like the scaling law.\nSo from a supervised\nlearning perspective,\ngeneralization is\nnot a challenge.\nHowever, any algorithm\nthat satisfies\nthe smoothness and\nMarkovian restrictions,\nany algorithm that returns\npolicies that are not much more\nexpressive than\nthe expert, this is\ngoing to satisfy an exponential\nin horizon compounding error.\nIt's going to satisfy this.\nNow, you might ask, is this\njust about behavior cloning?\nNo, it's not.\nIt applies to every algorithm\nthat just uses the demonstration\ndata.\nAnd in fact, even if the learner\nknows the reward function,\nthey cannot do better.\nSo in particular, algorithms\nbased on offline reinforcement\nlearning are going to be unable\nto circumvent this lower bound.\nSo why does this happen?\nThe answer is actually about\ncontrol theoretic stability.\nSo we can construct\nan instance where\ntwo pairs of policies and\ndynamics agree on one subspace\nand are indistinguishable.\nAnd what you can show is\nthat despite this, there\nmight exist an orthogonal\nsubspace where any policy which\nagrees with the data on the\nvertical axis, which stabilizes\none of the dynamics will\ndestabilize the other,\nand that this is unavoidable.\nAnd we can embed\nthis construction\ninto a more general\none that makes\nus robust to maybe\ncertain things that would\narise in just linear cases.\nSo this is what's going on.\nYou basically have this\nirresolvable tension\nbetween fitting the data or\nfitting the dynamics on one data\ndistribution and stabilizing\nthat which you didn't\nsee from being demonstrated.\nNow, we can also compare\nthis to what we see,\nfor example, discrete settings.\nDiscrete behavior\ncloning settings.\nSo for example in discrete\nregimes of behavior cloning,\nwe often see that we only\nhave polynomial and horizon\ncompounding error.\nAnd the reason is because\nessentially if you either\nmake a mistake or you don't,\nthen those the probability\nof mistakes adds up linearly.\nWhereas when you have\na control system,\nthe effective mistakes\ncan add up exponentially.\nHey, OK.\nCool.\nSo essentially, I'm\nbuilding this result\nas the quantitative\nMoravec's paradox,\nbasically, a formal mathematical\nseparation between learning\nand the continuous control\nworld versus learning\nin the discrete world, even in\nthe nicest possible continuous\ncontrol system.\nCool.\nSo let's now go\ninto describe some\nof the interventions that enable\nus to circumvent this challenge.\nSo this is work led\nby Thomas Zhang.\nHe's a PhD student at\nUniversity of Pennsylvania.\nSo again, as I mentioned, the\naction chunking innovation\nis regarded as one of the\nfoundational innovations.\nIt was developed both\nat one lab at Stanford\nand one lab formerly at\nColumbia, now also at Stanford.\nAnd essentially,\nwhat we do is we\ninstead of predicting a\nsingle action, every time we\nmake an observation, we\npredict long horizon sequences\nof actions.\nAnd one way to think about\nwhat action chunking is doing\nis it's actually\nremoving the restriction\nthat the learned\npolicy is Markovian,\nbecause when I do\naction chunking,\nI'm implicitly correlating\nmy actions across time\nby committing to an action\nfrom stale observations.\nSo how might we learn\naction chunking?\nWell, if we're in the\ntraditional behavior\ncloning world where we're\nusing square loss regression,\nwe would just simply add\nan action chunk step index\nto our policy and\ntrain our policy\nto predict a vector of action\nstarting from the current one\nall the way through the chunk\nand we would optimize this.\nNow, what you can prove is\nthe following that if you\ndo this action\nchunking intervention,\nand if your dynamics are\nstable both in open loop\nas well as in closed loop,\nthen for all chunk lengths that\nare sufficiently large, you\navoid compounding error.\nYou just pay for\nsome constant C star.\nNow, you might ask, what is\nk star and what is C star?\nAm I just having the horizon\nor shrinking the horizon?\nNo.\nC star and k star are absolute\nand horizon independent\nconstants that are polynomial\nin relevant problem factors.\nSpecifically,\nfactors that depend\non stability parameters of the\nsystem, as well as smoothness\nconstants.\nAnd finally, this effect is not\njust increasing action chunks\nto eat up the\nhorizon, it actually\njust saturates at\na critical k star\nand ends up being\nhorizon independent.\nSo it's really a qualitative\nchange rather than a mitigation\nof problem horizon.\nSo why does this work?\nWell let's see what happens\nif we don't do action\nchunking as we\nsaw previously, we\nmight just become susceptible\nto compounding error.\nNow, if we do action\nchunking, we're\nnot going to get compounding\nerror on the first action chunk\nbecause we've supervised\nin that action chunk.\nSo that's going to be OK.\nAnd because we're\nopen loop stable,\nthe small amount of error we do\nmake on the first action chunk\nwill keep us close to\nthe nominal policy.\nNow, what about the\nsecond action chunk?\nWell, let's consider\na thought experiment.\nLet's imagine instead that\nthe second action chunk\nis reset to the perfect\nstate that my expert would\nhave visited.\nSo the key finding\nwe can prove is\nthat if the learned policy\nis Lipschitz and satisfies\nsome other reasonable\nassumptions,\nand if the chunks\nare large enough\nas a function of the open\nloop rate of contraction\nin the dynamics, then this\nlearned policy pi hat is itself\ngoing to be closed loop stable.\nSo what does that mean for us?\nIt means the following.\nIt means that if the\npolicy is stable,\nthen its own actions\nthat it takes\nwill track the\nimaginary actions that\nwould have taken\nat the reset state,\nbecause it's going\nto be somewhat\nstable to this perturbation\nfrom where it was here\nto where it was here.\nSo we wait long enough,\nyou'll have this contraction\nand you'll get this--\nif you take it long\nenough action chunk,\nthis contraction will contract\nexponentially, moving you back\nto the next set of states.\nAnd the process can repeat.\nSo this is what\naction chunking-- you\ncan think of action\nchunking as doing.\nSo this is actually\nconsistent with a lot\nof our visual observations\nof what action chunking does\nwhen we use it on\na robot, we see\nthat if we don't action chunk,\nwe have a of jitteriness\nbecause we're picking\nup instabilities\nin the learned neural policy.\nBut if we action chunk, we see\na lot more smooth trajectories\nbecause we're not exacerbating\nthose instabilities.\nNow, we might ask, is control\ntheoretic stability actually\nthe thing that's driving\naction chunking in experiments?\nSo we wanted to run a\ncontrolled experiment for this.\nSo what we're going\nto do is we're\ngoing to train a state\nbased regression policy\nfrom a deterministic expert.\nSo this removes issues\nof multimodality.\nIt removes issues of\npartial observability,\nremoves issues of high\ndimensional observation,\nand we're going to\nplot both the success\nrate against how many steps\nof action chunk we evaluate,\nas well as how many steps of\naction chunk that we train on.\nSo the color depicts\nhow many actions\nare used for supervision,\nwhich might capture things\nlike representation\nlearning denser feedback.\nAnd the x-axis captures the\nlength of the action chunk.\nAnd what we can\nsee is that indeed,\nexecuting longer\naction chunks seems\nto be very salient\nfor performance.\nIt's not simply by\nsupervising on longer runs.\nSo this seems to confirm our\nhypothesis that indeed, it's\nthe execution of the long\naction chunk that induces\nthe control theoretic benefits.\nAnd in addition,\nthat action chunking\nhas these benefits\nthat persist even\nabove things like\nrepresentation learning,\npartial observation,\nor imitation\nof receding horizon control\nthat you can actually\ninterpret the last slide\nas an imitation of RHC.\nNow, that's not to say\nthat representation\nlearning and partial observation\ndon't play a huge role.\nThey certainly do.\nBut we can see these benefits\nof action chunking even\nin the absence of\nthose difficulties.\nNow, you might ask, why\nam I assuming my dynamics\nare open loop stable?\nAnd what I'll say\nto this is in fact,\naction chunking came alongside\nanother design decision\nin robotics, which tries\nto make the dynamics as\nstable as possible.\nSo robotics frequently\nuses position control\nto put us into the regime\nof open loop stability.\nThat can be at the end\neffector at the joint level.\nBut it is position control.\nSo what we're doing, at\nleast in low data regimes,\nis position commands\nare being executed.\nAnd then a closed form\nlow-high frequency controller\nis tracking these positions.\nAnd so in fact, the\nopen loop system,\nwe can view the open loop\nsystem as precisely just\nthe system that designates\nthese waypoints.\nAnd we rely on the\nlow level controller\nas reparameterizing\nour dynamics.\nSo the way to think\nabout this then,\nis to say that the action\nchunking innovation is really\nabout reparameterizing\na control system.\nIt's about taking a control\nsystem, which might be unstable\nif we use raw torques of joints,\nmaking it open loop stable\nif we use end effector\ncontrol, but because\nof our negative result, this is\nstill prone to error in behavior\ncloning.\nAnd then finally,\nadding action chunking\nis one final layer,\nwhich makes the open loop\nstable system finally error\nresilient under learning.\nSo that's how we\ncan think about it.\nNow, do we need action chunking?\nMaybe many people\nin the audience\nmight be interested in\nthis from practical view.\nAnd what I would\nsay is, well, you\ncan think of action\nchunking as being certainly\nbeneficial in that it slows the\npolicy to prevent instability,\nand that it can also address\nmost forms of instability\nrelated to the\nembodiment itself.\nBut action chunking is not\ngoing to fix instability\nin the broader environment.\nAnd my vibe conjecture is\nprobably with enough data,\nyou can probably get rid of\nit, but at the very least\nin the low data regimes that\nencourage us to start scaling\nat the inflection point action\nchunking was indispensable,\nand probably at small\nscales, it still is.\nSo as I mentioned,\nwhat happens when\nthe closed loop of the object\nthat we're manipulating\nand the embodiment\nis not stable?\nWhat do we do in cases where\nyou have a string where\nwe have slippage?\nHow are we going to handle this?\nCertainly, action\nchunking is insufficient.\nSo what I'm going to argue is\nthat the second intervention,\nthat of generative\ncontrol policies,\nis actually aimed at intervening\non potential instability\nin the dynamics themselves.\nAnd I'll explain\nhow we get there.\nSo this is led by Chaoyi Pan.\nHe's a PhD student\nat CMU advised\nby Guangxi and Guangdong.\nSo let me explain the\ntraditional motivation\nfor why we would use generative\nmodels as control policies.\nSo it was believed that as we\nstarted to scale up robot data,\nwe would collect data that\ndemonstrated multiple strategies\nfor solving the same tasks.\nSo, for example, a robot would\nbe confronted with an obstacle.\nThe robot might be\nable to choose to go\nabove or below the obstacle.\nThis would result in two modes\nin the data distribution,\nand that one would\nneed some policy that\nwas sufficiently expressive\nto mimic those two\nmodes in the data distribution.\nSo what we figured is why not\nuse a distributional function\napproximator that can train\nthe conditional distribution\nof actions given observations\nfrom these policies.\nThat was what was believed.\nAnd one of the early\ninnovations was\nto use a diffusion based policy.\nThese have switched over\nto flow based policies.\nAnd this generative\ncontrol policy, these\nare the basis for essentially\nevery large scale robot policy\nthat's being trained today.\nAnd in fact, they're also\nvery theoretically powerful.\nOne can prove that, indeed,\nif you do the right control\ntheoretic low level tricks,\nthey can imitate arbitrary\ndistributions of expert data.\nAnd I think even\nto people who are\non the periphery of\nrobotics, I think\nthey would credit\ngenerative control\npolicies as the\ntechnology that's\nreally responsible for much\nof the robotics revolution,\nthough maybe people that\nspend a lot more time\nwith robotic behavior cloning\nwould also give action chunking\nequal weight.\nSo really, what are we doing\nin a generative control policy?\nEssentially, we're just taking\nthe behavior cloning problem\nand we're replacing this loss\nwith a distribution fitting\nobjective.\nThe one I'm going to focus on\ntoday is that of flow matching.\nSo flow matching\nlearns a velocity field\nwhich tries to transport\nGaussian noise z\nto a distribution over actions.\nIt's trained by some\ndenoising objective\nand it's executed\nby doing inference\nwhere we start at\nsome Gaussian noise,\nwe flow forward our ODE\nin time and at time 1\nwe get an action which\nwe deploy in the system.\nSo the question I'm going to ask\nis are these generative control\npolicies.\nAre they really about\nmultimodal distribution matching\nor are they secretly doing\nsomething else and something\nmore significant.\nSo what we try to do\nis develop a taxonomy\nof what are the\ndifferent aspects that\nare bundled together when we use\ngenerative policy, like a flow\npolicy.\nThe first is certainly\ndistributional learning.\nThis is the reason that\nthey were motivated.\nCapturing multimodal\nmodality in the data.\nThe second is that we also\nadd noise during training.\nWe can call this\nstochasticity injection.\nSo we add this noise variable z.\nAnd this is necessary-- this\nseems to be quite useful.\nAnd finally, the\nlast thing we can see\nis that a flow model\nuses multiple steps\nto generate its actions.\nWe can call this\niterative computation.\nSo in practice I take my flow,\nit's a continuous time object.\nI do an Euler discretization and\nI use it to generate actions.\nNow, in a little bit more detail\nthe iterative computation is not\njust performed at\ninference time,\nit's also supervised\nduring training.\nSo our flow matching objective\nsupervises our denoising process\naround every step of\nthis action prediction,\nnot just at the final steps.\nAnd that seems to\nbe quite salient.\nSo what we can ask ourselves,\nwhich of these components\nare actually salient\nfor learning?\nIs distributional\nlearning really important?\nSo we started off by\ncomparing policies\ntrained with flow\nmatching to those\ntrained with pure regression.\nImportantly, unlike a\nlot of past comparisons,\nwe controlled for the\npolicy architecture.\nSo it turns out that the people\nwho invented a diffusion based\npolicies were also really\ngood at deep learning,\nbut maybe not so good at\nbenchmarking the same loss\nfunction on the\nsame architecture.\nSo it turns out if you\ncontrol for architecture here,\nflow policies are\nrepresented in blue\nand regression policies are\nrepresented in gray normalized\nso that flow policies always\nhave success rate one.\nAnd the red dotted line\nrepresents those tasks\non which flow\npolicies do or which\nregression does less than 95%\nsuccess of the flow policy.\nSo you can see that you only\ndip below 95% relative success\non a handful of tasks.\nMoreover, those tasks\noften don't even\nseem to have complicated\nobservation modalities.\nThey're just a couple\nof state and image.\nThere are many\nobservation modalities,\nfrom VLA backbones to\nimages to 3D point clouds,\nbut regression and flows are\nbasically doing the same.\nSo it doesn't seem to be that\nthis is a universal phenomenon,\nand it doesn't seem to\nbe that it's something\nthat-- it seems to be something\nthat's concentrated in a couple\nregions.\nI should also mention that this\nis for single task learning.\nMulti-task pre-training might\nhave totally different dynamics\nand you should take this\nwith a grain of salt.\nSo now, what we can ask is\nwhat are the tasks where\nwe do see the improvement?\nAre they ones that we think\nwe have a lot of diversity\nin the data we collect.\nAre there ones where they\nhave a lot of multimodality?\nIt doesn't seem that way.\nJust looking at the tasks.\nThese are rather tasks\nthat seem to require\na lot of very careful,\nprecise insertion,\na lot of high precision,\nbut not necessarily tasks\nthat we would naively\nthink of as having\nmultiple modes in the\ntraining data distribution.\nThe second observation\nis, do we actually\nsee any evidence\nof multimodality\nas we're doing learning or from\nthe policies that we learn?\nSo we do three experiments here.\nSo the first experiment,\nwe take a couple\nof domains that are widely\ncredited as being multimodal,\nand we visualize the\naction distribution.\nMoreover, we also\ncolor code the actions\nby their Q function, which is\nthe measure of the return to go.\nSo roughly speaking, the\ncloser you are to dark red,\nthe better the return\nis of that action.\nAnd what we see is not only\nis there no evident action\nmultimodality at\nthe chunk level,\nwe also don't even see that the\ndistributions have any structure\nrelative to the rewards.\nSo it's not all-- there's\none mode of high reward.\nIt's just all\nuniformly dispersed.\nBut our eyes can be deceiving\nin low dimensional observation--\nvisualizations can\nalso be deceiving.\nSo that's not enough.\nAnd the second task\nwhat we do is we\nstudy the inference procedure.\nSo we compare using\nthe flow model\nas it's trained\nwhich is sampled--\nyou sample noise\nfrom a Gaussian,\nand we compare that to\nsampling noise, which is 0.\nAnd unsurprisingly, the dip in\nperformance is not that much.\nBecause you only in robotics you\nonly care about one good action.\nBut what might be a\nlittle bit more surprising\nis this experiment.\nSo we now sample 64\nnoise seed z in parallel.\nFor each of them\nwe execute the ODE.\nWe compute its action.\nWe now compute the\naverage over the actions.\nSo essentially, we're\ncomputing a Monte Carlo\nmean of this distribution\nat every step.\nAnd this is absolutely\ndestroying any multimodality\nthat might be present.\nAnd the performance\ndrop is only 2%.\nSo there seems to be\nno loss if we actively\nkill the multimodality\nin the distribution.\nWe learn basically saying that\nat least at inference time,\npreservation of multimodality\ndoesn't seem to be necessary.\nAnd finally, we\nwant to understand\nif we were to control our data\nso that our demonstrator were\npurely deterministic,\nwould we still\nsee a benefit from using a\ngenerative control policy?\nThe answer is under a\ncontrolled data collection\nwith a deterministic\nneural network,\nthe gap between flow\nand regression policies\ndoes narrow a bit,\nbut we still see\na statistically\nsignificant advantage\nto using flow based modeling.\nSo maybe stated\notherwise, I think\nthis all provides pretty\ncompelling evidence\nthat even if distributional\nlearning might be possible,\nit's certainly not responsible\nfor some of the benefits\nthat we see.\nSo now, what we try\nto do is say, OK,\ncan we ablate away\nthe distributional\nlearning but try to preserve\nsome of the other qualities\nthat flows have and\ntry to understand\nwhether these are responsible\nfor the performance?\nSo to do this, we introduce what\nwe call the minimal iterative\npolicy, which is\ntrying to capture\nthe properties of stochasticity\nand iterative computation,\nbut in the absence of\ndistribution fitting.\nSo the way that we do\nthat is quite simple.\nWe first train a policy\nthat just simply fits\nactions via regression.\nAnd then we train a\nsecond policy, practice\nthey're actually shared as\nthe same neural network which\ntries to take in\nthis state, take\nin a noisy version\nof the action,\nand then again predict\nthe clean action.\nSo some form of one\nstep of self-correction.\nAnd for inference,\nwhat we do is we just\nsimply predict our first\naction, use that as a guess\nand feed it to\nthe second policy.\nThis is called the minimal\niterative policy or MIP.\nAnd essentially,\nall it's doing is\nwe see the\nstochasticity injection\nthat comes in step two.\nWe see the supervised\niterative computation,\nthat comes because you're\njust doing two steps.\nSo simple.\nSo how well does MIP do?\nMIP-- the performance of MIP is\nplotted in red and that of flow\nis plotted in green or teal.\nAnd you can see\nthat on many tasks\nessentially MIP and\nflow are neck and neck,\noftentimes MIP might even\ndo a little bit better.\nHowever, if you try to\nremove one or the other\nof these two conditions.\nSo if you only try to keep\nstochasticity injection,\nbut with no iterative\ncomputation,\nwe get the method called\nstraight flow, which\ndoesn't really do much.\nAnd if you try to do only\niterative computation\nwithout stochasticity,\nthat doesn't work either.\nSo it seems that this\ncombination of things\nmakes things work so well.\nSo now, we can ask ourselves\nwhy would iterative\ncomputation be helpful?\nSo let me give you\none hypothesis.\nImagine that I have a\nbunch of demonstrations.\nAnd in high\ndimensions, these are\ngoing to be sparse and\nsomewhat separated.\nSo one thing my\npolicy could do is\nit could just smush\nthem all together\nand learn some joint\ndistribution over all actions.\nAnd that would result in this\nmultimodal policy learning in B2\nthat we observe over here.\nBut the thing by\npolicy could also\ndo because we don't see\nmultimodality is instead\nlearn how to separate\nbetween left and right\nreally effectively\nand really quickly.\nSo maybe we can imagine that if\nyou do multi-step generation,\nyou're just better\nable, you're more\nexpressive in representing\nthese fast switches from left\nto right.\nSo why would you believe this?\nWell, deep neural networks are\nknown to have higher Lipschitz\nconstants.\nAnd we can think of a flow model\nmaybe as a deep neural network\nwhere we're performing\nindividual steps\nof a computation.\nSo that's something that's\nvery reasonable to believe.\nBut it's wrong.\nSo it actually turns out that\nif your policy doesn't learn\nmultimodality,\nthen it's not going\nto get additional expressivity\nin terms of Lipschitz constants\nfrom depth or from\nmultiple steps.\nThe reason is that typically,\nif you're not multimodal,\nyour distributions are\nwhat we call log concave.\nThese are contractive.\nAnd log concavity implies\nthat in fact you're\nnot too sensitive to\nthe score functions you\nlearn at every step.\nAnd this contractive\nbehavior means\nthat your Lipschitz\nconstants don't\ngrow much more in a flow model.\nIn fact, oftentimes\nflow policies,\nif you just use a single\nnoisy learn smoother functions\nthan regression rather than\nmore high Lipschitz ones.\nSo this can't be the effect.\nSo let me provide\nanother tangent, which\nmight try to contextualize\nwhy flow models actually\nare doing better.\nAnd I'm going to compare it\nto a different data collection\nstrategy and try to argue\nthat flow models are capturing\nan inductive bias that are\nsimilar to what might emerge\nif we collected better data.\nSo remember, in regular\nimitation learning,\nwe take our expert data,\nand we learn policies\nthat approximate the actions on\nthe distribution of expert data.\nBut we could also do something\nwhere we collect a little bit\nmore data with exploration.\nSo we could do noisy\ndata collection where\nwe add noise to our actions.\nWe then get clean expert actions\nat every state that we visit.\nSo wherever we see\na state, we record\nwhat the expert would have\ndone without the noise added.\nAnd finally, we train our policy\nto imitate the clean expert.\nBut under the distribution\nof noisy states like this.\nSo again, you're adding noise\nto collect new states to visit.\nYou're recording\nthe ground truth\nand you're training\nto imitate the ground\ntruth on noisy states.\nNow, it turns out that\nthis data collection,\neven on unstable dynamical\nsystems that are smooth,\nwill provably\nguarantee imitation\nwithout compounding error with\nbasically an optimal rate.\nNow, why does this happen?\nIt turns out that if you inject\nnoise into the action space,\nyou excite what are called\nthe controllable modes\nin the system.\nThere's a thing for\nevery trajectory.\nYou can imagine a linear\ndynamical system falling around\nit, and you excite what's called\nthe controllability Gramian\naround this system.\nAnd there's some\nmagical linear algebra\nthat you can use to\nshow that if you excite\nthe controllability Gramian,\nyou excite every direction that\nis potentially\nunstable and therefore\nsusceptible to\ncompounding error.\nAnd so this result does not\nrequire controllability,\nthe system or anything.\nIt just works because there's\nthis magical alignment\nbetween controllability and\nsensitivity to learning error.\nAnd this algorithm of adding\nnoise is not very new.\nFor example, the dart algorithm\nfrom Ken Goldberg's group\nhad done similar things.\nHere we just show that this is\ntheoretically grounded in fact,\ndoesn't even require\ninteractive data collection.\nNow, I should\nmention, as an aside,\nfor those of you that\ndo train robot policies,\nI wouldn't recommend\ncollecting data this way.\nAnd in fact, other more\nsemantic forms of correction\nseem to be much more\nimportant than this thing,\nbut it is at least a useful\nway to-- a useful way\nto conceptualize how we might\ncollect data to overcome\nthese instabilities.\nSo this data\ncollection, this theorem\nmotivates the\nfollowing experiment.\nLet's actually compare how\nthe policy would generalize\nwhen we train on\nregular expert data,\nbut we evaluate\non the noise data\nthat we collect in this fashion.\nSo imagine I have some\ndistribution over actions.\nAs I move through state space,\nI'll call the action manifold.\nAnd imagine that this is\nmy expert action over here.\nAnd so I'm learning\nto imitate this.\nNow, what we're\ngoing to do is we're\ngoing to collect a\nbunch of trajectories\nthat are close by perturbing\nthe action variables.\nSo we get some\nlocal approximation.\nAnd we can think\nabout these actions\nas spanning some linear\nsubspace, which we'll\ncall the action manifold the\nlocal tangent approximation\nto the action manifold.\nSo now, what we're going to\ndo is evaluate two quantities.\nWe're going to evaluate\nthe generalization\nerror, the L2 loss, how close\nthis action was to this expert\ndata.\nAnd we're also going to\nevaluate the off-manifold L2\nor off-manifold error.\nSo this measures not how close\nwe are to these noisy actions.\nRather, what it\nmeasures is how close\nwe are to being in the span of\nthe noisy-- of the states we\nwould or the actions we'd reach\nif we added noise to the states.\nSo the reason you could\nthink of this inductive bias\nas being useful in robotics\nis imagine an insertion task.\nMy policy might have\nerror along the direction\nwhere I want to insert,\nbut that's not so bad.\nWhat's bad is the error that's\nnormal to the direction I\nwant to insert.\nSo somehow what we find is\nthat flow based policies\nseem to approximate\nsome of the things\nthat we really want from this\nform of data augmentation,\nwithout doing the data\naugmentation itself\nby doing this projection.\nAnd again, it's interesting to\nsee that regression sometimes\ndoes better on validation loss,\nbut worse on this projection\nmetric.\nWe also have a ton\nof toy experiments\nwhich validate this as well\nand really dig into it.\nSo again, this is\nthe key finding.\nIt's that these GCPs\nwhat they're really doing\nis they're exhibiting this\nlower off-manifold error\non these noise trajectories.\nNow, why does this happen?\nWe actually don't have\na concrete theoretical\nexplanation.\nThe reason why is\nbecause yes, you\ncan prove that diffusion\nmodels map you to a manifold.\nSo too can you prove that if\nyou train a regression model\nand all your actions lie in\na low dimensional manifold,\nthe regression model will\nalso learn the manifold.\nSo to make this point\nclear, one would\nneed to show that diffusion\nlearns diffusion or generative\nmodels learn manifolds\nbetter than regression.\nAnd currently, I\nhaven't seen anybody\nbe able to establish\nthis rigorously,\nbut at least we have very\nstrong experimental evidence\nof this phenomenon.\nAnd I can give a\nconceptual picture\nfor why you might\nimagine this happening.\nAt every step,\nwhat you do is you\nget one guess at the manifold.\nSo you predict an action,\nyou add a little bit of noise\nto move off of it, and then\nyou have another attempt\nto predict the action to\nget back onto the manifold.\nAnd this process seems to be\nsomething that's quite useful,\nbut I think making it rigorous\nremains an open problem.\nAnd notice that this is quite\ndifferent than expressivity.\nThis is not that your\ngenerative model can represent\nmore complicated functions.\nIt's actually that it\nhas a regularization\neffect, which is interesting.\nSo also, it turns out\nthat stochasticity\nis really necessary here because\nthe stochasticity functions like\nthe adding noise to your action\nspace in the other thing,\nit basically removes\ndistribution shift\nthrough the generation process.\nAnd of course, all this requires\nthe iterative computation.\nBut it's this synergy\nbetween these two\nthat seem to be essential.\nCool.\nSo I think this is\nnice, because we always\nthought that generative control\npolicies were about distribution\napproximation, but it\nactually seems that they're\nabout addressing some of\nthese challenges associated\nwith the control theoretic\ndifficulties of learning\nfrom demonstration data,\nwhich I was surprised to do.\nSo for people who are more\npractical in the audience,\nyou might want to ask, should I\nbe using the minimal iterative\npolicy?\nSo let me give an answer.\nDoes it work with VLAs?\nSo the first thing\nsomeone at Pi asked\nme was, go train\na Droid data set\nand see if it works, or go\nfine tuned in pi with MIP.\nDoes it work?\nThe answer is yes.\nSo I don't think\nI have the Droid\ndata to share with you here,\nbut it worked pretty well\nin the Droid data.\nAnd indeed, if you fine tune a\npie model on, say, some library\ntasks, it seems to outperform\neven flow models in some cases.\nIt's kind of cool.\nThe second question\nis and again, this\nis single task fine tuning.\nSo for pre-training\nscale, I'll get to that.\nWhat about task diversity?\nSo do you need flow models to\nhave more diverse solutions\nto tasks.\nIt turns out you don't even need\nto go to MIP for task diversity.\nEven a regression model can\ngive you task diversity.\nSo why is this?\nBecause oftentimes what\nyou care about in task\ndiversity is diversity at\nthe level of trajectories,\nnot at the level of the per\nstate action distribution.\nAnd even regression can provide\na lot of this diversity.\nSo people might complain, I\ndon't get much exploration\nthrough my action\nmodel, but maybe you\ndo at the level of your resets\nand all these other things.\nSo my answer should you use\nMIP, not unless you need to.\nSo let me tell you\nthe advantages.\nIf you want\ninsightful ablations,\nwe found it really useful.\nSo if there's something-- if\nyou think your flow model is now\ndoing some weird multimodal\nthing, you want to test it,\ntry to see if it works.\nIf it works, maybe your flow\nmodel is not being multimodal.\nThe other thing is\nif you want a policy\nwith really fast inference,\nat least in our experiments,\nit seemed that MIP performed\nmuch better than things\nlike consistency models.\nSo from our experiments,\nand in particular,\nMIP was a lot less\nsensitive to it\nseemed like medium proficiency\ndata than these models,\nand a lot better at\nhigh precision tasks\nthan consistency models.\nThe way that you\ncan think about this\nis that if you have a\nvery high precision task,\nall you really want to do\nis just correct your errors.\nWhereas if you have\na consistency model\nfor the audience,\na consistency model\nis one that basically tries to\nlearn the integration of an ODE\nthat you have in a\nflow into a one step.\nAnd a consistency model is\nmore about being faithful\nto the learned flow than\nabout pushing you back\nto the action manifold, which\nis how MIP is directly trained.\nSo we believe that\nprobably these things are\nbetter as shortcut policies.\nBut there are cons.\nI think at pre-training\nscale, there probably\nis some degree of multimodality\nand that I suspect,\nflows make much better\npre-training objectives,\nif for the only reason\nthat they have more\nsteps of iterative computation.\nSo I would not recommend\npre-training with MIP.\nI would also say that\nflows are much more\nstable for RL-finetuning\nfor a range of reasons.\nOne thing being that you get\nmore plasticity if you have\nmultiple steps of computation.\nYou can also add more\nnoise to your flow\nand get stability\nback to the manifold.\nSo what I would say\nis in that case,\nprobably you want\nto use it for RL,\nbut I think there is room to\nexplore the capability of MIP\nas residual models.\nPeople have been doing a lot\nof residual policy learning.\nThere's also a lot of room to\nexplore MIP as parameterizations\nof Q functions in RL.\nThere's been a lot of work\non flow based critics.\nIn my experience, I\nhaven't been able to get\nthose to work on very\nprecise manipulation tasks,\nbut it's entirely possible\nthat a MIP based critic\nmight be able to do that.\nSo if you want to\nuse MIP, though, I\nthink people have\ntold me, oh, I've\nrunning into issues using MIP,\nit doesn't work on my task.\nYou have to email Chaoyi.\nThere are some\nsubtleties and but he's\nbeen able to unstick\npeople in the past.\nSo if you're curious\nabout it, you should--\nyou should email him.\nAnd I think actually on the\nmuch ado about nothing page,\nthere is some quick start guide.\nBut if you have questions,\nChaoyi will set you up.\nOne other question I thought\nwas quite interesting,\nI thought this would be\nthe mechanism by which they\nwere useful or not,\nbut it's a nice aside.\nYou could think of\nother reasons why\nyou might want to use\na generative control\npolicy to fit like a function.\nSo what's miraculous about this\nis that at the end of the day,\nflow models were discovered\npotentially as better ways\nto fit deterministic functions.\nDeterministic policies but\nusing distributional models.\nSo why might you\nwant to do this?\nWell, here's another reason.\nPeople in the audience are\nconcerned or interested\nin uncertainty quantification.\nSo imagine that I\nhave a function that's\nvery hard to fit, here,\nI've plotted the function\ny equals sine of 1 over x.\nSo as I move towards\nthe origin, I\ncan no longer fit this\nwith any neural network.\nIt just the oscillations\nbecome infinitely rapid.\nSo I can think about this as\nepistemic uncertainty, just\nfrom the perspective\nthat my neural network\nis unable to represent the\nfunction that I want to fit.\nNow we can compare flow\nand regression models,\nand it turns out that with\na fixed noise, z equals 0.\nThe regression model in the\nflow model look similar.\nIn fact, the flow model\nlooks a little smoother.\nBut the cool thing about flow\nmodels is that when you cannot\nfit the function, you\nget higher variance.\nSo you essentially can\nconvert epistemic uncertainty\ninto aleatoric uncertainty.\nAnd I think this is a\nreally nice property.\nI'm working on with\nsome theory students\non understanding the extent\nto which this is possible.\nI don't how much\nthis will generalize\nin more interesting\ncases, but I think\nthat maybe in problems where\nyou have things where you're\ndoing like critic learning and\nreinforcement learning, where\nin low dimensions\nthis might be useful.\nFor high dimensions,\nI would really\nlook at Andrea\nBeachy's work, who's\nbeen really interested in\nuncertainty quantification\nin diffusion models.\nI think that there are\nother considerations when\nyou consider images because\nimages are so highly structured.\nAnd also, maybe\nanother aside, just\nfor those that aren't\nfamiliar with image diffusion,\nthere's something very magical\nabout how the denoising\nprocess and natural image--\nthe distribution of frequencies\nin natural images seem to align.\nSo this technology is\nreally overfit to images.\nAnd so there are probably\nother things you can do there.\nSo let me just go through and\nconclude what we've learned\nand what we've\nestablished today.\nSo this talk was a control\ntheoretic perspective.\nSo what we try to do is\nshow that continuous control\nimitation learning was\nfundamentally harder\nor could be fundamentally\nmore challenging than what\nwe encountered in\ndiscrete settings\nlike in language modeling.\nAnd as a consequence of this, we\nattributed the inflection point\nin imitation based robotics\nto basically two design\ndecisions that\ninadvertently witnessed\nor inadvertently addressed\nthe fundamental difficulties\nof imitation.\nThese being the action\nchunking procedure, which\nworks when the system\nis open loop stable,\nand the generative modeling\nprocedure, which potentially\nmakes things work better\neven under instability\nor high precision\nrequirements via the action\nprojection or the manifold\nprojection mechanism.\nSo again, we can use\nthis, but I at least\ntake this as evidence of the\nalgorithmic Moravec's paradox\nperspective that\nindeed, learning\nfrom robotics-- from robot data\nis not fundamentally harder.\nBut it is harder unless certain\nkey algorithmic design decisions\nare taken into account.\nAnd upon figuring these out,\nscaling became unlocked.\nSo now, I want to ask, we've\ntalked a lot about control.\nWhat does remain\nhard about robotics?\nAnd I'm relatively\nnew to robotics\nand so have yet to\ntruly understand this.\nBut what I would say is that\nmaybe one perspective is maybe\nnothing if we get the data.\nI don't think this\nis quite right.\nSo certainly, there are\nchallenges for broad world\nunderstanding in-context\nlearning, long horizon memory,\nrobotic dexterity.\nI think these are\nstill fundamental,\nbut I think the way that I\nthink about difficulty and data\nscaling is that there's this\nunfortunate correlation.\nBecause the tasks that have\nthe most economic utility,\nare often also the tasks we\nhave to do the most often,\nor the tasks where we're most\nwilling to pay to instrument\nthe data.\nAnd so oftentimes,\nit becomes very\neasy to learn the tasks that\nwe're most likely to raise money\nto solve because we have a lot\nof data or can pay for the data.\nWhereas a lot of\nacademia, maybe we\nwant to have happen here, where\nwe haven't yet convinced people\nthat we want to scale the data,\nor we haven't convinced people\nthat this is worth\ndoing, or this\nis on the margins\nof our capability.\nIt's a robot in space or it's\na nanofactory or something.\nAnd my bitter lesson is that\nat least in the short term,\nthese tasks are always\nvery cool for researchers,\nbut they're not the things that\nare necessary for short term\ncommercialization.\nAnd so if you want to\nmake short term impact,\noftentimes you can get away with\nmuch simpler or less interesting\nalgorithmic\ninterventions, precisely,\nbecause you're in the regime\nwhere it's economically\nviable to collect data.\nBut I do think that\nin the long run,\nwe're still very far\nfrom what we think\nof as an intelligent\nrobot, in the sense\nthat humans have this remarkable\nability to learn rapidly\nfrom few shot adaptation\nor a novel or rare\nor situations that\nhave low action\nsimilarity between training\ndata and novel actions.\nSo my favorite example\nof this is the fact\nthat orangutans can\ndrive golf carts.\nIt's really, really\nunbelievable.\nAnd in fact, you\ncan ask a question\nhow many flops were\nused by the orangutan\nor how many\nkilojoules were used.\nAnd if you were to compare\nthat number of flops\nto what Waymo uses\nin pre-training,\nyou'd be really embarrassed.\nOf course, orangutans have\nreally strong inductive biases\nnavigation, 3D understanding.\nBut this is all to\nsay that I think\nwe're very far away from a\nrobot that can go and learn\nhow to operate a new\npiece of machinery.\nSo I think that puts things.\nNow the question\nis, it's probably\nstill cheaper to have\nself-driving cars\nand Waymo instrumented.\nI'd rather have Waymo than\ninterrogating Uber driver.\nBut I do think that there\nis still a lot of work\nto be done towards\nagents in the world that\nare physically intelligent.\nMaybe one last coda is, what\ncan these insights tell us\nbeyond robotics?\nSo empirically, that this\ncompounding error phenomena\ncan also arise in any case\nwhere you have to execute\nthe model back on itself.\nThat could be an autoregressive\nlanguage modeling\nand a generative modeling.\nAnd so in some\nfollow up work, we're\ncalling this the test time\nfeedback phenomena, where\na model is used to\nmake generations\nand it's fed back into itself\nthrough maybe a black box\nnetwork.\nAnd so maybe we could\nask ourselves, just\nlike flow models were able to\ncircumvent the compounding error\neffect, just without more data,\nbut with a better inductive\nbias.\nMaybe there exist tools from\ndeep learning optimization\nthat can ameliorate test time\nfeedback in other domains\nbeyond just robotics.\nThe things that exist\nover here, maybe\nthings especially\nwhen data is scarce.\nSo essentially,\nwe've been working\non a new family of optimization\nalgorithms depicted\nin the light blue, compared\nto the baselines in light red.\nJust so you know, all the\nlearning rates I'm depicting\nare tuned to optimize the\nbaseline, not our method.\nAnd indeed, what we can see\nis that these optimizers\ndo seem to benefit\ncases like robotics,\nimproving the success\nrate, but also performance\nin language modeling and even\nin image generative modeling.\nAnd you might-- if you actually\nwere to look at the training\ncurves, you would see that our\noptimizer and the true optimizer\nor the baseline optimizer\nare indistinguishable\nin terms of training loss,\nindistinguishable in terms\nof held out validation loss.\nBut in terms of multi-step\ntest time feedback,\nthey seem to do much better.\nBut unfortunately, that\nwork isn't out yet,\nso you'll have to stay tuned.\nAnd thanks for having me.\n[APPLAUSE]\nCool.\nYeah.\nYes.\nI have a question.\nYou talked about the benefits\nof the position control.\nI was wondering if you had\nthoughts on generative models\nto take advantage of the\nlower level and control staff?\nYeah, I think this\nis a data issue\nbecause I think you have so\nmuch data around-- if you have\nenough data of your\nsame embodiment, that's\ngoing to generalize to\nall different tasks.\nSo my sense is that\nas you scale data,\nyou should just be--\nyou should actually\nbe able to get rid\nof position control.\nIn fact, I was talking\nto Chelsea Finn earlier\nand I brought this\nup and she was\nlike, yeah, why don't\nwe just try it at pie.\nI think-- actually,\nshe explained to me\nthat her earliest work\ndidn't use position control\nlike the early mid 2010's,\nSergei Chelsea stuff just\nused talk level control.\nAnd I suspect that\nwith the right data\nscaling, that should come back.\nAgain, this is\nanother perspective.\nThere's a lot of\nthese interventions\nif a VC had given us $10 billion\nto do robot data collection,\nmaybe we would have not\nneeded any of this stuff.\nBut these were the things\nthat enabled us to get off\nthe ground at small scale.\nYes.\nWhen it comes to the\nintervention you did with\nor the interpretation that\nwhen you train the model\nand you have the iteration\npolicy, why that maps you back\nto the extra manifold.\nI guess my first\nquestion is, why is this\nparticularly different than just\nsimply noising the observations\nduring training?\nThe second thing is when\nyou're like-- would it\nbe better if\nbecause you're using\nthe same network to\ngenerate these noise--\nthe noise steps like the\nfirst step that you take in.\nAnd that's why it's more in\ndistribution of the learner\nrather than just adding noise\nto the expert demonstrations?\nYeah.\nSo I guess there's-- exactly.\nSo let me say there are a\ncouple-- one question is\nabout adding noise\nto observation.\nSo unfortunately,\nfrom image rich\nobservations, the right\nnoise distribution\nto corrupt your observations.\nThat's entirely unclear.\nThe second thing is\nactually adding noise\nto observations has a really\ninteresting theoretical effect,\nwhich is it basically\ncauses you to learn\nfrom the posterior\nover actions given\nuncertainty in your\nobservation, it\nturns out this has really\ncool theoretical properties.\nAnd I wrote a paper about\nthis about two years ago.\nIt introduces something called\nthe replica distribution, which\nis inspired by replica\nsymmetry in physics,\nbut it's not useful\nin actual robotics.\nAdding noise to\nyour expert actions,\nthat's just going to add\nmore regression noise.\nSo the reason that you want to\nadd noise to the actions you do\nis because\nspecifically you're not\ntrying to combat generalized\ndistribution shift.\nYou're trying to-- where's MIP?\nHere where do I put it.\nOne second.\nYou're not trying to combat\ngeneralized distribution shift.\nYou're trying to\ncombat the distribution\nshift under your own policy.\nYou're trying to\ncorrect your own errors.\nAnd that's why you add\nnoise to your own actions.\nYeah.\nSo that's why it's like\nthe first step of the myth.\nDo you have the noise\nand you're saying--\nOh, actually, wait, no.\nSo we can add noise\ndirectly to expert actions.\nThat's what we're training it.\nWe're not like during training.\nSo the way to think of this\nis that if your expert action\nis close enough to your MIP--\nif your MIP action first step is\nwithin this noise ball\nof the expert action,\nthen basically adding\nnoise to one or the other\ngives you the same\ndistribution more or less.\nYeah, I guess the\nquestion is the insight\nthat because you're using\nthe same network for both\nof your steps.\nOh, yes.\n[INAUDIBLE]\nYeah, I see, I see.\nSo from what I\nunderstand, I think\nwe can ablate away and\nuse separate networks.\nThe other thing is that\nbasically we're still using it.\nIf you use the same network,\nwe're using a time embedding.\nSo these are\ndifferent-- in practice\nyou're using a time embedding.\nAnd the time embedding\nis like at t equals 0.9.\nSo it very much separates\nthese two things.\nSo in principle, you can just\nlearn two separate circuits.\nMaybe there is some shared\nrepresentation learning which\nis useful if you have pixels.\nBut yeah, I don't think the\nnetworks are overly coupled.\nI think if you used--\nactually if you\nuse exactly the same\nnetwork, it does not work.\nBecause you do want to\nlearn a different mechanism\nfor correcting the\nnot correcting.\nThe other thing is that also\nif you do the first step,\nyour first step essentially\nhas to condition on 0 action.\nAnd so it's hard to learn\nthe first action shot\nversus the correction behavior.\nThose end up being\nvery different.\nYeah, sure.\nOther questions?\nCool.\nSpeaker, again--\nYeah, thanks so much.",
+  "segments": [
+    {
+      "text": "Thanks, everyone. Thanks for joining on a Friday afternoon for a talk underground. So I want to-- yeah, I'm really excited to present some of the work I've been thinking about. So the way I'm going to tell the story for this talk is I'm going to start with",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "this observation that's been made by many who've done robotics or AI research, but often attributed to Moravec, which is that we often notice that it's been historically harder to get robots to do things that we take for granted as humans like motion",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "through the physical world, perception manipulation, than it has been to learn how to do things that involve reasoning or symbolic manipulation, like solving math problems or chess. And so yet I think in recent years, we've seen tremendous progress",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "in the ability of robots to perform at least very narrowly scoped manipulation tasks. An example of this is one of my students, Tonghe. He's doing a short folding demo, which has now become almost cliché in our field. But I think even three years ago,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "doing some pure peer learning would have been rather surprising and incredibly impressive. So the technique he's using for this is he's collecting data with a bimanual teleoperation device, as many of you might be familiar, using that to train a policy",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "based on the teleoperation data to perform the action. And this approach often called behavior cloning. It's not very new. It's been around, I think, since the late '80s motivated by early self-driving efforts. And then more recently, in the early 2000,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "there was renewed interest in using these techniques for things like robotic manipulation. But something happened around 2023, where we saw this inflection point in the capabilities that we could acquire through behavior cloning, and that resulted in a wave",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "of industrial interests and scaling these techniques towards more ambitious projects, form factors and greater levels of diversity. So what I'm going to try to ask in this talk is, what is the thing that caused this inflection point? And before going",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "further, I'm going to give one obvious answer, which is that obviously, we started collecting more data, and maybe you could call this the pragmatic Moravec's paradox, which is just simply getting data for the things that we do every day has",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "historically been more difficult than getting data for symbolic tasks where we have internet scale repositories. But I think in addition to this, there were a couple key algorithmic breakthroughs, which emboldened us to start collecting more data",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "and enabled us to learn better from the data that we collected. And so what I'm going to argue is that this is an algorithmic Moravec's paradox in the sense that unless certain algorithmic interventions are undertaken, it's going to be very difficult",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "to learn from the data that we collect. And these algorithmic choices are precisely the things that enable data based scaling. So in this talk, what I'm going to try to do is provide some mathematical evidence for this algorithmic Moravec's paradox",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "view, demonstrating why learning from demonstration in areas like the physical world can be fundamentally more difficult than in symbolic reasoning settings. And then finally, trying to understand how the key breakthrough is introduced in this inflection",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "point. They mitigated the fundamental challenges that we bring up. So that's going to be the point. And finally, there will be a lot that we still don't understand. So just so you what those key breakthroughs are, many of you might be familiar with them",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "if you do practical robotics research. So one of them is the practice of action chunking. So action chunking is the somewhat counterintuitive practice where rather than running your neural control policy at full frequency, you'll predict a bunch of actions",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "in sequence and execute them in open loop or chunk of them in open loop. And I think many of us recognize that action chunking has been a foundational innovation that underlies a lot of the capability of today's models. And the second intervention is",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "that of the generative control policy, which basically, uses a generative model to predict the distribution of control actions with the intention of modeling, for example, bifurcations or multiple modes in the action distribution. So training policy to",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "predict these distributions. So will be the two interventions that we studied. So the unifying perspective that we're going to have is that we can think about a lot of these interventions as reparameterizing the closed loop dynamics between the robot",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "and the learner. And by doing this reparameterization, this actually puts us into the regime where it's scaling in the bitter lesson now becomes effective and possible. So I'll try to make that claim throughout the talk. So the first thing I",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "want to convince you of is why is this learning from demonstration task so difficult in continuous control settings like robotics. What's unique about robotics? So we're going to use an MDP formalism. So many of us might be familiar. So states are",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "represented by S, actions by A. We can transition to new states by some transition probability. We have rewards which are functions of state and action. And finally, some distribution of initial states. In addition to this, we're going to also have",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "some problem horizon. The number of steps that we're going to take. And that will be a key object in some of the results that we present. So we're going to be studying policies. Policies are just ways of describing an agent's action in an [? MBP. ?]",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "Focusing for now on Markovian policies, those which mapped states to distributions over single actions. And of course, this can be true in robotics as well as in language modeling settings. You can view both as policies. And finally, our desideratum is that",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "of maximizing expected reward. So we'll have some reward function. And what we care about is how much reward the policy accumulates under the distribution it induces. So specifically, we draw states from our initial distribution of states.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "We execute the policy to give US actions. We get new states from the transition, et cetera, et cetera. So this is the thing that we want to optimize. So the behavior cloning paradigm, it takes place in the protocol of offline imitation learning",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "oftentimes called learning from demonstration. So in learning from demonstration we envision that our data is collected by an expert, which itself can be described by a policy pi star. So the expert collects n IID trajectories coming from this distribution",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "induced by the expert policy. And finally, given these trajectories, I run some algorithm. And that algorithm produces a new policy pi hat. And pi hat is supposed to have the property that its cumulative reward is close to that of pi star. So for example,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "the suboptimality is less than some number epsilon, which is shrinking as I collect more data, as I collect more trajectories. So one way of accomplishing imitation learning is via the behavior cloning algorithm, where pi hat just minimizes some",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "notion of supervised learning error. So for example, I'll take my expert data. I'll specify some loss function, which will be dependent on the way that I describe my policies. For example, mean squared error could be the a score matching loss.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "And finally, I'll optimize this loss function over all policies in some reasonable class of policies. For example, this might be by doing gradient based optimization on some given neural network architecture that I've pre-specified. So this is the behavior",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "cloning algorithm. And why do we like behavior cloning? Well, supervised learning just works really well in machine learning both historically and theoretically. So for example, that if you train on some distribution, your test error on that same distribution",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "is typically bounded by generalization error, which we typically expect to get smaller and smaller as we collect more data. But the fundamental question in behavior cloning is not the generalization of the training data. It's actually the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "mismatch between BC error and the cumulative reward. Just because we match our demonstration data doesn't necessarily mean that our cumulative reward is too small. So in a little bit more detail, when we do behavior cloning, we're essentially minimizing",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "the fitting error. But anchor it at every state that we see in our training data. But what we care about when we evaluate for reward is the policy rolled out on its own generations, which can cause errors to accumulate in small amounts over time.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "And this is often called the curse of horizon. That the distribution we care about is the one induced by the learned policy, not the one induced by our expert data. So now, we can ask ourselves, what's the right perspective to understand compounding",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "error in this setting. And one way to think about this is to think of robot learning as a control problem. Now, what makes something a control problem instead of a general MDP. There are many answers. One of which I find useful is the perspective of stability.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So roughly speaking, there's a quantity called stability. It's basically refers to the sensitivity of a system to perturbations of its inputs. And it makes a lot-- it's very usable in continuous control settings. So we'll be in a continuous control setting",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "here, where, for example, our dynamics are going to be deterministic but smooth. And our policy is going to be deterministic and smooth. And sensitivity and-- stability will just measure the sensitivity of the system to perturbations of its inputs.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "And we'll describe this in more detail later on in the talk. So in particular, there are a bunch of different scenarios in which you may or may not have stability. One is open loop stability. So open loop stability informally just means perturbations of the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "inputs to the dynamics. And open loop incremental stability the definition will work with, is where if I make a perturbation to the dynamics, I have an exponentially fast contraction back to what I would have gotten had I not had one.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Now, similarly, I can define closed loop stability, where now I define stability based on the closed loop dynamical system. So this is a system which takes the regular policy and considers what would happen if we added perturbations to the policies",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "action on its own state. And I can define the same thing. Now, finally, an issue that can arise is closed loop instability, specifically of the learned policy where small perturbations tend to accumulate quite massively. So the question we're going to",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "ask then in terms of stability is how does test time error arise. And essentially, the key difficulty that we can show is that in fact, even if the expert and if the dynamics are both stable and open and closed loop, it may be the case that",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "the learned policy induces instability. So let me describe how this happens. I'm going to prove-- I'm going to state a negative result. And to state the negative result, I'm going to try to convince you that it's in the nicest possible setting",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "that this result could hold. So I'm going to consider the following. The learner is given a set of possible pairs of policies and dynamics. Each pair of these is smooth, is deterministic, is Markovian, meaning that they only just",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "that every action of the policy depends on the current state and the transition only depends on the current state. And lastly, that they are stable in the sense described earlier on specifically that errors are forgotten exponentially quickly",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "both in open loop and closed loop of the expert. Finally, I'm going to tell you that the learners promised that the true policy and the true dynamics lie in this set that I've constructed. So they abide by these properties in the set that I know.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "So we can try to think of these three conditions as specifying a really nice behavior cloning problem, one that has all the properties that we might want. Also, all these pairs, pi and f are one step controllable to make it even nicer. So the last condition",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "is when we're going to restrict our-- one way we're going to restrict our algorithm. So we're not going to tell you what the algorithm can and cannot do in terms of how it's run. We're instead going to restrict the policies the algorithm is allowed to learn.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "So what we're going to do is say that the learner must return policies which are smooth, which are Markovian, and which are deterministic. In fact, you can remove the deterministic condition, but it just changes things a little bit, makes it more complicated.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Now, why would you impose these restrictions? Well, because smoothness and Markovian just enforce that you have to match the expert distribution. You just have to be basically-- your expert policy cannot be much more expressive or less",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "expressive than the expert. So let's now understand under these conditions how easy it is to imitate. What we're going to study is the 0 is just learning in the square loss, which is a very natural and classical style of loss that you might consider.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "And we're going to consider behavior cloning in this loss. Now, this is in contrast to more traditional analyzes of behavior cloning, which have used the 0/1 loss, if you read classical papers by Drew and Bagnell. And we're going to use the square loss,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "because when we have continuous action space, we cannot get actions perfectly correct. Instead, we're going to have to use something that allows for some degree of tolerance. And it turns out this is actually really important. So now, let me tell you",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "the negative result. The negative result is that there exists a set of policies, or rather I'll say it this way, fix any scaling law. So any rate of decrease in your error that you would like n to the minus alpha for any alpha. You can construct a set",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "of policies and dynamics abiding by what we found on the previous slide, which satisfy all the nicest assumptions of smoothness, stability, et cetera, which have the following-- satisfy the following conditions. So the first is that if",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "you do supervised learning on the square loss, your error is going to decay like the scaling law. So from a supervised learning perspective, generalization is not a challenge. However, any algorithm that satisfies the smoothness and Markovian restrictions,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "any algorithm that returns policies that are not much more expressive than the expert, this is going to satisfy an exponential in horizon compounding error. It's going to satisfy this. Now, you might ask, is this just about behavior cloning? No, it's not.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "It applies to every algorithm that just uses the demonstration data. And in fact, even if the learner knows the reward function, they cannot do better. So in particular, algorithms based on offline reinforcement learning are going to be unable",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "to circumvent this lower bound. So why does this happen? The answer is actually about control theoretic stability. So we can construct an instance where two pairs of policies and dynamics agree on one subspace and are indistinguishable.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "And what you can show is that despite this, there might exist an orthogonal subspace where any policy which agrees with the data on the vertical axis, which stabilizes one of the dynamics will destabilize the other, and that this is unavoidable.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "And we can embed this construction into a more general one that makes us robust to maybe certain things that would arise in just linear cases. So this is what's going on. You basically have this irresolvable tension between fitting the data or",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "fitting the dynamics on one data distribution and stabilizing that which you didn't see from being demonstrated. Now, we can also compare this to what we see, for example, discrete settings. Discrete behavior cloning settings. So for example in discrete",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "regimes of behavior cloning, we often see that we only have polynomial and horizon compounding error. And the reason is because essentially if you either make a mistake or you don't, then those the probability of mistakes adds up linearly.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "Whereas when you have a control system, the effective mistakes can add up exponentially. Hey, OK. Cool. So essentially, I'm building this result as the quantitative Moravec's paradox, basically, a formal mathematical separation between learning",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "and the continuous control world versus learning in the discrete world, even in the nicest possible continuous control system. Cool. So let's now go into describe some of the interventions that enable us to circumvent this challenge. So this is work led",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "by Thomas Zhang. He's a PhD student at University of Pennsylvania. So again, as I mentioned, the action chunking innovation is regarded as one of the foundational innovations. It was developed both at one lab at Stanford and one lab formerly at",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "Columbia, now also at Stanford. And essentially, what we do is we instead of predicting a single action, every time we make an observation, we predict long horizon sequences of actions. And one way to think about what action chunking is doing is it's actually",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "removing the restriction that the learned policy is Markovian, because when I do action chunking, I'm implicitly correlating my actions across time by committing to an action from stale observations. So how might we learn action chunking? Well, if we're in the",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "traditional behavior cloning world where we're using square loss regression, we would just simply add an action chunk step index to our policy and train our policy to predict a vector of action starting from the current one all the way through the chunk",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "and we would optimize this. Now, what you can prove is the following that if you do this action chunking intervention, and if your dynamics are stable both in open loop as well as in closed loop, then for all chunk lengths that are sufficiently large, you",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "avoid compounding error. You just pay for some constant C star. Now, you might ask, what is k star and what is C star? Am I just having the horizon or shrinking the horizon? No. C star and k star are absolute and horizon independent",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "constants that are polynomial in relevant problem factors. Specifically, factors that depend on stability parameters of the system, as well as smoothness constants. And finally, this effect is not just increasing action chunks to eat up the",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "horizon, it actually just saturates at a critical k star and ends up being horizon independent. So it's really a qualitative change rather than a mitigation of problem horizon. So why does this work? Well let's see what happens if we don't do action",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "chunking as we saw previously, we might just become susceptible to compounding error. Now, if we do action chunking, we're not going to get compounding error on the first action chunk because we've supervised in that action chunk. So that's going to be OK.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "And because we're open loop stable, the small amount of error we do make on the first action chunk will keep us close to the nominal policy. Now, what about the second action chunk? Well, let's consider a thought experiment. Let's imagine instead that",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "the second action chunk is reset to the perfect state that my expert would have visited. So the key finding we can prove is that if the learned policy is Lipschitz and satisfies some other reasonable assumptions, and if the chunks are large enough",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "as a function of the open loop rate of contraction in the dynamics, then this learned policy pi hat is itself going to be closed loop stable. So what does that mean for us? It means the following. It means that if the policy is stable, then its own actions",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "that it takes will track the imaginary actions that would have taken at the reset state, because it's going to be somewhat stable to this perturbation from where it was here to where it was here. So we wait long enough, you'll have this contraction",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "and you'll get this-- if you take it long enough action chunk, this contraction will contract exponentially, moving you back to the next set of states. And the process can repeat. So this is what action chunking-- you can think of action chunking as doing.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "So this is actually consistent with a lot of our visual observations of what action chunking does when we use it on a robot, we see that if we don't action chunk, we have a of jitteriness because we're picking up instabilities in the learned neural policy.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "But if we action chunk, we see a lot more smooth trajectories because we're not exacerbating those instabilities. Now, we might ask, is control theoretic stability actually the thing that's driving action chunking in experiments? So we wanted to run a",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "controlled experiment for this. So what we're going to do is we're going to train a state based regression policy from a deterministic expert. So this removes issues of multimodality. It removes issues of partial observability, removes issues of high",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "dimensional observation, and we're going to plot both the success rate against how many steps of action chunk we evaluate, as well as how many steps of action chunk that we train on. So the color depicts how many actions are used for supervision,",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "which might capture things like representation learning denser feedback. And the x-axis captures the length of the action chunk. And what we can see is that indeed, executing longer action chunks seems to be very salient for performance. It's not simply by",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "supervising on longer runs. So this seems to confirm our hypothesis that indeed, it's the execution of the long action chunk that induces the control theoretic benefits. And in addition, that action chunking has these benefits that persist even",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "above things like representation learning, partial observation, or imitation of receding horizon control that you can actually interpret the last slide as an imitation of RHC. Now, that's not to say that representation learning and partial observation",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "don't play a huge role. They certainly do. But we can see these benefits of action chunking even in the absence of those difficulties. Now, you might ask, why am I assuming my dynamics are open loop stable? And what I'll say to this is in fact,",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "action chunking came alongside another design decision in robotics, which tries to make the dynamics as stable as possible. So robotics frequently uses position control to put us into the regime of open loop stability. That can be at the end",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "effector at the joint level. But it is position control. So what we're doing, at least in low data regimes, is position commands are being executed. And then a closed form low-high frequency controller is tracking these positions. And so in fact, the",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "open loop system, we can view the open loop system as precisely just the system that designates these waypoints. And we rely on the low level controller as reparameterizing our dynamics. So the way to think about this then, is to say that the action",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "chunking innovation is really about reparameterizing a control system. It's about taking a control system, which might be unstable if we use raw torques of joints, making it open loop stable if we use end effector control, but because",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "of our negative result, this is still prone to error in behavior cloning. And then finally, adding action chunking is one final layer, which makes the open loop stable system finally error resilient under learning. So that's how we can think about it.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "Now, do we need action chunking? Maybe many people in the audience might be interested in this from practical view. And what I would say is, well, you can think of action chunking as being certainly beneficial in that it slows the",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "policy to prevent instability, and that it can also address most forms of instability related to the embodiment itself. But action chunking is not going to fix instability in the broader environment. And my vibe conjecture is probably with enough data,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "you can probably get rid of it, but at the very least in the low data regimes that encourage us to start scaling at the inflection point action chunking was indispensable, and probably at small scales, it still is. So as I mentioned, what happens when",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "the closed loop of the object that we're manipulating and the embodiment is not stable? What do we do in cases where you have a string where we have slippage? How are we going to handle this? Certainly, action chunking is insufficient.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "So what I'm going to argue is that the second intervention, that of generative control policies, is actually aimed at intervening on potential instability in the dynamics themselves. And I'll explain how we get there. So this is led by Chaoyi Pan.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "He's a PhD student at CMU advised by Guangxi and Guangdong. So let me explain the traditional motivation for why we would use generative models as control policies. So it was believed that as we started to scale up robot data, we would collect data that",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "demonstrated multiple strategies for solving the same tasks. So, for example, a robot would be confronted with an obstacle. The robot might be able to choose to go above or below the obstacle. This would result in two modes in the data distribution,",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "and that one would need some policy that was sufficiently expressive to mimic those two modes in the data distribution. So what we figured is why not use a distributional function approximator that can train the conditional distribution",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "of actions given observations from these policies. That was what was believed. And one of the early innovations was to use a diffusion based policy. These have switched over to flow based policies. And this generative control policy, these",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "are the basis for essentially every large scale robot policy that's being trained today. And in fact, they're also very theoretically powerful. One can prove that, indeed, if you do the right control theoretic low level tricks, they can imitate arbitrary",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "distributions of expert data. And I think even to people who are on the periphery of robotics, I think they would credit generative control policies as the technology that's really responsible for much of the robotics revolution, though maybe people that",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "spend a lot more time with robotic behavior cloning would also give action chunking equal weight. So really, what are we doing in a generative control policy? Essentially, we're just taking the behavior cloning problem and we're replacing this loss",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "with a distribution fitting objective. The one I'm going to focus on today is that of flow matching. So flow matching learns a velocity field which tries to transport Gaussian noise z to a distribution over actions. It's trained by some denoising objective",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "and it's executed by doing inference where we start at some Gaussian noise, we flow forward our ODE in time and at time 1 we get an action which we deploy in the system. So the question I'm going to ask is are these generative control policies.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "Are they really about multimodal distribution matching or are they secretly doing something else and something more significant. So what we try to do is develop a taxonomy of what are the different aspects that are bundled together when we use",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "generative policy, like a flow policy. The first is certainly distributional learning. This is the reason that they were motivated. Capturing multimodal modality in the data. The second is that we also add noise during training. We can call this",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "stochasticity injection. So we add this noise variable z. And this is necessary-- this seems to be quite useful. And finally, the last thing we can see is that a flow model uses multiple steps to generate its actions. We can call this iterative computation.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "So in practice I take my flow, it's a continuous time object. I do an Euler discretization and I use it to generate actions. Now, in a little bit more detail the iterative computation is not just performed at inference time, it's also supervised",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "during training. So our flow matching objective supervises our denoising process around every step of this action prediction, not just at the final steps. And that seems to be quite salient. So what we can ask ourselves, which of these components",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "are actually salient for learning? Is distributional learning really important? So we started off by comparing policies trained with flow matching to those trained with pure regression. Importantly, unlike a lot of past comparisons, we controlled for the",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "policy architecture. So it turns out that the people who invented a diffusion based policies were also really good at deep learning, but maybe not so good at benchmarking the same loss function on the same architecture. So it turns out if you",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "control for architecture here, flow policies are represented in blue and regression policies are represented in gray normalized so that flow policies always have success rate one. And the red dotted line represents those tasks on which flow",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "policies do or which regression does less than 95% success of the flow policy. So you can see that you only dip below 95% relative success on a handful of tasks. Moreover, those tasks often don't even seem to have complicated observation modalities.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "They're just a couple of state and image. There are many observation modalities, from VLA backbones to images to 3D point clouds, but regression and flows are basically doing the same. So it doesn't seem to be that this is a universal phenomenon,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "and it doesn't seem to be that it's something that-- it seems to be something that's concentrated in a couple regions. I should also mention that this is for single task learning. Multi-task pre-training might have totally different dynamics",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "and you should take this with a grain of salt. So now, what we can ask is what are the tasks where we do see the improvement? Are they ones that we think we have a lot of diversity in the data we collect. Are there ones where they have a lot of multimodality?",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "It doesn't seem that way. Just looking at the tasks. These are rather tasks that seem to require a lot of very careful, precise insertion, a lot of high precision, but not necessarily tasks that we would naively think of as having multiple modes in the",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "training data distribution. The second observation is, do we actually see any evidence of multimodality as we're doing learning or from the policies that we learn? So we do three experiments here. So the first experiment, we take a couple",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "of domains that are widely credited as being multimodal, and we visualize the action distribution. Moreover, we also color code the actions by their Q function, which is the measure of the return to go. So roughly speaking, the closer you are to dark red,",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "the better the return is of that action. And what we see is not only is there no evident action multimodality at the chunk level, we also don't even see that the distributions have any structure relative to the rewards. So it's not all-- there's",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "one mode of high reward. It's just all uniformly dispersed. But our eyes can be deceiving in low dimensional observation-- visualizations can also be deceiving. So that's not enough. And the second task what we do is we study the inference procedure.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "So we compare using the flow model as it's trained which is sampled-- you sample noise from a Gaussian, and we compare that to sampling noise, which is 0. And unsurprisingly, the dip in performance is not that much. Because you only in robotics you",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "only care about one good action. But what might be a little bit more surprising is this experiment. So we now sample 64 noise seed z in parallel. For each of them we execute the ODE. We compute its action. We now compute the average over the actions.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "So essentially, we're computing a Monte Carlo mean of this distribution at every step. And this is absolutely destroying any multimodality that might be present. And the performance drop is only 2%. So there seems to be no loss if we actively",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "kill the multimodality in the distribution. We learn basically saying that at least at inference time, preservation of multimodality doesn't seem to be necessary. And finally, we want to understand if we were to control our data so that our demonstrator were",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "purely deterministic, would we still see a benefit from using a generative control policy? The answer is under a controlled data collection with a deterministic neural network, the gap between flow and regression policies does narrow a bit, but we still see",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "a statistically significant advantage to using flow based modeling. So maybe stated otherwise, I think this all provides pretty compelling evidence that even if distributional learning might be possible, it's certainly not responsible for some of the benefits",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "that we see. So now, what we try to do is say, OK, can we ablate away the distributional learning but try to preserve some of the other qualities that flows have and try to understand whether these are responsible for the performance?",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "So to do this, we introduce what we call the minimal iterative policy, which is trying to capture the properties of stochasticity and iterative computation, but in the absence of distribution fitting. So the way that we do that is quite simple.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "We first train a policy that just simply fits actions via regression. And then we train a second policy, practice they're actually shared as the same neural network which tries to take in this state, take in a noisy version of the action,",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "and then again predict the clean action. So some form of one step of self-correction. And for inference, what we do is we just simply predict our first action, use that as a guess and feed it to the second policy. This is called the minimal",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "iterative policy or MIP. And essentially, all it's doing is we see the stochasticity injection that comes in step two. We see the supervised iterative computation, that comes because you're just doing two steps. So simple. So how well does MIP do?",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "MIP-- the performance of MIP is plotted in red and that of flow is plotted in green or teal. And you can see that on many tasks essentially MIP and flow are neck and neck, oftentimes MIP might even do a little bit better. However, if you try to",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "remove one or the other of these two conditions. So if you only try to keep stochasticity injection, but with no iterative computation, we get the method called straight flow, which doesn't really do much. And if you try to do only iterative computation",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "without stochasticity, that doesn't work either. So it seems that this combination of things makes things work so well. So now, we can ask ourselves why would iterative computation be helpful? So let me give you one hypothesis. Imagine that I have a",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "bunch of demonstrations. And in high dimensions, these are going to be sparse and somewhat separated. So one thing my policy could do is it could just smush them all together and learn some joint distribution over all actions. And that would result in this",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "multimodal policy learning in B2 that we observe over here. But the thing by policy could also do because we don't see multimodality is instead learn how to separate between left and right really effectively and really quickly. So maybe we can imagine that if",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "you do multi-step generation, you're just better able, you're more expressive in representing these fast switches from left to right. So why would you believe this? Well, deep neural networks are known to have higher Lipschitz constants.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "And we can think of a flow model maybe as a deep neural network where we're performing individual steps of a computation. So that's something that's very reasonable to believe. But it's wrong. So it actually turns out that if your policy doesn't learn",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "multimodality, then it's not going to get additional expressivity in terms of Lipschitz constants from depth or from multiple steps. The reason is that typically, if you're not multimodal, your distributions are what we call log concave. These are contractive.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "And log concavity implies that in fact you're not too sensitive to the score functions you learn at every step. And this contractive behavior means that your Lipschitz constants don't grow much more in a flow model. In fact, oftentimes flow policies,",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "if you just use a single noisy learn smoother functions than regression rather than more high Lipschitz ones. So this can't be the effect. So let me provide another tangent, which might try to contextualize why flow models actually are doing better.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to compare it to a different data collection strategy and try to argue that flow models are capturing an inductive bias that are similar to what might emerge if we collected better data. So remember, in regular imitation learning,",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "we take our expert data, and we learn policies that approximate the actions on the distribution of expert data. But we could also do something where we collect a little bit more data with exploration. So we could do noisy data collection where",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "we add noise to our actions. We then get clean expert actions at every state that we visit. So wherever we see a state, we record what the expert would have done without the noise added. And finally, we train our policy to imitate the clean expert.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "But under the distribution of noisy states like this. So again, you're adding noise to collect new states to visit. You're recording the ground truth and you're training to imitate the ground truth on noisy states. Now, it turns out that this data collection,",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "even on unstable dynamical systems that are smooth, will provably guarantee imitation without compounding error with basically an optimal rate. Now, why does this happen? It turns out that if you inject noise into the action space, you excite what are called",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "the controllable modes in the system. There's a thing for every trajectory. You can imagine a linear dynamical system falling around it, and you excite what's called the controllability Gramian around this system. And there's some magical linear algebra",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "that you can use to show that if you excite the controllability Gramian, you excite every direction that is potentially unstable and therefore susceptible to compounding error. And so this result does not require controllability, the system or anything.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "It just works because there's this magical alignment between controllability and sensitivity to learning error. And this algorithm of adding noise is not very new. For example, the dart algorithm from Ken Goldberg's group had done similar things.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "Here we just show that this is theoretically grounded in fact, doesn't even require interactive data collection. Now, I should mention, as an aside, for those of you that do train robot policies, I wouldn't recommend collecting data this way.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "And in fact, other more semantic forms of correction seem to be much more important than this thing, but it is at least a useful way to-- a useful way to conceptualize how we might collect data to overcome these instabilities. So this data",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "collection, this theorem motivates the following experiment. Let's actually compare how the policy would generalize when we train on regular expert data, but we evaluate on the noise data that we collect in this fashion. So imagine I have some",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "distribution over actions. As I move through state space, I'll call the action manifold. And imagine that this is my expert action over here. And so I'm learning to imitate this. Now, what we're going to do is we're going to collect a bunch of trajectories",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "that are close by perturbing the action variables. So we get some local approximation. And we can think about these actions as spanning some linear subspace, which we'll call the action manifold the local tangent approximation to the action manifold.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So now, what we're going to do is evaluate two quantities. We're going to evaluate the generalization error, the L2 loss, how close this action was to this expert data. And we're also going to evaluate the off-manifold L2 or off-manifold error.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "So this measures not how close we are to these noisy actions. Rather, what it measures is how close we are to being in the span of the noisy-- of the states we would or the actions we'd reach if we added noise to the states. So the reason you could",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "think of this inductive bias as being useful in robotics is imagine an insertion task. My policy might have error along the direction where I want to insert, but that's not so bad. What's bad is the error that's normal to the direction I want to insert.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "So somehow what we find is that flow based policies seem to approximate some of the things that we really want from this form of data augmentation, without doing the data augmentation itself by doing this projection. And again, it's interesting to",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "see that regression sometimes does better on validation loss, but worse on this projection metric. We also have a ton of toy experiments which validate this as well and really dig into it. So again, this is the key finding. It's that these GCPs",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "what they're really doing is they're exhibiting this lower off-manifold error on these noise trajectories. Now, why does this happen? We actually don't have a concrete theoretical explanation. The reason why is because yes, you can prove that diffusion",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "models map you to a manifold. So too can you prove that if you train a regression model and all your actions lie in a low dimensional manifold, the regression model will also learn the manifold. So to make this point clear, one would",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "need to show that diffusion learns diffusion or generative models learn manifolds better than regression. And currently, I haven't seen anybody be able to establish this rigorously, but at least we have very strong experimental evidence of this phenomenon.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "And I can give a conceptual picture for why you might imagine this happening. At every step, what you do is you get one guess at the manifold. So you predict an action, you add a little bit of noise to move off of it, and then you have another attempt",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "to predict the action to get back onto the manifold. And this process seems to be something that's quite useful, but I think making it rigorous remains an open problem. And notice that this is quite different than expressivity. This is not that your",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "generative model can represent more complicated functions. It's actually that it has a regularization effect, which is interesting. So also, it turns out that stochasticity is really necessary here because the stochasticity functions like",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "the adding noise to your action space in the other thing, it basically removes distribution shift through the generation process. And of course, all this requires the iterative computation. But it's this synergy between these two that seem to be essential.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "Cool. So I think this is nice, because we always thought that generative control policies were about distribution approximation, but it actually seems that they're about addressing some of these challenges associated with the control theoretic",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "difficulties of learning from demonstration data, which I was surprised to do. So for people who are more practical in the audience, you might want to ask, should I be using the minimal iterative policy? So let me give an answer. Does it work with VLAs?",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "So the first thing someone at Pi asked me was, go train a Droid data set and see if it works, or go fine tuned in pi with MIP. Does it work? The answer is yes. So I don't think I have the Droid data to share with you here, but it worked pretty well",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "in the Droid data. And indeed, if you fine tune a pie model on, say, some library tasks, it seems to outperform even flow models in some cases. It's kind of cool. The second question is and again, this is single task fine tuning. So for pre-training",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "scale, I'll get to that. What about task diversity? So do you need flow models to have more diverse solutions to tasks. It turns out you don't even need to go to MIP for task diversity. Even a regression model can give you task diversity. So why is this?",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "Because oftentimes what you care about in task diversity is diversity at the level of trajectories, not at the level of the per state action distribution. And even regression can provide a lot of this diversity. So people might complain, I",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "don't get much exploration through my action model, but maybe you do at the level of your resets and all these other things. So my answer should you use MIP, not unless you need to. So let me tell you the advantages. If you want insightful ablations,",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "we found it really useful. So if there's something-- if you think your flow model is now doing some weird multimodal thing, you want to test it, try to see if it works. If it works, maybe your flow model is not being multimodal. The other thing is",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "if you want a policy with really fast inference, at least in our experiments, it seemed that MIP performed much better than things like consistency models. So from our experiments, and in particular, MIP was a lot less sensitive to it",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "seemed like medium proficiency data than these models, and a lot better at high precision tasks than consistency models. The way that you can think about this is that if you have a very high precision task, all you really want to do",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "is just correct your errors. Whereas if you have a consistency model for the audience, a consistency model is one that basically tries to learn the integration of an ODE that you have in a flow into a one step. And a consistency model is",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "more about being faithful to the learned flow than about pushing you back to the action manifold, which is how MIP is directly trained. So we believe that probably these things are better as shortcut policies. But there are cons. I think at pre-training",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "scale, there probably is some degree of multimodality and that I suspect, flows make much better pre-training objectives, if for the only reason that they have more steps of iterative computation. So I would not recommend pre-training with MIP.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "I would also say that flows are much more stable for RL-finetuning for a range of reasons. One thing being that you get more plasticity if you have multiple steps of computation. You can also add more noise to your flow and get stability back to the manifold.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "So what I would say is in that case, probably you want to use it for RL, but I think there is room to explore the capability of MIP as residual models. People have been doing a lot of residual policy learning. There's also a lot of room to",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "explore MIP as parameterizations of Q functions in RL. There's been a lot of work on flow based critics. In my experience, I haven't been able to get those to work on very precise manipulation tasks, but it's entirely possible that a MIP based critic",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "might be able to do that. So if you want to use MIP, though, I think people have told me, oh, I've running into issues using MIP, it doesn't work on my task. You have to email Chaoyi. There are some subtleties and but he's been able to unstick",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "people in the past. So if you're curious about it, you should-- you should email him. And I think actually on the much ado about nothing page, there is some quick start guide. But if you have questions, Chaoyi will set you up. One other question I thought",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "was quite interesting, I thought this would be the mechanism by which they were useful or not, but it's a nice aside. You could think of other reasons why you might want to use a generative control policy to fit like a function. So what's miraculous about this",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "is that at the end of the day, flow models were discovered potentially as better ways to fit deterministic functions. Deterministic policies but using distributional models. So why might you want to do this? Well, here's another reason.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "People in the audience are concerned or interested in uncertainty quantification. So imagine that I have a function that's very hard to fit, here, I've plotted the function y equals sine of 1 over x. So as I move towards the origin, I can no longer fit this",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "with any neural network. It just the oscillations become infinitely rapid. So I can think about this as epistemic uncertainty, just from the perspective that my neural network is unable to represent the function that I want to fit. Now we can compare flow",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "and regression models, and it turns out that with a fixed noise, z equals 0. The regression model in the flow model look similar. In fact, the flow model looks a little smoother. But the cool thing about flow models is that when you cannot",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "fit the function, you get higher variance. So you essentially can convert epistemic uncertainty into aleatoric uncertainty. And I think this is a really nice property. I'm working on with some theory students on understanding the extent",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "to which this is possible. I don't how much this will generalize in more interesting cases, but I think that maybe in problems where you have things where you're doing like critic learning and reinforcement learning, where in low dimensions",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "this might be useful. For high dimensions, I would really look at Andrea Beachy's work, who's been really interested in uncertainty quantification in diffusion models. I think that there are other considerations when you consider images because",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "images are so highly structured. And also, maybe another aside, just for those that aren't familiar with image diffusion, there's something very magical about how the denoising process and natural image-- the distribution of frequencies",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "in natural images seem to align. So this technology is really overfit to images. And so there are probably other things you can do there. So let me just go through and conclude what we've learned and what we've established today. So this talk was a control",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "theoretic perspective. So what we try to do is show that continuous control imitation learning was fundamentally harder or could be fundamentally more challenging than what we encountered in discrete settings like in language modeling.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "And as a consequence of this, we attributed the inflection point in imitation based robotics to basically two design decisions that inadvertently witnessed or inadvertently addressed the fundamental difficulties of imitation. These being the action",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "chunking procedure, which works when the system is open loop stable, and the generative modeling procedure, which potentially makes things work better even under instability or high precision requirements via the action projection or the manifold",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "projection mechanism. So again, we can use this, but I at least take this as evidence of the algorithmic Moravec's paradox perspective that indeed, learning from robotics-- from robot data is not fundamentally harder. But it is harder unless certain",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "key algorithmic design decisions are taken into account. And upon figuring these out, scaling became unlocked. So now, I want to ask, we've talked a lot about control. What does remain hard about robotics? And I'm relatively new to robotics and so have yet to",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "truly understand this. But what I would say is that maybe one perspective is maybe nothing if we get the data. I don't think this is quite right. So certainly, there are challenges for broad world understanding in-context learning, long horizon memory,",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "robotic dexterity. I think these are still fundamental, but I think the way that I think about difficulty and data scaling is that there's this unfortunate correlation. Because the tasks that have the most economic utility, are often also the tasks we",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "have to do the most often, or the tasks where we're most willing to pay to instrument the data. And so oftentimes, it becomes very easy to learn the tasks that we're most likely to raise money to solve because we have a lot of data or can pay for the data.",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "Whereas a lot of academia, maybe we want to have happen here, where we haven't yet convinced people that we want to scale the data, or we haven't convinced people that this is worth doing, or this is on the margins of our capability.",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "It's a robot in space or it's a nanofactory or something. And my bitter lesson is that at least in the short term, these tasks are always very cool for researchers, but they're not the things that are necessary for short term commercialization.",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "And so if you want to make short term impact, oftentimes you can get away with much simpler or less interesting algorithmic interventions, precisely, because you're in the regime where it's economically viable to collect data. But I do think that",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "in the long run, we're still very far from what we think of as an intelligent robot, in the sense that humans have this remarkable ability to learn rapidly from few shot adaptation or a novel or rare or situations that have low action",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "similarity between training data and novel actions. So my favorite example of this is the fact that orangutans can drive golf carts. It's really, really unbelievable. And in fact, you can ask a question how many flops were used by the orangutan or how many",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "kilojoules were used. And if you were to compare that number of flops to what Waymo uses in pre-training, you'd be really embarrassed. Of course, orangutans have really strong inductive biases navigation, 3D understanding. But this is all to say that I think",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "we're very far away from a robot that can go and learn how to operate a new piece of machinery. So I think that puts things. Now the question is, it's probably still cheaper to have self-driving cars and Waymo instrumented. I'd rather have Waymo than",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "interrogating Uber driver. But I do think that there is still a lot of work to be done towards agents in the world that are physically intelligent. Maybe one last coda is, what can these insights tell us beyond robotics? So empirically, that this",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "compounding error phenomena can also arise in any case where you have to execute the model back on itself. That could be an autoregressive language modeling and a generative modeling. And so in some follow up work, we're calling this the test time",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "feedback phenomena, where a model is used to make generations and it's fed back into itself through maybe a black box network. And so maybe we could ask ourselves, just like flow models were able to circumvent the compounding error",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "effect, just without more data, but with a better inductive bias. Maybe there exist tools from deep learning optimization that can ameliorate test time feedback in other domains beyond just robotics. The things that exist over here, maybe things especially",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "when data is scarce. So essentially, we've been working on a new family of optimization algorithms depicted in the light blue, compared to the baselines in light red. Just so you know, all the learning rates I'm depicting are tuned to optimize the",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "baseline, not our method. And indeed, what we can see is that these optimizers do seem to benefit cases like robotics, improving the success rate, but also performance in language modeling and even in image generative modeling. And you might-- if you actually",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "were to look at the training curves, you would see that our optimizer and the true optimizer or the baseline optimizer are indistinguishable in terms of training loss, indistinguishable in terms of held out validation loss. But in terms of multi-step",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "test time feedback, they seem to do much better. But unfortunately, that work isn't out yet, so you'll have to stay tuned. And thanks for having me. [APPLAUSE] Cool. Yeah. Yes. I have a question. You talked about the benefits of the position control.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "I was wondering if you had thoughts on generative models to take advantage of the lower level and control staff? Yeah, I think this is a data issue because I think you have so much data around-- if you have enough data of your same embodiment, that's",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "going to generalize to all different tasks. So my sense is that as you scale data, you should just be-- you should actually be able to get rid of position control. In fact, I was talking to Chelsea Finn earlier and I brought this up and she was",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "like, yeah, why don't we just try it at pie. I think-- actually, she explained to me that her earliest work didn't use position control like the early mid 2010's, Sergei Chelsea stuff just used talk level control. And I suspect that with the right data",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "scaling, that should come back. Again, this is another perspective. There's a lot of these interventions if a VC had given us $10 billion to do robot data collection, maybe we would have not needed any of this stuff. But these were the things",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "that enabled us to get off the ground at small scale. Yes. When it comes to the intervention you did with or the interpretation that when you train the model and you have the iteration policy, why that maps you back to the extra manifold. I guess my first",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "question is, why is this particularly different than just simply noising the observations during training? The second thing is when you're like-- would it be better if because you're using the same network to generate these noise-- the noise steps like the",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "first step that you take in. And that's why it's more in distribution of the learner rather than just adding noise to the expert demonstrations? Yeah. So I guess there's-- exactly. So let me say there are a couple-- one question is about adding noise",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "to observation. So unfortunately, from image rich observations, the right noise distribution to corrupt your observations. That's entirely unclear. The second thing is actually adding noise to observations has a really interesting theoretical effect,",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "which is it basically causes you to learn from the posterior over actions given uncertainty in your observation, it turns out this has really cool theoretical properties. And I wrote a paper about this about two years ago. It introduces something called",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "the replica distribution, which is inspired by replica symmetry in physics, but it's not useful in actual robotics. Adding noise to your expert actions, that's just going to add more regression noise. So the reason that you want to",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "add noise to the actions you do is because specifically you're not trying to combat generalized distribution shift. You're trying to-- where's MIP? Here where do I put it. One second. You're not trying to combat generalized distribution shift. You're trying to",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "combat the distribution shift under your own policy. You're trying to correct your own errors. And that's why you add noise to your own actions. Yeah. So that's why it's like the first step of the myth. Do you have the noise and you're saying--",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "Oh, actually, wait, no. So we can add noise directly to expert actions. That's what we're training it. We're not like during training. So the way to think of this is that if your expert action is close enough to your MIP-- if your MIP action first step is",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "within this noise ball of the expert action, then basically adding noise to one or the other gives you the same distribution more or less. Yeah, I guess the question is the insight that because you're using the same network for both of your steps. Oh, yes.",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "[INAUDIBLE] Yeah, I see, I see. So from what I understand, I think we can ablate away and use separate networks. The other thing is that basically we're still using it. If you use the same network, we're using a time embedding. So these are",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "different-- in practice you're using a time embedding. And the time embedding is like at t equals 0.9. So it very much separates these two things. So in principle, you can just learn two separate circuits. Maybe there is some shared",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "representation learning which is useful if you have pixels. But yeah, I don't think the networks are overly coupled. I think if you used-- actually if you use exactly the same network, it does not work. Because you do want to learn a different mechanism",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "for correcting the not correcting. The other thing is that also if you do the first step, your first step essentially has to condition on 0 action. And so it's hard to learn the first action shot versus the correction behavior. Those end up being",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "very different. Yeah, sure. Other questions? Cool. Speaker, again-- Yeah, thanks so much.",
+      "start": 1434,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,419 @@
+{
+  "videoId": "esY99nYXxR4",
+  "title": "How we solved Context Management in Agents — Sally-Ann Delucia",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 19744,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> All right, welcome. Thanks so much for\ncoming today.\nI'm here to talk a little bit about\ncontext windows and I'm really excited\nbecause I get to talk about something\nthat my team and I have been building\nfor honestly close to a year now, which\nis our AI agent Alex.\nSo I'm going to talk a little bit about\nsome of the lessons we learned about\ncontext management and escaping the\ncontext window.\nSo, who am I? I'm Sally Ann. I'm the\nhead of product at Arize. I have a\ntechnical background. I started out in\ndata science and now I build products\nfor teams.\nI'm hands-on. I'm a core contributor of\nAlex. I'm not only a PM, but I also\nfunction a little bit as a part-time AI\nengineer as well. So I know the pain of\nbuilding these products firsthand and it\nis not easy to build a successful agent.\nMy job today really is to turn those\npains into tools that may actually help\nAI engine AI teams.\nI'm going to talk a little bit about\nAlex. I don't want to spend a lot of\ntime on Alex. If you want to know more\nabout what we built, come find me in the\nbooth downstairs. I'll give you a demo,\nbut basically what Alex is is an AI\nharness. It's here to help you build\nyour AI applications. We have advanced\nplanning, 40-plus skills built into it,\ncore workflows across prompt engineering\nlike prompt optimization, data gen, data\naugmentation, annotations, etc. That's\njust a screenshot from our product, but\nyeah, come find me if you'd like a demo.\nFor taste I'm going to talk a little bit\nabout the problem of context\nengineering, context management, tell\nyou a little bit about a vicious loop\nthat we got stuck in, how we escaped\nthat loop, and then how long\nconversations can break agents, a little\nbit about what we learned about sub\nagents, and then I'll tell you a little\nbit about what we're still working on\ncuz we certainly haven't figured\neverything out.\nSo, the problem. I think like mid last\nyear this term context engineering\nstarted to become more and more popular.\nThis is an excerpt from Andre Karpathy\nabout plus one in context engineering\nover prompt engineering. I think very\nearly on everybody was really really\nfocused on the prompts, but we started\nto realize that the context is what\nreally made an agent fail or succeed.\nUm, and so the stack has really changed.\nWe're no longer really focused just on\nthe prompts, we're focused on the new\nengineering problem, which is context.\nSo,\nmy little perspective is the best\ncontext strategy is one that lets your\nagents remember what it needs to\num, and forget what it doesn't. Oh, we\ngot a little bit of a thing. And so\nwe're going to talk a little bit about\nhow you do that, but first let's talk\nabout why context management even\nmatters.\nSo, I think a lot of folks think um,\nlike context management is just like\nwhat fits in the window, but context\nengineering is really choosing\nstrategically what the model sees. It's\nreally important that you think about\nwhat the data is that is most important\nand not just think about, oh, I only\nhave X amount of tokens, let's shove as\nmuch as I can in there and see how it\ndoes. So, it's not just saying under\nthat token limit, it's being strategic\nabout it. And that's why it really\nmatters. All these different\napplications, a lot of times it's\nrunning on top of your context. And so,\nwhat you choose let the model see really\nmatters. It can make or break the\nexperience there.\nAnd so our reality with Alex is Alex is\nbuilt on on top of a rise, which is our\nobservability platform. So, we have to\ndeal with all of the traces that come\nwith AI agents. And so, we have one\ntrace, we're getting, you know, the\ninput from the user, there's prompts,\nthere's all of this metadata, then the\nuser is interacting with Alex. And so,\nit becomes really large. And that's just\nwhen we're talking about one trace. But\nwhat happens when they want to see\npatterns across all of their traces?\nWell, this just continues to multiply\nand multiply and multiply.\nUm, so being strategic about context was\na non-negotiable for us. We really had\nto figure out, okay, what was most\nimportant for Alex to see? And how do we\nhandle when it needs to kind of see\neverything?\nUm, and so this is the problem that we\nreally aim to solve.\nAnd so, I as a product person like to\nsay that context management isn't is a\nproduct and a UX problem, not just an\nengineering one. It's certainly one that\nthe engineers are going to try to solve.\nThere's going to be a lot of different\nstrategies that people try, but\nultimately comes back to the product and\nthe UX, because if an agent doesn't have\nthe right data, it doesn't have the\nright context, it's going to give bad\nanswers. And if you give bad answers,\nnobody's going to want to use your\nproduct, right? And so that's why it\nreally becomes a product problem and not\njust an engineering one.\nAnd this is the vicious loop that we got\nstuck in. So when we were building Alex,\nbasically what we decided to do is like\nif we can build an agent that makes our\nlives easier in building our\napplication, we'll know we'll have\nsomething that our users really want to\nuse. And so we built Alex using Alex.\nAnd this is the vicious loop that we\nkept getting stuck in, where Alex would\nrun on our our traces span data. The\nspans would grow, there would be too\nmuch data, we'd hit a context limit,\nAlex would fail. And the span has that\ndata, so it would try again, we'd add\nmore data to it, it would run, and then\nit would fail. So we kept getting stuck\nin this loop where our context was\ngrowing and growing. We couldn't get\nAlex to actually perform on it. And so\nwe knew that we needed to come up with\nsome kind of strategy.\nSo the system analyzing the data was\nconstrained by the data, and that was a\nmajor problem for us. Alex was never\ngoing to be able to succeed unless it\ncould understand and taken all of this\ndata. So how did we solve that? Well,\nit's kind of a three-part thing, three\nthings that we really learned here to\nescape this loop. So how to actually\ncontrol context, separating the context\nfrom memory. I think there is something\nthat's really important about building\nthem together, but they are kind of\nseparate. And then moving heavy work out\nof one agent into another, that was\nanother lesson we learned. So I'm going\nto walk through each of these and and\ntell you a little bit about how we\napproached them.\nSo I think the the very first thing that\ncame to mind was some very naive\ntruncation, where it's like, \"Okay, we\nhave this long long context blob. Can we\njust take the beginning of it? Is just\nthe beginning important? Is that enough\ninformation to give Alex for her to\nactually perform the analysis that's\nneeded?\" So we started off just taking\nthe first 100 characters, and then we\njust dropped the rest. Pretty pretty\nnaive.\nAnd it worked until it didn't. So\nin the beginning it seemed like for\nreally simple things that this would\nwork out, but the agent ultimately just\nforgot everything.\nFollow-ups looked like new\nconversations. If I asked one question,\nAlex would respond, and then I said, you\nknow, ask a follow-up like, you know,\nwhat are the most common inputs? Okay,\nthese are the most common inputs. Okay,\ncan you tell me a little bit more about\ninput B? It didn't understand what I was\ntalking about. So, we learned pretty\nquickly that this was not going to be\nsuccessful, so we needed to start\nconsidering some other options. Um, so\nthe the\nmain takeaway from this was that over\ntruncation had broke the reasoning. It\ncouldn't remember.\nWe then thought, okay, well,\nsummarization, we have all these LLMs,\nthey're pretty good at summarizing. Can\nwe just summarize all the context into a\nshorter\namount of tokens so that we can send\nthat to the LLM and have um a better\nresult. And that really sounded like the\nobvious solution, but it was too\ninconsistent. There was no control over\nwhat was important, you know, we're just\nleaving it to the LLM to look at the\ndata, decide what to do with it. Um, and\nthat was pretty unreliable. So, we\nlearned pretty quickly that\nsummarization was not going to work\neither. This was the second thing we we\ntried. Um,\nand so next solution was the smart\ntruncation memory. This is what we\nactually use in Alex today. Um, it is\nkind of this combination of truncation\nwith a little bit, I guess, of of\ncompression here and storing in memory.\nUm, so we take the beginning still 100\ncharacters. We also take 100 off of the\ntail. Um, and then we we take out the\nmiddle and we basically store that. So,\nthe agent still has access to this. So,\nif there's any duplicate messages, um,\ntool calls can be really really long and\nAlex is making a lot of lot of tool\ncalls.\nUm, and so we're keeping the latest\nresult. We don't reset the system prompt\nand we truncate the middle, uh, keep the\nhead and the tail, and then at any point\nof Alex feels like there's a tool call\nthat was important or a message from the\nthe previous conversation that's\nimportant, it can always go back and\ngrab that context. And so it gives Alex\na little bit more control, uh, over what\ncontext is actually important. Um, and\nwe found this to be really really\nsuccessful. Um, we haven't had to to\ntouch this in in a few months. We are\ngetting to the point, I'll talk about a\nlittle bit later, that we are revisiting\nour strategy,\nuh, but we've we found that this\ncombination of truncation and memory has\nbeen really really uh successful.\nSo, [snorts and clears throat] context\naside with the model sees memory decides\nwhat survives and so this is kind of a\nsystem we built with the um smart\ntruncation there. Um and again, this is\nworking quite well for us.\nBut we had another problem as we were\nkind of deciding how to to handle\ncontext management, which is long\nsessions and I think that this is\nsomething that a lot of people run into,\nwhich is users don't usually restart\ntheir chats.\nUm you know, I I think there are\ndifferent approaches to this. Some\npeople I know like if you're using\nClaude or Cursor, you know, you pull\neverything in one chat. Some people like\nto have other ones, but we really\nlearned with Alex everybody kind of\nwants to stay in one chat as they're\ntraveling to pages to pages. So, our\nconversations grow and our failures\nappear late. So, uh when we first did\nthis smart truncation, it seemed like it\nwas working, um but then as we saw these\nlonger and longer conversations, there\nwere failures happening and we didn't\nknow about them too late until like a\nuser reported it or I was looking at the\ndata and I realized that Alex kind of\nstarted to forget things way late into\nthe conversation. And so, the solution\nthat we came up here is long session\nevals and I want to include this\nbecause, you know, it's maybe not\num related exactly to how you handle\ncontext management, but it's a really\nhelpful signal in understanding how your\ncontext management is doing. Uh because\nI think long sessions are something that\nnaturally happen with these\napplications. Um and so, what we end up\ndoing is we load 10 turns and then we\ntest the 11th to understand how the\ncontext is doing. And so, these bugs\nreally become testable. I don't have to\nwait till I find it or a user reports\nit. So, uh wanted to share a little bit\num about that and even so, with the\ntestability and um the uh truncation\nhere,\num there is still, you know, too much\ndata sometimes for for one agent. So, uh\none big realization that we also had is\nthat not all context belongs in the same\nagent. Um so, I'm going to give an\nexample here, our search task. So, this\nis where Alex is trying to search over\ndata in Arise. Um this happens within\nlike our main chase or even when we're\njust looking at, you know, one trace\nstack, you know, there can be hundreds\nof spans within it and Alex needs to\nfigure out what data it should look at.\nSo, there's multiple queries happening,\ntons of data, lots of intermediate\nreasoning happening step-to-step. And we\nreally came to the conclusion that not\nall this needs to live in the main\nconversation. So, once we had one kind\nof main agent uh for our traces uh\nskills and we decided that that was not\nreally necessary.\nSo, the solution that we had was\nsub-agents. And I think this is also\nsomething really important when you're\ntalking about context and how we manage\nacross uh these agents that need to have\na lot of data, uh which is offload the\nheavy tasks. The main conversation can\nstay small. Um so, before we had the\nmain conversation, we had chat history,\nheavy data, search all in one context.\nThis was all handled in one agent. And\nthen after basically what we have is\nthese this main agent plus a sub-agent.\nSo, we have the main conversation with\nthe chat and light context only. We keep\nit pretty light. What it can do is it\ncan delegate to the sub-agents. Um and\nthat's where the heavy data stays. So,\nwe can keep all of the heavy data\ncontext in our sub-agent. And then once\nit gets a result, we can kind of pass\nthat over to the main\nuh main agent again and then the user\ncan kind of share um or keep the\nconversation going. And of course, it\ncan always retrieve from the memory\nstore as well if it ever feels like it\nneeds more context there. So, I think\nthis is something that was a\ngame-changer. We've uh rolled out a lot\nof sub-agents now that we kind of\nfigured out this is the right way to\nhandle all the really, you know,\ndata-intensive operations.\nSo, that's a lot of what we figured out\nin terms of context management. It's\nworking really well. I I think I was\nsurprised the most by the fact that\nsummarization didn't work. I think that\nwas again like the obvious choice for\nus, but uh the combination of truncation\nalong with being able to store it in\nmemory uh is something that we found to\nbe really successful. So, what are we\nstill figuring out cuz there's quite a\nlot. Uh huge context still can still\nbreak things. I think it's still a\nproblem for us. Very large prompts or\ninputs still hit provider limits. So,\nbecause we're operating we have an agent\noperating on agent data, you can imagine\nall of system prompts, the user message,\nthe conversation history. That is all\nwhat our customers are trying to use\nAlex to understand. And so, as their\ncontext is growing, we have a bigger\ncontext issue because we have to figure\nout how\nto to handle that. And the pattern we\nkeep returning to is sub agents. Uh we\njust keep breaking things up and having\ncontext handled by different parts. Um\nand that is something that we are still\num kind of learning about and and seeing\nif there's anything that we need to do\nto evolve that strategy even more.\nLong memory is still hard. This is\nsomething actually that my engineers are\nworking on right now. So, long sessions\nare tricky. We are seeing conversations\ngrow more and more. I think when we\nstarted, I was seeing like less than 10\nturns per conversation with Alex, and\nnow I'm seeing folks really go, you\nknow, push the limits up to like 20\nplus. Uh what's really happening there\nis they're traveling across our\napplication using Alex. And so, as\nthey're trying to do these longer\nworkflows, they're obviously asking more\nquestions and they're finding Alex to be\nhelpful, but that's a a problem for us\nbecause we need to figure out how\nto handle this. So, I think what we're\nreally focused on right now is like real\nlong-term memory. It's not something\nthat Alex has. The memory is really just\nthat um kind of context with the memory\nstore uh that Alex can leverage. So, we\ndon't really have long-term memory. Um I\nalso think it's important because people\nwant to reference issues that they've\npreviously discussed with Alex. And so,\nif they're they do decide to start a new\nchat, Alex really doesn't have context\nfor that. So, uh we're in the process of\nadding long-term memory, and I think\nthat's something that'll be a real\ngame-changer for us.\nContext selection is also still a\nheuristic for us. Deciding what context\nstays in um is just that basic, like I\nsaid, like first 100, last 100. Um but,\nwe do keep like asking ourselves, do we\nkeep the right things? Uh we don't\nreally have a principled context budget\nor clear metrics for context quality\nyet. We use our e-vals a lot of the time\nto measure whether our context was right\nor not. Um but, I think there's\nsomething a little bit more\nsophisticated that we're researching to\nfigure out if this is the right\nheuristic. Um something that was a\nlittle little surprising to us is, you\nknow, I don't know how many people are\nright here, but the quad code code was\nkind of released for all of us to read a\nlittle bit about. We were surprised that\nthey're using kind of a similar\ntruncation and compression strategy as\nwe are. We were kind of hoping to get a\nlittle bit of a a secret from from them,\nbut I guess we'll all just have to keep\nyou know, doing our own research there.\nUm and just some takeaways cuz I wanted\nto leave some time for questions.\nUm context management is iterative. We\nare still learning. I think everybody\nshould continue to learn and lean in and\ntry to optimize their context\nmanagement. The few things that I think\nare really clear is that context\nengineering really does matter. Memory\nmatters and evaluation matters. If\nyou're going to take anything away from\nme or us at a rise, it's those three\nthings and that's from our experience as\nwell as our experience with all of our\nuser base.\nAnd finally, agents don't fail because\nof prompts, they fail because of\ncontext. I think that's something that\nwe've learned firsthand and that we're\nseeing more and more. In the early days,\nprompts were everything. Everybody was\nfocused on prompt engineering, but\nourselves and all of our users are\nreally focused now on context\nengineering and there's a lot of\nstrategies that can go into that.\nYou want to try out a rise? Just want to\ngive it a QR code to try it out. You can\ntry out Alex, our agent. We're\ndownstairs at the booth if you'd like to\nsee a demo especially of Alex, I'd be\nhappy to give it, but I wanted to just\nleave some time to honestly be able to\nhave you know, some Q&A and answer some\nquestions.\n>> [applause]\n[applause]\n>> Yeah, question.\nWhat was the main thing that\nthey came out with?\nHi, thank you. It was a great talk.\nOne of the things that came out with the\nClaude Code Lee was how much effort\nthey've put into not invalidating the\ncash with their context management. Are\nyou doing work on that as well or how\nare you thinking about that? Yeah, I\nthink right now we're really trying to\nfocus on the long-term memory stuff. We\nhaven't gone too much into the cash.\nBasically, we have it saved off in a\ndatabase with IDs. And so, what Alex can\ndo is it has a tool where it has all the\nIDs and like where in the conversation\nit needs to access. So, was it earlier\non? How many messages? And it gets a\nlittle bit of a preview. Um so, that's\nhow we've done it right now. I\nabsolutely think we're going to have to\nget a little bit more sophisticated and\ninvest in that. Uh but right now it's\nworking. So, we're kind of focused more\non the long term memory cuz I feel like\nthat's where I'm getting the most\ncomplaints.\nYeah. Any other questions?\nAll right. Well,\ncome find me downstairs if you have any\nquestions. Thanks so much for the the\ntime.\n>> [applause]\n[music]",
+  "segments": [
+    {
+      "text": "[music] >> All right, welcome. Thanks so much for coming today. I'm here to talk a little bit about context windows and I'm really excited because I get to talk about something that my team and I have been building for honestly close to a year now, which",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "is our AI agent Alex. So I'm going to talk a little bit about some of the lessons we learned about context management and escaping the context window. So, who am I? I'm Sally Ann. I'm the head of product at Arize. I have a",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "technical background. I started out in data science and now I build products for teams. I'm hands-on. I'm a core contributor of Alex. I'm not only a PM, but I also function a little bit as a part-time AI engineer as well. So I know the pain of",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "building these products firsthand and it is not easy to build a successful agent. My job today really is to turn those pains into tools that may actually help AI engine AI teams. I'm going to talk a little bit about Alex. I don't want to spend a lot of",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "time on Alex. If you want to know more about what we built, come find me in the booth downstairs. I'll give you a demo, but basically what Alex is is an AI harness. It's here to help you build your AI applications. We have advanced",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "planning, 40-plus skills built into it, core workflows across prompt engineering like prompt optimization, data gen, data augmentation, annotations, etc. That's just a screenshot from our product, but yeah, come find me if you'd like a demo.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "For taste I'm going to talk a little bit about the problem of context engineering, context management, tell you a little bit about a vicious loop that we got stuck in, how we escaped that loop, and then how long conversations can break agents, a little",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "bit about what we learned about sub agents, and then I'll tell you a little bit about what we're still working on cuz we certainly haven't figured everything out. So, the problem. I think like mid last year this term context engineering",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "started to become more and more popular. This is an excerpt from Andre Karpathy about plus one in context engineering over prompt engineering. I think very early on everybody was really really focused on the prompts, but we started",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "to realize that the context is what really made an agent fail or succeed. Um, and so the stack has really changed. We're no longer really focused just on the prompts, we're focused on the new engineering problem, which is context. So,",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "my little perspective is the best context strategy is one that lets your agents remember what it needs to um, and forget what it doesn't. Oh, we got a little bit of a thing. And so we're going to talk a little bit about how you do that, but first let's talk",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "about why context management even matters. So, I think a lot of folks think um, like context management is just like what fits in the window, but context engineering is really choosing strategically what the model sees. It's",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "really important that you think about what the data is that is most important and not just think about, oh, I only have X amount of tokens, let's shove as much as I can in there and see how it does. So, it's not just saying under",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "that token limit, it's being strategic about it. And that's why it really matters. All these different applications, a lot of times it's running on top of your context. And so, what you choose let the model see really matters. It can make or break the",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "experience there. And so our reality with Alex is Alex is built on on top of a rise, which is our observability platform. So, we have to deal with all of the traces that come with AI agents. And so, we have one trace, we're getting, you know, the",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "input from the user, there's prompts, there's all of this metadata, then the user is interacting with Alex. And so, it becomes really large. And that's just when we're talking about one trace. But what happens when they want to see",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "patterns across all of their traces? Well, this just continues to multiply and multiply and multiply. Um, so being strategic about context was a non-negotiable for us. We really had to figure out, okay, what was most important for Alex to see? And how do we",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "handle when it needs to kind of see everything? Um, and so this is the problem that we really aim to solve. And so, I as a product person like to say that context management isn't is a product and a UX problem, not just an",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "engineering one. It's certainly one that the engineers are going to try to solve. There's going to be a lot of different strategies that people try, but ultimately comes back to the product and the UX, because if an agent doesn't have",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "the right data, it doesn't have the right context, it's going to give bad answers. And if you give bad answers, nobody's going to want to use your product, right? And so that's why it really becomes a product problem and not just an engineering one.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "And this is the vicious loop that we got stuck in. So when we were building Alex, basically what we decided to do is like if we can build an agent that makes our lives easier in building our application, we'll know we'll have",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "something that our users really want to use. And so we built Alex using Alex. And this is the vicious loop that we kept getting stuck in, where Alex would run on our our traces span data. The spans would grow, there would be too",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "much data, we'd hit a context limit, Alex would fail. And the span has that data, so it would try again, we'd add more data to it, it would run, and then it would fail. So we kept getting stuck in this loop where our context was",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "growing and growing. We couldn't get Alex to actually perform on it. And so we knew that we needed to come up with some kind of strategy. So the system analyzing the data was constrained by the data, and that was a major problem for us. Alex was never",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "going to be able to succeed unless it could understand and taken all of this data. So how did we solve that? Well, it's kind of a three-part thing, three things that we really learned here to escape this loop. So how to actually",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "control context, separating the context from memory. I think there is something that's really important about building them together, but they are kind of separate. And then moving heavy work out of one agent into another, that was",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "another lesson we learned. So I'm going to walk through each of these and and tell you a little bit about how we approached them. So I think the the very first thing that came to mind was some very naive truncation, where it's like, \"Okay, we",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "have this long long context blob. Can we just take the beginning of it? Is just the beginning important? Is that enough information to give Alex for her to actually perform the analysis that's needed?\" So we started off just taking",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the first 100 characters, and then we just dropped the rest. Pretty pretty naive. And it worked until it didn't. So in the beginning it seemed like for really simple things that this would work out, but the agent ultimately just forgot everything.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Follow-ups looked like new conversations. If I asked one question, Alex would respond, and then I said, you know, ask a follow-up like, you know, what are the most common inputs? Okay, these are the most common inputs. Okay,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "can you tell me a little bit more about input B? It didn't understand what I was talking about. So, we learned pretty quickly that this was not going to be successful, so we needed to start considering some other options. Um, so the the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "main takeaway from this was that over truncation had broke the reasoning. It couldn't remember. We then thought, okay, well, summarization, we have all these LLMs, they're pretty good at summarizing. Can we just summarize all the context into a shorter",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "amount of tokens so that we can send that to the LLM and have um a better result. And that really sounded like the obvious solution, but it was too inconsistent. There was no control over what was important, you know, we're just",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "leaving it to the LLM to look at the data, decide what to do with it. Um, and that was pretty unreliable. So, we learned pretty quickly that summarization was not going to work either. This was the second thing we we tried. Um,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "and so next solution was the smart truncation memory. This is what we actually use in Alex today. Um, it is kind of this combination of truncation with a little bit, I guess, of of compression here and storing in memory. Um, so we take the beginning still 100",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "characters. We also take 100 off of the tail. Um, and then we we take out the middle and we basically store that. So, the agent still has access to this. So, if there's any duplicate messages, um, tool calls can be really really long and",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Alex is making a lot of lot of tool calls. Um, and so we're keeping the latest result. We don't reset the system prompt and we truncate the middle, uh, keep the head and the tail, and then at any point of Alex feels like there's a tool call",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "that was important or a message from the the previous conversation that's important, it can always go back and grab that context. And so it gives Alex a little bit more control, uh, over what context is actually important. Um, and",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "we found this to be really really successful. Um, we haven't had to to touch this in in a few months. We are getting to the point, I'll talk about a little bit later, that we are revisiting our strategy, uh, but we've we found that this",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "combination of truncation and memory has been really really uh successful. So, [snorts and clears throat] context aside with the model sees memory decides what survives and so this is kind of a system we built with the um smart",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "truncation there. Um and again, this is working quite well for us. But we had another problem as we were kind of deciding how to to handle context management, which is long sessions and I think that this is something that a lot of people run into,",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "which is users don't usually restart their chats. Um you know, I I think there are different approaches to this. Some people I know like if you're using Claude or Cursor, you know, you pull everything in one chat. Some people like",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "to have other ones, but we really learned with Alex everybody kind of wants to stay in one chat as they're traveling to pages to pages. So, our conversations grow and our failures appear late. So, uh when we first did this smart truncation, it seemed like it",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "was working, um but then as we saw these longer and longer conversations, there were failures happening and we didn't know about them too late until like a user reported it or I was looking at the data and I realized that Alex kind of",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "started to forget things way late into the conversation. And so, the solution that we came up here is long session evals and I want to include this because, you know, it's maybe not um related exactly to how you handle context management, but it's a really",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "helpful signal in understanding how your context management is doing. Uh because I think long sessions are something that naturally happen with these applications. Um and so, what we end up doing is we load 10 turns and then we",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "test the 11th to understand how the context is doing. And so, these bugs really become testable. I don't have to wait till I find it or a user reports it. So, uh wanted to share a little bit um about that and even so, with the",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "testability and um the uh truncation here, um there is still, you know, too much data sometimes for for one agent. So, uh one big realization that we also had is that not all context belongs in the same agent. Um so, I'm going to give an",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "example here, our search task. So, this is where Alex is trying to search over data in Arise. Um this happens within like our main chase or even when we're just looking at, you know, one trace stack, you know, there can be hundreds",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "of spans within it and Alex needs to figure out what data it should look at. So, there's multiple queries happening, tons of data, lots of intermediate reasoning happening step-to-step. And we really came to the conclusion that not",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "all this needs to live in the main conversation. So, once we had one kind of main agent uh for our traces uh skills and we decided that that was not really necessary. So, the solution that we had was sub-agents. And I think this is also",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "something really important when you're talking about context and how we manage across uh these agents that need to have a lot of data, uh which is offload the heavy tasks. The main conversation can stay small. Um so, before we had the",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "main conversation, we had chat history, heavy data, search all in one context. This was all handled in one agent. And then after basically what we have is these this main agent plus a sub-agent. So, we have the main conversation with",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "the chat and light context only. We keep it pretty light. What it can do is it can delegate to the sub-agents. Um and that's where the heavy data stays. So, we can keep all of the heavy data context in our sub-agent. And then once",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "it gets a result, we can kind of pass that over to the main uh main agent again and then the user can kind of share um or keep the conversation going. And of course, it can always retrieve from the memory store as well if it ever feels like it",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "needs more context there. So, I think this is something that was a game-changer. We've uh rolled out a lot of sub-agents now that we kind of figured out this is the right way to handle all the really, you know, data-intensive operations.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So, that's a lot of what we figured out in terms of context management. It's working really well. I I think I was surprised the most by the fact that summarization didn't work. I think that was again like the obvious choice for",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "us, but uh the combination of truncation along with being able to store it in memory uh is something that we found to be really successful. So, what are we still figuring out cuz there's quite a lot. Uh huge context still can still",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "break things. I think it's still a problem for us. Very large prompts or inputs still hit provider limits. So, because we're operating we have an agent operating on agent data, you can imagine all of system prompts, the user message,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the conversation history. That is all what our customers are trying to use Alex to understand. And so, as their context is growing, we have a bigger context issue because we have to figure out how to to handle that. And the pattern we",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "keep returning to is sub agents. Uh we just keep breaking things up and having context handled by different parts. Um and that is something that we are still um kind of learning about and and seeing if there's anything that we need to do",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "to evolve that strategy even more. Long memory is still hard. This is something actually that my engineers are working on right now. So, long sessions are tricky. We are seeing conversations grow more and more. I think when we",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "started, I was seeing like less than 10 turns per conversation with Alex, and now I'm seeing folks really go, you know, push the limits up to like 20 plus. Uh what's really happening there is they're traveling across our application using Alex. And so, as",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "they're trying to do these longer workflows, they're obviously asking more questions and they're finding Alex to be helpful, but that's a a problem for us because we need to figure out how to handle this. So, I think what we're",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "really focused on right now is like real long-term memory. It's not something that Alex has. The memory is really just that um kind of context with the memory store uh that Alex can leverage. So, we don't really have long-term memory. Um I",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "also think it's important because people want to reference issues that they've previously discussed with Alex. And so, if they're they do decide to start a new chat, Alex really doesn't have context for that. So, uh we're in the process of",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "adding long-term memory, and I think that's something that'll be a real game-changer for us. Context selection is also still a heuristic for us. Deciding what context stays in um is just that basic, like I said, like first 100, last 100. Um but,",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "we do keep like asking ourselves, do we keep the right things? Uh we don't really have a principled context budget or clear metrics for context quality yet. We use our e-vals a lot of the time to measure whether our context was right",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "or not. Um but, I think there's something a little bit more sophisticated that we're researching to figure out if this is the right heuristic. Um something that was a little little surprising to us is, you know, I don't know how many people are",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "right here, but the quad code code was kind of released for all of us to read a little bit about. We were surprised that they're using kind of a similar truncation and compression strategy as we are. We were kind of hoping to get a",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "little bit of a a secret from from them, but I guess we'll all just have to keep you know, doing our own research there. Um and just some takeaways cuz I wanted to leave some time for questions. Um context management is iterative. We",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "are still learning. I think everybody should continue to learn and lean in and try to optimize their context management. The few things that I think are really clear is that context engineering really does matter. Memory matters and evaluation matters. If",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "you're going to take anything away from me or us at a rise, it's those three things and that's from our experience as well as our experience with all of our user base. And finally, agents don't fail because of prompts, they fail because of",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "context. I think that's something that we've learned firsthand and that we're seeing more and more. In the early days, prompts were everything. Everybody was focused on prompt engineering, but ourselves and all of our users are really focused now on context",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "engineering and there's a lot of strategies that can go into that. You want to try out a rise? Just want to give it a QR code to try it out. You can try out Alex, our agent. We're downstairs at the booth if you'd like to see a demo especially of Alex, I'd be",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "happy to give it, but I wanted to just leave some time to honestly be able to have you know, some Q&A and answer some questions. >> [applause] [applause] >> Yeah, question. What was the main thing that they came out with? Hi, thank you. It was a great talk.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "One of the things that came out with the Claude Code Lee was how much effort they've put into not invalidating the cash with their context management. Are you doing work on that as well or how are you thinking about that? Yeah, I",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "think right now we're really trying to focus on the long-term memory stuff. We haven't gone too much into the cash. Basically, we have it saved off in a database with IDs. And so, what Alex can do is it has a tool where it has all the",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "IDs and like where in the conversation it needs to access. So, was it earlier on? How many messages? And it gets a little bit of a preview. Um so, that's how we've done it right now. I absolutely think we're going to have to",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "get a little bit more sophisticated and invest in that. Uh but right now it's working. So, we're kind of focused more on the long term memory cuz I feel like that's where I'm getting the most complaints. Yeah. Any other questions? All right. Well,",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "come find me downstairs if you have any questions. Thanks so much for the the time. >> [applause] [music]",
+      "start": 480,
+      "duration": 6
+    }
+  ]
+}

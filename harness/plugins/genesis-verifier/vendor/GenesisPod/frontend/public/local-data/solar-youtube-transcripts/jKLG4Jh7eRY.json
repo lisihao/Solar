@@ -1,0 +1,519 @@
+{
+  "videoId": "jKLG4Jh7eRY",
+  "title": "SREcon26 Americas - The Gashlycrumb Tinies of AI Networking You Must Know (or Languish!)",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 25231,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Edward Gorey, in his alphabet book\nGashlycrumb Tinies, introduces each\nletter with a child who meets a grim\nend.\nSo, from the simple A is for Amy who\nfell down the stairs to the more absurd,\nN is for Neville who was swept out to\nsea, and N is for Neville who died of\nennui.\nThey fall, slip, and perish by entirely\navoidable deaths.\nThere's no heroic rescues, just the\ninevitability of disaster.\nIf Gorey were here today among us,\nI'm convinced he would be writing and\nillustrating about AI workloads at\nscale.\nI'm Lerna.\nI'm a solutions engineer at Clockwork.\nWe are a startup out of Stanford\nUniversity.\nWe provide software solutions based on\nour foundational research um that is\nbased on software-based clock\nsynchronization, and I work with neo\nclouds and enterprises day-to-day\non network performance, resilience, and\ndeep observability for AI workloads as\nwell as traditional workloads. Prior to\nthis, I was at AWS for 3 years, and\nbefore that, I was at large financial\nservices firms. And I enjoyed working on\nproblems of scale as an infrastructure\nengineer.\nI worked on multi-region deployments um\ncloud-native for a banking platform\nusing Terraform and CI/CD, distributed\ncaching for an investment management\nportal,\nlow-latency monitoring for all Unix\nservers in the firm,\nand all of these things require\nsolutions that are highly available,\nresilient, and scalable, otherwise\nyou'll get woken up at 3:00 a.m.\nSo, AI workloads today\nrequire similarly highly scalable,\nresilient, and available solutions.\nAnd in order to do that, I think we\nreally need to understand what's in the\nbowels of those workloads in the\nnetworking stack. So, I'll be diving\ninto those. I'll also be looking at\nfailures along with demos, not only in\nthe networking, but also will touch upon\na few of the GPU failures today.\nSo, to make things a bit tangible, I'm\ngoing to use this mental model of a\nseance restaurant. So, it's a bit of an\nunusual restaurant in which\nwe are calling spirits, and these are\nnot the kinds of spirits that you drink,\nlike Macallan 18, but these are spirits\nfrom the other world.\nSo, you have round tables, guests\nsurrounded around this round table, you\nhave candles lit,\nand a\nmedium at the center of it coordinating\nthe seance.\nIf a guest is late or a candle is out at\nthe wrong moment, then the whole\nceremony collapses, and you have to\nstart over.\nAnd that is, in a gist, AI training at\nscale.\nSo, we're going to go back to this image\nover and over.\nSo, this is the AI workload layers. On\ntop, you have your workload, that's a\nmodel. It's built using libraries and\nframeworks like for deep learning, uh\nthe most popular framework right now is\nPyTorch.\nAnd for distributing the model, you use\nuh frameworks like DeepSpeed, Torch\nTitan, or Megatron\nacross, you know, large number of DGX\nGPUs. GPUs, in order to synchronize\ntheir results, they need to perform\ncollective communication operations.\nAnd for that, we use libraries like\nNCCL.\nEspecially for large-scale jobs, uh to\ndistribute training across multiple GPUs\nacross multiple nodes, this becomes\ncritical.\nAnd at the bottom of the stack is a\nnetwork device that needs to be remote\ndirect memory access capable, and it\ngoes over fabrics like InfiniBand or\nRocky V2.\nWhen there is an issue, it typically\npropagates upward as my training job is\nslow. Maybe the a model developer is\nyelling at an SRE.\nIt's the network, and the SRE is trying\nto prove it's not the network. So, I\nthink here I want to take a poll as how\nmany folks here are closer to the top of\nthe stack, like more on the application\nside.\nI see a few hands.\nAnybody working on AI workloads, models,\ntraining models? There is a few hands.\nCool.\nHow many folks are towards the bottom of\nthe stack?\nOh, a lot more. And anybody working with\nGPU clusters?\nThere. Cool.\nI hope there's something for everyone\ntoday.\nSo, first I want to talk about the top\nof the stack. This is what a typical\nsimple training loop will look like. For\neach epoch, which is like full data set,\nentire data set, you do multiple loops.\nFor each mini batch within that data\nset,\nyou perform three phases, like forward\npass, backward pass, and optimi-\noptimizer.\nIn the forward pass, you are inputting\ndata to the model, you're getting some\npredictions, then you have to calculate\nthe loss with respect to the\ninaccuracies of your predictions versus\nthe actual target values. Then you\nperform a backward pass where you cal-\ncalculate gradients, that is, the\nadjustments you need to make to the\nmodel parameter\nso that it is more accurate. You\nminimize that loss.\nAnd at the optimizer step, in fact,\nbefore the optimizer, you have to\nsynchronize those gradients because\nthey're locally computed across GPUs,\nand you synchronize, you average them\nacross in data parallel model. And in\nthe optimizer step, you apply these\ncomputed gradients to the model's\nparameters so that the model learns from\nits mistakes.\nAnd in order to deploy this, typically\nfolks in the field are using Kubernetes.\nThey could also be using Slurm.\nSo, this is what a typical one looks\nlike. Kubernetes is scheduling pods and\nnodes.\nAnd in a node you may have typically\neight GPUs, but you would maybe allocate\nfour GPUs, a subset of that, to your\ncontainer in which the model is going to\nbe trained.\nFor PyTorch, you have a parent process\nas the entry point. That's torchrun.\nThat spawns off child processes, little\nPyTorch processes per rank, per GPU.\nSo, this is where that training loop is\nrunning.\nAnd this is a very simple training job\nthat we're going to look at that is\nrunning that training loop using\nKubernetes and Kubeflow\nto deploy it um in cube two Kubernetes\npods.\nIt's just getting started right now.\nNow, it's running.\nSo, if you look at the logs, you see\nthat I am training this across two GPUs.\nAnd the training just got kicked off. Uh\nstarting from step zero, my loss is at\n711 initially, but over each iteration\nof that training loop, the loss keeps\ngetting\nless and less. It keeps decreasing since\nthe model is learning from its mistakes.\nAnd\ntowards like step 40-ish or so, it goes\ndown to 6.9.\nNext, uh I'm going to get inside this\none of the containers and just look at\nthe processes.\nAs we said, torchrun is the entry point\nof the container, so\nthat is PID one, torchrun up here.\nThat has spawned off my PyTorch job,\nwhich is that DDP one in love\njob with PID 16 here\nthat is running inside each one of these\ntwo containers.\nAnd if I look at the code itself, it's\nthe same training loop that we looked at\nearlier, so nothing new here. It's a\ntypical PyTorch um job. model.train is\ncalled, so we train the model per each\nstep. We're doing the forward pass,\ncalculating the predictions and the\nloss,\nthe backward pass, calculating those\ngradients first locally, then\nsynchronizing them across GPUs,\nand then we do optimizer step where we\nare applying\nthe computed gradients to the model's\nparameters.\nAnd finally,\nI'm going to run NVIDIA\nsystem management interface. This\ncommand is going to help me to see how\nmuch resources my tiny little uh PyTorch\ntraining job is consuming in this\ncontainer.\nAnd uh here is PID 16, so that is that\nDDP vanilla job that I'm running.\nVery uh little GPU memory because it's a\nkind of a demo job.\nRunning on GPU zero right now. That's\nhow much power it's consuming.\nAnd that's how hot the GPU is right now,\n70 Celsius, which is uh pretty low um in\nterms of, you know, what it can be\nbecause if this is a really small job.\nSo, to scale the job to hundreds or\nthousands of GPUs, typically you need to\nuse different parallelism strategies.\nUh so, you're sharding the model,\nsharding the data in different ways, and\ndepending on which one you're using,\nwhether data parallel, tensor parallel,\nor pipeline parallel,\nyou are synchronizing different things,\nwhether that's gradients or activations,\nor weights.\nIn a production training job, typically\nyou're combining all three of these\nthings, so that's called 3D parallelism.\nAnd what makes this work is this\nparadigm that's called single program\nmultiple data.\nSo, you have all these ranks, all these\nGPUs that are assigned a rank ID. They\nknow about their own rank ID. So, they\nknow their role within the full\ndistributed training.\nSay rank zero will say, um,\nokay, I'm rank zero, so I am supposed to\nonly be working on the left half of the\nmatrix.\nAnd rank five may say, I'm rank five and\nI'm only supposed to be working on the\nmiddle parts, middle layers of the\nmodel.\nAnd not only that, but these ranks also\nknow the neighborhoods that they are\npart of. So, a rank may say, rank zero,\nI'm part of tensor parallel group.\nSo, therefore, I know exactly which\npeers I'm supposed to be performing\nthese matrix multiplications with.\nThat brings us to nickel.\nSo, N is for nickel, which timed out at\ndawn. The ring had one straggler, and\nall was undone.\nSo, nickel is used basically for each\nkind of training step where we need to\nsynchronize something, for example,\ngradients or weights or activations, we\nneed to use it.\nShe is that medium at the center of the\nseance. She maps every guest to every\nposition.\nShe decides the order of the pass, sets\nup the topology before a single number\nmoves, and without her, the guests would\njust be sitting in the dark and waiting\npolitely for instructions that don't\ncome.\nSo, nickel is sitting below the machine\nlearning framework, below PyTorch or\nTensorFlow, and above the network\nlibrary that's lib ibverbs or InfiniBand\nverbs API.\nAnd nickel is for Nvidia GPUs, but for\nAMD GPUs, we'll be using rocCL, which is\nROCm collective communications library.\nSo, it is discovering the topology for\nevery GPU in the job, determining the\nfastest path, whether that's within the\nnode for GPU to GPU communication or\nacross nodes, and it's orchestrating the\nring.\nAnd it is the only layer with a complete\nview of the communication graph.\nSo, NCCL implements many collective\noperations, and one of the kind of uh\nmost the ones that we encountered the\nmost is all reduce.\nSo, A is for all reduce.\nEach rank arrived with its own accounts,\nleft in agreement on the total amount.\nSo, we're back to the table, and every\nguest here, they're whispering a number\nto the guest on their right.\nAnd each person adds whatever value they\nreceive from their peer, and passes it\non to the next person, next node. At the\nend, we have the total sum, let's say\ntotal gradients. So, we're now passing\nit around the ring one more time, so\neach and every node have the total sum.\nSo, the finish time of the operation is\nbased on the sum of the latencies in the\nring. So, if there's a slow node,\nstraggler, GPU, or slow link, then that\nis going to affect not only the total\njob completion time, but also job\nthroughput, and we're going to see this\nin a demo.\nAnd um\nmentally, the way I think about this is\nlike in a Formula 1 race, a pit crew,\nyou have a team member who is slower\nthan everybody else, that person\ndetermines the speed of the team.\nSo, all reduce operates at the\ncollective layer, and one layer down\nwhere the bytes are actually flowing\nover the network, that's where Q pairs\ncome into play.\nSo, Q is for Q pair,\nprecise and exact, one stalls on the\nfabric, and all those track.\nSo, here every pair of guests, they have\na dedicated waiter,\nand that waiter is carrying dishes only\nbetween those two guests.\nIf you have a slow waiter, for whatever\nreason, your dishes are going to be\nlate, and because no one acts until\nevery dish has arrived, a slow waiter is\ngoing to hold down the whole table.\nSo, this is what that looks like in a\nsimple form for the collective\ncommunications library layer. You have a\nsender node and a receiver node, eight\nGPUs.\nAnd GPUs, they're generating messages\nthat are split into chunks.\nChunks are mapped to Q pairs. Q pairs\nare nothing but paths in the network. We\ncan think of them like sockets in the\nTCP world. The NIC takes this data,\npacketizes it over the fabric,\nand sends it to the receiving NIC, which\ntakes it up its stack.\nSo, here is one reason why that model\ndeveloper may be complaining that their\ntraining job is slow. We'll see this in\na demo.\nSo, first I'll kick off an all reduce\njob in this cluster.\nAnd it gets kicked off between these two\nnodes. These two nodes are in adjacent\nracks.\nI have 100 gigabits per second NICs\nhere, and 16 of them.\nSo, first I want to see the throughput\nof the job for the single job.\nAnd it reaches 1.47 terabits per second.\nThat is the max throughput I can get in\nthis cluster, so that's pretty good.\nNext, I'm I'm going to kick off one more\njob. It's an all to all job.\nSo, now I have two cross rack jobs.\nIf I look at just before just one job, I\nget 92 gigabits per second out of the\n100 gig NICs, so that's pretty good.\nBut now that I have the second job\nthat's cross rack, so I have a lot of\ncontention at the spine layer flows.\nThroughput for both jobs goes down 50%\nor less. It 860 M4 95. And for the NICs,\nI'm only getting 50 and 30 gigabits per\nsecond out of them, as opposed to the 92\nthat I was getting before. And the\nreason for that is at the queue pair\nlevel. The latencies for the queue pairs\ngo anywhere from a few microseconds\nall the way up to 50 microsecond range.\nSo, these really stragglers, these slow\nteam members or slow queue pairs are\nbringing down the throughput of the job\nby 50%.\nAnd you can see also that explicit\ncongestion notification marks are high.\nSo, the network already knows there's a\nlot of congestion in it.\nSo, this is one more um\nrun this time in ECMP test bed.\nSo, here I have 100 gigabits per second\ntest bed. Um and my first all-to-all job\nis only getting 84 gig. Again, similar\npattern where some of the queue pairs\nare in the tens of microseconds latency\nwhile others are a few. So, those\nstragglers are bringing down uh the job\nthroughput. When I have a second one\nsecond all-to-all job,\nnow both jobs are only getting 50% or\nless in this test bed, 44 and 39 gigs.\nThat's because some of these queue pairs\nshot up to like 100 to 150 microsecond\nlatencies. And the last one is about a\nsolution that reduces those one-way\ndelays. So, what it's doing is it's\nminimizing the one-way delays so they\nall converge to a value like 16\nmicrosecond, for example. So,\neverybody's running with the same speed.\nThere's no stragglers. And what that\ndoes is the throughput of the job at\nthat point for both jobs go closer to\nthe max throughput.\nSo, we zoomed in to the queue pairs to\nsee how bytes move and now we're going\nto zoom out and we go to the network\nthat those bytes are moving across.\nSo, this is the back-end network. It's\nhighly specialized. It's high speed, low\nlatency. It's built exclusively for the\nCPU to GPU communication for distributed\ntraining. Um here you have InfiniBand or\nRocky V2 and you have RDMA capable NICs,\nwhich we'll talk about.\nAnd these NICs are actually extremely\nhigh-speed. They're running upwards of\n800 gigabits per second.\nNow, the front-end network, on the other\nhand, is Ethernet. So, this is actually\nwhat we know very well. We love\nEthernet.\nUm so, this is built for general tasks.\nIt has a front-end Ethernet NIC. Um it's\nbuilt for compute, management,\ntelemetry, configuration for the\ntraining job. Maybe you're using this\nfor logging or monitoring.\nAnd the speeds for these NICs are maybe\n100 gigabits per second\nor maybe 200, but not more than that.\nSo, what we have here is nodes that have\ncompletely two separate personalities\nwhen it comes to the network.\nYou have the front-end network that is\nmore like the tortoise because of its\nspeed.\nAnd you have the back-end network that's\nmore like the hare because, you know,\nit's extremely fast.\nSo, front-end NICs and front-end network\nis for north-south traffic, and the\nback-end network is for east-west\ntraffic.\nSo, just a quick demo to see what that\nlooks like uh in terms of the latencies\nfor the front-end versus back-end.\nSo, here I have 16 RDMA NICs for the\nback-end network.\nAnd I want to look at the latencies\nin between two RDMA NICs across two\nnodes that are not in the same rack.\nSo, here I created four Q pairs, so\nthere are four flows, and per flow I'm\ngetting about 4.7 microsecond\nin terms of the latency without any\nworkloads running.\nIf I look at the same thing, but within\nthe same rack across two nodes, two RDMA\nNICs, that is below 1 microsecond, so\n900 nanosecond is what I'm seeing per Q\npair in terms of the latencies.\nAnd if I look at the front end NIC here,\num and do the same to compare the\nlatencies\nbetween two front end NICs,\nyou can see that like 30, 40, 50\nmicrosecond is what I'm seeing, so it's\n10 times um slower than the back end\nnetwork.\nSo, the back end network is built for a\nspecific type of data movement, and\nthat's RDMA. So, R is for RDMA. By\npassing the stack, the data arrives and\nit never looks back.\nSo, data travels from one GPU or node's\nmemory over the fabric\ninto the other node or other GPUs\nmemory, bypassing the kernel, bypassing\nthe CPU, and that's what enables fast\ndata transfers.\nSo, in a typical app, traditional app,\nyou may be using sockets API, that\ntravels through the kernel stack. So,\nthere's context switching, there's CPU\ncycles, and latency there.\nFor RDMA apps, on the other hand, we're\nusing RDMA verbs API,\nand we are bypassing all of that,\ngoing directly to the RDMA capable NIC.\nSo, RDMA needs a network that can\nsupport it, and in most AI clusters, we\nsee a lot of InfiniBand, but we also do\nsee RoCE v2.\nSo, I is for InfiniBand, proprietary and\nproud. It runs like a whisper and fails\nlike a crowd.\nSo, on the higher layers of the stack,\nInfiniBand and RoCE v2 are the same,\nbut InfiniBand uses proprietary\nhardware, proprietary network cards and\nswitches.\nIt has proprietary protocols at the\nnetwork and link layer.\nIt is very fast, but it can get costly.\nAnd obviously there's a vendor locking.\nWith RoCE v2, this is Ethernet. So, this\nis RDMA over Ethernet. Um it runs over\nUDP IP. We all know love Ethernet.\nIt's less costly. There's more vendor\noptions. It's more flexible. However, it\nrequires lossless Ethernet\nconfiguration. So, you have to perform\nand configure priority flow control and\nexplicit congestion notification for all\nyour network cards and switches, which\nis where some of the operational\ncomplexity lives.\nNow, it doesn't matter how well you tune\nyour networks. You could still get paged\nat 3:00 a.m. and that could be due to\nflapping. So, F is for flapping, a\nwhispering dread.\nThe link that recovers, then falters\ninstead.\nSo, the candles here are not just for\nshow. They're also load-bearing. And\noccasionally one of them goes out and\nends the séance. And relighting it\ndoesn't make a difference.\nSo, this is from SemiAnalysis. Any folks\nhere follow SemiAnalysis?\nA few.\nSo, it's a well-established AI\npublication. Basically, they talk about\nlarge GPU clusters at scale\nbecause of the number of um optical\ntransceivers that you can have in these\nlarge GPU clusters, tens of thousands of\nGPUs,\nand you know, more than that optical\ntransceivers.\nEven if a single component's failure\nrates, mean time to failure, uh is 3 to\n5 years, for example, due to overheating\nand dust particles,\nthese optical transceivers can fail for\nthe jobs that are running within the\nfirst few hours.\nAnd what do I mean by links flapping?\nSo, it just means that the network link\ntemporarily goes from up to down. It\ncould last a few seconds, at which point\nyou may self-heal.\nAnd if it's beyond that collective\ncommunication may timeout and at that\npoint the job fails. So that brings us\nto the fun part of this.\nBasically we'll be flapping some links\nand for that I want to kind of think for\nus to think about maybe we're pulling\nout that optical transceiver. We went to\nthe data center for some maintenance and\npulled out the wrong one.\nUm but remember this can also happen\njust by overheating and dust.\nAnd then to recover from it, let's say\nthat we're going to be receding it back.\nSo here I have a PyTorch job that's\nrunning on two nodes.\nAnd first I want to see that, you know,\nit's running\nhealthily. So we'll look at\nhow it's doing.\nYou can see that um number of iterations\nis going up. So the job is actually\nactively running on these two nodes.\nNext I'm going to flap one of these\nNICs. This can be a link flap, NIC flap,\nport flap. It can happen at the switch\nside or it can happen at the edge at the\nend point, which is where we are right\nnow. So that NIC is dead.\nAnd as soon as I killed the NIC, um you\ncan see that the training job\nwent down. It crashed.\nNext what I'll do is I'll\nrevive that NIC\nso that, let's say I went back to the\ndata center, I receded the optical\ntransceiver and I want to see if that\nchanges anything for this job.\nAnd it doesn't. So, the job remains\ndead.\nSo, here I have NIC flaps in a cluster\non Oracle Cloud, and the first one is\njust the baseline, so there's no\nfailures. I have 100 gigabits per second\nNIC, 16 of them. I'm just getting the\nmax throughput I can get in this\ncluster, which is 1.47 terabits per\nsecond, which is what we saw.\nThe second one is the issue that happens\nin GPU clusters today, and that's also\nwhat we saw in the demo. And NIC fails,\nthe job dies, NIC is revived, the job\nremains dead.\nThe third one is basically a solution\nwhere the NIC fails,\nthe job continues, the not the NIC\nrevives, the job recovers back to\noriginal throughput.\nThe learnings from this is a choice of\nwhen and if to fix this flat NIC,\nand whether to run until the next\ncheckpoint, at which point to fix the\nflat NIC.\nAnd that bring brings us to\ncheckpointing. So, a flapping link\ncrashes your job, and the question is\nhow much work did you lose from that?\nAnd that's entirely determined of how\nfrequently you perform checkpointing.\nSo, C is for checkpointing that clogged\nup the rail. The state was preserved,\nbut the storage grew pale.\nAnd um\nwe also should be talking about, I\nthink, GPU failures, because they're\nreal.\nGPUs have memory errors. Um for example,\nsingle-bit errors that, you know, if\nthey accumulate over time can turn into\nunrecoverable\ndouble-bit errors.\nGPUs fall off their PCIe bus, NVLink\nerrors happen, driver and firmware bugs\nalso happen.\nAnd due to the synchronous nature of\nthese workloads, of these AI workloads.\nuh any component that fails like this\ncan result in the entire job crashing,\nwhich is what we saw in the link flat\ndemo, for example.\nSo, in a training loop, um what\ncheckpointing looks like,\nyou have the forward pass, the backward\npass, and optimizing optimization.\nYou have per iteration a step boundary.\nAt that step step boundary, you'll be\nperforming checkpointing,\nwhich is how you would avoid losing all\nthe work up till that moment. So, at\nregular intervals, every GPU in the job\nwrites its current state, whether that's\nmodel weights, optimizer state, or\nposition in the run to persistent\nstorage. So, when the job dies, then you\nrestart from that checkpoint, rather\nthan step zero.\nAnd this is what that may look like.\nSo, you're taking checkpoints every so\noften. Checkpointing is also costly, so\nyou don't want to take it too often.\nTypically, we see teams take checkpoints\nat best every 30 minutes.\nWhen a failure happens, then the job\ncrashes.\nAt that point, you have to now start\nrestoring from your last checkpoint, in\nthis case checkpoint three. So, you lost\nsome work between like your last\ncheckpoint till the failure time.\nYou now restart your training.\nTake some time to\nactually start. And then you have to\nrecompute all of that lost work since\nthe last checkpoint.\nAnd there's a spectrum here.\nSo, at one point, there's obviously no\ncheckpointing at all.\nand at that point, you lose everything.\nThere's checkpointing like this to\nrestore, which is the typical kind of\nindustry standard. There are other\nthings like Torch FT by Meta,\num that, you know, upon failure,\nimpacted replica group is removed from\nthe training job, and training\ncontinues, um but the samples assigned\nto the missing replica group are not\nprocessed and\nthere is also live migration.\nThat brings me to our key takeaways.\nAnd I want to call out TensorFlow. So T\nis for TensorFlow, elegant and vast. It\nbuilds you a graph of the sins of your\npast.\nAnd these are my real key takeaways.\nSo as we saw in the demo, Q pairs with\nhigh latency degrade job throughput by\nas much as 50%.\nAnd components fail, NYX and links will\nflap, GPUs will have failures. So we\nshould build some fault tolerance to our\nAI workloads to recover from them\naccording to our business requirements.\nAnd thank you all and may your Q pairs\nnever languish.",
+  "segments": [
+    {
+      "text": "Edward Gorey, in his alphabet book Gashlycrumb Tinies, introduces each letter with a child who meets a grim end. So, from the simple A is for Amy who fell down the stairs to the more absurd, N is for Neville who was swept out to",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "sea, and N is for Neville who died of ennui. They fall, slip, and perish by entirely avoidable deaths. There's no heroic rescues, just the inevitability of disaster. If Gorey were here today among us, I'm convinced he would be writing and",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "illustrating about AI workloads at scale. I'm Lerna. I'm a solutions engineer at Clockwork. We are a startup out of Stanford University. We provide software solutions based on our foundational research um that is based on software-based clock",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "synchronization, and I work with neo clouds and enterprises day-to-day on network performance, resilience, and deep observability for AI workloads as well as traditional workloads. Prior to this, I was at AWS for 3 years, and",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "before that, I was at large financial services firms. And I enjoyed working on problems of scale as an infrastructure engineer. I worked on multi-region deployments um cloud-native for a banking platform using Terraform and CI/CD, distributed",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "caching for an investment management portal, low-latency monitoring for all Unix servers in the firm, and all of these things require solutions that are highly available, resilient, and scalable, otherwise you'll get woken up at 3:00 a.m.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So, AI workloads today require similarly highly scalable, resilient, and available solutions. And in order to do that, I think we really need to understand what's in the bowels of those workloads in the networking stack. So, I'll be diving",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "into those. I'll also be looking at failures along with demos, not only in the networking, but also will touch upon a few of the GPU failures today. So, to make things a bit tangible, I'm going to use this mental model of a",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "seance restaurant. So, it's a bit of an unusual restaurant in which we are calling spirits, and these are not the kinds of spirits that you drink, like Macallan 18, but these are spirits from the other world. So, you have round tables, guests",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "surrounded around this round table, you have candles lit, and a medium at the center of it coordinating the seance. If a guest is late or a candle is out at the wrong moment, then the whole ceremony collapses, and you have to start over.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "And that is, in a gist, AI training at scale. So, we're going to go back to this image over and over. So, this is the AI workload layers. On top, you have your workload, that's a model. It's built using libraries and frameworks like for deep learning, uh",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "the most popular framework right now is PyTorch. And for distributing the model, you use uh frameworks like DeepSpeed, Torch Titan, or Megatron across, you know, large number of DGX GPUs. GPUs, in order to synchronize their results, they need to perform",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "collective communication operations. And for that, we use libraries like NCCL. Especially for large-scale jobs, uh to distribute training across multiple GPUs across multiple nodes, this becomes critical. And at the bottom of the stack is a",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "network device that needs to be remote direct memory access capable, and it goes over fabrics like InfiniBand or Rocky V2. When there is an issue, it typically propagates upward as my training job is slow. Maybe the a model developer is yelling at an SRE.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "It's the network, and the SRE is trying to prove it's not the network. So, I think here I want to take a poll as how many folks here are closer to the top of the stack, like more on the application side. I see a few hands.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Anybody working on AI workloads, models, training models? There is a few hands. Cool. How many folks are towards the bottom of the stack? Oh, a lot more. And anybody working with GPU clusters? There. Cool. I hope there's something for everyone today.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "So, first I want to talk about the top of the stack. This is what a typical simple training loop will look like. For each epoch, which is like full data set, entire data set, you do multiple loops. For each mini batch within that data set,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "you perform three phases, like forward pass, backward pass, and optimi- optimizer. In the forward pass, you are inputting data to the model, you're getting some predictions, then you have to calculate the loss with respect to the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "inaccuracies of your predictions versus the actual target values. Then you perform a backward pass where you cal- calculate gradients, that is, the adjustments you need to make to the model parameter so that it is more accurate. You minimize that loss.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And at the optimizer step, in fact, before the optimizer, you have to synchronize those gradients because they're locally computed across GPUs, and you synchronize, you average them across in data parallel model. And in the optimizer step, you apply these",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "computed gradients to the model's parameters so that the model learns from its mistakes. And in order to deploy this, typically folks in the field are using Kubernetes. They could also be using Slurm. So, this is what a typical one looks",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "like. Kubernetes is scheduling pods and nodes. And in a node you may have typically eight GPUs, but you would maybe allocate four GPUs, a subset of that, to your container in which the model is going to be trained. For PyTorch, you have a parent process",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "as the entry point. That's torchrun. That spawns off child processes, little PyTorch processes per rank, per GPU. So, this is where that training loop is running. And this is a very simple training job that we're going to look at that is",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "running that training loop using Kubernetes and Kubeflow to deploy it um in cube two Kubernetes pods. It's just getting started right now. Now, it's running. So, if you look at the logs, you see that I am training this across two GPUs.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "And the training just got kicked off. Uh starting from step zero, my loss is at 711 initially, but over each iteration of that training loop, the loss keeps getting less and less. It keeps decreasing since the model is learning from its mistakes. And",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "towards like step 40-ish or so, it goes down to 6.9. Next, uh I'm going to get inside this one of the containers and just look at the processes. As we said, torchrun is the entry point of the container, so that is PID one, torchrun up here.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "That has spawned off my PyTorch job, which is that DDP one in love job with PID 16 here that is running inside each one of these two containers. And if I look at the code itself, it's the same training loop that we looked at",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "earlier, so nothing new here. It's a typical PyTorch um job. model.train is called, so we train the model per each step. We're doing the forward pass, calculating the predictions and the loss, the backward pass, calculating those gradients first locally, then",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "synchronizing them across GPUs, and then we do optimizer step where we are applying the computed gradients to the model's parameters. And finally, I'm going to run NVIDIA system management interface. This command is going to help me to see how",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "much resources my tiny little uh PyTorch training job is consuming in this container. And uh here is PID 16, so that is that DDP vanilla job that I'm running. Very uh little GPU memory because it's a kind of a demo job. Running on GPU zero right now. That's",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "how much power it's consuming. And that's how hot the GPU is right now, 70 Celsius, which is uh pretty low um in terms of, you know, what it can be because if this is a really small job. So, to scale the job to hundreds or",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "thousands of GPUs, typically you need to use different parallelism strategies. Uh so, you're sharding the model, sharding the data in different ways, and depending on which one you're using, whether data parallel, tensor parallel, or pipeline parallel,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "you are synchronizing different things, whether that's gradients or activations, or weights. In a production training job, typically you're combining all three of these things, so that's called 3D parallelism. And what makes this work is this",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "paradigm that's called single program multiple data. So, you have all these ranks, all these GPUs that are assigned a rank ID. They know about their own rank ID. So, they know their role within the full distributed training. Say rank zero will say, um,",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "okay, I'm rank zero, so I am supposed to only be working on the left half of the matrix. And rank five may say, I'm rank five and I'm only supposed to be working on the middle parts, middle layers of the model. And not only that, but these ranks also",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "know the neighborhoods that they are part of. So, a rank may say, rank zero, I'm part of tensor parallel group. So, therefore, I know exactly which peers I'm supposed to be performing these matrix multiplications with. That brings us to nickel.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So, N is for nickel, which timed out at dawn. The ring had one straggler, and all was undone. So, nickel is used basically for each kind of training step where we need to synchronize something, for example, gradients or weights or activations, we",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "need to use it. She is that medium at the center of the seance. She maps every guest to every position. She decides the order of the pass, sets up the topology before a single number moves, and without her, the guests would",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "just be sitting in the dark and waiting politely for instructions that don't come. So, nickel is sitting below the machine learning framework, below PyTorch or TensorFlow, and above the network library that's lib ibverbs or InfiniBand verbs API.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "And nickel is for Nvidia GPUs, but for AMD GPUs, we'll be using rocCL, which is ROCm collective communications library. So, it is discovering the topology for every GPU in the job, determining the fastest path, whether that's within the",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "node for GPU to GPU communication or across nodes, and it's orchestrating the ring. And it is the only layer with a complete view of the communication graph. So, NCCL implements many collective operations, and one of the kind of uh",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "most the ones that we encountered the most is all reduce. So, A is for all reduce. Each rank arrived with its own accounts, left in agreement on the total amount. So, we're back to the table, and every guest here, they're whispering a number",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "to the guest on their right. And each person adds whatever value they receive from their peer, and passes it on to the next person, next node. At the end, we have the total sum, let's say total gradients. So, we're now passing",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "it around the ring one more time, so each and every node have the total sum. So, the finish time of the operation is based on the sum of the latencies in the ring. So, if there's a slow node, straggler, GPU, or slow link, then that",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "is going to affect not only the total job completion time, but also job throughput, and we're going to see this in a demo. And um mentally, the way I think about this is like in a Formula 1 race, a pit crew, you have a team member who is slower",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "than everybody else, that person determines the speed of the team. So, all reduce operates at the collective layer, and one layer down where the bytes are actually flowing over the network, that's where Q pairs come into play. So, Q is for Q pair,",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "precise and exact, one stalls on the fabric, and all those track. So, here every pair of guests, they have a dedicated waiter, and that waiter is carrying dishes only between those two guests. If you have a slow waiter, for whatever",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "reason, your dishes are going to be late, and because no one acts until every dish has arrived, a slow waiter is going to hold down the whole table. So, this is what that looks like in a simple form for the collective communications library layer. You have a",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "sender node and a receiver node, eight GPUs. And GPUs, they're generating messages that are split into chunks. Chunks are mapped to Q pairs. Q pairs are nothing but paths in the network. We can think of them like sockets in the",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "TCP world. The NIC takes this data, packetizes it over the fabric, and sends it to the receiving NIC, which takes it up its stack. So, here is one reason why that model developer may be complaining that their training job is slow. We'll see this in a demo.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "So, first I'll kick off an all reduce job in this cluster. And it gets kicked off between these two nodes. These two nodes are in adjacent racks. I have 100 gigabits per second NICs here, and 16 of them. So, first I want to see the throughput",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "of the job for the single job. And it reaches 1.47 terabits per second. That is the max throughput I can get in this cluster, so that's pretty good. Next, I'm I'm going to kick off one more job. It's an all to all job. So, now I have two cross rack jobs.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "If I look at just before just one job, I get 92 gigabits per second out of the 100 gig NICs, so that's pretty good. But now that I have the second job that's cross rack, so I have a lot of contention at the spine layer flows.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "Throughput for both jobs goes down 50% or less. It 860 M4 95. And for the NICs, I'm only getting 50 and 30 gigabits per second out of them, as opposed to the 92 that I was getting before. And the reason for that is at the queue pair",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "level. The latencies for the queue pairs go anywhere from a few microseconds all the way up to 50 microsecond range. So, these really stragglers, these slow team members or slow queue pairs are bringing down the throughput of the job by 50%.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "And you can see also that explicit congestion notification marks are high. So, the network already knows there's a lot of congestion in it. So, this is one more um run this time in ECMP test bed. So, here I have 100 gigabits per second",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "test bed. Um and my first all-to-all job is only getting 84 gig. Again, similar pattern where some of the queue pairs are in the tens of microseconds latency while others are a few. So, those stragglers are bringing down uh the job",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "throughput. When I have a second one second all-to-all job, now both jobs are only getting 50% or less in this test bed, 44 and 39 gigs. That's because some of these queue pairs shot up to like 100 to 150 microsecond latencies. And the last one is about a",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "solution that reduces those one-way delays. So, what it's doing is it's minimizing the one-way delays so they all converge to a value like 16 microsecond, for example. So, everybody's running with the same speed. There's no stragglers. And what that",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "does is the throughput of the job at that point for both jobs go closer to the max throughput. So, we zoomed in to the queue pairs to see how bytes move and now we're going to zoom out and we go to the network that those bytes are moving across.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "So, this is the back-end network. It's highly specialized. It's high speed, low latency. It's built exclusively for the CPU to GPU communication for distributed training. Um here you have InfiniBand or Rocky V2 and you have RDMA capable NICs,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "which we'll talk about. And these NICs are actually extremely high-speed. They're running upwards of 800 gigabits per second. Now, the front-end network, on the other hand, is Ethernet. So, this is actually what we know very well. We love Ethernet.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Um so, this is built for general tasks. It has a front-end Ethernet NIC. Um it's built for compute, management, telemetry, configuration for the training job. Maybe you're using this for logging or monitoring. And the speeds for these NICs are maybe",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "100 gigabits per second or maybe 200, but not more than that. So, what we have here is nodes that have completely two separate personalities when it comes to the network. You have the front-end network that is more like the tortoise because of its speed.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "And you have the back-end network that's more like the hare because, you know, it's extremely fast. So, front-end NICs and front-end network is for north-south traffic, and the back-end network is for east-west traffic. So, just a quick demo to see what that",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "looks like uh in terms of the latencies for the front-end versus back-end. So, here I have 16 RDMA NICs for the back-end network. And I want to look at the latencies in between two RDMA NICs across two nodes that are not in the same rack.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "So, here I created four Q pairs, so there are four flows, and per flow I'm getting about 4.7 microsecond in terms of the latency without any workloads running. If I look at the same thing, but within the same rack across two nodes, two RDMA",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "NICs, that is below 1 microsecond, so 900 nanosecond is what I'm seeing per Q pair in terms of the latencies. And if I look at the front end NIC here, um and do the same to compare the latencies between two front end NICs, you can see that like 30, 40, 50",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "microsecond is what I'm seeing, so it's 10 times um slower than the back end network. So, the back end network is built for a specific type of data movement, and that's RDMA. So, R is for RDMA. By passing the stack, the data arrives and it never looks back.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "So, data travels from one GPU or node's memory over the fabric into the other node or other GPUs memory, bypassing the kernel, bypassing the CPU, and that's what enables fast data transfers. So, in a typical app, traditional app,",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "you may be using sockets API, that travels through the kernel stack. So, there's context switching, there's CPU cycles, and latency there. For RDMA apps, on the other hand, we're using RDMA verbs API, and we are bypassing all of that,",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "going directly to the RDMA capable NIC. So, RDMA needs a network that can support it, and in most AI clusters, we see a lot of InfiniBand, but we also do see RoCE v2. So, I is for InfiniBand, proprietary and proud. It runs like a whisper and fails",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "like a crowd. So, on the higher layers of the stack, InfiniBand and RoCE v2 are the same, but InfiniBand uses proprietary hardware, proprietary network cards and switches. It has proprietary protocols at the network and link layer.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "It is very fast, but it can get costly. And obviously there's a vendor locking. With RoCE v2, this is Ethernet. So, this is RDMA over Ethernet. Um it runs over UDP IP. We all know love Ethernet. It's less costly. There's more vendor",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "options. It's more flexible. However, it requires lossless Ethernet configuration. So, you have to perform and configure priority flow control and explicit congestion notification for all your network cards and switches, which is where some of the operational",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "complexity lives. Now, it doesn't matter how well you tune your networks. You could still get paged at 3:00 a.m. and that could be due to flapping. So, F is for flapping, a whispering dread. The link that recovers, then falters instead.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "So, the candles here are not just for show. They're also load-bearing. And occasionally one of them goes out and ends the séance. And relighting it doesn't make a difference. So, this is from SemiAnalysis. Any folks here follow SemiAnalysis? A few.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So, it's a well-established AI publication. Basically, they talk about large GPU clusters at scale because of the number of um optical transceivers that you can have in these large GPU clusters, tens of thousands of GPUs, and you know, more than that optical",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "transceivers. Even if a single component's failure rates, mean time to failure, uh is 3 to 5 years, for example, due to overheating and dust particles, these optical transceivers can fail for the jobs that are running within the first few hours.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "And what do I mean by links flapping? So, it just means that the network link temporarily goes from up to down. It could last a few seconds, at which point you may self-heal. And if it's beyond that collective communication may timeout and at that",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "point the job fails. So that brings us to the fun part of this. Basically we'll be flapping some links and for that I want to kind of think for us to think about maybe we're pulling out that optical transceiver. We went to",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "the data center for some maintenance and pulled out the wrong one. Um but remember this can also happen just by overheating and dust. And then to recover from it, let's say that we're going to be receding it back. So here I have a PyTorch job that's",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "running on two nodes. And first I want to see that, you know, it's running healthily. So we'll look at how it's doing. You can see that um number of iterations is going up. So the job is actually actively running on these two nodes.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "Next I'm going to flap one of these NICs. This can be a link flap, NIC flap, port flap. It can happen at the switch side or it can happen at the edge at the end point, which is where we are right now. So that NIC is dead.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "And as soon as I killed the NIC, um you can see that the training job went down. It crashed. Next what I'll do is I'll revive that NIC so that, let's say I went back to the data center, I receded the optical transceiver and I want to see if that",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "changes anything for this job. And it doesn't. So, the job remains dead. So, here I have NIC flaps in a cluster on Oracle Cloud, and the first one is just the baseline, so there's no failures. I have 100 gigabits per second",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "NIC, 16 of them. I'm just getting the max throughput I can get in this cluster, which is 1.47 terabits per second, which is what we saw. The second one is the issue that happens in GPU clusters today, and that's also what we saw in the demo. And NIC fails,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "the job dies, NIC is revived, the job remains dead. The third one is basically a solution where the NIC fails, the job continues, the not the NIC revives, the job recovers back to original throughput. The learnings from this is a choice of",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "when and if to fix this flat NIC, and whether to run until the next checkpoint, at which point to fix the flat NIC. And that bring brings us to checkpointing. So, a flapping link crashes your job, and the question is how much work did you lose from that?",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "And that's entirely determined of how frequently you perform checkpointing. So, C is for checkpointing that clogged up the rail. The state was preserved, but the storage grew pale. And um we also should be talking about, I think, GPU failures, because they're",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "real. GPUs have memory errors. Um for example, single-bit errors that, you know, if they accumulate over time can turn into unrecoverable double-bit errors. GPUs fall off their PCIe bus, NVLink errors happen, driver and firmware bugs also happen.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "And due to the synchronous nature of these workloads, of these AI workloads. uh any component that fails like this can result in the entire job crashing, which is what we saw in the link flat demo, for example. So, in a training loop, um what",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "checkpointing looks like, you have the forward pass, the backward pass, and optimizing optimization. You have per iteration a step boundary. At that step step boundary, you'll be performing checkpointing, which is how you would avoid losing all",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "the work up till that moment. So, at regular intervals, every GPU in the job writes its current state, whether that's model weights, optimizer state, or position in the run to persistent storage. So, when the job dies, then you",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "restart from that checkpoint, rather than step zero. And this is what that may look like. So, you're taking checkpoints every so often. Checkpointing is also costly, so you don't want to take it too often. Typically, we see teams take checkpoints",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "at best every 30 minutes. When a failure happens, then the job crashes. At that point, you have to now start restoring from your last checkpoint, in this case checkpoint three. So, you lost some work between like your last checkpoint till the failure time.",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "You now restart your training. Take some time to actually start. And then you have to recompute all of that lost work since the last checkpoint. And there's a spectrum here. So, at one point, there's obviously no checkpointing at all.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "and at that point, you lose everything. There's checkpointing like this to restore, which is the typical kind of industry standard. There are other things like Torch FT by Meta, um that, you know, upon failure, impacted replica group is removed from",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "the training job, and training continues, um but the samples assigned to the missing replica group are not processed and there is also live migration. That brings me to our key takeaways. And I want to call out TensorFlow. So T",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "is for TensorFlow, elegant and vast. It builds you a graph of the sins of your past. And these are my real key takeaways. So as we saw in the demo, Q pairs with high latency degrade job throughput by as much as 50%. And components fail, NYX and links will",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "flap, GPUs will have failures. So we should build some fault tolerance to our AI workloads to recover from them according to our business requirements. And thank you all and may your Q pairs never languish.",
+      "start": 600,
+      "duration": 6
+    }
+  ]
+}

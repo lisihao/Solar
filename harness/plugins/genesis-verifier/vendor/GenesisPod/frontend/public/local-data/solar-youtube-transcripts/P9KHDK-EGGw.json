@@ -1,0 +1,539 @@
+{
+  "videoId": "P9KHDK-EGGw",
+  "title": "How SONiC Powers the World's Largest AI Infrastructure",
+  "channelName": "Open Compute Project",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 25801,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Okay. So, welcome everybody.\nSo, my name is Mehak Mahajan. I am uh\nfrom the engineering side at Broadcom,\nand I have with me on stage Guhan Lu,\nwho drives the Azure networking at\nMicrosoft. And today we're going to talk\nto you about the Azure's largest or the\nworld's largest AI infrastructure that\nhas been deployed with Sonic.\nSo, through this entire presentation,\nwe'll first talk about what makes AI\ndifferent. You've probably heard AI is\nbig, AI is different, but what\nspecifically about these particular\ntransactions makes it really different?\nSo, we'll walk through that. Then, we\nwill walk you through the Fairwater data\ncenter, which is the AI data center for\nMicrosoft. Uh we will talk about the\nenabling technologies, which you will\nsee are all there on Sonic, so you can\nuse it for your data centers as well.\nAnd we will finally leave you with a\nthought of what's next on the Sonic\nside.\nSo, let's talk about the AI traffic,\nright? How is it really different? So,\nbefore we start talking about AI\ntraffic, let's talk about traditional\nworkloads.\nWhat were traditional workloads really?\nTraditional workloads were a set of\nindependent transactions.\nThousands of CPUs, or so to say, would\nstart posting independent transactions\nlike web server requests, API calls,\ndatabase requests, etc. That would\nfollow different paths through the\nentire network. Now, the key\ncharacteristic of these particular\nworkloads was that they had sufficient\nentropy in their packets, such that they\ncould follow different paths, and so the\nentire traffic was distributed across a\nmuch waster or much wider set of links.\nThereby, congestion built up gradually.\nWhen it built up gradually, it receded\ngradually as well. So, as you can see,\nthe variance or the chaos that is\nassociated with the traditional networks\nis not really a flaw. It's a feature.\nIt would give the network a time to\nbreathe and a time to recover.\nNow, let's come to AI workloads.\nAI workloads turn this entire model on\ntheir head.\nTens of thousands of GPUs start\ncommunicating in a lockstep manner.\nSo, these GPUs are all going to finish\ntheir compute step together.\nThey're going to pause together.\nAnd then they're going to start talking\nor communicating together.\nAnd when everything starts together,\neverything collides.\nWhat we mean is\nthese particular AI workloads are\nlong-lived workloads, which are\nsynchronous workloads, and have very\nlittle entropy in them. We call these as\nelephant flows.\nAs these elephant flows go through the\nnetwork, they follow the same path,\nthe same switch, and they reside on the\nsame buffer.\nEssentially,\nthis leads to everybody talking together\nand leads to microbursts in the network.\nNow,\nin this way you can say that traditional\nworkloads are more like a crowd,\nbut AI workloads are more like a\nmarching army. They are extremely\nsynchronous.\nSo,\nwhat about the traditional methodologies\nfor doing congestion control? Why can't\nwe use them? We had PFC, we have ECN.\nLet's deploy them. No, you cannot.\nThese were built for gradual congestion.\nIn fact, if you started deploying PFC,\nit would lead to head-of-line blocking\nand congestion spreading, thereby\ncompletely ruining the performance of\nyour AI workloads.\nNow, taking the next step, let's take a\nlook at the telemetry of the traditional\nnetworks. These were really built for\nhuman timescales in the sense you would\npull the telemetry out every second or\ntens of seconds and it was pretty okay\ncuz you were looking at the counters and\nall was well with the world.\nBut in AI, as I just mentioned, things\nare happening in microseconds. That\nmeans by the time you pull the\ntelemetry, the congestion is already\ngone, the network has recovered, and you\nlost what really happened, thereby\nlosing the opportunity to fix it.\nSo, any telemetry that is designed for\nthe AI world needs to be designed for\nreal-time telemetry with feedback loops\nthat are happening in orders of\nmicroseconds, if not milliseconds.\nLastly, the performance of a traditional\nworkload was defined by optimizing for\naverages.\nIn case of AI, you surely cannot\noptimize for averages.\nTens of thousands of GPUs, if not\nmillions of GPUs, are going to be\nwaiting for that one GPU to finish its\njob so that you can post a completion.\nOne delayed packet,\none congested path, one straggler GPU,\nthat is all it takes in an AI network\nfor you to ruin the performance of your\nentire network and inflate the job\ncompletion time.\nSo,\nAI is not just a scale problem.\nAI is a different network altogether.\nAnd so, any solutions that we design for\nan AI network must be designed to solve\nfor bursty traffic,\nnear real-time telemetry, and feedback\nloop and mechanisms that are happening\nin order of microseconds or\nmilliseconds.\nAnd this is because\nin AI, the network is no longer just the\nplumbing. The network is the system.\nSo, with this, I'll let Guhan talk\nthrough the AI data center fairwater\nthat's been deployed with Tomahawk 5 and\nSonic.\nYes. Uh since I think since we talked\nabout a lot of a unique characteristic\nof the AI traffic, so therefore the\nMicrosoft has been working on this\nproblem since two or three years back.\nWe work with our industry partners like\nBroadcom and other um box vendor ASICs\nvendors to design our the new AI data\ncenter from ground up. So, the first\nthings we're trying to solve is the\ntopology, right? So, we need to connect\nso many GPUs together, mix them as a\nhuge cluster, and then so the the GPU\ncan talk to each other, can do the can\ncreate the largest, you know, AI\nsupercomputer, and then train the\ngreatest AI model um\nfor it. So, therefore the first things\nwe're trying to solve is come up with\nthis\nmulti-plane, multi-rail topology that\ncan scale to\nto hund- hundreds of thousands of GPUs\nin one single data center, so they can\ntreat the largest, you know, job um\nfor the Microsoft.\nSo, the one that we came up with is that\nyou can see within the plan, we're using\nthe 51 terabit, the latest ASIC, where\nwe just built a two-layer of network.\nAnd then using leverage the\nthe high radix of the ASIC, so we can\nfor each of the ASIC, um because it has\n51 terabit and 100 gig service. So, it\ncan fan out to 512\nneighbors. So, in this case, each of the\nASIC can come can connect to the 512\nneighbors. So, therefore, in this case,\nwe can build, if you can see, in one\nplane, we have 512 T0s and then 256 T1s.\nTogether, we can build a very large data\ncenter. That's for one plane. And the\nfrom the NIC side, because the NIC is\nalso 800 gig NIC, it can break into\neight by 100 gig lanes. So, each of them\nwe call a plane. So, therefore, you can\nsee one plane, we have this many of, uh,\nASICs and we have eight planes. So,\nthat's just the for one,\num, GPU. Usually, inside the server,\nthere are four GPUs there. So, each GPU\nwill form a real. So, therefore, you\nknow, um, we can build a multi-real,\nmulti-plane network, which can\nultimately deliver\n500,\nuh, 500k GPUs in one single data center,\nwhich allowed us to, you know, train the\nlargest AI model.\nSo, um, this is the topology. We\nstarting building the topology, but then\nwe realized that in order to support\nthis topology, we really need to develop\na totally a different software stack to\nbe able to, you know, manage the network\nand to be able to do the congestion\ncontrol, to deal with the scale. So, the\nthere are four key technologies that we\nhave bring into, uh, into this to manage\nthis, uh, large-scale AI backend\nnetwork. So, they are BGP, SRv6, a\npacket trimming and high frequency. I'll\ntouch the first two and then I'll let my\nhack to touch the second two.\nSo, the for the BGP, as you can see,\nusually\nwith\nwith with 51 terabit switches, usually\nit's 64 by 800 gig\num ports. If we do the normal breakout\nusing 800 gig, then you have 64 ports,\nand it can have like 64 BGP sessions.\nThat's a typical still That's a typical\nscale they are dealing with. But, in\norder to really scale out the network,\nwe have to break the port into the\nlowest granularity. In this case, it's a\n100 gig lane. So, therefore, for this\nparticular switch, each switch will have\n512 ports, physical ports, there. And\nthen, each port will have its own BGP\nsessions. So, in this case, you can\nimagine that each of the physical ports\nwill have a 512 BGP sessions. So,\nusually, when a when a when a switch\nhave so many BGP sessions, it usually\ngenerally come with uh you know, the the\ntraditional chassis system, where you\nhave this large chassis that have so\nmany ports and manages so many BGP\nsessions. But, here, you know, it's\nreally a pizza box, two RU boxes that\nhave 512 BGP sessions. So, therefore,\nyou know, this is the first problem that\nwe realized, and we have, you know, um\nwork with the SONiC community to solve\nthe scaling problems. So, you know, the\ncommunity did a lot of work on this. We\nare using FRR. We upgraded FRR to um to\nversion 10 with about 20 patches, and\nthen it it's able to support, you know,\nthe FRR with the 512 514 BGP sessions.\nAnd each BGP session has 1K routes and\n512 next hops. So, all these numbers are\ntotally new for this kind of scale, and\nthen we can achieve the convergence time\nto less than, you know, 0.1 seconds, you\nknow, data plane convergence down time.\nSo, that's a lot of work that we did in\nSonic to really support um this kind of\ntopology.\nSo, the second thing is that um um we\nalso introduce SRv6 in this AI backend\nnetwork. So, why? Um because um the the\ntraining traffic is burst very bursty\nand does not have the entropy like the\nnormal traffic. So, therefore, so the\nso, you know, the traditional ECMP does\nnot work. And here, what's the what we\nwe really come up with is that doing the\ntraffic spreading. So, there are two\ntypes of approaches to do the traffic\nspreading. Either you let the network to\ndo the traffic spreading or you let the\nNIC to do the traffic spreading. So, in\nthis because the whole, you know, AI\ntraining data center is a giant single\njob, so therefore, the the host the GPUs\nhave can schedule the traffic um\num in a in a in a in a\num in a coordinated manner. So,\ntherefore, we are giving this kind of\ncontrol back to the NIC back to the\nhost. Therefore, you know, what we come\nup is a is a way to do the social\nrouting in this AI backend network. And\nSRv6 is the perfect protocol to enable\nus to do the social routing. So, how\ndoes it work? So, basically, you know,\nwhen the NIC sends the packet, it\nencoded the the the the UC the SRv6 UC\nin the IPv6 destination address. For\nexample, in this case, when the NIC\nsends it, you can see that the the IPv6\naddress is divided to eight blocks and\neach block is a U-seed and that U-seed\nit tells what is the next switch ID you\ngo to there. So, the the switch will\nforward based on the current U-seed and\nthen do the shift and forward and then\ngoes to the next switch and then do a\nshift and forward. In this case, when\nthe NIC traverse when the packet\ntraverse the network, it follows this\nthe path defined by the SRv6 and\nit's very likely that, you know, all\nthis operation is supported by the\nexisting ASIC. So, we can actually\nimplement it on those ASICs to support\nand this uh source routing based uh\nrouting scheme.\nOkay.\nYeah, so um the next technology that we\nuh deploy in the Fairwater data center\nis the packet trimming support. So, we\nspoke about AI traffic being bursty in\nthe sense\neverybody starts talking together. When\neverybody starts together, they're and\nthey're following the same path with\nvery little entropy, they're going ahead\nand residing on the exact same buffers.\nThis leads to microbursts. That means\nthat the overall traffic that is\nresiding on these buffers tends to be\ntends to exceed the overall buffers that\nare available on the switch. When\ntraffic exceeds the buffer\navailability, it starts dropping. Now,\nin case of AI, we have to build lossless\nnetworks. That means packet losses are\nnot acceptable. So, how do we deal with\nthese losses? Historically, the RDMA\nlayer, obviously, already has a\nreliability layer baked into it. So,\neventually, the RDMA layer will time out\nand you will have retransmissions of\nthose packets.\nBut, if there was a technology that\ncould help you let the source NIC know\nthat there has been a drop for the\npacket, then the source NIC can start\nre-transmitting those packets much\nsooner than when the RDMA would time\nout, thereby improving upon this kind of\nfailure scenarios uh JCT degradation.\nUm so, now from\nfor this, we use what we call as\ntrimming.\nIn case of trimming,\nthe first thing that you should do is\nthat you classify the pack packets that\nyou want to be trimmed. That means\ngenerally in AI data centers, you\nprobably want to classify the data\ntraffic as being this traffic if it is\ngoing to get dropped, I would like it to\nbe trimmed.\nAt this point, if the packet gets\ndropped on the because of a congestion\non the switch buffer, the packet will be\ntrimmed to a much smaller size, and it\nwill be forwarded over a higher priority\nto the destination NIC.\nThe destination NIC needs to have the\ncapability of processing these trimmed\npackets and sending a NAK back to the\nsource NIC.\nThe source NIC would then see this NAK\nand realize that a packet has been\ndropped in the network, and it would\nre-transmit that packet again over a\nhigher priority DSCP value so that it\ncan be fast tracked through the network\nto reach the destination NIC at about\nthe same time as the rest of the packets\nare reaching. Obviously, this requires\nsome other features on the NIC as well,\nsuch as out-of-order placement, et\ncetera. But, essentially, you've been\nable to recover from a loss of the\npacket much sooner than when the RDMA\nwould have detected it.\nNow, trimming inherently leads to a\ncompression because I said the packet is\nbeing trimmed to a much smaller size.\nIn the Tomahawk 5 devices, you can end\nup having line rate trimming packets\ncoming in from up to 18 ports and they\ncan all go out on a single port without\nany drops.\nWhat is even better is that if a if a\ndevice have the capability of having\nadditional buffer that you can allocate\nfor the stream packets in order to\nsupport much higher in costs. The\nTomahawk 5 and the Tomahawk 6 class of\ndevices do have this buffer, so you have\nto be pragmatic in sizing your buffers\nin such a way that you can handle the in\ncosts in your networks.\nLastly, we spoke about telemetry.\nGuhan touched about touched upon the\nfact that the Tomahawk 5 devices that\nhave been deployed in fairwater are 5 12\nas Tomahawk 5 5 12 in the sense it has\ngot 512 ports on it.\nHistorically, the telemetry that was\nconnected by the usual traditional\nmeans, you did not need to collect\ntelemetry for more than\n32 maybe 64 ports. So, you would take a\npass through the entire port, you would\ncollect all the all the stats and you\nwould send it up through the software\nstack. It would take you seconds.\nHowever, now\nwith 512 ports, by the time you have\ngotten all the ports telemetry collected\nand sent it up to the\nsoftware stack, you have lost a lot of\ninteresting events that would likely be\nhappening in the ASIC. So, clearly the\ntraditional methodology of telemetry is\nnot working anymore.\nSecondly, we said that it is bursty\ntraffic and so you need to have the\ncadence at which you're collecting these\nstats also to be much shorter. It cannot\nbe at seconds or tens of sec tens of\nseconds as traditional telemetry has\nbeen. It needs to be at\nmilliseconds if not microseconds. So, in\nSONiC community, we have come up with\nthis new way of doing what we call the\nhigh frequency streaming telemetry. So,\nhow does high frequency streaming\ntelemetry work on a SONiC device in an\nAI back end?\nThe ASIC needs to be capable of pushing\nthis telemetry in a push model, not in a\npull model. If you're going to go with a\npull model, you are still going to be\nlimited by the speed of your software.\nThe ASIC needs to be able to push the\ntelemetry at a regular cadence in an\nIPFIX format. We've decided an IPFIX\nformat because that is what mostly the\nSonic community agreed upon.\nThe counter sync D, which is a component\nin the Sonic, receives this particular\nuh IPFIX message. It compares it against\none of the registered templates, and\nthen it ends up storing these counters\nin a local database. Now, you could\neither leave it there and have some\non-switch processing, if you want to do\nthat, or you could further export this\nout using Open Telemetry to an external\ncollector, from where it can do some\npost-processing, and then send it out\nand then store it for any further\nyou know, insights that you want to\nderive.\nSo, all of these technologies are\navailable in Sonic since the 2025 11\nrelease. These are the HLDs that we have\nposted here for everything that has been\ndone and the work that the entire\ncommunity has come together to do for\nthese technologies, and these\ntechnologies are deployed today and\nrunning in Fairwater data center.\nSo, what's next?\nWe talked about Fairwater.\nFairwater is a scale-out network, right?\nBut, we heard today in the keynote that\nthere is yet another data yet another\nkind of network that is called the\nscale-up network.\nNow, the scale-up network historically\nhas been constrained within a rack. We\nhear that it is now going outside the\nrack. It is going well beyond the 64 120\n128 ports that could be accommodated\nwithin a rack. Now, it is going well\npast to scale to 512, 1K, 4K. These are\nbecoming the new numbers of scale up.\nHowever, as the discussion of scale up\nhas started,\nit started off with this needs to be a\nnetwork that is highly resilient,\nlossless, high throughput network, and\nhigh performance network. Now, for\nsomething like that, right? Ethernet is\nthe obvious choice. However,\nhistorically, when the conversation\nstarted, there was a mix of the layers\nsuch that, you know, from a memory\ntransactions, because you're trying to\ndo memory transactions here. So, the OCP\ncommunity got together, and about 10\ncompanies came together to contribute\nwhat we call the E-Sun or Ethernet for\nscale up networking. And in the Ethernet\nfor scale up networking, we have focused\nheavily on the technologies that would\nend up allowing the network to be open\nand interoperate across multiple GPU\nvendors, thereby allowing the GPU\nvendors to innovate in their space and\nstill be able to get you the performance\nthat you're looking for from the GPU,\nwhile allowing the network to be open\nand interoperable, which is what the\nnetwork should do.\nNow, in line with the E-Sun, we have a\nSONiC subgroup, which is for the scale\nup Ethernet SONiC work group, which has\nbeen going in tandem and in close uh\nuh you know, communication with the\nE-Sun, and is ensuring that things that\nare defined in E-Sun are in fact taken\ninto account in SONiC, and SONiC can\nbecome the NOS of choice for scale up\nnetworks as well. Technologies such as\nLLR, CBFC, A AFH, or the E-Sun header\nare all being discussed in the scale up\nnetwork, and we invite all of you to\nparticipate in this, and let us know if\nthese work for your data center and your\nuse cases. We have a\nWe have a session this afternoon to talk\nabout the scale up network introduction.\nEnglish format as well.\nSo lastly,\nwe are an open community. We have\nregular working group\nmeetings. We invite everybody here to\nparticipate. We can make Sonic better\nonly if everyone is\ncontributing to Sonic.\nIf you don't have\ncode or\nH and D's to contribute, we would love\nto hear what are the problems and\nchallenges that you're trying to solve\nin the data centers as well so that we\ncan ensure to see if Sonic can work for\nyour data center as well.\nThank you.\n>> [applause]\n>> The context of the headers we in in ESON\nand and so I think in Sonic too and then\nalso in the triple E there's a UFH. Yes.\nAnd I asked the question on one of the\ncalls, what about ESP security\nencapsulating\nif you're going to compress the headers,\nyou\ndidn't even mention anything about\nsecurity headers.\nAnd are you assuming that you're\nespecially in Azure, I guess it's an\nhomogeneous environment. It's all 100%\nMicrosoft, right? So you don't\nmaybe care as much about security within\nthe inside of it or\ndo you still have to preserve that\nsecurity header for all the different\ntypes of traffic including the AI memory\ntransfers and everything to you know,\nsafeguard that I think the security is\nindeed a concern and it's a topic that\nwe're discussing but I think that one of\nthe way that we're thinking to address\nproblem is you know, the security the\nencryption can be and treated as a\npayload of the Eason Uh\nEason payload. So therefore, you know,\nit's currently may not be the the\ncurrent Eason standard, but there is a\nthere is a definite way to do the\nencapsulation inside the payload.\nAnd still use UFH\nand compressing all the headers down?\nThat I think we you know, need to be\ndiscussed you know, to look into\ndifferent\n>> theory, you should be able to use UFH\nbecause UFH is really using the first\nlet's say 16 bytes of the header.\nAnd any kind of security ESP or any kind\nof security payloads that headers that\nwould come up would come well past that,\nright? So you should in theory be able\nto use it as well. I say in theory\nbecause I'm not following the security\nconversation yet. So I will probably go\nback and look at it.\nYeah, okay. Yes. So yes. So in because\nyou're using in your defining which\nendpoint to forward the packet on on the\nbasis of the 16 bytes that are there,\nthe first 16 bytes really. Right? So and\nthe ESP would come after that. So UFH\nshould be leverageable for that. And\ndefinitely a good conversation to have\nwith the Eason community for sure.\nThank you.\nHello, Miguel from Meta.\nThank you for for the presentation. One\nquestion on packet reaming. I think the\nbenefits are pretty self-explanatory,\nbut would you be willing or do you have\nany data on\neither or both micro benchmarks or\nproduction experience\nwith and without it?\nAs in like AB testing the results\nthat you observe with and without it.\nThat's question number one. And question\nnumber two,\nin the journey of enabling a technology\nlike that,\nwhat were the main issues that you faced\nuntil you came up with the right\nknobs to basically make it work assuming\nthat you made it work.\nI didn't hear the second part of the\nquestion. Um can you repeat The The main\nchallenge is to basically\nas you were rolling out packet trimming,\nwhat were the main challenges you faced\nto basically came up with the right\nconfiguration or the right knobs\nto to make it performant, to make it\nwork.\nOkay. Um\nyeah, regarding to the um\num you know,\nwe we we discuss a lot about, you know,\nhow routing works, you know, what are\nthe feature it develops, HFT.\nI think the one thing to say is that\nyes, you know, the fair work is online,\nit's carrying traffic, it's doing the\ntraining jobs. But I think in terms of a\ntuning, you're asking, you know, how do\nwe achieve better performance, those\nkind of things. I think it is you know,\na continuous ongoing process. Uh we're\nworking with the customer, with you\nknow, with all these you know, the\num researchers, modelers, you know, to\nto to continuously tuning those kind of\nperformances, include the packet\ntrimming, this include the ECN, you\nknow, including also also the NIC kind\nof parameters, how how do we do the\nre-transmits, all these kind of things.\nYou know, what we believe that we have\nall the building blocks there. You know,\nit's all there and we are doing the\ncontinuous training to get you know,\nbetter performance cuz you know, in what\nwe're really doing here is build a\nnetwork that is not going to block the\nGPUs in any way, right? It's going to\nget the GPU 100% of throughput. I mean,\nthat's a continuous process and I think\nthe Microsoft and as well as other\nvendors are very transparent about the\nprocess. Um but you know, as of now,\nwe're doing the continuous training. I\nthink once we have more results to\nshare, we'll definitely find a forum to\nshare our experience how do we do the\ntunings, including the package trimming\nand the other parameters\num for the for our Fairwater experience.\nYeah. Okay. And And the about the AB\ntesting, do you have any data with or\nwithout it? Or\nOh, yeah, of course. You know, the like\nokay, with or with or package trimming,\nwith or without it, or you know, other\nparameters, yes. Yes, that's also all\npart of the tuning process.\nOkay. So, maybe we can see those results\nin the future or maybe we can connect.\nYeah. Yeah. Yeah. Yeah, absolutely.\nOkay.\nEverything is about connection. So,\nthank you.\nQuestion Chris Nokia, um since there two\nFairwater data centers, do you plan to\nuse the same architecture for scale\nacross as well?\nUm yeah. So, So, yeah, number one, yes.\nSo, you know, the two Fairwater data\ncenter, I think we're on the Sonic side,\nit's the same. So, you know, we're same\ntechnologies. And you know, in order to\ndo the cross-site training, yeah, we're\nworking on it. Yes. Yeah.\nI think that's probably going to be next\nOCP topic.\nYeah. Really appreciate.\nAlso, before you will just run away, we\nhave something special for you.\nSo, Oh, thank you. Really appreciate for\nthe memorizing.\nThank you, and we are just waiting.\nApplause. [applause]\nOh, no.",
+  "segments": [
+    {
+      "text": "Okay. So, welcome everybody. So, my name is Mehak Mahajan. I am uh from the engineering side at Broadcom, and I have with me on stage Guhan Lu, who drives the Azure networking at Microsoft. And today we're going to talk to you about the Azure's largest or the",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "world's largest AI infrastructure that has been deployed with Sonic. So, through this entire presentation, we'll first talk about what makes AI different. You've probably heard AI is big, AI is different, but what specifically about these particular",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "transactions makes it really different? So, we'll walk through that. Then, we will walk you through the Fairwater data center, which is the AI data center for Microsoft. Uh we will talk about the enabling technologies, which you will",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "see are all there on Sonic, so you can use it for your data centers as well. And we will finally leave you with a thought of what's next on the Sonic side. So, let's talk about the AI traffic, right? How is it really different? So,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "before we start talking about AI traffic, let's talk about traditional workloads. What were traditional workloads really? Traditional workloads were a set of independent transactions. Thousands of CPUs, or so to say, would",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "start posting independent transactions like web server requests, API calls, database requests, etc. That would follow different paths through the entire network. Now, the key characteristic of these particular workloads was that they had sufficient",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "entropy in their packets, such that they could follow different paths, and so the entire traffic was distributed across a much waster or much wider set of links. Thereby, congestion built up gradually. When it built up gradually, it receded",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "gradually as well. So, as you can see, the variance or the chaos that is associated with the traditional networks is not really a flaw. It's a feature. It would give the network a time to breathe and a time to recover. Now, let's come to AI workloads.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "AI workloads turn this entire model on their head. Tens of thousands of GPUs start communicating in a lockstep manner. So, these GPUs are all going to finish their compute step together. They're going to pause together. And then they're going to start talking",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "or communicating together. And when everything starts together, everything collides. What we mean is these particular AI workloads are long-lived workloads, which are synchronous workloads, and have very little entropy in them. We call these as elephant flows.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "As these elephant flows go through the network, they follow the same path, the same switch, and they reside on the same buffer. Essentially, this leads to everybody talking together and leads to microbursts in the network. Now,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "in this way you can say that traditional workloads are more like a crowd, but AI workloads are more like a marching army. They are extremely synchronous. So, what about the traditional methodologies for doing congestion control? Why can't",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "we use them? We had PFC, we have ECN. Let's deploy them. No, you cannot. These were built for gradual congestion. In fact, if you started deploying PFC, it would lead to head-of-line blocking and congestion spreading, thereby",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "completely ruining the performance of your AI workloads. Now, taking the next step, let's take a look at the telemetry of the traditional networks. These were really built for human timescales in the sense you would pull the telemetry out every second or",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "tens of seconds and it was pretty okay cuz you were looking at the counters and all was well with the world. But in AI, as I just mentioned, things are happening in microseconds. That means by the time you pull the telemetry, the congestion is already",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "gone, the network has recovered, and you lost what really happened, thereby losing the opportunity to fix it. So, any telemetry that is designed for the AI world needs to be designed for real-time telemetry with feedback loops that are happening in orders of",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "microseconds, if not milliseconds. Lastly, the performance of a traditional workload was defined by optimizing for averages. In case of AI, you surely cannot optimize for averages. Tens of thousands of GPUs, if not millions of GPUs, are going to be",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "waiting for that one GPU to finish its job so that you can post a completion. One delayed packet, one congested path, one straggler GPU, that is all it takes in an AI network for you to ruin the performance of your entire network and inflate the job",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "completion time. So, AI is not just a scale problem. AI is a different network altogether. And so, any solutions that we design for an AI network must be designed to solve for bursty traffic, near real-time telemetry, and feedback",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "loop and mechanisms that are happening in order of microseconds or milliseconds. And this is because in AI, the network is no longer just the plumbing. The network is the system. So, with this, I'll let Guhan talk through the AI data center fairwater",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "that's been deployed with Tomahawk 5 and Sonic. Yes. Uh since I think since we talked about a lot of a unique characteristic of the AI traffic, so therefore the Microsoft has been working on this problem since two or three years back.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "We work with our industry partners like Broadcom and other um box vendor ASICs vendors to design our the new AI data center from ground up. So, the first things we're trying to solve is the topology, right? So, we need to connect",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "so many GPUs together, mix them as a huge cluster, and then so the the GPU can talk to each other, can do the can create the largest, you know, AI supercomputer, and then train the greatest AI model um for it. So, therefore the first things",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "we're trying to solve is come up with this multi-plane, multi-rail topology that can scale to to hund- hundreds of thousands of GPUs in one single data center, so they can treat the largest, you know, job um for the Microsoft.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "So, the one that we came up with is that you can see within the plan, we're using the 51 terabit, the latest ASIC, where we just built a two-layer of network. And then using leverage the the high radix of the ASIC, so we can",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "for each of the ASIC, um because it has 51 terabit and 100 gig service. So, it can fan out to 512 neighbors. So, in this case, each of the ASIC can come can connect to the 512 neighbors. So, therefore, in this case, we can build, if you can see, in one",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "plane, we have 512 T0s and then 256 T1s. Together, we can build a very large data center. That's for one plane. And the from the NIC side, because the NIC is also 800 gig NIC, it can break into eight by 100 gig lanes. So, each of them",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "we call a plane. So, therefore, you can see one plane, we have this many of, uh, ASICs and we have eight planes. So, that's just the for one, um, GPU. Usually, inside the server, there are four GPUs there. So, each GPU will form a real. So, therefore, you",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "know, um, we can build a multi-real, multi-plane network, which can ultimately deliver 500, uh, 500k GPUs in one single data center, which allowed us to, you know, train the largest AI model. So, um, this is the topology. We",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "starting building the topology, but then we realized that in order to support this topology, we really need to develop a totally a different software stack to be able to, you know, manage the network and to be able to do the congestion",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "control, to deal with the scale. So, the there are four key technologies that we have bring into, uh, into this to manage this, uh, large-scale AI backend network. So, they are BGP, SRv6, a packet trimming and high frequency. I'll",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "touch the first two and then I'll let my hack to touch the second two. So, the for the BGP, as you can see, usually with with with 51 terabit switches, usually it's 64 by 800 gig um ports. If we do the normal breakout using 800 gig, then you have 64 ports,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "and it can have like 64 BGP sessions. That's a typical still That's a typical scale they are dealing with. But, in order to really scale out the network, we have to break the port into the lowest granularity. In this case, it's a",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "100 gig lane. So, therefore, for this particular switch, each switch will have 512 ports, physical ports, there. And then, each port will have its own BGP sessions. So, in this case, you can imagine that each of the physical ports",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "will have a 512 BGP sessions. So, usually, when a when a when a switch have so many BGP sessions, it usually generally come with uh you know, the the traditional chassis system, where you have this large chassis that have so many ports and manages so many BGP",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "sessions. But, here, you know, it's really a pizza box, two RU boxes that have 512 BGP sessions. So, therefore, you know, this is the first problem that we realized, and we have, you know, um work with the SONiC community to solve",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "the scaling problems. So, you know, the community did a lot of work on this. We are using FRR. We upgraded FRR to um to version 10 with about 20 patches, and then it it's able to support, you know, the FRR with the 512 514 BGP sessions.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "And each BGP session has 1K routes and 512 next hops. So, all these numbers are totally new for this kind of scale, and then we can achieve the convergence time to less than, you know, 0.1 seconds, you know, data plane convergence down time.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So, that's a lot of work that we did in Sonic to really support um this kind of topology. So, the second thing is that um um we also introduce SRv6 in this AI backend network. So, why? Um because um the the training traffic is burst very bursty",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "and does not have the entropy like the normal traffic. So, therefore, so the so, you know, the traditional ECMP does not work. And here, what's the what we we really come up with is that doing the traffic spreading. So, there are two",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "types of approaches to do the traffic spreading. Either you let the network to do the traffic spreading or you let the NIC to do the traffic spreading. So, in this because the whole, you know, AI training data center is a giant single",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "job, so therefore, the the host the GPUs have can schedule the traffic um um in a in a in a in a um in a coordinated manner. So, therefore, we are giving this kind of control back to the NIC back to the host. Therefore, you know, what we come",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "up is a is a way to do the social routing in this AI backend network. And SRv6 is the perfect protocol to enable us to do the social routing. So, how does it work? So, basically, you know, when the NIC sends the packet, it",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "encoded the the the the UC the SRv6 UC in the IPv6 destination address. For example, in this case, when the NIC sends it, you can see that the the IPv6 address is divided to eight blocks and each block is a U-seed and that U-seed",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "it tells what is the next switch ID you go to there. So, the the switch will forward based on the current U-seed and then do the shift and forward and then goes to the next switch and then do a shift and forward. In this case, when",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "the NIC traverse when the packet traverse the network, it follows this the path defined by the SRv6 and it's very likely that, you know, all this operation is supported by the existing ASIC. So, we can actually implement it on those ASICs to support",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "and this uh source routing based uh routing scheme. Okay. Yeah, so um the next technology that we uh deploy in the Fairwater data center is the packet trimming support. So, we spoke about AI traffic being bursty in the sense",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "everybody starts talking together. When everybody starts together, they're and they're following the same path with very little entropy, they're going ahead and residing on the exact same buffers. This leads to microbursts. That means",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "that the overall traffic that is residing on these buffers tends to be tends to exceed the overall buffers that are available on the switch. When traffic exceeds the buffer availability, it starts dropping. Now, in case of AI, we have to build lossless",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "networks. That means packet losses are not acceptable. So, how do we deal with these losses? Historically, the RDMA layer, obviously, already has a reliability layer baked into it. So, eventually, the RDMA layer will time out",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "and you will have retransmissions of those packets. But, if there was a technology that could help you let the source NIC know that there has been a drop for the packet, then the source NIC can start re-transmitting those packets much",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "sooner than when the RDMA would time out, thereby improving upon this kind of failure scenarios uh JCT degradation. Um so, now from for this, we use what we call as trimming. In case of trimming, the first thing that you should do is",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "that you classify the pack packets that you want to be trimmed. That means generally in AI data centers, you probably want to classify the data traffic as being this traffic if it is going to get dropped, I would like it to be trimmed.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "At this point, if the packet gets dropped on the because of a congestion on the switch buffer, the packet will be trimmed to a much smaller size, and it will be forwarded over a higher priority to the destination NIC. The destination NIC needs to have the",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "capability of processing these trimmed packets and sending a NAK back to the source NIC. The source NIC would then see this NAK and realize that a packet has been dropped in the network, and it would re-transmit that packet again over a",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "higher priority DSCP value so that it can be fast tracked through the network to reach the destination NIC at about the same time as the rest of the packets are reaching. Obviously, this requires some other features on the NIC as well,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "such as out-of-order placement, et cetera. But, essentially, you've been able to recover from a loss of the packet much sooner than when the RDMA would have detected it. Now, trimming inherently leads to a compression because I said the packet is",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "being trimmed to a much smaller size. In the Tomahawk 5 devices, you can end up having line rate trimming packets coming in from up to 18 ports and they can all go out on a single port without any drops. What is even better is that if a if a",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "device have the capability of having additional buffer that you can allocate for the stream packets in order to support much higher in costs. The Tomahawk 5 and the Tomahawk 6 class of devices do have this buffer, so you have",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "to be pragmatic in sizing your buffers in such a way that you can handle the in costs in your networks. Lastly, we spoke about telemetry. Guhan touched about touched upon the fact that the Tomahawk 5 devices that have been deployed in fairwater are 5 12",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "as Tomahawk 5 5 12 in the sense it has got 512 ports on it. Historically, the telemetry that was connected by the usual traditional means, you did not need to collect telemetry for more than 32 maybe 64 ports. So, you would take a",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "pass through the entire port, you would collect all the all the stats and you would send it up through the software stack. It would take you seconds. However, now with 512 ports, by the time you have gotten all the ports telemetry collected",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "and sent it up to the software stack, you have lost a lot of interesting events that would likely be happening in the ASIC. So, clearly the traditional methodology of telemetry is not working anymore. Secondly, we said that it is bursty",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "traffic and so you need to have the cadence at which you're collecting these stats also to be much shorter. It cannot be at seconds or tens of sec tens of seconds as traditional telemetry has been. It needs to be at milliseconds if not microseconds. So, in",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "SONiC community, we have come up with this new way of doing what we call the high frequency streaming telemetry. So, how does high frequency streaming telemetry work on a SONiC device in an AI back end? The ASIC needs to be capable of pushing",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "this telemetry in a push model, not in a pull model. If you're going to go with a pull model, you are still going to be limited by the speed of your software. The ASIC needs to be able to push the telemetry at a regular cadence in an",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "IPFIX format. We've decided an IPFIX format because that is what mostly the Sonic community agreed upon. The counter sync D, which is a component in the Sonic, receives this particular uh IPFIX message. It compares it against",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "one of the registered templates, and then it ends up storing these counters in a local database. Now, you could either leave it there and have some on-switch processing, if you want to do that, or you could further export this",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "out using Open Telemetry to an external collector, from where it can do some post-processing, and then send it out and then store it for any further you know, insights that you want to derive. So, all of these technologies are",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "available in Sonic since the 2025 11 release. These are the HLDs that we have posted here for everything that has been done and the work that the entire community has come together to do for these technologies, and these technologies are deployed today and",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "running in Fairwater data center. So, what's next? We talked about Fairwater. Fairwater is a scale-out network, right? But, we heard today in the keynote that there is yet another data yet another kind of network that is called the scale-up network.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Now, the scale-up network historically has been constrained within a rack. We hear that it is now going outside the rack. It is going well beyond the 64 120 128 ports that could be accommodated within a rack. Now, it is going well",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "past to scale to 512, 1K, 4K. These are becoming the new numbers of scale up. However, as the discussion of scale up has started, it started off with this needs to be a network that is highly resilient, lossless, high throughput network, and",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "high performance network. Now, for something like that, right? Ethernet is the obvious choice. However, historically, when the conversation started, there was a mix of the layers such that, you know, from a memory transactions, because you're trying to",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "do memory transactions here. So, the OCP community got together, and about 10 companies came together to contribute what we call the E-Sun or Ethernet for scale up networking. And in the Ethernet for scale up networking, we have focused",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "heavily on the technologies that would end up allowing the network to be open and interoperate across multiple GPU vendors, thereby allowing the GPU vendors to innovate in their space and still be able to get you the performance",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "that you're looking for from the GPU, while allowing the network to be open and interoperable, which is what the network should do. Now, in line with the E-Sun, we have a SONiC subgroup, which is for the scale up Ethernet SONiC work group, which has",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "been going in tandem and in close uh uh you know, communication with the E-Sun, and is ensuring that things that are defined in E-Sun are in fact taken into account in SONiC, and SONiC can become the NOS of choice for scale up",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "networks as well. Technologies such as LLR, CBFC, A AFH, or the E-Sun header are all being discussed in the scale up network, and we invite all of you to participate in this, and let us know if these work for your data center and your use cases. We have a",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "We have a session this afternoon to talk about the scale up network introduction. English format as well. So lastly, we are an open community. We have regular working group meetings. We invite everybody here to participate. We can make Sonic better",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "only if everyone is contributing to Sonic. If you don't have code or H and D's to contribute, we would love to hear what are the problems and challenges that you're trying to solve in the data centers as well so that we can ensure to see if Sonic can work for",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "your data center as well. Thank you. >> [applause] >> The context of the headers we in in ESON and and so I think in Sonic too and then also in the triple E there's a UFH. Yes. And I asked the question on one of the calls, what about ESP security encapsulating",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "if you're going to compress the headers, you didn't even mention anything about security headers. And are you assuming that you're especially in Azure, I guess it's an homogeneous environment. It's all 100% Microsoft, right? So you don't",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "maybe care as much about security within the inside of it or do you still have to preserve that security header for all the different types of traffic including the AI memory transfers and everything to you know, safeguard that I think the security is",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "indeed a concern and it's a topic that we're discussing but I think that one of the way that we're thinking to address problem is you know, the security the encryption can be and treated as a payload of the Eason Uh Eason payload. So therefore, you know,",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "it's currently may not be the the current Eason standard, but there is a there is a definite way to do the encapsulation inside the payload. And still use UFH and compressing all the headers down? That I think we you know, need to be",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "discussed you know, to look into different >> theory, you should be able to use UFH because UFH is really using the first let's say 16 bytes of the header. And any kind of security ESP or any kind of security payloads that headers that",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "would come up would come well past that, right? So you should in theory be able to use it as well. I say in theory because I'm not following the security conversation yet. So I will probably go back and look at it. Yeah, okay. Yes. So yes. So in because",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "you're using in your defining which endpoint to forward the packet on on the basis of the 16 bytes that are there, the first 16 bytes really. Right? So and the ESP would come after that. So UFH should be leverageable for that. And",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "definitely a good conversation to have with the Eason community for sure. Thank you. Hello, Miguel from Meta. Thank you for for the presentation. One question on packet reaming. I think the benefits are pretty self-explanatory,",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "but would you be willing or do you have any data on either or both micro benchmarks or production experience with and without it? As in like AB testing the results that you observe with and without it. That's question number one. And question number two,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "in the journey of enabling a technology like that, what were the main issues that you faced until you came up with the right knobs to basically make it work assuming that you made it work. I didn't hear the second part of the",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "question. Um can you repeat The The main challenge is to basically as you were rolling out packet trimming, what were the main challenges you faced to basically came up with the right configuration or the right knobs to to make it performant, to make it work.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "Okay. Um yeah, regarding to the um um you know, we we we discuss a lot about, you know, how routing works, you know, what are the feature it develops, HFT. I think the one thing to say is that yes, you know, the fair work is online,",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "it's carrying traffic, it's doing the training jobs. But I think in terms of a tuning, you're asking, you know, how do we achieve better performance, those kind of things. I think it is you know, a continuous ongoing process. Uh we're",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "working with the customer, with you know, with all these you know, the um researchers, modelers, you know, to to to continuously tuning those kind of performances, include the packet trimming, this include the ECN, you know, including also also the NIC kind",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "of parameters, how how do we do the re-transmits, all these kind of things. You know, what we believe that we have all the building blocks there. You know, it's all there and we are doing the continuous training to get you know,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "better performance cuz you know, in what we're really doing here is build a network that is not going to block the GPUs in any way, right? It's going to get the GPU 100% of throughput. I mean, that's a continuous process and I think",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "the Microsoft and as well as other vendors are very transparent about the process. Um but you know, as of now, we're doing the continuous training. I think once we have more results to share, we'll definitely find a forum to",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "share our experience how do we do the tunings, including the package trimming and the other parameters um for the for our Fairwater experience. Yeah. Okay. And And the about the AB testing, do you have any data with or without it? Or",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "Oh, yeah, of course. You know, the like okay, with or with or package trimming, with or without it, or you know, other parameters, yes. Yes, that's also all part of the tuning process. Okay. So, maybe we can see those results",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "in the future or maybe we can connect. Yeah. Yeah. Yeah. Yeah, absolutely. Okay. Everything is about connection. So, thank you. Question Chris Nokia, um since there two Fairwater data centers, do you plan to use the same architecture for scale across as well?",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "Um yeah. So, So, yeah, number one, yes. So, you know, the two Fairwater data center, I think we're on the Sonic side, it's the same. So, you know, we're same technologies. And you know, in order to do the cross-site training, yeah, we're",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "working on it. Yes. Yeah. I think that's probably going to be next OCP topic. Yeah. Really appreciate. Also, before you will just run away, we have something special for you. So, Oh, thank you. Really appreciate for the memorizing.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "Thank you, and we are just waiting. Applause. [applause] Oh, no.",
+      "start": 624,
+      "duration": 6
+    }
+  ]
+}

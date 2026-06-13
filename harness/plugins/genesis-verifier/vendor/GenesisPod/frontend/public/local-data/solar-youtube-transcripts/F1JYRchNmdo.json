@@ -1,0 +1,844 @@
+{
+  "videoId": "F1JYRchNmdo",
+  "title": "SREcon26 Americas - How Security Incidents Are Different ... and How They're Exactly the Same",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 40462,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you all so much. So, you've heard\na little bit of an intro. I want to give\na tiny bit more background on who we\nboth are because so much of this talk is\nabout both what we already know and what\nwe learned from each other. So, between\nthe two of us, we have more than 20\nyears of incident response experience.\nUntil recently, we worked together at\nData Dog on an overall security incident\nresponse process. We were rebuilding a\nprogram. and we're not going to talk\nabout it, but that had gotten into a\nlittle bit of trouble. Uh we also\nresponded to some real incidents\ntogether. In fact, we got to work\ntogether on one in Alex's third week. Uh\nin addition to the incident process at\nData Dog, we both have practice and\nexperience in incident response\nelsewhere. So, we have at least some\nperspective on the industry overall.\n>> Thanks, Laura. Hey, everyone. I'm Alec.\nUh,\nI've worked in the security detection\nresponse space for over 13 years,\nspending a lot of time doing it response\nconsulting, doing detection response\nengineering.\nI've responded from incidents ranging\nfrom the mundane like business email\ncompromises to the more exciting nation\nstate actor uh type compromises.\nI'm currently a staff engineer on data\ndog security response team.\n>> Uh, and then briefly, hi, hello, I'm\nLaura in case that wasn't obvious. Uh\nI've been in SRE for about 10 years now.\nUh specializing mostly in incident\nresponse and prevention. Uh I started\nout as an SRE at Google and then I spent\nabout four and a half years uh doing\norwide incident handling at data dog. Uh\nI've just started a new role at Reddit.\nSo no longer at data dog. You can't\ncomplain about their prices to me\nanymore. Uh I have a pretty good sense I\nthink about how larger scale orgs handle\ntheir outages and incidents. what we as\nSRRES think of as best practices in that\nspace and then what I've seen work and\nwhat I've seen not work. At Data Dog, I\ngot to spend about the last three years\ndoing some elements of security incident\nresponse and it was a learning\nexperience. The first and most\ninteresting thing that I learned when I\nstarted working with folks in the\nsecurity incident space is that security\nincident is a very loaded term. As soon\nas you officially call something a\nsecurity incident, a lot of people care.\nYour compliance or cares, your lawyers\ncare. It's entirely possible that your\ncompany board and the SEC will want to\nhear about everything in the company\nthat got that got called a security\nincident. So, lots of things that I\nwould handle with our with our incident\nresponse process and would therefore\ncall an incident don't actually warrant\nthe board's attention. We've leaked a\npassword somewhere. We have a new\ncritical CVE to repair. Uh someone\ninternally accessing something they\nshouldn't, right? Those are things that\nI would think of as an incident and\nhandle with an incident response\nprocess. But if I call them a security\nincident, there's some extra pieces to\nthat. So for security folks, for\nsomething to be an incident,\nuh it means that there is an actual\nmalicious actor who we have verified\ngained access to systems and data that\nthey should not have had access to.\nThat's not to say that security\nprofessionals do not use an incident\nresponse process for the issues that you\nand I would also use an incident\nresponse process for that don't\nnecessarily have that malicious\ncomponent. They do, but they're very\nsensitive to having them called\nincidents because of that standard and\nthe associated reporting requirements.\nFor this talk, we are going to be\ndiscussing an event that would fall\nunder the classification of real\nsecurity incident for an org. But for\nreasons we're going to talk about, this\nis a madeup event. This is not a real\nthing that has happened to any company\nthat either of us has ever dealt with.\nIt is built on some real principles, but\nit is not something that has actually\nhappened. It's useful to remember that\njust like for a lot of SR teams, really\nyour security response team's day-to-day\nis much more focused on lower severity\nstuff. We logged an access key, someone\ninstalled malware in our endpoint\nmonitoring, immediately quarantined it.\nKind of boring stuff. Bad guy in our\nsystems is the exciting,\nnot so good day, but it's very rare. um\nthe process of responding to those\nsmaller incidents also looks like it\nways that would be pretty familiar to\nyou as an SR. The bigger incidents a\nlittle bit more going on. All right. So,\nfirst some just obligatory disclosures.\nUh while it's a mock incident that's\nfairly realistic, it's embellished. It's\nbased on open source intel uh such as\nlike CISA intelligence and our our own\nexperience and vibes. Uh we are also not\nspeaking about or for our employers. We\nare speaking from personal experience\nacross many different companies\nand uh we are not lawyers. Nothing in\nthis presentation is legal advice. Uh\nwe'll mention legal things which we have\nseen from observing actual lawyers\nrespond to real security incidents.\nAll right. So I'll describe a full\nendto-end mock scenario. It's a data\ntheft extortion uh scenario which is\nsadly fairly common nowadays and we want\nto kind of lay this out ahead of time so\nfolks can kind of have a framing for the\nthe rest of the presentation.\nSo uh it's roughly a five-step process.\nSo step one thread actor gains access to\nan organization single sign on service.\nOne of the most popular ways of doing so\nis fishing a user with a fake login page\nto said SSO provider. There's been a few\nthread actor groups that have been that\nthat do it this way. Uh this the fake\nlogin pages they act as a proxy. So you\nput in your username and password\nthinking that you're logging into the\nactual SSO portal site proxies it to the\nreal provider. The provider if you're\nusing the single sign on uh times\nonetime passcode tokens. Uh it'll prompt\nfor it which the proxy site will then\npass back over to you and you still\nthink you're logging into the real site.\nand you put in your 2FA code thinking\nyou're logging in to the real site, but\nthat ultimately goes to thread actor.\nThey proxy it and then they have a\nsession to SSO.\nNext, actor is going to explore to see\nwhat juicy apps you have access to. They\nare particularly looking for places that\nhave sensitive information in it, which\nis going to be key for the extortion\nphase of the of the the incident. And\nfor this scenario, we're just going to\nsay that the user has elevated, it's an\nengineering user who elevated privileges\nin AWS.\nThird actor SSOS in AWS starts looking\nat S3 buckets trying to see if there is\nsome sensitive data that they could try\nto extort with. And we'll say they they\nfind some and they download it and they\nmay even be jerks and try to delete the\ndata afterwards hoping that they have\nthe only copy.\nThen they'll try to make contact with\nthe victim organization with an\nextortion demand for crypto and a threat\nto publicly leak that data they took if\nyou don't pay up.\nAnd then they're hoping that they profit\nin the end. Uh hoping that a victim\norganization pays the extortion fee and\nthey make their profit.\n>> All right, so let's come back to the\nbeginning. Somebody's in our systems.\nObviously, we have multiple security\nfolks who work on detection and response\njust like we do for our reliability. So,\nwe should detect as soon as our\nemployees credentials are exfiltrated or\nat worst as soon as someone tries to use\nthem from an unauthorized system or to\ndo something suspicious. Right? Our\ndetection is clearly that good. So, of\ncourse, as soon as we see that, we're\ngoing to cut off the attacker's access\nbasically immediately. All done.\nuh if for some reason our monitoring\nfails, right, we're going to do defense\nand depth here. Users have access only\nto the data that they actually need to\ndo their jobs. Everybody works in an\norganization whose security posture is\ngood for that, right? Uh for reliability\nreasons, even we want to keep users from\nbeing able to fat finger a command and\nmake a terrible mess to say nothing of\nthat security problem. A few users\nsometimes like me uh have a lot more\naccess, but I am extremely careful with\nmy credentials and I have never made a\nsingle mistake in my entire life and I\nwould definitely not fall for a social\nengineering attack.\nAgain, further defense in depth, right?\nEven if our monitoring somehow fails,\nthe exploited credentials have way too\nmuch access. As an intrepid SRE, I've\nmade sure that we have immutable backups\nand the ability to reliably restore them\nand nothing too embarrassing sitting\naround on our servers.\n>> Yeah.\n>> All right. So, in reality, uh\nunfortunately, quite a lot of companies\nlearn about these types of incidents at\nthe time of extortion. This is often due\nto companies not having monitoring for\nthis specific type of incident set up,\nhaving only off-the-shelf monitoring\ntooling, or not having a well- resourced\ndedicated detection engineering team.\nUh, security detection response is very\nexpensive. So, not all organizations\nhave dedicated teams with the latest and\ngreatest tooling.\nAlso, some factors that make this\nincident possible are often rooted in\ndeviations from established security\npractices. There may be engineers or\nusers that were given access or given\nexcessive privileges from a previous\nreliability incident that were not\nrolled back or there may be documented\nor undocumented exceptions to security\nstandards.\nAlso, backup standards are only as good\nas the scenarios considered and how well\nthey are followed. Malicious deletion of\nbackups is often not considered when uh\ndeciding backup strategies. Ultimately,\nthese incidents happen because the\nmethodology these actors use broadly\njust works. They are motivated by profit\nand methodologies that don't work aren't\nprofitable.\n>> Uh, something else that I want to\nemphasize, again, this was something\nthat maybe should have been apparent to\nme ahead of time, but me doing my job\nnormally and correctly can be\nindistinguishable in an automated way\nfrom somebody using my credentials to do\nsomething nefarious. And so it can be\nextremely hard for automated monitoring\nto detect security breaches.\nBut that means that we've detected an\nincident via demand letter. And I will\njust say that I have never been more\nsad.\nOkay. But now we have an incident. So\nincident response 101, right? We're\ngoing to triage. We're going to find out\nwhat's actually been affected. We're\ngoing to mitigate. Uh so we're going to\ntriage. I'm going to spin up a big\nincident, right? I'm going to pull in\neveryone I think can be can be helpful.\nthe engineers who are tell going to tell\nus what data might be impacted, what\nthat data means, what it means to our\ncustomers. I'm going to pull in people\nwho know how to shut down systems that\nthe attacker might be in and rotate\ncredentials. Anyone who might be able to\nkeep data from being deleted or further\nexfiltrated or involved in restoring\nbackups. Since this could affect pretty\nmuch anyone in the company and could\nhappen to pretty much anyone in the\ncompany, we obviously want our response\nto be in public so we can get both all\nthe help we might need and so people can\nreport any impact that they might be\nseeing and just learn the lessons of\nwhat we've we've done. Right? This is\nall incident response 101. Uh we're\ngoing to halt the unauthorized access,\nrestore things, fix both the source of\nthe breach and the ways our system\ndidn't stop this damage.\n>> All right. But before we actually get\ninto his response, there's a few things\nwe have to some housekeeping we have to\ndo. Uh step one, engage with legal. So\nthe reason for that is uh you want to do\nyour investigation in response at the\ndirection of legal for the purpose of\nthem to provide legal advice to the\norganization. Uh the benefit you get\nfrom doing that is your investigation\nand your uh conversations documentation\nuh has some level of protection via\nlegal privilege from discovery if the\ncompany were to get sued for this\nincident.\nAnd to maintain legal privilege the\nincident uh you know must be need to\nknow only. Uh lawyers must be on all\ncommunications and documents have to\nhave appropriate legal markings on them.\nAnd I want to emphasize legal uh\nprivilege does not bury an incident.\nFacts can't be privileged. Lawyers must\nuh privilege doesn't mitigate legally\nrequired notifications.\nAdditionally, don't respond to the\nextortion. There is little upside to\ndoing so. And there's tons of downsides.\nengaging incentivizes the the threat\nactor to continually increase pressure\non you until you pay up to and including\nreleasing the data publicly. Uh if you\nengage and you don't pay, they will more\nthan likely release publicly. If you\ndon't engage, there's actually a chance\nthat they\nuh may try to make it public, but if\nthey're still not getting a response,\nthey'll just move on to the next victim\nbecause again, profit motive, time is\nmoney.\nNow, if you do pay them, uh there's also\nno guarantee of closure of the incident.\nUh I have seen on many occasion cyber\ncriminals coming back every couple of\nmonths demand additional payments until\nan or decides to just it's too much, cut\nthem off, at which point they then\npublicly release data and you're kind of\npaid for the same outcome you would have\ngotten if you'd done nothing.\n>> All right. Uh, so we're going to make\nour incident private and there's going\nto be lawyers and everything. That\nsounds really fun.\nThey are probably going to slow us down,\nbut we are still coordinating an in an\nincident, right? We're still doing\ncoordinated response from multiple teams\nto resolve this issue. The first thing\nwe want to do is still the same thing\nthat we would do for any other incident.\nWe want to triage and understand the\ndamage. I happen to know that security\norgs have big giant piles of logs.\nSometimes they'll even ask SR for\nresources or to help collect and store\nthose logs. So, we definitely have the\nlogs that will tell us everything that's\nhappened. And security's tools for\nsearching those logs are at least as\ngood as the tools that I would use\nbecause that's what they do, right? And\nI'm sure that our experts even have a\ngood idea of what to go looking for.\nTriage should be easy.\nAll right. So, I hope that we've been if\nthis is like the first time you're\nresponding to an incident in this type\nof situation, I hope you have all the\nlogging turned on that you want. Uh\nespecially the off by default S3 data\nlogging. Uh I also hope we've been\ndiligently centralizing that data into a\nsystem where it's all easily searchable.\nUh you know, for the off chance that\nmaybe one day you'll have to use those\nlogs. uh if it's not and the logs are\njust sitting in S3 uh you still have to\ndo your investigation. There's no oh\nthis is too hard we can't we can't\nfeasibly do it. It is it is just not an\noption.\nAlso if you don't have logs then there's\nlots of downstream repercussions. We may\nnot be able to prove what was taken and\nmore importantly what was not taken\nwhich means we may need to overestimate\nwhat was taken. Additionally, we may not\nbe able to identify which user account\nwas compromised, which means we'd have\nto rotate everyone's credentials and\nterminate everyone's session in AWS,\nwhich is obviously a big high impact.\nThankfully, in our mock scenario, we do\nhave logs that we need,\nbut again, not every organization will\nhave done that investment. All right, as\nAlec observed, we may not only be able\nto just block one user. So, we can't\nnecessarily do that cleanly without\nother impact. Although, that would be\nsort of how I would expect to be able to\nrespond to this incident. Um, but we're\ngoing to do some communication about\nwhat happened based on our triage from\nthe logs. And when we're all done, uh,\nthen we're done with the main response,\nright? We've done triage, we've\ncommunicated, we've blocked that one\nuser's access, rotated their credentials\nonto the postmortem. Uh, I guess that\ndoes mean that I'm assuming, right,\nprecise tools for cutting off access.\nagain we know exactly which account was\ncompromised and downstream that we\nactually do know what's impacting uh\nwhat systems are impacted. So uh if\nwe're looking at something larger like a\nDOSS attack we would need better tools\nto block not our real users and only\nattacker traffic. But either way clearly\nwe've spent the time to build the\ntooling for this. This is what SRRES do.\nSurely this is what security teams do\nand it is but there's a lot more surface\narea for a lot of them to cover. Uh\nmaybe it gets scary and complicated if\nthe attackers actually employee someone\njust fires them I assume. So quick and\neasy we go through the logs we're sort\nof done.\nAll right. So the highest priority is\nindeed kicking out the thread actor. Uh\nhowever kicking them out via just\nrotating SSO passwords and revoking\nsessions and uh calling a day is not\nalways going to be the only step that\nhas to be taken. So you still need to\nfigure out how they gained access in the\nfirst place because of the chance that\nmechanism is still in place and they can\njust come right back in. If they got\naccess through a fake login proxy page\nlike in our scenario, uh then it's a one\none-time point in time compromise of\ncredentials or maybe they have an info\nstealer malware infection on their\nlaptop and after you rotate those\ncredentials, they get zo right back once\nthe user tries to reuse them again.\nYou also need to figure out uh all the\nways they added new ways to access your\nenvironments. Whether it's laterally\nmoving and distributing back doors on\nsystems or backdooring source code,\nadding new users and or compromising\nother user accounts in the in the\nenvironments. If you don't remove every\nsingle way they can reaccess your\nenvironments, they will come back if\nthey want to. Depending on how sneaky\nthey were, incidents could be a game of\nwhack-a-ole over a period of of months.\nSo this lateral movement thing, the fact\nthat you're going to need to follow a\nsingle actor through many different\nsystems that might be in totally\ndifferent parts of the company. So\nmaking new users, dealing with your\nactual laptop, adding source code,\ndealing with multiple AWS access. That\nactually does give rise to one of the\nbiggest differences that surprised me in\nsecurity incident response. SRE teams\nare usually not always but often\norganized around specific systems and\nservices and scoped to kind of\nproduction uh so that we can become\nexperts in the systems that we work with\nand to give us space and incentives to\nfix problems in the long run and not\njust to mitigate as they happen. But\nsecurity teams are often sometimes\ndealing with intelligent bad guys who\nare going to move around from your sales\nplatform to your source code to your\nproduction systems if they can. And so\nyour security response team needs to not\nhave boundaries between those things\nbecause things will get dropped.\nPotential additional access will get\ndropped in those boundaries between\nteams if you have them. Back to our\nincident. I'm in my happy place. I love\nincidents. Uh we've got a bunch of\nthings to do. Explore a bunch of\ndifferent systems for access and impact.\nLock off access. We can use our standard\nincident coordination and communic\ncommunication. We're going to track,\norganize, delegate work. And while the\nincident is private, I'm going to read\npeople in as they join, do what the\nlawyers said, and I can pull in whoever\nI need to help me. So now we're just at\nnormal major incident response\ncoordination.\nSo organizing delegating tasks is pretty\nsimilar between reliability, security,\nincident. So need to know means you can\npull people in as you need them for uh\nrotating credential, nuking a system,\nwhatever is needed.\nMain difference you'll see though is how\nquickly investigation scope can grow to\nbe absurd. So every single system or app\nthat a thread actor touches has to be\nreviewed to figure out what they did. So\nfor example, if you've got one SSO\naccount that touches 20 applications and\nthey SSH to 50 EC2s,\nthen congratulations, we have 21 data\nsets to analyze.\nSo unfortunately the level of effort uh\na cyber criminal puts into their their\nuh compromises versus the level of\neffort an instant response team has to\nput in is very asymmetric. Something\nthat may take a thread actor five\nminutes to do may be a couple hours for\nan analyst to review and figure out what\nthey did.\nAnd then once you're confident that the\nthe threat actor is fully kicked out,\nthen there's the impact assessment where\nteam analyzes and categorizes the data\nthat that that thread actor touched no\nmatter the volume. And I want to say\ndata discovery sucks uh because you have\nto do deep data analysis and determine\nif any data is regulated by law, by\ncontract or if you're a publicly traded\ncompany, whether there would be a\nmaterial impact on company earnings. If\nthere is such data, then there's a\nrequirement to notify the individuals or\ncompanies whose data was impacted.\nAnd you may even possibly have to file,\nif you're a public company, file an 81K\nwith the SEC. If you're lucky and\nthere's no regulated data and the\nincident is not material, which means\nthere's no actual legal or contractual\nrequirements for it to become public.\nAnd few companies will voluntarily talk\nabout an incident publicly if there's no\nrequirement to do so.\nThis, by the way, was also a surprise to\nme. We'll talk about it a little bit\nlater, but the fact that we don't\ndisclose many of our incidents on the\nsecurity side, but okay, security\nincidents do have a different flavor\nhere. In my nonsecurity experience,\nincidents are rarely longer than a few\nhours, and they're bad ones when they\nare longer than a few hours.\num teams who deal more with hardware,\nespecially things like networking, they\nmight be waiting on delivery times of\nphysical equipment, but those are much\nmore in my experience the exception\nrather than the rule. So multi-day\nincidents are incredibly uncommon. They\nare the norm in security. You are going\nto be slogging through data for weeks.\nAs SRRES, we also know more or less when\nwe're done, right? We need to write a\npostmortem. Sometimes long-term fixes\ncan be hard to scope, but the incident's\nover when the customer impact is done\nand we have a reasonable belief that\nwe've prevented an immediate relapse.\nSometimes we might need extra analysis\naround customer specific impact,\nbut we'll usually do that outside of our\nemergency context. There are ticking\ntimelines. There are clocks for how\nquickly you need to notify people about\nbreaches. And that means that you are on\nemergency response to dig through that\ncustomer data.\nAs we spend that time figuring out\nexactly what happened and what was\nexposed, still on our incident footing,\nwhat do we tell our customers? My\ninstinct is to post a public message for\ncustomers as soon as we get that ransom\ndemand uh to let them know that we have\na problem. We're looking into it. Often\nI'm on a ticking clock to post something\nto customers looking for something like\n10 or 15 minutes. and then for the first\nfew hours to post what we know, what\nwe're still looking into every hour or\nso because that's what we normally do.\nI'm also used to the approvals for\ncommunications about incidents being\nrelatively minimal because otherwise we\ncan't get them out at that speed.\nWe find with outages that it's important\nto be transparent with our customers.\nSome of that's because they already know\nthat we're down. uh but let them know\nwhat the impact is to them as\nspecifically as possible as soon as we\nknow including giving them workarounds.\nDepending on the specific business, we\nmight need to talk to individual\ncustomers, but the lawyers aren't going\nto let us do things that way.\nYep. Your feelings are right. So,\nso I most often see lawyers advised to\ndon't talk publicly about an incident\nunless there is a legal or contractual\nrequirement to do so. there's not a lot\nof upside in doing so uh communicating\nexternally if you don't have to. Sure,\nit feels good to be transparent and you\nmay build trust with some customers, but\nthere are going to be plenty of other\ncustomers that will be upset. Uh\nthere may be lawsuits and it can turn\ninto a PR mess pretty pretty quick.\nAlso, if you if you talk about or give\ndetails about the incident too early,\nyou may have to walk things back. Having\nto walk things back is not a good look\nfor your customer base.\nAlso, if the threat actor follows\nthrough with their threats to publicly\nleak data, it is often better to just\nnot acknowledge it unless customers are\nasking questions about it. Security\nincidents nowadays are sadly very common\nand data leaks are also very common. So,\nit very frequently flies under\neveryone's radar despite a threeper's\nbest efforts to make the work publicly\nknown. And I'll emphasize this sucks and\nI wish it wasn't this way, but it's the\nreality I've observed over the past 13\nyears.\n>> The other fly in this ointment about\ncommunication, which I don't have on the\nslides, but the other fly in this\nointment about communication, when I\ncommunicate about an incident,\nespecially from a B2B, I'm talking to\nengineers at my customers, right? That's\nwho cares about us being down in\ngeneral. And so I'm talking to people\nwho think like me, who have the same\npriorities. Often when you disclose\nsomething about a security incident, the\npeople that you're going to be dealing\nwith are the compliance organization at\nyour customers and they're going to ask\nquestions for months afterwards. Many\ntimes those questions won't make a lot\nof sense. They can be very high effort\nto answer, but they don't think about\nthe same problems in the same ways. And\nso it can just generate a huge amount of\nwork to do a disclosure, which is also a\nchallenge. All right, but we've been\ndoing this for weeks. We think we found\nall the data that was accessed. We've\ncleaned up. We've fully locked the bad\nguy out. We understand how they got in.\nWe get to write a postmortem. Obviously,\nthis was a huge expense for us as a\ncompany. We never want to go through\nthis again, and we need everyone to\nunderstand how and why it happened. We\nwant to write a really transparent and\ncomprehensive internal postmortem about\nwhat went wrong, how our systems can\nbetter prevent this, what firewalls we\nneed between systems as well as better\nfishing prevention, maybe better\ndetection. We want to examine how our\nresponse could have been better. Do we\nneed better tools to dig through our\nlogs and make that fact make that\nfaster? Are there other things we need\nto mitigate more quickly? Start broadly,\nshare broadly. Uh, I know the lawyers\naren't going to let us share with\ncustomers, but it does build trust in my\nexperience to explain what went wrong.\nBeing able to learn from incidents\nacross the industry with shared\ntransparency makes us all better. And\nso, it's really going to hurt my\nfeelings that we can't share this\ninformation more publicly. Uh, my\nexperience again on the SR side, public\npostmortems can be high level, but we\nhave enough background knowledge to get\na good sense of what's going on and be\nable to fix those things in our own\ncompanies. Unfortunately, because of the\nregulatory reasons, the lawsuits,\ncompliance orgs, it's much harder to\nlearn these things across security\nwithin industries.\nObviously, our postmortem is blameless.\nWe're not going to focus on which humans\ndid what wrong, but rather on how we can\nmake sure our system doesn't have this\nvulnerability anymore.\n>> So, post are still blameless and\nsecurity incidents. And while lawyers\nprefer nothing is in writing, postmodms\nare high value enough where I almost\nalways see a postmortem get written.\nHowever, since the document reflects on\nwhat went wrong, why they went wrong,\nand what security controls are missing,\nit is great material for a lawsuit. If\nthere's a lawsuit, this document is\ngreat for a plaintiff to use as uh words\nagainst the the the victim organization\nto try to show negligence.\nWe'll hedge against this possibility by\nbeing careful with wording and how we\nwrite it in postmortems.\nThis also is where legal privilege uh\ncan help reduce the risk of postmortem\nbeing in scope of a of discovery. But\nlegal privilege means uh access to the\npostmortem is uh needs need to know only\neven even internally.\n>> So even though I think everyone needs to\nknow what's in the postmortem, it turns\nout the lawyers don't always agree.\nMeans we can't even really share\ninternally. It makes me really worried\nthat we're going to have those same\nproblems happen again. Not even in the\nindustry, but just within our own\ncompany. As a person who uses computers,\nknowing I'm only going to hear about\nsomeone's security problems if they are\nlegally required to tell me about it\ndoes not make me feel good. That is the\nindustry.\nOkay. But we want to fix what we can.\nAgain, because the postmortem will\nidentify actions for various teams. Some\nof those actions are fast. Some of them\nmight be huge projects. Um, every\norganization struggles to prioritize\ntheir actions in the best possible way,\nbut the teams that we give those actions\nto usually do understand what problems\nthey're trying to fix, why they matter,\nand they'll be able to advocate for\nreasonable prioritization when they do\nthe work because they understand why\nthey need to do that work, and they'll\nunderstand if they've really solved the\nproblem. I would also expect for a large\nenough incident that somebody's going to\nmake a public dashboard for executives\nand stakeholders to track progress on\nthe work that we're doing.\nSo dashboards, widely viewable tickets\nand updates leadership also do happen in\nsecurity incidents. It's just that they\ndon't go into much detail on the why\nthis thing that needs doing mid-carter\nuh needs to be done.\nAnd please know that the asks are coming\nfrom a good place. Everyone involved the\nincident, including leadership,\nsecurity, legal, no one wants the\nincident to happen again. Uh the\nincident's best case is, you know, a\nrisk of burnout. At worst, it can be\nsomewhat traumatic for some folks and\nultimately like no one wants to go\nthrough the process again.\nSo, how can you help during your next\nsecurity incident? So, if you find\nyourself in the middle of a fire in\nsecurity incident land, here are some\ntips. Abide by rules of privilege, which\nmeans uh only talk about the incidents\nwith people already involved with the\nincidents, putting special markings on\ndocuments, including legal on email,\nSlack, voice discussions about the\nincident. And when in doubt, there's\ngoing to be some legal representative\ninvolved in the incident. Just ask them.\nThey're going to be more than happy to\nto give you advice on how to talk about\nuh a concept. Uh ask before taking\naction. Nuking a system that is infected\nwith malware before we can collect\nevidence may lead to investigative\nquestions we can't answer.\nAsk if there's anything you can help\nwith. If the incident is big, there is\nmore than likely more tasks than there\nare people during an incident. If you're\ngiven a task, ask what investigative\nquestions do you want answered? And then\nfocus on using the data available to you\nto answer that question. If you can't\nanswer a question or you can't give a\nconfident answer, just keep notes on on\nwhy.\nCall out log sources that might be\nvaluable. Security will know the typical\nlog sources, cloud trail, uh, endpoint\nlogs, but they're going to more than\nlikely be a little less familiar with\nall of the internal application logs\nthat are that are available to them.\nAnd if the incident responder or\nincident commander is being calm, match\ntheir vibe. So, incident commander being\ncalm is a sign of experience. They might\nhave seen this incident before and kind\nof know what to expect and also have\nsome predictions of what the final\nimpact is going to be. Or if they don't,\nthey may be being calm to try to keep\neveryone else calm because panicked\npeople make mistakes.\n>> Just because it has security on the\nlabel doesn't mean it's actually much\nmore panic shouldn't be more\npanicinducing than the same incident or\nan incident of the same size in your\nmore familiar realm. So, some other\nthings that you can bring from the SR\nexperience that can help a lot with\nsecurity incident response. You notice I\ntalked a little bit about having\nrelatively large volumes of logs that\nmight not be right when we need them. Uh\nthey might be painful to search and\nprocess. At a minimum, can we make sure\nthat we're only collecting data once,\nnot duplicating information when we\nalready have it from our monitoring\nsystems? Can we help our security orgs\nbuild productionready monitoring\npipelines for atscale log processing?\nWe're good at that. Let's do it. It's\nquite likely that your security team\ndoes not have that expertise and would\nreally appreciate your help. We also\nhave a lot of touch points with many\nsystems and teams in production. We can\nhelp our security teams build accurate\nmental models of what kinds of attacks\nare more likely to work in our system\nwhich can let them prioritize the right\nmonitoring and response tools on their\nside. We can get involved in their chaos\ntesting. They'll usually call them red\nteam or purple team exercises. They\nwould love your help almost always. And\nbuild relationships with your security\nresponders both so that they know that\nthey can call you when something goes\nwrong and honestly after the fact when\nthey need to ask you to make changes and\nthey can't tell you why. So that you\nhave that trust built up with them and\nyou are able to work with them even if\nyou don't know exactly what's going on.\nYou personally can make friends with\nlawyers. It turns out that lawyers are\nalso human beings. I know that's\nsurprising. If they already know and\ntrust you, those lawyers, they are more\nlikely to be able to explain their\nconcerns as part of the response and to\nhear and understand what you need from\nthem and what you can give them in the\nmoment versus what you can give them\nlater. Be able to tell them things like\nthat question that you just asked is\ngoing to take six hours to investigate.\nDo you really need to know? And maybe\nlet's translate it to something else.\nYou should also make sure that those\nlawyers have the same expectations about\nresponsibility uh responsiveness and\nresponsibility during an emergency as\nyou do for them. Do they understand that\nwhen I paid you, I expect you in 10\nminutes at 3 in the morning and the\nperson who answers can make decisions or\nare they thinking about something else?\nAnd finally, I really recommend\nadvocating for a shared response process\nand tooling for your security incidents\nwith whatever your normal process is.\nYou might get some push back here. Some\nsecurity teams may not be aware that the\nS sur response to outages is an\norganized coordinated process, that we\nhave good tooling, uh that we have\nresponsibilities around data tracking.\nInvite them to some existing incidents\nthat your team is involved with and be\nopen to hearing where they do have\ndistinct needs. They're going to need\nprivate incidents, right? But because\nyour security team is likely to need to\nrely on other engineers for incident\nresponse, demystifying your process for\nthem means that you can have a uniform\nresponse across the company and that\nmakes everybody's work better overall.\nI want to encourage you to also get\ninvolved with your security response\nteams. Aside from the lawyers and the\nlimited communication and all of that,\nwhich was definitely new for me, most of\nsecurity incident response is something\nyou already know how to do. It's\nthorough log analysis. It's going\nthrough mountains and mountains of logs\nwith your common sense about what's\nimportant in production, how it's put\ntogether, guiding intent and\nconclusions. Being able to bring your\nown well-developed sense of what works\nand what doesn't is an enormous benefit\nto your security team. When I joined my\nmy first few security incidents, I found\nmyself kind of using three skills most\noften. First, just figuring out what I\ncan do and not do with the access or\ninformation that we thought an attacker\nmight have. somebody tells me we think\nthat they have that access, what could I\ndo in production with that? Uh, second,\nthinking about what that would mean for\nour customers. Why would someone want to\ntake the actions we've identified as\nprobably working? Is that something that\nthey can extort money for? Is that\nsomething that they could\ninvade customer systems and do something\nelse with? What what could you do? Uh,\nyour security team will also be thinking\nabout those two things and they will\ncall them a threat model. And then\nfinally, just basic incident planning\nand coordination. Who's in charge?\nWhat's our next goal? How do we get\nthere? Tracking who's working on what\ntask? Tracking what's still to be done.\nAll of that normal coordination.\nI certainly had to learn, and this is\nwhy Alec reminds you that if the\nincident commander is calm, you should\nbe calm.\nSecurity incidents are not a\ncatastrophe. They're bad, but don't\ncatastrophize. The fact that someone\ncould conceivably do something with my\nlevel of knowledge also doesn't mean\nthat an outside attacker will or did.\nThe systems we work in are complicated.\nNone of us should believe in security\nthrough obscurity as a good thing to do.\nBut you do actually get kind of a lot of\nit just through the complexity of the\nenvironments that we work in. I find\nthat it can help to remember that\nsecurity is broken all the time the way\nsame way that production is broken all\nthe time. discovering a problem that\ncould cause a future outage or even\nhaving a minor incident. It's just not\ncause for panic. Fix the problem in our\nnormal, professional, appropriately\nprioritized way. And sometimes we find\npotential outages where 12 things have\nto go wrong at once for the system to\nactually go down. We want to fix those,\nbut we think about likelihood and our\nprioritization. And you should be\napplying the same knowledge and about\nlikelihood and risk mitigation and and\nassessment to security incidents as\nwell.\nOverall, we do follow the same framework\nwith incidents. Sometimes the wording is\na little bit different, but the overall\nprocess, there's an incident commander,\nthey're in charge, this is how we're\ngoing to coordinate. It's basically the\nsame. Demystifying the security side is\nmostly a matter of common sense once you\nget used to the lawyers.\n>> All right, so as Loris mentioned, a lot\nof skills transfer over. Instant\nresponse is mostly just looking at logs.\nSo, if you want to get into instant\nresponse, here are some suggestions I\nhave. Uh, one, you can get up to speed\non a lot of the latest and greatest\nthread actors by going on the cisa.gov\nwebsite. They have some very detailed uh\noverviews of how these actors operate,\nsome of the tools they use, their\nmethodologies. It's actually really\ninteresting read. Highly recommend\nchecking it out.\nGet familiar with MITER attack. Uh minor\nattack is just kind of like this\nreference material of the things that\nthreat actors would probably do in an\nenvironment to move around an\nenvironment to run malware to escalate\nprivileges. It's just really good\nreference material\nand also ask to get more involved with\nsecurity incidents. Uh real world\nexperience is honestly the biggest\ndifferentiator for\nsecurity response on the market. And\nwith that we will get into Q&A.",
+  "segments": [
+    {
+      "text": "Thank you all so much. So, you've heard a little bit of an intro. I want to give a tiny bit more background on who we both are because so much of this talk is about both what we already know and what we learned from each other. So, between",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the two of us, we have more than 20 years of incident response experience. Until recently, we worked together at Data Dog on an overall security incident response process. We were rebuilding a program. and we're not going to talk",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "about it, but that had gotten into a little bit of trouble. Uh we also responded to some real incidents together. In fact, we got to work together on one in Alex's third week. Uh in addition to the incident process at Data Dog, we both have practice and",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "experience in incident response elsewhere. So, we have at least some perspective on the industry overall. >> Thanks, Laura. Hey, everyone. I'm Alec. Uh, I've worked in the security detection response space for over 13 years,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "spending a lot of time doing it response consulting, doing detection response engineering. I've responded from incidents ranging from the mundane like business email compromises to the more exciting nation state actor uh type compromises.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "I'm currently a staff engineer on data dog security response team. >> Uh, and then briefly, hi, hello, I'm Laura in case that wasn't obvious. Uh I've been in SRE for about 10 years now. Uh specializing mostly in incident response and prevention. Uh I started",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "out as an SRE at Google and then I spent about four and a half years uh doing orwide incident handling at data dog. Uh I've just started a new role at Reddit. So no longer at data dog. You can't complain about their prices to me",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "anymore. Uh I have a pretty good sense I think about how larger scale orgs handle their outages and incidents. what we as SRRES think of as best practices in that space and then what I've seen work and what I've seen not work. At Data Dog, I",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "got to spend about the last three years doing some elements of security incident response and it was a learning experience. The first and most interesting thing that I learned when I started working with folks in the security incident space is that security",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "incident is a very loaded term. As soon as you officially call something a security incident, a lot of people care. Your compliance or cares, your lawyers care. It's entirely possible that your company board and the SEC will want to",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "hear about everything in the company that got that got called a security incident. So, lots of things that I would handle with our with our incident response process and would therefore call an incident don't actually warrant",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "the board's attention. We've leaked a password somewhere. We have a new critical CVE to repair. Uh someone internally accessing something they shouldn't, right? Those are things that I would think of as an incident and handle with an incident response",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "process. But if I call them a security incident, there's some extra pieces to that. So for security folks, for something to be an incident, uh it means that there is an actual malicious actor who we have verified gained access to systems and data that",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "they should not have had access to. That's not to say that security professionals do not use an incident response process for the issues that you and I would also use an incident response process for that don't necessarily have that malicious",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "component. They do, but they're very sensitive to having them called incidents because of that standard and the associated reporting requirements. For this talk, we are going to be discussing an event that would fall under the classification of real",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "security incident for an org. But for reasons we're going to talk about, this is a madeup event. This is not a real thing that has happened to any company that either of us has ever dealt with. It is built on some real principles, but",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "it is not something that has actually happened. It's useful to remember that just like for a lot of SR teams, really your security response team's day-to-day is much more focused on lower severity stuff. We logged an access key, someone",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "installed malware in our endpoint monitoring, immediately quarantined it. Kind of boring stuff. Bad guy in our systems is the exciting, not so good day, but it's very rare. um the process of responding to those smaller incidents also looks like it",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "ways that would be pretty familiar to you as an SR. The bigger incidents a little bit more going on. All right. So, first some just obligatory disclosures. Uh while it's a mock incident that's fairly realistic, it's embellished. It's",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "based on open source intel uh such as like CISA intelligence and our our own experience and vibes. Uh we are also not speaking about or for our employers. We are speaking from personal experience across many different companies",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "and uh we are not lawyers. Nothing in this presentation is legal advice. Uh we'll mention legal things which we have seen from observing actual lawyers respond to real security incidents. All right. So I'll describe a full endto-end mock scenario. It's a data",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "theft extortion uh scenario which is sadly fairly common nowadays and we want to kind of lay this out ahead of time so folks can kind of have a framing for the the rest of the presentation. So uh it's roughly a five-step process.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "So step one thread actor gains access to an organization single sign on service. One of the most popular ways of doing so is fishing a user with a fake login page to said SSO provider. There's been a few thread actor groups that have been that",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "that do it this way. Uh this the fake login pages they act as a proxy. So you put in your username and password thinking that you're logging into the actual SSO portal site proxies it to the real provider. The provider if you're",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "using the single sign on uh times onetime passcode tokens. Uh it'll prompt for it which the proxy site will then pass back over to you and you still think you're logging into the real site. and you put in your 2FA code thinking",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "you're logging in to the real site, but that ultimately goes to thread actor. They proxy it and then they have a session to SSO. Next, actor is going to explore to see what juicy apps you have access to. They are particularly looking for places that",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "have sensitive information in it, which is going to be key for the extortion phase of the of the the incident. And for this scenario, we're just going to say that the user has elevated, it's an engineering user who elevated privileges in AWS.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "Third actor SSOS in AWS starts looking at S3 buckets trying to see if there is some sensitive data that they could try to extort with. And we'll say they they find some and they download it and they may even be jerks and try to delete the",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "data afterwards hoping that they have the only copy. Then they'll try to make contact with the victim organization with an extortion demand for crypto and a threat to publicly leak that data they took if you don't pay up.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "And then they're hoping that they profit in the end. Uh hoping that a victim organization pays the extortion fee and they make their profit. >> All right, so let's come back to the beginning. Somebody's in our systems. Obviously, we have multiple security",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "folks who work on detection and response just like we do for our reliability. So, we should detect as soon as our employees credentials are exfiltrated or at worst as soon as someone tries to use them from an unauthorized system or to",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "do something suspicious. Right? Our detection is clearly that good. So, of course, as soon as we see that, we're going to cut off the attacker's access basically immediately. All done. uh if for some reason our monitoring",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "fails, right, we're going to do defense and depth here. Users have access only to the data that they actually need to do their jobs. Everybody works in an organization whose security posture is good for that, right? Uh for reliability",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "reasons, even we want to keep users from being able to fat finger a command and make a terrible mess to say nothing of that security problem. A few users sometimes like me uh have a lot more access, but I am extremely careful with",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "my credentials and I have never made a single mistake in my entire life and I would definitely not fall for a social engineering attack. Again, further defense in depth, right? Even if our monitoring somehow fails, the exploited credentials have way too",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "much access. As an intrepid SRE, I've made sure that we have immutable backups and the ability to reliably restore them and nothing too embarrassing sitting around on our servers. >> Yeah. >> All right. So, in reality, uh",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "unfortunately, quite a lot of companies learn about these types of incidents at the time of extortion. This is often due to companies not having monitoring for this specific type of incident set up, having only off-the-shelf monitoring",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "tooling, or not having a well- resourced dedicated detection engineering team. Uh, security detection response is very expensive. So, not all organizations have dedicated teams with the latest and greatest tooling. Also, some factors that make this",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "incident possible are often rooted in deviations from established security practices. There may be engineers or users that were given access or given excessive privileges from a previous reliability incident that were not rolled back or there may be documented",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "or undocumented exceptions to security standards. Also, backup standards are only as good as the scenarios considered and how well they are followed. Malicious deletion of backups is often not considered when uh deciding backup strategies. Ultimately,",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "these incidents happen because the methodology these actors use broadly just works. They are motivated by profit and methodologies that don't work aren't profitable. >> Uh, something else that I want to emphasize, again, this was something",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "that maybe should have been apparent to me ahead of time, but me doing my job normally and correctly can be indistinguishable in an automated way from somebody using my credentials to do something nefarious. And so it can be",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "extremely hard for automated monitoring to detect security breaches. But that means that we've detected an incident via demand letter. And I will just say that I have never been more sad. Okay. But now we have an incident. So",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "incident response 101, right? We're going to triage. We're going to find out what's actually been affected. We're going to mitigate. Uh so we're going to triage. I'm going to spin up a big incident, right? I'm going to pull in",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "everyone I think can be can be helpful. the engineers who are tell going to tell us what data might be impacted, what that data means, what it means to our customers. I'm going to pull in people who know how to shut down systems that",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "the attacker might be in and rotate credentials. Anyone who might be able to keep data from being deleted or further exfiltrated or involved in restoring backups. Since this could affect pretty much anyone in the company and could",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "happen to pretty much anyone in the company, we obviously want our response to be in public so we can get both all the help we might need and so people can report any impact that they might be seeing and just learn the lessons of",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "what we've we've done. Right? This is all incident response 101. Uh we're going to halt the unauthorized access, restore things, fix both the source of the breach and the ways our system didn't stop this damage. >> All right. But before we actually get",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "into his response, there's a few things we have to some housekeeping we have to do. Uh step one, engage with legal. So the reason for that is uh you want to do your investigation in response at the direction of legal for the purpose of",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "them to provide legal advice to the organization. Uh the benefit you get from doing that is your investigation and your uh conversations documentation uh has some level of protection via legal privilege from discovery if the company were to get sued for this",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "incident. And to maintain legal privilege the incident uh you know must be need to know only. Uh lawyers must be on all communications and documents have to have appropriate legal markings on them. And I want to emphasize legal uh",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "privilege does not bury an incident. Facts can't be privileged. Lawyers must uh privilege doesn't mitigate legally required notifications. Additionally, don't respond to the extortion. There is little upside to doing so. And there's tons of downsides.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "engaging incentivizes the the threat actor to continually increase pressure on you until you pay up to and including releasing the data publicly. Uh if you engage and you don't pay, they will more than likely release publicly. If you",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "don't engage, there's actually a chance that they uh may try to make it public, but if they're still not getting a response, they'll just move on to the next victim because again, profit motive, time is money. Now, if you do pay them, uh there's also",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "no guarantee of closure of the incident. Uh I have seen on many occasion cyber criminals coming back every couple of months demand additional payments until an or decides to just it's too much, cut them off, at which point they then",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "publicly release data and you're kind of paid for the same outcome you would have gotten if you'd done nothing. >> All right. Uh, so we're going to make our incident private and there's going to be lawyers and everything. That sounds really fun.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "They are probably going to slow us down, but we are still coordinating an in an incident, right? We're still doing coordinated response from multiple teams to resolve this issue. The first thing we want to do is still the same thing",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "that we would do for any other incident. We want to triage and understand the damage. I happen to know that security orgs have big giant piles of logs. Sometimes they'll even ask SR for resources or to help collect and store",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "those logs. So, we definitely have the logs that will tell us everything that's happened. And security's tools for searching those logs are at least as good as the tools that I would use because that's what they do, right? And",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "I'm sure that our experts even have a good idea of what to go looking for. Triage should be easy. All right. So, I hope that we've been if this is like the first time you're responding to an incident in this type of situation, I hope you have all the",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "logging turned on that you want. Uh especially the off by default S3 data logging. Uh I also hope we've been diligently centralizing that data into a system where it's all easily searchable. Uh you know, for the off chance that",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "maybe one day you'll have to use those logs. uh if it's not and the logs are just sitting in S3 uh you still have to do your investigation. There's no oh this is too hard we can't we can't feasibly do it. It is it is just not an option.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Also if you don't have logs then there's lots of downstream repercussions. We may not be able to prove what was taken and more importantly what was not taken which means we may need to overestimate what was taken. Additionally, we may not",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "be able to identify which user account was compromised, which means we'd have to rotate everyone's credentials and terminate everyone's session in AWS, which is obviously a big high impact. Thankfully, in our mock scenario, we do have logs that we need,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "but again, not every organization will have done that investment. All right, as Alec observed, we may not only be able to just block one user. So, we can't necessarily do that cleanly without other impact. Although, that would be",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "sort of how I would expect to be able to respond to this incident. Um, but we're going to do some communication about what happened based on our triage from the logs. And when we're all done, uh, then we're done with the main response,",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "right? We've done triage, we've communicated, we've blocked that one user's access, rotated their credentials onto the postmortem. Uh, I guess that does mean that I'm assuming, right, precise tools for cutting off access.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "again we know exactly which account was compromised and downstream that we actually do know what's impacting uh what systems are impacted. So uh if we're looking at something larger like a DOSS attack we would need better tools",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "to block not our real users and only attacker traffic. But either way clearly we've spent the time to build the tooling for this. This is what SRRES do. Surely this is what security teams do and it is but there's a lot more surface",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "area for a lot of them to cover. Uh maybe it gets scary and complicated if the attackers actually employee someone just fires them I assume. So quick and easy we go through the logs we're sort of done. All right. So the highest priority is",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "indeed kicking out the thread actor. Uh however kicking them out via just rotating SSO passwords and revoking sessions and uh calling a day is not always going to be the only step that has to be taken. So you still need to",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "figure out how they gained access in the first place because of the chance that mechanism is still in place and they can just come right back in. If they got access through a fake login proxy page like in our scenario, uh then it's a one",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "one-time point in time compromise of credentials or maybe they have an info stealer malware infection on their laptop and after you rotate those credentials, they get zo right back once the user tries to reuse them again. You also need to figure out uh all the",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "ways they added new ways to access your environments. Whether it's laterally moving and distributing back doors on systems or backdooring source code, adding new users and or compromising other user accounts in the in the",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "environments. If you don't remove every single way they can reaccess your environments, they will come back if they want to. Depending on how sneaky they were, incidents could be a game of whack-a-ole over a period of of months.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "So this lateral movement thing, the fact that you're going to need to follow a single actor through many different systems that might be in totally different parts of the company. So making new users, dealing with your actual laptop, adding source code,",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "dealing with multiple AWS access. That actually does give rise to one of the biggest differences that surprised me in security incident response. SRE teams are usually not always but often organized around specific systems and services and scoped to kind of",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "production uh so that we can become experts in the systems that we work with and to give us space and incentives to fix problems in the long run and not just to mitigate as they happen. But security teams are often sometimes",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "dealing with intelligent bad guys who are going to move around from your sales platform to your source code to your production systems if they can. And so your security response team needs to not have boundaries between those things",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "because things will get dropped. Potential additional access will get dropped in those boundaries between teams if you have them. Back to our incident. I'm in my happy place. I love incidents. Uh we've got a bunch of things to do. Explore a bunch of",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "different systems for access and impact. Lock off access. We can use our standard incident coordination and communic communication. We're going to track, organize, delegate work. And while the incident is private, I'm going to read",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "people in as they join, do what the lawyers said, and I can pull in whoever I need to help me. So now we're just at normal major incident response coordination. So organizing delegating tasks is pretty similar between reliability, security,",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "incident. So need to know means you can pull people in as you need them for uh rotating credential, nuking a system, whatever is needed. Main difference you'll see though is how quickly investigation scope can grow to be absurd. So every single system or app",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "that a thread actor touches has to be reviewed to figure out what they did. So for example, if you've got one SSO account that touches 20 applications and they SSH to 50 EC2s, then congratulations, we have 21 data sets to analyze.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "So unfortunately the level of effort uh a cyber criminal puts into their their uh compromises versus the level of effort an instant response team has to put in is very asymmetric. Something that may take a thread actor five",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "minutes to do may be a couple hours for an analyst to review and figure out what they did. And then once you're confident that the the threat actor is fully kicked out, then there's the impact assessment where team analyzes and categorizes the data",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "that that that thread actor touched no matter the volume. And I want to say data discovery sucks uh because you have to do deep data analysis and determine if any data is regulated by law, by contract or if you're a publicly traded",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "company, whether there would be a material impact on company earnings. If there is such data, then there's a requirement to notify the individuals or companies whose data was impacted. And you may even possibly have to file,",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "if you're a public company, file an 81K with the SEC. If you're lucky and there's no regulated data and the incident is not material, which means there's no actual legal or contractual requirements for it to become public.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "And few companies will voluntarily talk about an incident publicly if there's no requirement to do so. This, by the way, was also a surprise to me. We'll talk about it a little bit later, but the fact that we don't disclose many of our incidents on the",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "security side, but okay, security incidents do have a different flavor here. In my nonsecurity experience, incidents are rarely longer than a few hours, and they're bad ones when they are longer than a few hours. um teams who deal more with hardware,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "especially things like networking, they might be waiting on delivery times of physical equipment, but those are much more in my experience the exception rather than the rule. So multi-day incidents are incredibly uncommon. They",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "are the norm in security. You are going to be slogging through data for weeks. As SRRES, we also know more or less when we're done, right? We need to write a postmortem. Sometimes long-term fixes can be hard to scope, but the incident's",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "over when the customer impact is done and we have a reasonable belief that we've prevented an immediate relapse. Sometimes we might need extra analysis around customer specific impact, but we'll usually do that outside of our",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "emergency context. There are ticking timelines. There are clocks for how quickly you need to notify people about breaches. And that means that you are on emergency response to dig through that customer data. As we spend that time figuring out",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "exactly what happened and what was exposed, still on our incident footing, what do we tell our customers? My instinct is to post a public message for customers as soon as we get that ransom demand uh to let them know that we have",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "a problem. We're looking into it. Often I'm on a ticking clock to post something to customers looking for something like 10 or 15 minutes. and then for the first few hours to post what we know, what we're still looking into every hour or",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "so because that's what we normally do. I'm also used to the approvals for communications about incidents being relatively minimal because otherwise we can't get them out at that speed. We find with outages that it's important",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "to be transparent with our customers. Some of that's because they already know that we're down. uh but let them know what the impact is to them as specifically as possible as soon as we know including giving them workarounds.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "Depending on the specific business, we might need to talk to individual customers, but the lawyers aren't going to let us do things that way. Yep. Your feelings are right. So, so I most often see lawyers advised to don't talk publicly about an incident",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "unless there is a legal or contractual requirement to do so. there's not a lot of upside in doing so uh communicating externally if you don't have to. Sure, it feels good to be transparent and you may build trust with some customers, but",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "there are going to be plenty of other customers that will be upset. Uh there may be lawsuits and it can turn into a PR mess pretty pretty quick. Also, if you if you talk about or give details about the incident too early,",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "you may have to walk things back. Having to walk things back is not a good look for your customer base. Also, if the threat actor follows through with their threats to publicly leak data, it is often better to just not acknowledge it unless customers are",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "asking questions about it. Security incidents nowadays are sadly very common and data leaks are also very common. So, it very frequently flies under everyone's radar despite a threeper's best efforts to make the work publicly",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "known. And I'll emphasize this sucks and I wish it wasn't this way, but it's the reality I've observed over the past 13 years. >> The other fly in this ointment about communication, which I don't have on the slides, but the other fly in this",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "ointment about communication, when I communicate about an incident, especially from a B2B, I'm talking to engineers at my customers, right? That's who cares about us being down in general. And so I'm talking to people who think like me, who have the same",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "priorities. Often when you disclose something about a security incident, the people that you're going to be dealing with are the compliance organization at your customers and they're going to ask questions for months afterwards. Many",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "times those questions won't make a lot of sense. They can be very high effort to answer, but they don't think about the same problems in the same ways. And so it can just generate a huge amount of work to do a disclosure, which is also a",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "challenge. All right, but we've been doing this for weeks. We think we found all the data that was accessed. We've cleaned up. We've fully locked the bad guy out. We understand how they got in. We get to write a postmortem. Obviously,",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "this was a huge expense for us as a company. We never want to go through this again, and we need everyone to understand how and why it happened. We want to write a really transparent and comprehensive internal postmortem about",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "what went wrong, how our systems can better prevent this, what firewalls we need between systems as well as better fishing prevention, maybe better detection. We want to examine how our response could have been better. Do we",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "need better tools to dig through our logs and make that fact make that faster? Are there other things we need to mitigate more quickly? Start broadly, share broadly. Uh, I know the lawyers aren't going to let us share with",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "customers, but it does build trust in my experience to explain what went wrong. Being able to learn from incidents across the industry with shared transparency makes us all better. And so, it's really going to hurt my feelings that we can't share this",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "information more publicly. Uh, my experience again on the SR side, public postmortems can be high level, but we have enough background knowledge to get a good sense of what's going on and be able to fix those things in our own",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "companies. Unfortunately, because of the regulatory reasons, the lawsuits, compliance orgs, it's much harder to learn these things across security within industries. Obviously, our postmortem is blameless. We're not going to focus on which humans",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "did what wrong, but rather on how we can make sure our system doesn't have this vulnerability anymore. >> So, post are still blameless and security incidents. And while lawyers prefer nothing is in writing, postmodms are high value enough where I almost",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "always see a postmortem get written. However, since the document reflects on what went wrong, why they went wrong, and what security controls are missing, it is great material for a lawsuit. If there's a lawsuit, this document is",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "great for a plaintiff to use as uh words against the the the victim organization to try to show negligence. We'll hedge against this possibility by being careful with wording and how we write it in postmortems. This also is where legal privilege uh",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "can help reduce the risk of postmortem being in scope of a of discovery. But legal privilege means uh access to the postmortem is uh needs need to know only even even internally. >> So even though I think everyone needs to",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "know what's in the postmortem, it turns out the lawyers don't always agree. Means we can't even really share internally. It makes me really worried that we're going to have those same problems happen again. Not even in the industry, but just within our own",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "company. As a person who uses computers, knowing I'm only going to hear about someone's security problems if they are legally required to tell me about it does not make me feel good. That is the industry. Okay. But we want to fix what we can.",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "Again, because the postmortem will identify actions for various teams. Some of those actions are fast. Some of them might be huge projects. Um, every organization struggles to prioritize their actions in the best possible way,",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "but the teams that we give those actions to usually do understand what problems they're trying to fix, why they matter, and they'll be able to advocate for reasonable prioritization when they do the work because they understand why",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "they need to do that work, and they'll understand if they've really solved the problem. I would also expect for a large enough incident that somebody's going to make a public dashboard for executives and stakeholders to track progress on",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "the work that we're doing. So dashboards, widely viewable tickets and updates leadership also do happen in security incidents. It's just that they don't go into much detail on the why this thing that needs doing mid-carter uh needs to be done.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "And please know that the asks are coming from a good place. Everyone involved the incident, including leadership, security, legal, no one wants the incident to happen again. Uh the incident's best case is, you know, a risk of burnout. At worst, it can be",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "somewhat traumatic for some folks and ultimately like no one wants to go through the process again. So, how can you help during your next security incident? So, if you find yourself in the middle of a fire in security incident land, here are some",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "tips. Abide by rules of privilege, which means uh only talk about the incidents with people already involved with the incidents, putting special markings on documents, including legal on email, Slack, voice discussions about the",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "incident. And when in doubt, there's going to be some legal representative involved in the incident. Just ask them. They're going to be more than happy to to give you advice on how to talk about uh a concept. Uh ask before taking",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "action. Nuking a system that is infected with malware before we can collect evidence may lead to investigative questions we can't answer. Ask if there's anything you can help with. If the incident is big, there is more than likely more tasks than there",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "are people during an incident. If you're given a task, ask what investigative questions do you want answered? And then focus on using the data available to you to answer that question. If you can't answer a question or you can't give a",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "confident answer, just keep notes on on why. Call out log sources that might be valuable. Security will know the typical log sources, cloud trail, uh, endpoint logs, but they're going to more than likely be a little less familiar with",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "all of the internal application logs that are that are available to them. And if the incident responder or incident commander is being calm, match their vibe. So, incident commander being calm is a sign of experience. They might",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "have seen this incident before and kind of know what to expect and also have some predictions of what the final impact is going to be. Or if they don't, they may be being calm to try to keep everyone else calm because panicked people make mistakes.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": ">> Just because it has security on the label doesn't mean it's actually much more panic shouldn't be more panicinducing than the same incident or an incident of the same size in your more familiar realm. So, some other things that you can bring from the SR",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "experience that can help a lot with security incident response. You notice I talked a little bit about having relatively large volumes of logs that might not be right when we need them. Uh they might be painful to search and",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "process. At a minimum, can we make sure that we're only collecting data once, not duplicating information when we already have it from our monitoring systems? Can we help our security orgs build productionready monitoring pipelines for atscale log processing?",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "We're good at that. Let's do it. It's quite likely that your security team does not have that expertise and would really appreciate your help. We also have a lot of touch points with many systems and teams in production. We can",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "help our security teams build accurate mental models of what kinds of attacks are more likely to work in our system which can let them prioritize the right monitoring and response tools on their side. We can get involved in their chaos",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "testing. They'll usually call them red team or purple team exercises. They would love your help almost always. And build relationships with your security responders both so that they know that they can call you when something goes",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "wrong and honestly after the fact when they need to ask you to make changes and they can't tell you why. So that you have that trust built up with them and you are able to work with them even if you don't know exactly what's going on.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "You personally can make friends with lawyers. It turns out that lawyers are also human beings. I know that's surprising. If they already know and trust you, those lawyers, they are more likely to be able to explain their concerns as part of the response and to",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "hear and understand what you need from them and what you can give them in the moment versus what you can give them later. Be able to tell them things like that question that you just asked is going to take six hours to investigate.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "Do you really need to know? And maybe let's translate it to something else. You should also make sure that those lawyers have the same expectations about responsibility uh responsiveness and responsibility during an emergency as",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "you do for them. Do they understand that when I paid you, I expect you in 10 minutes at 3 in the morning and the person who answers can make decisions or are they thinking about something else? And finally, I really recommend",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "advocating for a shared response process and tooling for your security incidents with whatever your normal process is. You might get some push back here. Some security teams may not be aware that the S sur response to outages is an",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "organized coordinated process, that we have good tooling, uh that we have responsibilities around data tracking. Invite them to some existing incidents that your team is involved with and be open to hearing where they do have",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "distinct needs. They're going to need private incidents, right? But because your security team is likely to need to rely on other engineers for incident response, demystifying your process for them means that you can have a uniform",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "response across the company and that makes everybody's work better overall. I want to encourage you to also get involved with your security response teams. Aside from the lawyers and the limited communication and all of that,",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "which was definitely new for me, most of security incident response is something you already know how to do. It's thorough log analysis. It's going through mountains and mountains of logs with your common sense about what's",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "important in production, how it's put together, guiding intent and conclusions. Being able to bring your own well-developed sense of what works and what doesn't is an enormous benefit to your security team. When I joined my",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "my first few security incidents, I found myself kind of using three skills most often. First, just figuring out what I can do and not do with the access or information that we thought an attacker might have. somebody tells me we think",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "that they have that access, what could I do in production with that? Uh, second, thinking about what that would mean for our customers. Why would someone want to take the actions we've identified as probably working? Is that something that",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "they can extort money for? Is that something that they could invade customer systems and do something else with? What what could you do? Uh, your security team will also be thinking about those two things and they will call them a threat model. And then",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "finally, just basic incident planning and coordination. Who's in charge? What's our next goal? How do we get there? Tracking who's working on what task? Tracking what's still to be done. All of that normal coordination. I certainly had to learn, and this is",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "why Alec reminds you that if the incident commander is calm, you should be calm. Security incidents are not a catastrophe. They're bad, but don't catastrophize. The fact that someone could conceivably do something with my level of knowledge also doesn't mean",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "that an outside attacker will or did. The systems we work in are complicated. None of us should believe in security through obscurity as a good thing to do. But you do actually get kind of a lot of it just through the complexity of the",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "environments that we work in. I find that it can help to remember that security is broken all the time the way same way that production is broken all the time. discovering a problem that could cause a future outage or even",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "having a minor incident. It's just not cause for panic. Fix the problem in our normal, professional, appropriately prioritized way. And sometimes we find potential outages where 12 things have to go wrong at once for the system to",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "actually go down. We want to fix those, but we think about likelihood and our prioritization. And you should be applying the same knowledge and about likelihood and risk mitigation and and assessment to security incidents as well.",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "Overall, we do follow the same framework with incidents. Sometimes the wording is a little bit different, but the overall process, there's an incident commander, they're in charge, this is how we're going to coordinate. It's basically the",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "same. Demystifying the security side is mostly a matter of common sense once you get used to the lawyers. >> All right, so as Loris mentioned, a lot of skills transfer over. Instant response is mostly just looking at logs. So, if you want to get into instant",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "response, here are some suggestions I have. Uh, one, you can get up to speed on a lot of the latest and greatest thread actors by going on the cisa.gov website. They have some very detailed uh overviews of how these actors operate,",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "some of the tools they use, their methodologies. It's actually really interesting read. Highly recommend checking it out. Get familiar with MITER attack. Uh minor attack is just kind of like this reference material of the things that",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "threat actors would probably do in an environment to move around an environment to run malware to escalate privileges. It's just really good reference material and also ask to get more involved with security incidents. Uh real world",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "experience is honestly the biggest differentiator for security response on the market. And with that we will get into Q&A.",
+      "start": 990,
+      "duration": 6
+    }
+  ]
+}

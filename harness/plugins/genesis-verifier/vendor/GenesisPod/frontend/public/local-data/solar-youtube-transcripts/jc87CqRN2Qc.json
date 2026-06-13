@@ -1,0 +1,184 @@
+{
+  "videoId": "jc87CqRN2Qc",
+  "title": "FAST '26 - Unleashing Zoned UFS: Cross-Layer Optimizations for Next-Generation Mobile Storage",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 8485,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good morning, everyone.\nI'm Junha Kim from SK Hynix.\nToday, I present our work on Zone UFS\nfor smartphone.\nThis is a joint work with SK Hynix,\nGoogle, and Seoul National University.\nWe explore a simple question.\nCan Zone storage work on real mobile\ndevice?\nOur answer is yes.\nIt works.\nBut it require careful cross-layer\ndesign.\nSmartphones are now the dominant\ncomputing platform.\nUser experience strongly depends on\nstorage performance.\nApplication are large.\nBackground services are persistent. Data\nkeeps growing.\nSo, storage stability is not optional\nanymore.\nIt directly affects responsiveness.\nIf storage latency spike,\nuser feel it immediately.\nSo,\nlet's first look at the today's mobile\nstorage system.\nUFS is the standard storage interface in\nsmartphones.\nUFS delivers high bandwidth under strict\npower limits.\nIt works well today.\nBut one structural issue remains.\nAs capacity increase,\nmapping overhead increase.\nBut internal SRAM does not scale.\nThis mismatch becomes bottleneck.\nThis mismatch becomes a serious issue\nwhen you get address mapping.\nphysical storage can't overwrite data in\nplace.\nBecause of this, the storage device must\ntranslate logical address to physical\nlocations.\nPage level mapping offers high\nflexibility, but it require a large\nmapping table.\nIn mobile devices, where the SRAM is\nvery limited, maintaining this mapping\nbecomes a serious bottleneck.\nFor example, for a 1 TB UFS device with\n4 KB logical pages, the first level\nmapping requires 1 MB for storage.\nSo, this structure requires\nmany mapping entries, which is hard to\nmanage\nwith limited SRAM.\nAnd fragmentation is common in real\ndevice.\nTo understand this, we analyze storage\nfragmentation\nin 10,000 real smartphones\nafter about 1 year of use.\nWe define fragmentation\nbased on the ratio of dirty segments.\nAbout 30% of devices already experience\nfragmentation.\nAs fragmentation increase, read and\nwrite latency increase significantly.\nThis directly impact performance\nstability.\nTo address this, we support ZFS.\nZFS divides storage in zones.\nWrite must be sequential within each\nzone.\nInstead of page level mapping, we use\nzone level mapping.\nFor 1 TB capacity, about 1 GB in ZFS,\nabout 8 KB in ZFS.\nThe entire map fits in the SDRAM. Also,\ndevice driver juicy is removed.\nJuicy becomes host managed, but\nintegrating this into Android is not\nsimple.\nThis is right show\nhow journal the UFS is integrated into\nAndroid storage stack.\nUFS semantics are not handled by a\nsingle layer.\nThey mostly inter burst end to end from\nthe file system through the block layer\ndown to UFS devices.\nThis requires cross-layer coordination.\nDuring development, we passed three\nchallenges.\nBased on these observations, our goal is\nto make\nUFS work reliably in mobile systems. To\nachieve this, we focus on three key\nissues.\nFirst,\nmultiple open zones increase write\nbuffer pressure.\nSecond, mobile power management can\nslightly break write ordering.\nThird,\nlarger zone increase garbage collection\ncost foreground dish directly hurts user\nresponsiveness.\nThese challenges show that UFS does not\nnaturally fit mobile system without\ncareful cross-layer design.\nSo, we design coordinated end to end\nsolutions.\nFirst of all,\nthis is the overall architecture of UFS.\nThe device is composed of multiple TLC\nNAND dies. It's organized into full\nplane of blocks and pages.\nEach page has a size of 16 KB. UFS\nlogically aggregates blocks across dies\nand\nthey are friends to from zones.\nIn our device, the zone size of 1,056\nMB,\nthis configuration aligned the zone size\nwith the physical super block.\nFirst, write buffers.\nIn UFS, multiple zone must remain open\nand each zone generates its own write\nstream.\nWith static or host managed buffering,\nlimited SRAM read to buffer thrashing.\nTo solve this,\nwe design correlated zone aware buffer\nmanagement, GABM.\nThis is a device wide scheme.\nIt dynamically allocates and shared\nbuffer across zones.\nThis allows the device to efficiently\nsupport multiple open zones without any\nhost side modification.\nHowever,\nbuffering alone is not enough.\nWe also need strict write ordering.\nThe second issue, write ordering, is not\noptional in UFS.\nIt is a strict requirement.\nAll writes within a zone must be issued\nand complete in order.\nBut while system can reorder writes due\nto aggressive power management made by\nthe contents such as clock gating and IO\npriority,\na few AI handling EQ scheduler behavior.\nTo solve this, we fixed on UFS driver\nand block layer.\nIn UFS driver, synchronize on gating\nwaiting for clock for dispatch.\nIn brown layer, we should track in\npointer in real equipments and route of\nfree right to throw theorizing routine.\nAlso, we enforce zone ordering\nregardless of priority class.\nThe third issue is garbage collection.\nIn GFS, zones are large.\nSo, each GC operation might migrate a\nlarge amount of data.\nForeground GC directly delays the user\nIO.\nSo, instead of waiting until the space\nbecome critical, we trigger the GC\nearlier.\nWe moved more work to the background.\nThis reduces\nforeground GC\nand improve\nresponse latencies.\nWith these mechanisms, I'll now show our\nevaluation results.\nOur evaluation was conducted on a Google\nPixel 10 Pro, which was released last\nAugust.\nThe installed information is shown in\nthe table below.\nFor CFS, we configure a conventional\nlogical unit within the same GFS capable\ndevice.\nI will start with the random read\nperformance, where GFS shows clear\nbenefits.\nSequential and random throughput is\nsimilar in current storage.\nBut, random read performance is critical\nfor mobile user experience.\nThis graph shows wide range random read\nperformance on the fragmentation state\nstorage.\nCFS suffer from map cache mapping cache\nmiss, you\nbut GFS eliminate these misses.\nSo, read latency becomes more stable and\nreproducible in wide range condition.\nThis slide isolate the impact of GABM.\nWe compare sequential write throughput\naccording to write buffer size for one\nzone.\nIn contrast,\nGABM time collisions of write buffers\nacross the active zones.\nAs a result,\nsequential write performance remains\nstable even under limited buffers.\nThis slide show the impact of\nfragmentation on overall system\nperformance.\nWe measure the fragmentation conditions\nand test based on them.\nThe assumption of fragmentation\nconditions\nin which 4 GB was written with a smaller\nsize and 2 GB was deleted.\nMeasure performance that write a new 1\n1 GB file to measure write speed then\nmeasure the peak rate read speed.\nAnd repeat it until free space remained\n1 GB.\nIn ZFS, higher fragmentation lead to\nsignificantly higher and more unstable\nlatencies.\nThis is mainly caused by frequent\nforeground GC and buffer contention.\nIn ZFS,\nmaintains much more stable latency\neven under severe fragmentation.\nThis stability comes from combination\nGABM with proactive GC.\nAlso, this figure show\nfragmentation behavior across\niterations.\nAs iterations increase, updating\naccumulates.\nIn ZFS, free segments stability decrease\nwhile dirty segments increase.\nSo, fragmentation level keeps rising.\nBut, in GFS, three-stage GC reclaims\nspace proactively.\nFree segments are restored early, so\nfragmentation does not keep growing.\nThis shows that GFS actively controls\nfragmentation growth through coordinated\nF2FS GC.\nFinally, we evaluate our application\nlevel performance.\nWe evaluate two scenarios, which is the\nissue of large number of sequential and\nfragmented read requests.\nFirst,\ngame loading time, GFS shows shorter\nloading time.\nSecond, bulk loading scoring, GFS shows\nlow junk ratio.\nThese results show that GFS improvements\nare visible at the application level.\nTo conclude, this paper explores\nhow GFS can be efficiently deployed in\nmobile storage system.\nWe show that\nGFS can actively reduce mapping overhead\nby introducing a joint storage model\nthat\nfits well within mobile constraints.\nOur results also highlight that\nfully realizing GFS benefits requires\ncross-layer optimizations\nbetween the file system, block layer,\nand the UFS device.\nFinally, we open the door for further\nGFS usages\nand future improvement in mobile\nplatforms.\nGFS works well on mobile devices, but\nwe can't see these benefits only with\ncareful design across system layers.\nThank you for your attention.",
+  "segments": [
+    {
+      "text": "Good morning, everyone. I'm Junha Kim from SK Hynix. Today, I present our work on Zone UFS for smartphone. This is a joint work with SK Hynix, Google, and Seoul National University. We explore a simple question. Can Zone storage work on real mobile device?",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Our answer is yes. It works. But it require careful cross-layer design. Smartphones are now the dominant computing platform. User experience strongly depends on storage performance. Application are large. Background services are persistent. Data keeps growing.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So, storage stability is not optional anymore. It directly affects responsiveness. If storage latency spike, user feel it immediately. So, let's first look at the today's mobile storage system. UFS is the standard storage interface in smartphones.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "UFS delivers high bandwidth under strict power limits. It works well today. But one structural issue remains. As capacity increase, mapping overhead increase. But internal SRAM does not scale. This mismatch becomes bottleneck.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "This mismatch becomes a serious issue when you get address mapping. physical storage can't overwrite data in place. Because of this, the storage device must translate logical address to physical locations. Page level mapping offers high",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "flexibility, but it require a large mapping table. In mobile devices, where the SRAM is very limited, maintaining this mapping becomes a serious bottleneck. For example, for a 1 TB UFS device with 4 KB logical pages, the first level",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "mapping requires 1 MB for storage. So, this structure requires many mapping entries, which is hard to manage with limited SRAM. And fragmentation is common in real device. To understand this, we analyze storage fragmentation in 10,000 real smartphones",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "after about 1 year of use. We define fragmentation based on the ratio of dirty segments. About 30% of devices already experience fragmentation. As fragmentation increase, read and write latency increase significantly. This directly impact performance",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "stability. To address this, we support ZFS. ZFS divides storage in zones. Write must be sequential within each zone. Instead of page level mapping, we use zone level mapping. For 1 TB capacity, about 1 GB in ZFS, about 8 KB in ZFS.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "The entire map fits in the SDRAM. Also, device driver juicy is removed. Juicy becomes host managed, but integrating this into Android is not simple. This is right show how journal the UFS is integrated into Android storage stack.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "UFS semantics are not handled by a single layer. They mostly inter burst end to end from the file system through the block layer down to UFS devices. This requires cross-layer coordination. During development, we passed three challenges.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Based on these observations, our goal is to make UFS work reliably in mobile systems. To achieve this, we focus on three key issues. First, multiple open zones increase write buffer pressure. Second, mobile power management can slightly break write ordering.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Third, larger zone increase garbage collection cost foreground dish directly hurts user responsiveness. These challenges show that UFS does not naturally fit mobile system without careful cross-layer design. So, we design coordinated end to end solutions.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "First of all, this is the overall architecture of UFS. The device is composed of multiple TLC NAND dies. It's organized into full plane of blocks and pages. Each page has a size of 16 KB. UFS logically aggregates blocks across dies and",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "they are friends to from zones. In our device, the zone size of 1,056 MB, this configuration aligned the zone size with the physical super block. First, write buffers. In UFS, multiple zone must remain open and each zone generates its own write stream.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "With static or host managed buffering, limited SRAM read to buffer thrashing. To solve this, we design correlated zone aware buffer management, GABM. This is a device wide scheme. It dynamically allocates and shared buffer across zones.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "This allows the device to efficiently support multiple open zones without any host side modification. However, buffering alone is not enough. We also need strict write ordering. The second issue, write ordering, is not optional in UFS.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "It is a strict requirement. All writes within a zone must be issued and complete in order. But while system can reorder writes due to aggressive power management made by the contents such as clock gating and IO priority,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "a few AI handling EQ scheduler behavior. To solve this, we fixed on UFS driver and block layer. In UFS driver, synchronize on gating waiting for clock for dispatch. In brown layer, we should track in pointer in real equipments and route of",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "free right to throw theorizing routine. Also, we enforce zone ordering regardless of priority class. The third issue is garbage collection. In GFS, zones are large. So, each GC operation might migrate a large amount of data.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Foreground GC directly delays the user IO. So, instead of waiting until the space become critical, we trigger the GC earlier. We moved more work to the background. This reduces foreground GC and improve response latencies.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "With these mechanisms, I'll now show our evaluation results. Our evaluation was conducted on a Google Pixel 10 Pro, which was released last August. The installed information is shown in the table below. For CFS, we configure a conventional",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "logical unit within the same GFS capable device. I will start with the random read performance, where GFS shows clear benefits. Sequential and random throughput is similar in current storage. But, random read performance is critical for mobile user experience.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "This graph shows wide range random read performance on the fragmentation state storage. CFS suffer from map cache mapping cache miss, you but GFS eliminate these misses. So, read latency becomes more stable and reproducible in wide range condition.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "This slide isolate the impact of GABM. We compare sequential write throughput according to write buffer size for one zone. In contrast, GABM time collisions of write buffers across the active zones. As a result, sequential write performance remains",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "stable even under limited buffers. This slide show the impact of fragmentation on overall system performance. We measure the fragmentation conditions and test based on them. The assumption of fragmentation conditions in which 4 GB was written with a smaller",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "size and 2 GB was deleted. Measure performance that write a new 1 1 GB file to measure write speed then measure the peak rate read speed. And repeat it until free space remained 1 GB. In ZFS, higher fragmentation lead to significantly higher and more unstable",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "latencies. This is mainly caused by frequent foreground GC and buffer contention. In ZFS, maintains much more stable latency even under severe fragmentation. This stability comes from combination GABM with proactive GC. Also, this figure show",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "fragmentation behavior across iterations. As iterations increase, updating accumulates. In ZFS, free segments stability decrease while dirty segments increase. So, fragmentation level keeps rising. But, in GFS, three-stage GC reclaims space proactively.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Free segments are restored early, so fragmentation does not keep growing. This shows that GFS actively controls fragmentation growth through coordinated F2FS GC. Finally, we evaluate our application level performance. We evaluate two scenarios, which is the",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "issue of large number of sequential and fragmented read requests. First, game loading time, GFS shows shorter loading time. Second, bulk loading scoring, GFS shows low junk ratio. These results show that GFS improvements are visible at the application level.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "To conclude, this paper explores how GFS can be efficiently deployed in mobile storage system. We show that GFS can actively reduce mapping overhead by introducing a joint storage model that fits well within mobile constraints. Our results also highlight that",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "fully realizing GFS benefits requires cross-layer optimizations between the file system, block layer, and the UFS device. Finally, we open the door for further GFS usages and future improvement in mobile platforms. GFS works well on mobile devices, but",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "we can't see these benefits only with careful design across system layers. Thank you for your attention.",
+      "start": 198,
+      "duration": 6
+    }
+  ]
+}

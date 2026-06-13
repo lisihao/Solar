@@ -1,0 +1,3 @@
+-- AlterEnum: Add PLAN_READY and CANCELLED to DeepResearchStatus
+ALTER TYPE "DeepResearchStatus" ADD VALUE IF NOT EXISTS 'PLAN_READY';
+ALTER TYPE "DeepResearchStatus" ADD VALUE IF NOT EXISTS 'CANCELLED';

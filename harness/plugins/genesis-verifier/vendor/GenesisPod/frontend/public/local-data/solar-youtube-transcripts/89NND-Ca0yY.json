@@ -1,0 +1,1069 @@
+{
+  "videoId": "89NND-Ca0yY",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 4: Learning III",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 54613,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "So this lecture is going\nto be about deep learning.\nIn particular, last\ntime we started talking\nabout linear classification.\nAnd we've also done\nlinear regression\nin last week's lecture.\nThe goal is to do nonlinear\nregression and classification,\nwhich is going to give us\nmore powerful machine learning\nmethods.\nSo here's the agenda.\nI want to start\ntransitioning us to PyTorch,\nand we're going to talk about\nthe motivation for nonlinear\nmethods and then go through\nbasic multilayered neural\nnetworks, and then talk\nabout all these tricks\nthat you have to be aware of\nwhen you're doing deep learning.\nSo let's start with the basics.\nSo far what we've done\nis we are hopefully\nfairly comfortable with\nNumPy at this point,\nwhich gives us a way to create\ntensors and do operations\non tensors.\nAnd we showed you how to build\nour own computation graph\nlibrary and implement\nback propagation, which\nallows us to not only\ncompute forward with tensors,\nbut also be able to compute\nbackwards with the gradients.\nAnd we did this not\nbecause you would actually\ndo this in your life,\nbut to really understand\nwhat's going on under the hood.\nIf you remember, we constructed\nthe computation graph\nand it wasn't that bad, I think.\nIn practice, you would use a\nstandard library such as PyTorch\nor Jax, which is going to be\nmuch more efficient than what\nwe've rolled out by hand,\nand also more robust,\nand also implements many\nof the common operations\nthat you'll want to use.\nSo implementing things\nfrom scratch, I think,\nis a good way to\nbuild understanding.\nBut if you're trying\nto just get work done,\nthen you should definitely\nuse PyTorch or Jax.\nSo let's try to make\nthis transition.\nConceptually, you should\nalready understand-- some of you\nprobably have already\nworked with PyTorch,\nbut you should understand\nall the pieces.\nIt's just a bit of\nsyntactic and convention\nthat we'll have to adjust.\nSo remember, when we\nrolled our own library,\nwe were able to create nodes\nin the computation graph.\nEach node has a name, a\nvalue associated with it,\nand a gradient.\nIn the forward direction--\nso now we have this graph\nwhich we can depict as this.\nSo we have x and y and\nthey're added to produce z.\nAnd then remember in\nbackprop, what we do is we go\nand we update the\ngradients of x and y.\nOK?\nSo the way you would do this\nin PyTorch is as follows.\nSo now you call torch.tensor\ninstead of creating this node.\nAnd requires\ngradient, grad, just\nmeans that this is a node that I\nwant to compute the gradient of.\nSo by default up here,\nbecause this is simple,\nwe assume that requires_grad is\nbasically true for every node.\nBut we can add that\nfeature if you want.\nAnd y is another tensor.\nYou take the dot product and\nwhen you do z dot backwards,\nstuffed inside x and\ny are the gradients\nof x and y with respect to z.\nSo the question is, why is\nthere a dot after these entries?\nSo one dot is a floating point\nnumber and one is an integer.\nSo when I write one\ndot, basically this\nis treated by PyTorch\nas a float vector.\nAnd you can only take\ngradients if it's\ngoing to be floating point.\nSo if you try removing this\nit's going to throw an error.\nYeah.\nOK.\nSo this is the same\ncomputation graph as PyTorch.\nSo if we reflect on what's\ndifferent and what's the same.\nSo torch tensors, you really\nshould think about them\nas nodes in the\ncomputation graph.\nIf you're not really\nthinking much, by design,\ntorch tensor just looks\nlike a NumPy array\nand you can just do\noperations on it.\nBut I think it's really\nconceptually important\nto think about these as nodes\nin a graph rather than just\na value.\nIt will make it less mysterious,\nand if things go wrong,\nyou'll hopefully understand why.\nTorch has done a nice job making\nthis transparent so you can add\nand you can multiply.\nYou can make dot\nproduct sort of similar\nlike you would do\nin NumPy, so it\nmakes it seem like you're just\noperating on NumPy values.\nBut again, think about these as\nnodes in the computation graph.\nThere's some minor\nnaming differences\nand you just have to-- it's like\nlearning a slightly different\nlanguage, but there's no\nunderlying conceptual difference\nbetween a torch tensor and a\nNumPy array aside from the fact\nthat they're nodes.\nNotice that values\nare computed eagerly\nthrough the construction.\nSo the moment you do\nthis dot product, forward\nis essentially called.\nWhereas up here, we could\nhave done that as well,\nbut we decided to delay\nthe forward computation\nuntil the back propagation when\nwe do forwards and backwards,\njust to make it\nexplicit that you\ncan construct a graph without\nactually evaluating anything.\nAnd in some other\nkind of frameworks,\nthis is actually useful because\nyou can construct a graph\nand you can actually\nhave a compiler that\nmanipulates a graph and makes\nit more efficient before you\nactually operate on it.\nBut that's for another day.\nWe call backward\nhere on the root node\nto back propagate gradients\nthroughout the entire\ncomputation graph to the\nnodes that have requires_grad\nequals true.\nWhereas before, again, this\nis just convention. .Backward,\njust operated on a single node.\nAnd back propagation is the\nthing that actually calls\n.backward on each node.\nAnd as I mentioned\nbefore, you specify\nrequires_grad on\nthe nodes that you\nwant to compute gradients for.\nSo in general, you have\na computation graph,\nit's going to munge\nparameters and data together.\nAnd as a general rule, you want\nrequires_grad on the parameters\nand not the data.\nUnless you're trying to\nfind adversarial examples\nor optimize over your\ndata somehow, then\nyou want gradients\non your data as well.\nOne thing I will mention--\nand this is a bit of\na subtlety to just\nmake sure you understand-- is\nthat whenever you have a node,\nyou can use it in two ways.\nYou can use a node directly.\nAnd that's what\nwe've kind of seen.\nYou take a node, you\nbuild on top of a node,\nyou build a larger graph.\nOr you can just pluck out\nthe nodes node's value\nand then use it for some\ndownstream computation.\nIn the latter case, the values\naren't going to back propagate\nthrough the node.\nIt's like you copy\nthe value out.\nTo show what I mean\nby this, I'm going\nto construct a simple example.\nSo I have an x as a node, y\nis x squared, z is y squared.\nAnd here I'm noticing that I\ntake z is y, the node, squared.\nBut I can also do\nsomething like this.\nI take y value and then I\ncreate a separate node, which\nis detached, and then I\nsquare that, I add that to u,\nand I get L2.\nSo in the first case, z\nbuilds directly on this y,\nwhereas in the second\ncase, I've essentially\ncopied or taken y out.\nAnd it's just a new node\nwhose value is y value.\nThe reason I'm\nwriting it like this\nis to make it very transparent\nwhat's happening here.\nOK.\nSo what happens when\nI do back prop now?\nSo when I do back\nprop on L2, then it's\nonly looking at the\ndescendants of this graph here.\nSo the back-- so x's gradient\nactually doesn't get affected.\nEven though I've used,\nx has been involved\nin this computation,\nI've deliberately\ntaken only y's value and\nnot the identity of y.\nSo you can think about\nthis as pass by value,\npass by reference in\nprogramming languages.\nOK?\nSo u.grad grad is\ncomputed when I\ndo backprop, but x.grad is not.\nSo in PyTorch what this looks\nlike is a little bit more\nsubtle because in this\nvery verbose language,\nyou know what you're looking at.\nYou're looking at a\nnode and not its value.\nWhereas in PyTorch,\nthe two notions\nare deliberately\nminimized, the difference.\nSo in PyTorch you use the\ntensors directly as values.\nSo you don't do\nthings like x.value.\nSo how do you actually\ndo this detaching?\nWell, there's a-- actually, so\nlet me show you this example.\nSo suppose we've built\nup y equals x squared,\nz equals y squared.\nAnd here is the way you\nwould do in PyTorch.\nYou would say y.detach,\nwhich essentially detaches y\nfrom the previous computation.\nAnd then you can build up\ncomputations on top of that.\nSo that's identically\ndoing this.\nSo you take y, you\ndetach it from this x,\nand you're just\nkind of using it.\nAnd in this case, again,\nnotice that u.grad\nis populated, but x.grad is\nnot because y has been cut.\nSo why is this useful?\nIt's because sometimes\nyou just want\nto compute values forward and\nhave control over whether you\nare computing gradients or not.\nFor example, if\nyou train a model\nand now you're serving it\nto customers at test time,\nyou don't want to be\nupdating your parameters,\nso there's no reason to\ncompute any gradients.\nSo in that case,\nthere's a flag called--\nor a context called\ntorch.nograd,\nwhich basically says,\nin this context,\nI'm just going to\ncompute forward.\nI'm telling PyTorch, I\ndon't care about gradients.\nDon't keep track of anything,\njust treat them as values.\nAnd this is good because\nit minimizes the overhead,\nreduces the overhead.\nIt also is safe in\nthe sense that if you\ntry to backprop through\nz, it will throw an error\nand say that you don't have--\nPyTorch uses this thing\ncalled a grad function\nto basically the equivalent\nof our dependencies.\nAnd it basically\nsays, well, I don't\nknow how to backprop because I\ndon't have the graph anymore.\nYeah.\nSo the question is,\ncan I explain things\nin terms of this graph?\nSo let me just do it in the\ncontext of this example.\nSo when you have--\nthis is basically\nthe equivalent of detach.\nSo I take y's value\nand I'm just using it\ninstead of just putting y.\nIf I put y here, then I would\nbe using the actual node.\nAnd if I were to do that, this\ny would connect to this z2.\nAnd instead, I've detached it.\nSo I create a separate node\nwho only takes on y's value\nand I'm using that instead.\nOK, so that's all I'm\nreally going to say\nabout the basics of PyTorch.\nLet's start using it\nand hopefully we'll\nget more intuition\nfor how it works.\nSo I'm going to do linear models\njust as a kind of a review,\nbut also using PyTorch.\nSo the nice thing about PyTorch,\nit has a bunch of built in stuff\nlike models, loss\nfunctions, and optimizers,\nand that'll make it just\neasier to do things.\nSo I'm going to start\nwith one example.\nSo I have an input,\n1, 2, 3, 4, and I'm\ndoing multi-class\nclassification.\nSo the target y is going to\nbe the one hot representation\nof that label.\nSo this label is\nrepresenting the label 1\nbecause the position 1 is sent.\nSo I'm going to\ndefine a linear model.\nSo torch has this built in\nmodule called nn.linear, which\ntakes in basically the input\ndimension and output dimension.\nYou can think about this as\nbasically a weight matrix\nmultiply plus a bias term.\nAnd using that module,\nyou can call it\nlike you would call a function\nand that gives you a logit.\nSo I've taken a four\ndimensional vector.\nI multiply by this weight\nmatrix, I add this bias,\nand I get the logits.\nSo we did the exact\nsame thing last time,\nbut now it's just using PyTorch.\nIf you remember, that's what we\ndid in linear classification.\nWe just take the\ninput, multiply it\nby-- for every class you\nhave a weight vector,\nand then you also have a bias.\nAnd you just multiply, add,\nand then you get logits.\nAnd then last time, remember, we\ntalked about the loss function--\nin particular, the\ncross-entropy loss.\nNow this cross-entropy loss,\nthe notation or terminology--\nthe arguments are different\nthan what we had before.\nUsually if you\nsee cross-entropy,\nit's the target\ndistribution, comma,\nthe predicted distribution.\nIn this case, this loss\nfunction is the predicted logits\nand the target distribution.\nSo it's flipped and also you're\npassing in logits directly\ninstead of the softmax\nversion of the logits.\nBut nonetheless,\nit's a function.\nIt returns a number.\nAnd you can call\nloss.backward on this,\nand that produces gradients\nfor all the model parameters.\nSo there's two tensors inside\nthis model, model.weight\nand model.bias.\nAnd those have gradients\nthat are computed.\nAnd then using\nthese gradients, you\ncan define an optimizer\nwhich we also did by hand.\nSo this is SGD, which stands\nfor stochastic gradient descent.\nBut here we're actually using\nit like gradient descent\nbecause all we're doing\nis computing a gradient\nand then taking a step.\nAnd here, the gradient\nis over the entire--\nor just one example,\nbut the entire data set.\nOK, so when you update the--\nwhen you call optimizer.step,\nbasically, this goes and\nreaches into the model weights\nand updates them\nbased on the gradient.\nOK.\nSo just to review,\nloss.backward sets the gradients\non these model parameters,\nand then optimizer step\ntakes these gradients\nand applies the update\nto the actual model weights.\nSo the question is, can you\npass the number of steps?\nThis step just takes one step.\nIf you want to take\nmultiple steps,\nyou wrap it in a loop,\nwhich I'll show you.\nAll right.\nSo I think we have\nall the pieces.\nLet's complete the\nfull training loop.\nSo I'm going to load my data\nset of three examples here.\nAnd I'm going to take this--\ncall this function which I've\nwritten called train_model.\nAnd train_model takes\nactually a generic nn.module.\nSo this is basically any\nfunction that takes some inputs\nand produces a loss, or--\nactually not a loss,\nbut just logits.\nAnd I'm going to try\nto learn this model.\nSo the first thing\nI'm going to do\nis I'm going to stack\nthese x's into a matrix\nand stack these y's\ninto a matrix as well.\nSo this is the natural way that\nyou would operate in PyTorch,\nbecause remember, you want\nto always batch things\ninto tensors for efficiency.\nEven though I find\nit much more natural\nto think about the x\nand the corresponding y\ngrouped together.\nOK, so I have the cross entropy\nfunction, which is also a module\nthat you can call.\nAnd then I instantiate\nthe optimizer.\nSo by default, the\noptimizer is SGD,\nbut I could also pass\nin Adam if you want.\nAnd these are essentially\ndrop-in replacements.\nSo once you set this up,\nyou can actually play around\nwith different versions.\nThe optimizer takes\na learning rate,\nwhich is how fast you move.\nIt also takes this\nmodel.parameters,\nwhich essentially, as we'll\nsee, this can actually\nbe a fairly complicated thing.\nSo it recursively goes through\nand gets all the tensors\nand puts it there.\nSo now I'm going to\nstep through the code.\nSo each step, I'm going to take\na forward pass, which computes\nlogits, loss, which is,\nremember, the cross entropy loss\napplied to the logits,\nwhich is essentially\nthe prediction\nagainst the target.\nAnd then in the\nbackward pass, I'm\ngoing to zero out the gradients\nand apply loss to backwards.\nSo remember that each\ntime you do this,\nyou have to zero\nout the gradients.\nPyTorch doesn't do this for you.\nThis is a feature, not a\nbug, because sometimes you\nare iterating over a bunch of\nexamples and you call backwards,\nand that is meant to\naccumulate the gradients\nover multiple examples.\nBut here, you don't want\nto accumulate gradients\nover multiple\niterations of training,\nso you need to zero\nit out before you--\nat the beginning or\nend of each step.\nSo now remember, a loss step\nbackwards populates the model\nparameters with .grad, and\nthen I call optimizer step.\nAnd then if I look\nat the parameters,\nthis might be a little bit big.\nOK.\nIt's not too bad.\nSo the parameters are\nupdated accordingly.\nSo this is basically what I\nwent through but just one step.\nSo typically every machine\nlearning pipeline essentially\nlooks like this.\nYou do inference to figure\nout the predictions.\nYou do the forward pass, you\nbackward to get the gradients,\nand then you update\nthe parameters.\nSo now we can go through\nstep two, different loss,\ndifferent parameters.\nAnd then you keep on doing this.\nI'm going to skip\nforward because this--\nI don't want to count up to 80.\nBut you can see, as training\nproceeds, the loss goes down.\nThe logits are also changing.\nYou can see that the\nlogits are hopefully\ngetting-- if you\nimagine exponentiating\nthis and normalizing,\nyou'll see that this\nis meant to match this.\nIf you take the\nsoftmax of this, this\nis putting a lot of probability\nmass on the first one.\nThis one is matching this, and\nthis one is matching the label\ntwo, which is good.\nThe loss is going down.\nThe logits are\nmatching the labels.\nThe weights are changing.\nThe weights, you can't\nreally easily understand just\nby looking at them, but\nwe'll keep on going.\nSo let me just--\nI think we're almost done here.\nSo we just jump out and then you\ncan see, over a number of steps,\nthe loss is going down.\nAnd whenever you're\ndoing machine learning,\nyou monitor the loss and\nmake sure it's going down.\nIf it's not going down, then\nyou have a bug, probably.\nSo the question is, what is the\ndifference between the optimizer\nstep and backward-- actually,\nlet me do it over here.\nSo what's the difference between\nloss.backwards and optimizer\nstep?\nSo loss.backwards populates the\ngradients inside the parameters\nand optimizer step takes\nthese gradients and updates\nthe actual parameter weights.\nYou're always looking at\nmultiple quantities here.\nThere's the parameters, weights,\nand then there's the gradients.\nLoss.backward computes\nthe gradients.\nOptimizer step uses those\ngradients to update the weights.\nYeah, so the question\nis, isn't it wasteful\nto keep all the\ngradients around?\nAnd yes, there are things\nyou can do to optimize this.\nI think if you think about\ncomputing the forward pass,\nyou compute all the\nvalues, and on the way,\nas you compute gradients,\nyou can throw them out,\nbecause once you've computed a\ngradient in the backward pass,\nyou don't need anymore.\nI think if you're not really--\nif you're just doing normal\nthings, generally, you don't--\nit's, in general, a\nlittle bit hard to make\nsure you're doing\nthis right, and it\nintroduces a bunch\nof complexity,\nwhich, obviously, for the first\nlecture, I'm not going to do.\nIf you're training\nvery big models\nand you're really\ncompute constrained,\nyou can do all\nthese fancy tricks.\nThere's also even fancier things\nlike activation check pointing\nwhere you can throw\naway activations,\nwhich also take a lot of memory,\nas you're computing the forward.\nAnd then you can save\non memory that way.\nSo we've successfully\ntrained a model here.\nAnd just some\nthings to call out.\nPyTorch makes it fairly modular.\nYou can define a model.\nIn this case, we've\ndefined a linear model.\nAnd a model takes input tensors\nor vectors, in this case,\nand produces logits.\nAnd the logits correspond\nto essentially the strength\nof a prediction for every class,\nin the case of multi-class.\nYou can use a loss.\nIn this case, the cross\nentropy loss, and that\ntakes logits and the targets\nand maps them to a scalar loss.\nAnd then you can\nlook at optimizers\nwhich updates the parameters\nusing the gradients.\nSo you have this menu of\noptions, which essentially\ncorresponds to the\nthree questions\nthat we started out when\nwe do machine learning.\nWhat is the design space\nof model predictors?\nWhat is the loss function?\nAnd what is the optimizer?\nAnd for each of these\nthings you can just\nchoose your own adventure.\nOK.\nSo that is a bit of\nPyTorch and hopefully\na review of the previous\nmaterial in PyTorch land.\nOK, so now I'm going to\nmove on to the core part\nof this lecture, which\nis let's tackle nonlinear\nregression and classification.\nActually, it'll only\nbe classification.\nSo you can look at these\nslides, if you like.\nSlides from a previous quarter.\nSo far, we've looked\nat linear classifiers.\nRemember, classifiers\nare predictors,\nand you can visualize\na predictor in terms\nof its decision boundary.\nA predictor cuts up the\nspace into two parts\nin the case of binary\nclassification, a part of input\nspace where the\npredictor returns one\nand a part where\nit returns zero.\nOK?\nSo if you think about the\nset of all linear predictors,\nyou're limited to\nclassifiers that\nessentially have straight\ncuts through the space.\nOr in linear regression,\nyour predictors\nall look like lines\nas well, which\nmap some input to some output.\nBut sometimes your data\nmight look like this.\nAnd in that case, it would\nbe a little bit strange\nto fit a line.\nI mean, you could\nfit a line here,\nbut that doesn't\nseem intuitively,\non this particular data set,\na very wise thing to do.\nAt least, you're not going\nto get a very good fit.\nSo in this case, since\nwe need nonlinear models\nto basically create a\nlarger set of predictors.\nSo what should we use here?\nThere's actually a lot of\nthings you can do here.\nAnd things that you\nmight have heard of\nare, in the case of\nclassification and decision\ntrees, nearest neighbors,\nneural networks.\nBut it turns out that\nactually even linear models\ncan do the job.\nSo you're probably\nthinking, wait,\nthat seems like an\napparent contradiction.\nHow can linear models represent\nnonlinear decision boundaries?\nSo there's a trick here,\nand this is actually\na kind of a cool, cool trick.\nSuppose you wanted to define\nsome nonlinear classifier.\nWe'll call it a\nquadratic classifier,\nand it looks like this.\nIt's going to classify\neverything outside the circle\npositive and everything\ninside the circle negative.\nAnd the way you would define\nthis is through this function.\nSo suppose I have\nthe input 1, 1.\nSo that's here,\nright in the center.\nAnd what the\nclassifier does is it's\ngoing to compute a logit,\nwhich is essentially\nthe squared distance\nfrom 1, 1 minus 2 OK?\nSo if you put in 1, 1, you're\ngoing to get the value minus 2,\nand that's going to be a\nnegative logit, so it's\ngoing to predict minus 1.\nSo if you put in 3, 0--\nso 3, 0 is here, so\nthat's outside the circle.\nWhat happens if I have 3, 0?\nSo that's 3 minus 2\nsquared 4 minus 1.\nSo 5 minus 2 is 3.\nSo I get 3, and that's going\nto be a positive prediction.\nDoes everyone understand what\nthis quadratic classifier\nis doing?\nSo now clearly this is\nnot a linear function.\nBut here's what I'm going to do.\nI'm going to define a\nnonlinear feature map first,\nwhich is going to be\na transformation that\ntakes x into some-- it's going\nto take x0, x1, and essentially\nthe squared norm of this vector.\nAnd then now we're going to\ndefine a linear predictor.\nSo the way it's going to\nwork is when I get 1, 1 in--\nso I'm going to first compute\nthis feature map, which\nis going to give me 1, 1, 2.\nAnd now with this phi, I'm going\nto define a linear function\non top of this.\nSo if you take this and you\nexpand all the terms out,\nyou'll see that\nthis is the same.\nSo if you take minus 2 times\nphi 1 minus 2 times phi 2.\nOr sorry, 0 and 1.\nAnd then you add the last\ncomponent, then you get minus 2.\nSo minus 2 minus 2\nplus 2 is minus 2.\nWhich is exactly\nwhat we had before.\nSo that is going\nto be a minus 1.\nIf you take 3, 0, feature\nmap maps it to 3, 0, 9.\nAnd if you compute\nthe logit, you\nget 3, which is\ngoing to be a plus 1.\nSo all I've done is I've\nrewritten this apparently very\nnonlinear classifier in terms of\na feature map that is definitely\nnonlinear.\nIt does some stuff.\nBut there is a linear map here.\nSo in other words, what I\nhave is this linear classifier\nin this higher\ndimensional phi space,\nand that leads to a\nnonlinear classifier\nin the original space.\nSo what this means\nis that we now have\na very, very simple procedure.\nIf we're lazy, we basically\nsay, take our data,\nand we're going to\njust pre-process it\nwith a feature map.\nI'm going to find\nsome feature map,\nand I'm going to just transform\nthe x's into phi of x.\nAnd then now I'm\ngoing to hand it over\nto the part of\nthe code that just\nknows how to deal with linear\npredictors and I'm done.\nSo this is a super lazy way\nto do nonlinear classifiers.\nYou don't actually have to\nwrite any new code, really,\nexcept for your feature map.\nThe reason I'm saying this is\nthat I think a lot of people,\nwhen they think\nnonlinear classifiers,\nthey jump immediately to, oh, I\nneed to train a deep neural net.\nWell, it turns out you don't\nhave to because, depending\non your problem,\nmaybe something as\nsimple as just applying a\nnonlinear transform of your data\nwill suffice.\nAnd that's something\nto remember.\nNow, of course, we are going\nto talk about neural nets\nbecause there is\na limitation here.\nFeature map is fixed.\nSo then the question is, how do\nyou design your feature maps so\nthat when I--\nin the feature space,\nthings are linear.\nAnd that's sometimes clearest\nbut not always clear.\nAnd so one might wonder, well,\nhow can we actually learn\nthe feature map as well?\nBecause the idea of machine\nlearning is you're being lazy.\nI don't know what\nthe feature map is.\nI would just let learning\nalgorithm figure it out for you.\nJust like I don't know\nwhat the weights are,\nI'm just going to let the\nlearning algorithm figure it\nout.\nSo the question is, what\nkind of transformations\ndo you typically apply?\nSo in this case,\nthis feature map\ntakes a two dimensional vector\nand returns a three dimensional\nvector.\nIn general, you can\nreturn a two dimensional,\nyou can return a\none dimensional,\nyou can return a\n100 dimensional.\nThere's actually, if you\nheard the term kernel methods,\nactually the feature map\nis infinite dimensional,\nand there's some\nmathematical tricks\nthat allow you to not actually\ntake infinite time or memory.\nSo it's a pretty interesting,\npowerful framework.\nYeah.\nOK.\nSo let's move on now.\nSo now we're motivated.\nWe know how to create some\nnonlinear classifiers,\nbut we want to learn\nthe feature map.\nSo let's go ahead and try\nto learn the feature map.\nSo what we can do is we can\ndefine a two layer network where\nthe first layer\nis the feature map\nand the second layer is\nthe linear predictor.\nSo I'm going to talk about\ntwo layer neural nets.\nAnd the way you\nshould conceptualize\nthis is the first\nlayer is a feature map,\nand the second layer is\nthe linear predictor.\nOK, so let's start with\nsome training data as usual.\nSo I have four dimensions and\ngoing down to three classes.\nAnd I'm going to define this\nmodule called linear MLP.\nAnd so the way\nthat modules work,\nif you haven't seen this\nbefore, is you define a class\nand you set member\nvariables to be\nessentially the submodules which\nthemselves have parameters.\nOr you can have\nparameters directly.\nSo w1 is going to be the linear\nmap from input to hidden.\nAnd then w2 is going to be\nthe linear map from the hidden\nto the output logits.\nAnd the way I--\nso you can visualize that here.\nI have w1.weight and w1.bias\nand w2.weight, w2.bias.\nSo you can see the\ndot notation, it\ngets automatically constructed\nfor you by PyTorch.\nAnd that is basically\ncorresponding to the hierarchy\nof the parameters that\neventually is going to come up.\nSo if you look at now\nI have this model,\nI can call it on the\nfirst data point.\nThat calls the forward function.\nAnd so I have x.\nI apply some transformation to\nit to get a hidden dimension.\nSo I've set hidden\ndimension to 5 here.\nAnd then maps the\nhidden dimension\nto the logits via another\nlinear transformation.\nAnd I'm going to\nreturn the logits.\nSo now I have this model.\nI'm going to just\ntrain the model.\nI'm not going to step\nthrough it because we already\ndid that once.\nFor linear, it's the same.\nAnd then I get this nice plot.\nYeah.\nSo the question is, what is the\nrole of the hidden dimension?\nSo hidden dimension just\nmeans-- it's just a name.\nAnd the reason it's called\nhidden because it's not\nthe input and output, which\nis the only thing you observe.\nYou're not given the\nhidden dimension.\nBut you can think about this as\nthe hidden is an analog of phi\nfrom before.\nWe have the feature map that\ntakes x and produces a vector,\nand then you take another linear\npredictor on top of the phi\nto reproduce the logits.\nAnd here I've renamed\nit hidden because we\ndon't have it ahead of time.\nSo I've trained this model.\nSeems to work.\nGreat.\nBut does anyone see\nsomething weird about this?\nSomething is missing,\nespecially if you've\nseen neural nets before.\nBasically, my claim is that this\nis actually the same as training\na linear classifier.\nSo it looks like I'm\ndoing something fancier,\nbut it's actually just\na linear classifier.\nSo the reason is that because\nmatrix multiplication--\nbecause of math.\nMatrix multiplication\nis associative.\nSo if you have an input and\nyou have your first layer\nweights, second layer\nweights, and remember,\nthe logits are just you multiply\nby w1 first and you multiply w2\nand you get these logits.\nBut we know from\nmatrix multiplication\nthat you can also group w1 and\nw2 together into a single weight\nvector and do it this way.\nAnd you actually get\nthis the same thing.\n78, 78.\nOK?\nAnd if you interpret\nit like this,\nall this is doing is\nyou're just taking a dot\nproduct with a single matrix.\nSo that is a linear predictor.\nThere's some bias terms\nwhich I'm not showing,\nbut it's also the same.\nNow you're parameterizing\nthe linear predictor\nin a sort of a funny way,\nbecause you're essentially\nparameterizing-- instead\nof a single matrix,\nyou have two matrices,\nbut it's still\nessentially a linear predictor.\nThere's one caveat,\nwhich I should\nsay is that this requires\nthe hidden dimension\nto be at least as large as the\ninput and the output dimension,\notherwise it's not\nexactly the same\nbecause then you're restricting\nto low rank matrices.\nBut in this case, it is, and\nit's just a linear predictor.\nSo just a caveat.\nWhen you have a really\ncomplicated model,\nit might actually be written\nas something simpler.\nSo we actually didn't\nmake much progress.\nNo wonder this kind of\nlooked like the same plot.\nOK, so how do we actually go\nbeyond linear classifiers?\nWell, clearly we need to put\nsomething nonlinear in there,\nbecause if you just have\na bunch of linear things,\nit's just going to be linear.\nAnd the linear networks are not\nmore expressive because they're\njust the same as--\nsorry.\nThat's a tautology.\nI have a linear network and\nit's as expressive as what\nI had before.\nAlthough interestingly, people\nstill study deep linear networks\nbecause the training\ndynamics are interesting.\nThis is mostly for\ntheoretical purposes.\nBut what we need to do is make\nmore things more expressive\nby adding a nonlinear\nactivation function.\nSo what is an\nactivation function?\nIt's basically a function that\nmaps a number to another number\nthat's not linear.\nThat's literally the only,\nI think, requirement.\nAnd there are many choices here.\nThese are just names,\nsigmoid, which you know,\ntanh, ReLU, GeLU,\nSwish, et cetera.\nWe're going to focus on the\nReLU just for simplicity,\nalthough it's not\nnecessarily the best one.\nSo ReLU stands for\nrectified linear unit,\nand ReLU basically\ntakes a number--\nactually, you can\nalso pass in a vector.\nIt just applies element-wise.\nAnd you take the max\nof that and zero.\nSo what it looks like is\nthat here's the input x.\nIf it's less than zero, then\nI'm just going to zero it out.\nIf it's greater\nthan zero, then I'm\njust going to\nreturn the identity.\nReturn the same number.\nSo this is clearly a\nnonlinear function.\nAnd, just as an aside, where\ndoes the name multi-layer\nperceptron comes from?\nSo perceptron comes from this\n1950s Frank Rosenblatt paper\nwhich is essentially\nintroducing linear classifiers.\nAnd then in the '60s and\n'70s and '80s, people stacked\nperceptrons into\nmultiple layers,\nand that's why they're called\nmultilayer perceptrons.\nNeural networks are another\nname for the same thing.\nOK, so let's stick this ReLU\nin and see what happens.\nSo I have my data.\nAnd I'm going to define\nthis model called\nmultilayer perceptron.\nNotice that it has the\nexact same parameters\nas the linear version.\nI still have w1 and\nw2, but the difference\nis that when I\ncall the model, I'm\ngoing to first compute a\ntransformed version of x\nby applying the\nfirst linear layer,\nand then I'm going to\napply a ReLU to this\nto produce a set of hiddens.\nAnd you notice that any of the\nnegative pre-activation values\nget zeroed out, whereas the\nother ones are still there.\nAnd then I'm going to apply the\nlogits, w2 to get the logits.\nOK?\nSo all I've done is\nsnuck in this ReLU there.\nOK, so it seems like a\nkind of a small thing,\nbut that makes all\nthe difference.\nNow you have something that's\ntruly nonlinear and much more\nexpressive.\nOK.\nSo just a few notes\non terminology.\nSo activations, generally\nneural net speak,\ncorresponds to the value is that\nof the intermediate values that\nare computed in\nthe forward pass.\nThey're also called\nhidden units,\nor sometimes you'll hear\nthe word neurons for it.\nIt's all referring to\nintermediate computations\nof the forward pass.\nSo one thing I want everyone\nto be paranoid about\nis that the ReLU does have\na zero gradient when x\nis less than or equal to zero.\nSo in this region, if you're out\nhere then the gradient is zero--\nand hopefully we've burned--\nwe've been burned once by this\nalready with 0, 1 loss.\nAnd we know we should say every\ntime you see a zero gradient,\nyou should panic.\nOr maybe not panic, but just try\nto think carefully if that is OK\nor not.\nSo normally this is OK because\nthis part is still not zero.\nBut there is a problem\nwhere if you're over here--\nand this is for a\nparticular neuron,\nand this is always zero\nfor every single example,\nthen it's just\ngoing to stay zero.\nAnd this can result in what are\ncalled the dead neurons where\nyou're computing everything's\nthrough the network.\nBut there's part of your network\nthat's just not doing anything.\nAnd that's bad because you're\nwasting model capacity.\nSo there's a bunch of fixes.\nAnd the most obvious\nthing is, well,\ndon't make the gradient zero.\nAnd there's other things\ncalled leaky ReLU, GeLU,\nSwish, that essentially\nbend this a little bit.\nSo you can basically\nthink about just\nsliding this down or rounding\nthis out or something.\nAnd one note is that I\nwrite near zero gradients.\nSo gradients that are close\nto zero are just as bad.\nSo near zero is also bad.\nSo remember the\nsigmoid function.\nIt is very flat when you\ngo far away from zero.\nSo even though nowhere\nin the sigmoid function\nis a gradient exactly zero, it\ncan get pretty close to zero.\nWhich means that\nyou're not not moving,\nbut you're also not\nmoving very much.\nSo that's also a problem.\nLiterally zero is\nnot the problem,\nbut being very close\nto zero is a problem.\nSo in some sense, the name of\na game for activation functions\nis that you have to\nbalance this trade off\nbetween things that are\nlinear which have a better\ngradients with things which\nare nonlinear which give you\nexpressivity.\nFor example, you might be wise\nand say, well, this is zero,\nso why don't I just\nmake it y equals x?\nSo that has a great gradient.\nIt's always one.\nBut then you're back to,\nwell, that's a linear model,\nand that doesn't help you.\nSo that's why this\nlooks like this,\nbecause you get this\nnice linear region which\nallows the model to do stuff.\nBut you do need to put in\nsome sort of nonlinearity\nto get expressivity.\nSo let's train this model.\nSo now this loss\nfunction is going down.\nYou'll see that it's maybe\ngoing down a little bit slower\nbecause neural nets generally\ntake longer to train\nthan linear classifiers.\nBut nonetheless, it\nseems to be working.\nSo the summary of we've\nintroduced two layer neural\nnetworks or multi-layer\nperceptrons.\nAnd you take your input, linear\nlayer, plus an activation ReLU,\nand then another linear\nlayer to produce the logits.\nAnd then notice that we're\ncalling the same train_model.\nAnd we can put in\nbasically any function here\nand PyTorch will do its whole\nthing and compute the gradient\nand compute the cross entropy\nloss and, train the model.\nWhich is really nice, because\nyou can just go and brainstorm\ndifferent models and then just\nuse the same training code.\nOK.\nNow let's move on to\ndeep neural networks.\nSo the problem is that maybe\nyou're not even satisfied\nwith a single MLP.\nThere's some theorem that says\neven for a single two layer\nneural network, if\nyou have infinite--\nor as the number of hidden\nneurons goes to infinity,\nyou can represent any\nfunction you want.\nBut you might need a\nlot of hidden units.\nSo the solution is, well, you\njust stack multiple MLP layers.\nMaybe more helpfully,\nthe intuition\nis that each layer learns\nmore and more abstract\nfeatures of the input.\nSo this is a story\nthat people tell.\nThere's nothing rigorous\nor mathematical about\nwhy it's learning more\nabstract features,\nbut this empirically\nseems to be borne out,\nand this helps us understand\nwhat these models are doing.\nSo in computer\nvision, your input\nmight be just a set of pixels.\nAnd if you have a deep neural\nnet that computes things\non top of it, empirically, you\nsee that the earlier layers\npick out edges and then\nobject parts and then objects\nand so on, which is actually\npretty cool that these models,\njust if you train\nthem on some task,\nit'll actually learn\nthese various fairly\nabstract features.\nSo this is why I said that.\nWe're learning the feature map.\nWe started out by hand\ncoding feature map.\nAnd people in computer\nvision and in NLP\nused to hand code a\nlot of feature maps.\nAnd then the idea\nwith deep learning\nis that you can actually learn\nthe feature map directly.\nOK, so mathematically\nwhat we're doing\nis we're just composing\nmultiple MLP layers.\nSo we're going to define a\nmodel, a deep neural net.\nAnd here, actually\nI should have done\nit a slightly different way.\nBut anyway, you can\njust take two MLPs\nand you stack them\non top of each other.\nOops.\nAnd then we'll skip this part.\nYou can do the forward.\nYou just apply the two layers\nand you return some value.\nAnd then when you\ntrain the model,\nyou get something like this.\nOK?\nSo you notice that\nsometimes you'll\nfind that this curve doesn't\nlook as nice as the one\nfrom before.\nIn particular, the loss\nisn't going down as fast\nin the beginning.\nSo this is going to\nbe typical as you\nget fairly larger neural\nnetworks that learning\nmight be a bit slow.\nAnd you can think about\nthis as the problem\nis that you're just asking\nthe model to learn a lot.\nI think you guys\nall take for granted\nthat we can just do\na gradient descent\non some deep neural\nnetwork, and it works.\nBut I think for\ndecades, people thought\nthis was essentially\nkind of impossible.\nSo there's also a problem\nwith deep neural networks\nthat we should talk\nabout, which is vanishing\nand exploding gradients.\nSo for a long time,\npeople struggled\nto train deep neural networks.\nAnd the problem has to do with\nwhat the values of the gradients\nare.\nSo I'm just going to look at\na single dimensional problem.\nSo suppose you have an input x.\nIt's 1.\nAnd I have a weight vector\nthat's initialized to 0.5.\nAnd then I have a\nbunch of layers.\nThis is going to\nbe a linear layer,\nbut if you can put\nnonlinearities,\nit's the same idea.\nLet's say you have 20 layers.\nAnd you see what happens is\nthat the x's get really, really\nsmall.\nAnd if you compute\nbackwards, this\nis actually not\nidentically zero,\nbut it's very,\nvery close to zero.\nSo now, remember,\ngradient zero, bad.\nSo if you have a gradient\nthat's very close to zero\nand you have this deep\nnetwork, then your update\nis going to be\nreally, really small\nand you're not going\nto make any progress.\nSo this is called the\nvanishing gradient problem.\nIf you have deep networks,\nyou can think about them,\nessentially, a bunch\nof matrix multiplies.\nAnd if you multiply the\nsame number 20 times,\nif it's less than 1, then\nit's going to go to zero.\nOn the other hand, you also have\nthis exploding gradient problem\nwhere if your weights\nare initialized to 2\nand then you do this\nover and over again,\nyou get something\nridiculously large.\nAnd then if you try to take\na gradient step with that,\nthen you're going\nto move too far\nand then you're going\nto overflow and things\nare going to go to\ninfinity, essentially.\nSo that's no good either.\nSo this simple example\nillustrates the core problem\nif you have deep neural networks\nis that each layer essentially\nis multiplicative.\nYou're multiplying something\nover and over again.\nAnd the only thing you can\nmultiply a lot of times\nand not have things blow\nup or go to zero is what?\nOne.\nRight?\nSo you can think about\nthis as somewhat fragile.\nSo ideally, you want w to\nbe one or close to one.\nSo it's not that bad\nbecause you're not\nmultiplying literally\ninfinite number of times.\nIf you have 20 times, maybe if w\nis 1.1, 1.01, it's probably OK.\nNow this is for a scalar case.\nThe matrix case is the\nsame idea, except for now,\ninstead of just talking\nabout the magnitude,\nyou have to think about the\neigenvalues of the matrix.\nBut we'll save that\nfor another day.\nOK.\nSo that is the problem\nwith deep networks.\nNow what I'm going\nto talk about next\nis things that one can do\nto cope with this problem.\nSo at some level,\nthis is fundamental.\nYou're trying to\nbasically really--\nI think in deep learning,\nyou're really pushing yourself\nto the limit in terms of\nwhat you can possibly learn,\nand you're always at the\ndanger of falling off\na cliff, in some sense.\nBut there's things you\ncan do that can help.\nSo the first thing is this idea\ncalled residual connections.\nAnd it addresses the\nvanishing gradients problem,\nnot the exploding\ngradients problem.\nAnd the idea has\nshown up, actually,\nin multiple places since the\nbeginning of deep learning,\nbut also LSTMs for sequence\nmodeling, residual networks\nfrom computer vision.\nAnd this is probably the\nmost popular version.\nThat's why the name\nresidual connections\nhas stuck, if you\nthink about them\nin the context of transformers.\nThey're also called skip\nconnections and highway\nnetworks.\nAnd the basic idea\nis very simple.\nSo normally each\nlayer of a network\napplies some function\nto its input.\nx goes to f of x.\nAnd the idea with\nresidual connection\nis that you're just going to\nadd the input to the output.\nSo the way to\nthink about this is\nyou have x that goes into\nsome f, and here's the output.\nThat's normally what you do.\nNow instead, a\nresidual connection\ntakes this and adds it.\nThat's your new output.\nSo that's why it's also\ncalled a skip connection,\nbecause you're sort of like--\nthere's a path that\nsort of skips f.\nAnd the reason that\nyou want to skip f\nis that if your gradient, if\nyou think about the computation\ngraph, the gradient\ngoes backwards.\nAnd if your f has\na zero gradient,\nif you don't have\na path here you're\nbasically-- gradients\nare multiplicative.\nThe chain rule is\nmultiplicative,\nand then everything\nelse gets zeroed.\nBut here you have\nan escape hatch\nwhere even if f is messed\nup and has zero gradients,\nyour gradients can still\nflow backwards there.\nAnother way to think\nabout it is if f is just\nmultiplication by w, we were\nreally worried about w equals 0.\nWhat are we going to do\nif w is really too small?\nBut in this residual, if you\nadd a residual connection,\neach layer basically\ncomputes 1 plus wx.\nSo it's kind of\nlike a smoothing.\nSo even if w is\nvery close to zero,\nthis quantity is close to one.\nAnd remember, one\nis our friend here.\nWe want to keep\nthings close to one.\nNow, of course, if w\nis like a million then\nwe still have problems and.\nBut we can deal with\nthat separately.\nSo what happens when we--\nlet's try to train a model.\nDNNWithResidual.\nSo what this does\nis I'm just going\nto add a residual connection.\nIt's a kind of\nvery simple thing.\nI'm just adding\nthree characters.\nAnd the result is that\nactually the training\nimproves quite a bit.\nBefore, if you remember,\nthis training curve\nwasn't so great because I didn't\nhave a residual connection.\nAnd now I have a\nresidual connection.\nTraining is a lot faster now.\nWhy does this loss function look\nlike a linear loss function?\nI think part of it is that\nthis data set is very simple.\nThere's three points and I have\nactually 20 some parameters.\nSo in some sense,\nit's a bit overkill.\nThe actual function\nis probably different.\nBut, I mean, a lot\nof loss functions\nlook something like this if\nyou're doing things properly.\nSo let's look at a layer norm.\nSo the second idea\nhere is normalization.\nAnd because, remember,\none is our friend,\nand normalization makes\nthings one or close to one.\nSo we don't want the magnitudes\nto grow too big or too small.\nSo there's an idea.\nNormalization, I think,\nshows up in deep learning.\nIt shows up in batch\nnorm for computer vision,\nbut that's annoying to deal\nwith for various reasons.\nSo there's a more simpler\nidea called layered norm.\nAnd here's the basic idea is\nyou take an input, x, a tensor,\nand we're just going\nto compute the mean,\ncompute this standard deviation,\nand then just standardize.\nOK?\nSo basically subtract the mean,\ndivide by standard deviation.\nSo then I get something\nthat, in this case, fine.\nIt just shifted it down.\nIf I have something\nthat's a lot bigger,\nnormally this might\ncause some trouble\nbecause these are\nfairly large numbers\nthat, if you see large numbers\nlike this in your learning,\nthen something is\nprobably going awry.\nBut if you apply layer norm,\nyou get the same thing.\nSo it just normalizes\nthe activations.\nSo the real layer norm adds\na few bells and whistles\nthat just make it\na little bit nicer.\nBut the essence is the same.\nSo first of all, you\nhave this epsilon, which\nanytime you're dividing,\nyou should be scared\nthat you're dividing by 0.\nBecause if you're dividing by 0,\nthey're going to not be helpful.\nThat's going to get you\ninfinity or something, or NAN.\nAnd then I'm going to add some--\nthese are bells and whistles.\nYou add some scaling parameters,\nsome shifting parameters\nto give it a little\nbit more expressivity.\nAnd what happens here is that--\nso gamma is the shifting\nand beta is the scaling.\nSo layernorm, you take the\nmean, you compute the variance\nand you divide by the\nstandard deviation,\nbut it's been smoothed a bit.\nAnd then you add\nthis extra thing.\nYou shift every element\nby gamma and you add beta.\nSo normally you would initialize\ngamma to be 1 and beta\nto be 0, which\nkind of reproduces\nthe original layernorm.\nBut then you will let gamma\nand beta be actually parameters\nthat you can learn so it\ncan give you a bit more\nexpressivity.\nSo in PyTorch, there is also a\nlayernorm function you can call.\nInstead of beta and gamma,\nit's called weight and bias.\nBut you can apply your this\nlayer norm to this input\nand you get something\nthat's much more reasonable.\nAnd the way you use layer\nnorm is you just stick it in.\nNow exactly how you stick it in\ndoes matter for transformers,\nbut I don't have time\nto get through that.\nBut the idea here\nis that layer norm\njust keeps the magnitude of\nthe activations away from zero\nand away from infinity.\nOK.\nSo another thing I want to\ntalk about is initialization.\nSo again, we don't want\nmagnitude of activations\nto be too big or small.\nSo at the very least,\nwhen you start out,\nif they're too big\nor too small, then we\nshould just stop and\nfix that problem.\nSo initialization\nof your network\nis actually pretty important.\nSo suppose we have--\nI'm deliberately making\nthis a large network\nbecause that's where\nproblems generally arise.\nSo you have your 1,634 by 32\nvector and you have your x,\nwhich is this input.\nAnd this is even for linear\nmodels you can have problems.\nSo then what happens when\nyou multiply this matrix\nby this vector?\nYou get something that\nhas pretty large values.\nAgain, if you see\nvalues in the hundreds,\nyou should probably\ngo and address it.\nSo why is this?\nThis is because, what is this--\nfor every output, you're taking\nthe dot product between two\ninput dimensional vectors.\nAnd input dimension is 16,000,\nwhich means that you're adding\n16,000 standard\nnormal variables.\nAnd if you remember your,\nI guess probability,\nthe magnitude of that scale\nis roughly a square root\nof that, which can\nbe quite large.\nAnd again, that can be unstable.\nSo what you want to\ndo is initialization\nthat's invariant to\nthe input dimension.\nAnd so you just divide\nby the square root\nand then things will be OK.\nSo now these numbers\nlook good, right?\nSo if you see numbers\nlike this, then you\nshould feel you\ncan sleep at night.\nSo this is also\nknown as essentially\nXavier initialization.\nAnd if you are super paranoid\nyou know that in a normal,\nthere's some tail\nprobability that you\ncan get a fairly large value.\nAnd if you just\nwant none of that,\nyou can just truncate the normal\nat something like minus 3 and 3\nto just avoid any\nchance of outliers.\nSo this is another\nway you can do\nthings is you look\nat initialization\nand you make sure that all the--\nyou're dividing by essentially\nthe input dimension\nso that any sort of\nactivations are controlled.\nOK.\nFinally, let me talk\nabout optimizers.\nThis part I was going to talk\nabout Adam, but I don't think we\nhave time to, because\nAdam is another way that\ncan keep your training stable.\nInstead, what I'm\ngoing to talk about\nis the difference between\nstochastic gradient descent\nand gradient descent.\nSo far, we've just\ndone gradient descent,\nwhich means that you pick up\nall your training examples, you\ncompute all the gradients, you\nsum them and/or average them,\nand then you take a step.\nBut if you have 10\nmillion examples,\nyou're doing a lot of work\njust to create one update.\nAnd instead, what\nwe should do is\nuse what is called a stochastic\noptimizer, where each step\nyou just take a random\nsubset of the examples\nand you compute the\ngradient, and then\nyou update on that instead.\nSo that's why it's\ncalled stochastic,\nbecause in expectation, if\nyou take a random subset\nand compute the gradient,\nyou're essentially\ngetting this is an unbiased\nestimate of the actual gradient.\nSo let's do an example here.\nSuppose I have four\npoints and I've\ncomputed the gradients of these\nfour points, 1 2, 3, 4, 5, 6, 7,\nObviously, these are not real\ngradients but that's fine.\nSo if you were doing\ngradient descent,\nI would average all of these\nand get a gradient of 4.5.\nIf you are doing stochastic\ngradient descent,\nyou typically have a mini\nbatch size or a batch size.\nAnd suppose I set it to 2.\nThen what you would do is you\nwould choose from your batch.\nI'm going to choose two\nindices, let's say 1 and 3.\nAnd I would get this\nbatch of gradients.\nSo 1 and 3.\nSo I have 3, 4, 7, 8.\nAnd then I would\njust average these.\nSo notice in this case,\nthe stochastic gradient\nisn't the same as\nthe actual gradient,\nbut it's somewhat close.\nAnd if I average\nover multiple trials,\nit will actually\nbe, in expectation,\nthe actual gradient.\nSo you could do this.\nEvery step, you just sample a\nset of a batch and you update.\nAnd that would be exactly\nstochastic gradient descent.\nOne problem with this is that\nsometimes you might get unlucky\nand there's a data point\nyou just don't even look at\nand you might get duplicates.\nSo what you essentially\ndo is you sample with--\nthis is basically\nwith replacement,\nand now we can do it\nwithout replacement, where,\nimplementation-wise, you just\npermute the training examples\nat the beginning of every\nepoch where you're taking\na pass over your examples.\nSo you take a random permutation\nand you batch it, group it\ninto batches.\nAnd because this is\nrandom, you can just\ntake consecutive\nindices in this array.\nLet's say for the first batch,\nso the stochastic gradients\nare--\nfor every batch you have\na stochastic gradient,\nand then you look\nat the actual--\nif you look at the mean of\nthe stochastic gradients,\nyou actually get\nthe real gradient.\nOK.\nSo notice that the optimizer,\nit's called-- again,\nI'll say it's called\nSGD, but it's actually\nagnostic to what the\ngradient gradients come from.\nIf your gradients come\nfrom a batch of examples,\nthen you're running a\nstochastic gradient.\nIf your gradient actually\nrepresents all the examples,\nthen you're doing\ngradient descent.\nSeparately, you can--\nI'll let you read up about this\nand experiment in your time.\nBut if you replace the\noptimizer of SGD with Adam,\nit's like a one line change.\nYou can play around with the\ndifferent learning rates.\nYou'll see that in general, but\nnot always, your learning curves\nare going to be better.\nThe loss is going to go\ndown faster and so on.\nOK.\nTo summarize, PyTorch gives you\nessentially NumPy plus automatic\ndifferentiation via .backward\nand a bunch of predefined\nmodules like layernorm, cross\nentropy, linear, and so on.\nWe talked about how we introduce\nmultiple layers, nonlinear\nlayers, to get\nmore expressivity.\nThis intuition is like you're\nlearning your feature map.\nAnd then you have to\ndo a bunch of things\nto make sure you can actually\ntrain these networks.\nSo you choose the activation\nfunctions to avoid dead neurons.\nYou use residual\nconnections to make sure\nthat you don't have\nvanishing gradients.\nYou use layer norm to make\nsure your activations aren't\nblowing up.\nYou use initialize\nproperly to make sure\nthat your activations are not\ntoo large or too small out\nof the gate, and then you can\nalso use better optimizers.\nOK.\nSo that was a whirlwind\ntour of deep learning.\nHopefully you have\nsome intuitions,\nbut at the end of\nthe day, it really\ntakes kind of time\nand experience\nto develop an understanding\nof how to train networks.\nThat's it.\nSee you next time.",
+  "segments": [
+    {
+      "text": "So this lecture is going to be about deep learning. In particular, last time we started talking about linear classification. And we've also done linear regression in last week's lecture. The goal is to do nonlinear regression and classification,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "which is going to give us more powerful machine learning methods. So here's the agenda. I want to start transitioning us to PyTorch, and we're going to talk about the motivation for nonlinear methods and then go through basic multilayered neural",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "networks, and then talk about all these tricks that you have to be aware of when you're doing deep learning. So let's start with the basics. So far what we've done is we are hopefully fairly comfortable with NumPy at this point, which gives us a way to create",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "tensors and do operations on tensors. And we showed you how to build our own computation graph library and implement back propagation, which allows us to not only compute forward with tensors, but also be able to compute backwards with the gradients.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "And we did this not because you would actually do this in your life, but to really understand what's going on under the hood. If you remember, we constructed the computation graph and it wasn't that bad, I think. In practice, you would use a",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "standard library such as PyTorch or Jax, which is going to be much more efficient than what we've rolled out by hand, and also more robust, and also implements many of the common operations that you'll want to use. So implementing things from scratch, I think,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "is a good way to build understanding. But if you're trying to just get work done, then you should definitely use PyTorch or Jax. So let's try to make this transition. Conceptually, you should already understand-- some of you probably have already",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "worked with PyTorch, but you should understand all the pieces. It's just a bit of syntactic and convention that we'll have to adjust. So remember, when we rolled our own library, we were able to create nodes in the computation graph. Each node has a name, a",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "value associated with it, and a gradient. In the forward direction-- so now we have this graph which we can depict as this. So we have x and y and they're added to produce z. And then remember in backprop, what we do is we go and we update the",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "gradients of x and y. OK? So the way you would do this in PyTorch is as follows. So now you call torch.tensor instead of creating this node. And requires gradient, grad, just means that this is a node that I want to compute the gradient of.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So by default up here, because this is simple, we assume that requires_grad is basically true for every node. But we can add that feature if you want. And y is another tensor. You take the dot product and when you do z dot backwards, stuffed inside x and",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "y are the gradients of x and y with respect to z. So the question is, why is there a dot after these entries? So one dot is a floating point number and one is an integer. So when I write one dot, basically this is treated by PyTorch as a float vector.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And you can only take gradients if it's going to be floating point. So if you try removing this it's going to throw an error. Yeah. OK. So this is the same computation graph as PyTorch. So if we reflect on what's different and what's the same.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "So torch tensors, you really should think about them as nodes in the computation graph. If you're not really thinking much, by design, torch tensor just looks like a NumPy array and you can just do operations on it. But I think it's really",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "conceptually important to think about these as nodes in a graph rather than just a value. It will make it less mysterious, and if things go wrong, you'll hopefully understand why. Torch has done a nice job making this transparent so you can add",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "and you can multiply. You can make dot product sort of similar like you would do in NumPy, so it makes it seem like you're just operating on NumPy values. But again, think about these as nodes in the computation graph. There's some minor naming differences",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "and you just have to-- it's like learning a slightly different language, but there's no underlying conceptual difference between a torch tensor and a NumPy array aside from the fact that they're nodes. Notice that values are computed eagerly",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "through the construction. So the moment you do this dot product, forward is essentially called. Whereas up here, we could have done that as well, but we decided to delay the forward computation until the back propagation when we do forwards and backwards,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "just to make it explicit that you can construct a graph without actually evaluating anything. And in some other kind of frameworks, this is actually useful because you can construct a graph and you can actually have a compiler that",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "manipulates a graph and makes it more efficient before you actually operate on it. But that's for another day. We call backward here on the root node to back propagate gradients throughout the entire computation graph to the nodes that have requires_grad",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "equals true. Whereas before, again, this is just convention. .Backward, just operated on a single node. And back propagation is the thing that actually calls .backward on each node. And as I mentioned before, you specify requires_grad on the nodes that you",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "want to compute gradients for. So in general, you have a computation graph, it's going to munge parameters and data together. And as a general rule, you want requires_grad on the parameters and not the data. Unless you're trying to find adversarial examples",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "or optimize over your data somehow, then you want gradients on your data as well. One thing I will mention-- and this is a bit of a subtlety to just make sure you understand-- is that whenever you have a node, you can use it in two ways.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "You can use a node directly. And that's what we've kind of seen. You take a node, you build on top of a node, you build a larger graph. Or you can just pluck out the nodes node's value and then use it for some downstream computation.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "In the latter case, the values aren't going to back propagate through the node. It's like you copy the value out. To show what I mean by this, I'm going to construct a simple example. So I have an x as a node, y is x squared, z is y squared.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "And here I'm noticing that I take z is y, the node, squared. But I can also do something like this. I take y value and then I create a separate node, which is detached, and then I square that, I add that to u, and I get L2. So in the first case, z",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "builds directly on this y, whereas in the second case, I've essentially copied or taken y out. And it's just a new node whose value is y value. The reason I'm writing it like this is to make it very transparent what's happening here. OK. So what happens when",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "I do back prop now? So when I do back prop on L2, then it's only looking at the descendants of this graph here. So the back-- so x's gradient actually doesn't get affected. Even though I've used, x has been involved in this computation, I've deliberately",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "taken only y's value and not the identity of y. So you can think about this as pass by value, pass by reference in programming languages. OK? So u.grad grad is computed when I do backprop, but x.grad is not. So in PyTorch what this looks",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "like is a little bit more subtle because in this very verbose language, you know what you're looking at. You're looking at a node and not its value. Whereas in PyTorch, the two notions are deliberately minimized, the difference. So in PyTorch you use the",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "tensors directly as values. So you don't do things like x.value. So how do you actually do this detaching? Well, there's a-- actually, so let me show you this example. So suppose we've built up y equals x squared, z equals y squared. And here is the way you",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "would do in PyTorch. You would say y.detach, which essentially detaches y from the previous computation. And then you can build up computations on top of that. So that's identically doing this. So you take y, you detach it from this x, and you're just",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "kind of using it. And in this case, again, notice that u.grad is populated, but x.grad is not because y has been cut. So why is this useful? It's because sometimes you just want to compute values forward and have control over whether you",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "are computing gradients or not. For example, if you train a model and now you're serving it to customers at test time, you don't want to be updating your parameters, so there's no reason to compute any gradients. So in that case, there's a flag called--",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "or a context called torch.nograd, which basically says, in this context, I'm just going to compute forward. I'm telling PyTorch, I don't care about gradients. Don't keep track of anything, just treat them as values. And this is good because",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "it minimizes the overhead, reduces the overhead. It also is safe in the sense that if you try to backprop through z, it will throw an error and say that you don't have-- PyTorch uses this thing called a grad function to basically the equivalent",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "of our dependencies. And it basically says, well, I don't know how to backprop because I don't have the graph anymore. Yeah. So the question is, can I explain things in terms of this graph? So let me just do it in the context of this example.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "So when you have-- this is basically the equivalent of detach. So I take y's value and I'm just using it instead of just putting y. If I put y here, then I would be using the actual node. And if I were to do that, this y would connect to this z2.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "And instead, I've detached it. So I create a separate node who only takes on y's value and I'm using that instead. OK, so that's all I'm really going to say about the basics of PyTorch. Let's start using it and hopefully we'll get more intuition",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "for how it works. So I'm going to do linear models just as a kind of a review, but also using PyTorch. So the nice thing about PyTorch, it has a bunch of built in stuff like models, loss functions, and optimizers, and that'll make it just easier to do things.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to start with one example. So I have an input, 1, 2, 3, 4, and I'm doing multi-class classification. So the target y is going to be the one hot representation of that label. So this label is representing the label 1 because the position 1 is sent.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to define a linear model. So torch has this built in module called nn.linear, which takes in basically the input dimension and output dimension. You can think about this as basically a weight matrix multiply plus a bias term.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "And using that module, you can call it like you would call a function and that gives you a logit. So I've taken a four dimensional vector. I multiply by this weight matrix, I add this bias, and I get the logits. So we did the exact same thing last time,",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "but now it's just using PyTorch. If you remember, that's what we did in linear classification. We just take the input, multiply it by-- for every class you have a weight vector, and then you also have a bias. And you just multiply, add,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "and then you get logits. And then last time, remember, we talked about the loss function-- in particular, the cross-entropy loss. Now this cross-entropy loss, the notation or terminology-- the arguments are different than what we had before. Usually if you",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "see cross-entropy, it's the target distribution, comma, the predicted distribution. In this case, this loss function is the predicted logits and the target distribution. So it's flipped and also you're passing in logits directly instead of the softmax",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "version of the logits. But nonetheless, it's a function. It returns a number. And you can call loss.backward on this, and that produces gradients for all the model parameters. So there's two tensors inside this model, model.weight and model.bias.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "And those have gradients that are computed. And then using these gradients, you can define an optimizer which we also did by hand. So this is SGD, which stands for stochastic gradient descent. But here we're actually using it like gradient descent",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "because all we're doing is computing a gradient and then taking a step. And here, the gradient is over the entire-- or just one example, but the entire data set. OK, so when you update the-- when you call optimizer.step, basically, this goes and",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "reaches into the model weights and updates them based on the gradient. OK. So just to review, loss.backward sets the gradients on these model parameters, and then optimizer step takes these gradients and applies the update to the actual model weights.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, can you pass the number of steps? This step just takes one step. If you want to take multiple steps, you wrap it in a loop, which I'll show you. All right. So I think we have all the pieces. Let's complete the full training loop.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to load my data set of three examples here. And I'm going to take this-- call this function which I've written called train_model. And train_model takes actually a generic nn.module. So this is basically any function that takes some inputs",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "and produces a loss, or-- actually not a loss, but just logits. And I'm going to try to learn this model. So the first thing I'm going to do is I'm going to stack these x's into a matrix and stack these y's into a matrix as well.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "So this is the natural way that you would operate in PyTorch, because remember, you want to always batch things into tensors for efficiency. Even though I find it much more natural to think about the x and the corresponding y grouped together.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "OK, so I have the cross entropy function, which is also a module that you can call. And then I instantiate the optimizer. So by default, the optimizer is SGD, but I could also pass in Adam if you want. And these are essentially drop-in replacements.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "So once you set this up, you can actually play around with different versions. The optimizer takes a learning rate, which is how fast you move. It also takes this model.parameters, which essentially, as we'll see, this can actually",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "be a fairly complicated thing. So it recursively goes through and gets all the tensors and puts it there. So now I'm going to step through the code. So each step, I'm going to take a forward pass, which computes logits, loss, which is,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "remember, the cross entropy loss applied to the logits, which is essentially the prediction against the target. And then in the backward pass, I'm going to zero out the gradients and apply loss to backwards. So remember that each time you do this,",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "you have to zero out the gradients. PyTorch doesn't do this for you. This is a feature, not a bug, because sometimes you are iterating over a bunch of examples and you call backwards, and that is meant to accumulate the gradients over multiple examples.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "But here, you don't want to accumulate gradients over multiple iterations of training, so you need to zero it out before you-- at the beginning or end of each step. So now remember, a loss step backwards populates the model parameters with .grad, and",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "then I call optimizer step. And then if I look at the parameters, this might be a little bit big. OK. It's not too bad. So the parameters are updated accordingly. So this is basically what I went through but just one step. So typically every machine",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "learning pipeline essentially looks like this. You do inference to figure out the predictions. You do the forward pass, you backward to get the gradients, and then you update the parameters. So now we can go through step two, different loss,",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "different parameters. And then you keep on doing this. I'm going to skip forward because this-- I don't want to count up to 80. But you can see, as training proceeds, the loss goes down. The logits are also changing. You can see that the logits are hopefully",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "getting-- if you imagine exponentiating this and normalizing, you'll see that this is meant to match this. If you take the softmax of this, this is putting a lot of probability mass on the first one. This one is matching this, and",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "this one is matching the label two, which is good. The loss is going down. The logits are matching the labels. The weights are changing. The weights, you can't really easily understand just by looking at them, but we'll keep on going. So let me just--",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "I think we're almost done here. So we just jump out and then you can see, over a number of steps, the loss is going down. And whenever you're doing machine learning, you monitor the loss and make sure it's going down. If it's not going down, then",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "you have a bug, probably. So the question is, what is the difference between the optimizer step and backward-- actually, let me do it over here. So what's the difference between loss.backwards and optimizer step? So loss.backwards populates the",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "gradients inside the parameters and optimizer step takes these gradients and updates the actual parameter weights. You're always looking at multiple quantities here. There's the parameters, weights, and then there's the gradients. Loss.backward computes",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "the gradients. Optimizer step uses those gradients to update the weights. Yeah, so the question is, isn't it wasteful to keep all the gradients around? And yes, there are things you can do to optimize this. I think if you think about",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "computing the forward pass, you compute all the values, and on the way, as you compute gradients, you can throw them out, because once you've computed a gradient in the backward pass, you don't need anymore. I think if you're not really--",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "if you're just doing normal things, generally, you don't-- it's, in general, a little bit hard to make sure you're doing this right, and it introduces a bunch of complexity, which, obviously, for the first lecture, I'm not going to do. If you're training",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "very big models and you're really compute constrained, you can do all these fancy tricks. There's also even fancier things like activation check pointing where you can throw away activations, which also take a lot of memory, as you're computing the forward.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "And then you can save on memory that way. So we've successfully trained a model here. And just some things to call out. PyTorch makes it fairly modular. You can define a model. In this case, we've defined a linear model. And a model takes input tensors",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "or vectors, in this case, and produces logits. And the logits correspond to essentially the strength of a prediction for every class, in the case of multi-class. You can use a loss. In this case, the cross entropy loss, and that takes logits and the targets",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "and maps them to a scalar loss. And then you can look at optimizers which updates the parameters using the gradients. So you have this menu of options, which essentially corresponds to the three questions that we started out when we do machine learning.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "What is the design space of model predictors? What is the loss function? And what is the optimizer? And for each of these things you can just choose your own adventure. OK. So that is a bit of PyTorch and hopefully a review of the previous",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "material in PyTorch land. OK, so now I'm going to move on to the core part of this lecture, which is let's tackle nonlinear regression and classification. Actually, it'll only be classification. So you can look at these slides, if you like.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Slides from a previous quarter. So far, we've looked at linear classifiers. Remember, classifiers are predictors, and you can visualize a predictor in terms of its decision boundary. A predictor cuts up the space into two parts in the case of binary",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "classification, a part of input space where the predictor returns one and a part where it returns zero. OK? So if you think about the set of all linear predictors, you're limited to classifiers that essentially have straight cuts through the space.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "Or in linear regression, your predictors all look like lines as well, which map some input to some output. But sometimes your data might look like this. And in that case, it would be a little bit strange to fit a line. I mean, you could fit a line here,",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "but that doesn't seem intuitively, on this particular data set, a very wise thing to do. At least, you're not going to get a very good fit. So in this case, since we need nonlinear models to basically create a larger set of predictors.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "So what should we use here? There's actually a lot of things you can do here. And things that you might have heard of are, in the case of classification and decision trees, nearest neighbors, neural networks. But it turns out that actually even linear models",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "can do the job. So you're probably thinking, wait, that seems like an apparent contradiction. How can linear models represent nonlinear decision boundaries? So there's a trick here, and this is actually a kind of a cool, cool trick.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "Suppose you wanted to define some nonlinear classifier. We'll call it a quadratic classifier, and it looks like this. It's going to classify everything outside the circle positive and everything inside the circle negative. And the way you would define",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "this is through this function. So suppose I have the input 1, 1. So that's here, right in the center. And what the classifier does is it's going to compute a logit, which is essentially the squared distance from 1, 1 minus 2 OK? So if you put in 1, 1, you're",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "going to get the value minus 2, and that's going to be a negative logit, so it's going to predict minus 1. So if you put in 3, 0-- so 3, 0 is here, so that's outside the circle. What happens if I have 3, 0? So that's 3 minus 2 squared 4 minus 1.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "So 5 minus 2 is 3. So I get 3, and that's going to be a positive prediction. Does everyone understand what this quadratic classifier is doing? So now clearly this is not a linear function. But here's what I'm going to do. I'm going to define a",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "nonlinear feature map first, which is going to be a transformation that takes x into some-- it's going to take x0, x1, and essentially the squared norm of this vector. And then now we're going to define a linear predictor. So the way it's going to",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "work is when I get 1, 1 in-- so I'm going to first compute this feature map, which is going to give me 1, 1, 2. And now with this phi, I'm going to define a linear function on top of this. So if you take this and you expand all the terms out, you'll see that",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "this is the same. So if you take minus 2 times phi 1 minus 2 times phi 2. Or sorry, 0 and 1. And then you add the last component, then you get minus 2. So minus 2 minus 2 plus 2 is minus 2. Which is exactly what we had before. So that is going to be a minus 1.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "If you take 3, 0, feature map maps it to 3, 0, 9. And if you compute the logit, you get 3, which is going to be a plus 1. So all I've done is I've rewritten this apparently very nonlinear classifier in terms of a feature map that is definitely nonlinear.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "It does some stuff. But there is a linear map here. So in other words, what I have is this linear classifier in this higher dimensional phi space, and that leads to a nonlinear classifier in the original space. So what this means is that we now have",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "a very, very simple procedure. If we're lazy, we basically say, take our data, and we're going to just pre-process it with a feature map. I'm going to find some feature map, and I'm going to just transform the x's into phi of x. And then now I'm",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "going to hand it over to the part of the code that just knows how to deal with linear predictors and I'm done. So this is a super lazy way to do nonlinear classifiers. You don't actually have to write any new code, really, except for your feature map.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "The reason I'm saying this is that I think a lot of people, when they think nonlinear classifiers, they jump immediately to, oh, I need to train a deep neural net. Well, it turns out you don't have to because, depending on your problem, maybe something as",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "simple as just applying a nonlinear transform of your data will suffice. And that's something to remember. Now, of course, we are going to talk about neural nets because there is a limitation here. Feature map is fixed. So then the question is, how do",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "you design your feature maps so that when I-- in the feature space, things are linear. And that's sometimes clearest but not always clear. And so one might wonder, well, how can we actually learn the feature map as well? Because the idea of machine",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "learning is you're being lazy. I don't know what the feature map is. I would just let learning algorithm figure it out for you. Just like I don't know what the weights are, I'm just going to let the learning algorithm figure it out. So the question is, what",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "kind of transformations do you typically apply? So in this case, this feature map takes a two dimensional vector and returns a three dimensional vector. In general, you can return a two dimensional, you can return a one dimensional, you can return a",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "100 dimensional. There's actually, if you heard the term kernel methods, actually the feature map is infinite dimensional, and there's some mathematical tricks that allow you to not actually take infinite time or memory. So it's a pretty interesting,",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "powerful framework. Yeah. OK. So let's move on now. So now we're motivated. We know how to create some nonlinear classifiers, but we want to learn the feature map. So let's go ahead and try to learn the feature map. So what we can do is we can",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "define a two layer network where the first layer is the feature map and the second layer is the linear predictor. So I'm going to talk about two layer neural nets. And the way you should conceptualize this is the first layer is a feature map,",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "and the second layer is the linear predictor. OK, so let's start with some training data as usual. So I have four dimensions and going down to three classes. And I'm going to define this module called linear MLP. And so the way that modules work,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "if you haven't seen this before, is you define a class and you set member variables to be essentially the submodules which themselves have parameters. Or you can have parameters directly. So w1 is going to be the linear map from input to hidden.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "And then w2 is going to be the linear map from the hidden to the output logits. And the way I-- so you can visualize that here. I have w1.weight and w1.bias and w2.weight, w2.bias. So you can see the dot notation, it gets automatically constructed",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "for you by PyTorch. And that is basically corresponding to the hierarchy of the parameters that eventually is going to come up. So if you look at now I have this model, I can call it on the first data point. That calls the forward function. And so I have x.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "I apply some transformation to it to get a hidden dimension. So I've set hidden dimension to 5 here. And then maps the hidden dimension to the logits via another linear transformation. And I'm going to return the logits. So now I have this model.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to just train the model. I'm not going to step through it because we already did that once. For linear, it's the same. And then I get this nice plot. Yeah. So the question is, what is the role of the hidden dimension? So hidden dimension just",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "means-- it's just a name. And the reason it's called hidden because it's not the input and output, which is the only thing you observe. You're not given the hidden dimension. But you can think about this as the hidden is an analog of phi from before.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "We have the feature map that takes x and produces a vector, and then you take another linear predictor on top of the phi to reproduce the logits. And here I've renamed it hidden because we don't have it ahead of time. So I've trained this model. Seems to work.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "Great. But does anyone see something weird about this? Something is missing, especially if you've seen neural nets before. Basically, my claim is that this is actually the same as training a linear classifier. So it looks like I'm doing something fancier,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "but it's actually just a linear classifier. So the reason is that because matrix multiplication-- because of math. Matrix multiplication is associative. So if you have an input and you have your first layer weights, second layer weights, and remember,",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "the logits are just you multiply by w1 first and you multiply w2 and you get these logits. But we know from matrix multiplication that you can also group w1 and w2 together into a single weight vector and do it this way. And you actually get",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "this the same thing. 78, 78. OK? And if you interpret it like this, all this is doing is you're just taking a dot product with a single matrix. So that is a linear predictor. There's some bias terms which I'm not showing, but it's also the same.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "Now you're parameterizing the linear predictor in a sort of a funny way, because you're essentially parameterizing-- instead of a single matrix, you have two matrices, but it's still essentially a linear predictor. There's one caveat, which I should",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "say is that this requires the hidden dimension to be at least as large as the input and the output dimension, otherwise it's not exactly the same because then you're restricting to low rank matrices. But in this case, it is, and it's just a linear predictor.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "So just a caveat. When you have a really complicated model, it might actually be written as something simpler. So we actually didn't make much progress. No wonder this kind of looked like the same plot. OK, so how do we actually go beyond linear classifiers?",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "Well, clearly we need to put something nonlinear in there, because if you just have a bunch of linear things, it's just going to be linear. And the linear networks are not more expressive because they're just the same as-- sorry. That's a tautology.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "I have a linear network and it's as expressive as what I had before. Although interestingly, people still study deep linear networks because the training dynamics are interesting. This is mostly for theoretical purposes. But what we need to do is make",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "more things more expressive by adding a nonlinear activation function. So what is an activation function? It's basically a function that maps a number to another number that's not linear. That's literally the only, I think, requirement.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "And there are many choices here. These are just names, sigmoid, which you know, tanh, ReLU, GeLU, Swish, et cetera. We're going to focus on the ReLU just for simplicity, although it's not necessarily the best one. So ReLU stands for rectified linear unit,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "and ReLU basically takes a number-- actually, you can also pass in a vector. It just applies element-wise. And you take the max of that and zero. So what it looks like is that here's the input x. If it's less than zero, then I'm just going to zero it out.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "If it's greater than zero, then I'm just going to return the identity. Return the same number. So this is clearly a nonlinear function. And, just as an aside, where does the name multi-layer perceptron comes from? So perceptron comes from this",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "1950s Frank Rosenblatt paper which is essentially introducing linear classifiers. And then in the '60s and '70s and '80s, people stacked perceptrons into multiple layers, and that's why they're called multilayer perceptrons. Neural networks are another",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "name for the same thing. OK, so let's stick this ReLU in and see what happens. So I have my data. And I'm going to define this model called multilayer perceptron. Notice that it has the exact same parameters as the linear version. I still have w1 and",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "w2, but the difference is that when I call the model, I'm going to first compute a transformed version of x by applying the first linear layer, and then I'm going to apply a ReLU to this to produce a set of hiddens. And you notice that any of the",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "negative pre-activation values get zeroed out, whereas the other ones are still there. And then I'm going to apply the logits, w2 to get the logits. OK? So all I've done is snuck in this ReLU there. OK, so it seems like a kind of a small thing,",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "but that makes all the difference. Now you have something that's truly nonlinear and much more expressive. OK. So just a few notes on terminology. So activations, generally neural net speak, corresponds to the value is that of the intermediate values that",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "are computed in the forward pass. They're also called hidden units, or sometimes you'll hear the word neurons for it. It's all referring to intermediate computations of the forward pass. So one thing I want everyone to be paranoid about",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "is that the ReLU does have a zero gradient when x is less than or equal to zero. So in this region, if you're out here then the gradient is zero-- and hopefully we've burned-- we've been burned once by this already with 0, 1 loss.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "And we know we should say every time you see a zero gradient, you should panic. Or maybe not panic, but just try to think carefully if that is OK or not. So normally this is OK because this part is still not zero. But there is a problem",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "where if you're over here-- and this is for a particular neuron, and this is always zero for every single example, then it's just going to stay zero. And this can result in what are called the dead neurons where you're computing everything's",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "through the network. But there's part of your network that's just not doing anything. And that's bad because you're wasting model capacity. So there's a bunch of fixes. And the most obvious thing is, well, don't make the gradient zero. And there's other things",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "called leaky ReLU, GeLU, Swish, that essentially bend this a little bit. So you can basically think about just sliding this down or rounding this out or something. And one note is that I write near zero gradients. So gradients that are close",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "to zero are just as bad. So near zero is also bad. So remember the sigmoid function. It is very flat when you go far away from zero. So even though nowhere in the sigmoid function is a gradient exactly zero, it can get pretty close to zero. Which means that",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "you're not not moving, but you're also not moving very much. So that's also a problem. Literally zero is not the problem, but being very close to zero is a problem. So in some sense, the name of a game for activation functions is that you have to",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "balance this trade off between things that are linear which have a better gradients with things which are nonlinear which give you expressivity. For example, you might be wise and say, well, this is zero, so why don't I just make it y equals x?",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "So that has a great gradient. It's always one. But then you're back to, well, that's a linear model, and that doesn't help you. So that's why this looks like this, because you get this nice linear region which allows the model to do stuff.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "But you do need to put in some sort of nonlinearity to get expressivity. So let's train this model. So now this loss function is going down. You'll see that it's maybe going down a little bit slower because neural nets generally take longer to train",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "than linear classifiers. But nonetheless, it seems to be working. So the summary of we've introduced two layer neural networks or multi-layer perceptrons. And you take your input, linear layer, plus an activation ReLU, and then another linear",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "layer to produce the logits. And then notice that we're calling the same train_model. And we can put in basically any function here and PyTorch will do its whole thing and compute the gradient and compute the cross entropy loss and, train the model.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "Which is really nice, because you can just go and brainstorm different models and then just use the same training code. OK. Now let's move on to deep neural networks. So the problem is that maybe you're not even satisfied with a single MLP.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "There's some theorem that says even for a single two layer neural network, if you have infinite-- or as the number of hidden neurons goes to infinity, you can represent any function you want. But you might need a lot of hidden units.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So the solution is, well, you just stack multiple MLP layers. Maybe more helpfully, the intuition is that each layer learns more and more abstract features of the input. So this is a story that people tell. There's nothing rigorous or mathematical about",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "why it's learning more abstract features, but this empirically seems to be borne out, and this helps us understand what these models are doing. So in computer vision, your input might be just a set of pixels. And if you have a deep neural",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "net that computes things on top of it, empirically, you see that the earlier layers pick out edges and then object parts and then objects and so on, which is actually pretty cool that these models, just if you train them on some task, it'll actually learn",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "these various fairly abstract features. So this is why I said that. We're learning the feature map. We started out by hand coding feature map. And people in computer vision and in NLP used to hand code a lot of feature maps. And then the idea",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "with deep learning is that you can actually learn the feature map directly. OK, so mathematically what we're doing is we're just composing multiple MLP layers. So we're going to define a model, a deep neural net. And here, actually I should have done",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "it a slightly different way. But anyway, you can just take two MLPs and you stack them on top of each other. Oops. And then we'll skip this part. You can do the forward. You just apply the two layers and you return some value. And then when you",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "train the model, you get something like this. OK? So you notice that sometimes you'll find that this curve doesn't look as nice as the one from before. In particular, the loss isn't going down as fast in the beginning. So this is going to be typical as you",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "get fairly larger neural networks that learning might be a bit slow. And you can think about this as the problem is that you're just asking the model to learn a lot. I think you guys all take for granted that we can just do a gradient descent",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "on some deep neural network, and it works. But I think for decades, people thought this was essentially kind of impossible. So there's also a problem with deep neural networks that we should talk about, which is vanishing and exploding gradients.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So for a long time, people struggled to train deep neural networks. And the problem has to do with what the values of the gradients are. So I'm just going to look at a single dimensional problem. So suppose you have an input x. It's 1.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "And I have a weight vector that's initialized to 0.5. And then I have a bunch of layers. This is going to be a linear layer, but if you can put nonlinearities, it's the same idea. Let's say you have 20 layers. And you see what happens is",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "that the x's get really, really small. And if you compute backwards, this is actually not identically zero, but it's very, very close to zero. So now, remember, gradient zero, bad. So if you have a gradient that's very close to zero and you have this deep",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "network, then your update is going to be really, really small and you're not going to make any progress. So this is called the vanishing gradient problem. If you have deep networks, you can think about them, essentially, a bunch of matrix multiplies.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "And if you multiply the same number 20 times, if it's less than 1, then it's going to go to zero. On the other hand, you also have this exploding gradient problem where if your weights are initialized to 2 and then you do this over and over again,",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "you get something ridiculously large. And then if you try to take a gradient step with that, then you're going to move too far and then you're going to overflow and things are going to go to infinity, essentially. So that's no good either.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So this simple example illustrates the core problem if you have deep neural networks is that each layer essentially is multiplicative. You're multiplying something over and over again. And the only thing you can multiply a lot of times and not have things blow",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "up or go to zero is what? One. Right? So you can think about this as somewhat fragile. So ideally, you want w to be one or close to one. So it's not that bad because you're not multiplying literally infinite number of times. If you have 20 times, maybe if w",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "is 1.1, 1.01, it's probably OK. Now this is for a scalar case. The matrix case is the same idea, except for now, instead of just talking about the magnitude, you have to think about the eigenvalues of the matrix. But we'll save that for another day. OK.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "So that is the problem with deep networks. Now what I'm going to talk about next is things that one can do to cope with this problem. So at some level, this is fundamental. You're trying to basically really-- I think in deep learning,",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "you're really pushing yourself to the limit in terms of what you can possibly learn, and you're always at the danger of falling off a cliff, in some sense. But there's things you can do that can help. So the first thing is this idea",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "called residual connections. And it addresses the vanishing gradients problem, not the exploding gradients problem. And the idea has shown up, actually, in multiple places since the beginning of deep learning, but also LSTMs for sequence",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "modeling, residual networks from computer vision. And this is probably the most popular version. That's why the name residual connections has stuck, if you think about them in the context of transformers. They're also called skip connections and highway",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "networks. And the basic idea is very simple. So normally each layer of a network applies some function to its input. x goes to f of x. And the idea with residual connection is that you're just going to add the input to the output. So the way to",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "think about this is you have x that goes into some f, and here's the output. That's normally what you do. Now instead, a residual connection takes this and adds it. That's your new output. So that's why it's also called a skip connection,",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "because you're sort of like-- there's a path that sort of skips f. And the reason that you want to skip f is that if your gradient, if you think about the computation graph, the gradient goes backwards. And if your f has a zero gradient, if you don't have",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "a path here you're basically-- gradients are multiplicative. The chain rule is multiplicative, and then everything else gets zeroed. But here you have an escape hatch where even if f is messed up and has zero gradients, your gradients can still",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "flow backwards there. Another way to think about it is if f is just multiplication by w, we were really worried about w equals 0. What are we going to do if w is really too small? But in this residual, if you add a residual connection, each layer basically",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "computes 1 plus wx. So it's kind of like a smoothing. So even if w is very close to zero, this quantity is close to one. And remember, one is our friend here. We want to keep things close to one. Now, of course, if w is like a million then",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "we still have problems and. But we can deal with that separately. So what happens when we-- let's try to train a model. DNNWithResidual. So what this does is I'm just going to add a residual connection. It's a kind of very simple thing. I'm just adding",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "three characters. And the result is that actually the training improves quite a bit. Before, if you remember, this training curve wasn't so great because I didn't have a residual connection. And now I have a residual connection. Training is a lot faster now.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "Why does this loss function look like a linear loss function? I think part of it is that this data set is very simple. There's three points and I have actually 20 some parameters. So in some sense, it's a bit overkill. The actual function",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "is probably different. But, I mean, a lot of loss functions look something like this if you're doing things properly. So let's look at a layer norm. So the second idea here is normalization. And because, remember, one is our friend, and normalization makes",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "things one or close to one. So we don't want the magnitudes to grow too big or too small. So there's an idea. Normalization, I think, shows up in deep learning. It shows up in batch norm for computer vision, but that's annoying to deal",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "with for various reasons. So there's a more simpler idea called layered norm. And here's the basic idea is you take an input, x, a tensor, and we're just going to compute the mean, compute this standard deviation, and then just standardize. OK?",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So basically subtract the mean, divide by standard deviation. So then I get something that, in this case, fine. It just shifted it down. If I have something that's a lot bigger, normally this might cause some trouble because these are fairly large numbers",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "that, if you see large numbers like this in your learning, then something is probably going awry. But if you apply layer norm, you get the same thing. So it just normalizes the activations. So the real layer norm adds a few bells and whistles that just make it",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "a little bit nicer. But the essence is the same. So first of all, you have this epsilon, which anytime you're dividing, you should be scared that you're dividing by 0. Because if you're dividing by 0, they're going to not be helpful. That's going to get you",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "infinity or something, or NAN. And then I'm going to add some-- these are bells and whistles. You add some scaling parameters, some shifting parameters to give it a little bit more expressivity. And what happens here is that-- so gamma is the shifting",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "and beta is the scaling. So layernorm, you take the mean, you compute the variance and you divide by the standard deviation, but it's been smoothed a bit. And then you add this extra thing. You shift every element by gamma and you add beta.",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "So normally you would initialize gamma to be 1 and beta to be 0, which kind of reproduces the original layernorm. But then you will let gamma and beta be actually parameters that you can learn so it can give you a bit more expressivity.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "So in PyTorch, there is also a layernorm function you can call. Instead of beta and gamma, it's called weight and bias. But you can apply your this layer norm to this input and you get something that's much more reasonable. And the way you use layer",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "norm is you just stick it in. Now exactly how you stick it in does matter for transformers, but I don't have time to get through that. But the idea here is that layer norm just keeps the magnitude of the activations away from zero and away from infinity. OK.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "So another thing I want to talk about is initialization. So again, we don't want magnitude of activations to be too big or small. So at the very least, when you start out, if they're too big or too small, then we should just stop and fix that problem.",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "So initialization of your network is actually pretty important. So suppose we have-- I'm deliberately making this a large network because that's where problems generally arise. So you have your 1,634 by 32 vector and you have your x, which is this input.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "And this is even for linear models you can have problems. So then what happens when you multiply this matrix by this vector? You get something that has pretty large values. Again, if you see values in the hundreds, you should probably go and address it.",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "So why is this? This is because, what is this-- for every output, you're taking the dot product between two input dimensional vectors. And input dimension is 16,000, which means that you're adding 16,000 standard normal variables. And if you remember your,",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "I guess probability, the magnitude of that scale is roughly a square root of that, which can be quite large. And again, that can be unstable. So what you want to do is initialization that's invariant to the input dimension. And so you just divide",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "by the square root and then things will be OK. So now these numbers look good, right? So if you see numbers like this, then you should feel you can sleep at night. So this is also known as essentially Xavier initialization. And if you are super paranoid",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "you know that in a normal, there's some tail probability that you can get a fairly large value. And if you just want none of that, you can just truncate the normal at something like minus 3 and 3 to just avoid any chance of outliers. So this is another",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "way you can do things is you look at initialization and you make sure that all the-- you're dividing by essentially the input dimension so that any sort of activations are controlled. OK. Finally, let me talk about optimizers. This part I was going to talk",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "about Adam, but I don't think we have time to, because Adam is another way that can keep your training stable. Instead, what I'm going to talk about is the difference between stochastic gradient descent and gradient descent. So far, we've just",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "done gradient descent, which means that you pick up all your training examples, you compute all the gradients, you sum them and/or average them, and then you take a step. But if you have 10 million examples, you're doing a lot of work",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "just to create one update. And instead, what we should do is use what is called a stochastic optimizer, where each step you just take a random subset of the examples and you compute the gradient, and then you update on that instead. So that's why it's",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "called stochastic, because in expectation, if you take a random subset and compute the gradient, you're essentially getting this is an unbiased estimate of the actual gradient. So let's do an example here. Suppose I have four points and I've",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "computed the gradients of these four points, 1 2, 3, 4, 5, 6, 7, Obviously, these are not real gradients but that's fine. So if you were doing gradient descent, I would average all of these and get a gradient of 4.5. If you are doing stochastic",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "gradient descent, you typically have a mini batch size or a batch size. And suppose I set it to 2. Then what you would do is you would choose from your batch. I'm going to choose two indices, let's say 1 and 3. And I would get this batch of gradients.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "So 1 and 3. So I have 3, 4, 7, 8. And then I would just average these. So notice in this case, the stochastic gradient isn't the same as the actual gradient, but it's somewhat close. And if I average over multiple trials, it will actually be, in expectation,",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "the actual gradient. So you could do this. Every step, you just sample a set of a batch and you update. And that would be exactly stochastic gradient descent. One problem with this is that sometimes you might get unlucky and there's a data point",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "you just don't even look at and you might get duplicates. So what you essentially do is you sample with-- this is basically with replacement, and now we can do it without replacement, where, implementation-wise, you just permute the training examples",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "at the beginning of every epoch where you're taking a pass over your examples. So you take a random permutation and you batch it, group it into batches. And because this is random, you can just take consecutive indices in this array.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "Let's say for the first batch, so the stochastic gradients are-- for every batch you have a stochastic gradient, and then you look at the actual-- if you look at the mean of the stochastic gradients, you actually get the real gradient. OK.",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "So notice that the optimizer, it's called-- again, I'll say it's called SGD, but it's actually agnostic to what the gradient gradients come from. If your gradients come from a batch of examples, then you're running a stochastic gradient.",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "If your gradient actually represents all the examples, then you're doing gradient descent. Separately, you can-- I'll let you read up about this and experiment in your time. But if you replace the optimizer of SGD with Adam, it's like a one line change.",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "You can play around with the different learning rates. You'll see that in general, but not always, your learning curves are going to be better. The loss is going to go down faster and so on. OK. To summarize, PyTorch gives you essentially NumPy plus automatic",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "differentiation via .backward and a bunch of predefined modules like layernorm, cross entropy, linear, and so on. We talked about how we introduce multiple layers, nonlinear layers, to get more expressivity. This intuition is like you're",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "learning your feature map. And then you have to do a bunch of things to make sure you can actually train these networks. So you choose the activation functions to avoid dead neurons. You use residual connections to make sure that you don't have",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "vanishing gradients. You use layer norm to make sure your activations aren't blowing up. You use initialize properly to make sure that your activations are not too large or too small out of the gate, and then you can also use better optimizers. OK.",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "So that was a whirlwind tour of deep learning. Hopefully you have some intuitions, but at the end of the day, it really takes kind of time and experience to develop an understanding of how to train networks. That's it. See you next time.",
+      "start": 1260,
+      "duration": 6
+    }
+  ]
+}

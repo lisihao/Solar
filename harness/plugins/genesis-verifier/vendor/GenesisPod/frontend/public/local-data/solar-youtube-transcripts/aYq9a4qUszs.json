@@ -1,0 +1,764 @@
+{
+  "videoId": "aYq9a4qUszs",
+  "title": "SREcon26 Americas - Mean Time to WTF: Why Developer Experience Frameworks Belong in Your Incident...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 36732,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "As Patrick mentioned, I'll be talking\ntoday about the WTF problem. I'm sure a\nhandful of us have experienced this\nbefore. Um, I'll start by introducing\nmyself a little bit. I am Nicole\nForsrren. I'm senior director of\ndeveloper intelligence at Google and\ncore. Um, and nothing I say here, it\nrepresents Google or their uh policies\nor opinions. These are all mine. Um,\ncheck that off the the legal compliance\nchecklist. Um, I've been working with\nsystems for a really long time. I\nstarted my career as a software\ndeveloper at IBM. I managed large\nsystems. Um, I racked and stacked back\nwhen that was still a thing. Uh, I'm\nsure a handful of folks don't even know\nwhat I'm talking about, which is great.\nUm, and then I decided that I needed to\nstart advocating better for my teams,\nand I never could with leadership. So, I\nwent and did some research so I could\nwin fights with data. Um, now I still\noccasionally win fights with data, but I\nalso find ways to kind of communicate\nwhat's happening with our system and\nfinding ways that we can make it easier\nto work with our systems because they\nare increasingly complex. Um, this is\nwhat we'll be talking about today. um\nfirst we'll figure out if it's for you\nuh and if it's not you can just tune\nout. Um we'll talk about friction a lot\ntoday and how it's a reliability risk\nand what it means for us. We'll talk a\nlittle about a little bit about AI um\nmeasuring friction um makering making\nsome of the WTF visible and then how we\ncan advocate for improvements in our\nsystem. Um first of all though is this\nfor me? Does this talk even matter? Um,\nhas anyone here been paged for something\nthat tooling should have caught?\nRIP. Um, how many have a runbook or a\nplaybook that you don't fully trust?\nUh, and how many of us here have like\nswitched out of an incident to figure\nout how to use the tools or like figure\nout the logs or like figure out\nsomething.\nWelcome.\nWe are we are all in this together. Um,\nby the way, we just measured our\ndeveloper experience or our S sur\nexperience. Um, it wasn't great, but\nalso we know that we have pretty good\nsignal where our systems aren't working\nthe way that they were intended. Um, and\nby the way, this isn't like we're just\nnot going to talk about feelings here\nand vibes, but it's really important\nthat we can kind of surface and\nunderstand where our risks are. And our\nexperience is a property of the system.\nthe way that we interact with that\nsystem and those complex boundaries is\nsomething that we need to think about.\nUm so I want to make the case here that\nthis friction that we've just talked\nabout and several several other kinds of\nfriction are actually a reliability\nrisk. Um, now I will sometimes use the\nterm S sur or ops or developers\nuh interchangeably\nbecause of the way we work with our\nsystems, right? We write code, we build\ntooling, we manage complex workflows. A\nlot of the things that um I think about\nwhen I study and when I talk to and when\nI measure development work ends up\napplying almost even better to SR\nbecause the complexity of our systems\nare much larger. We very rarely have\njust a very small kind of focused\nconstrained view of the system. Um and\nwe have very similar failure modes.\nCognitive load is really challenging.\nRight? If the com if the system itself\nis overly complex and we need to keep\nall of the pieces in our head, having a\ndifficult to use tool actually makes it\nmuch more difficult. Being paged at odd\nhours makes it much more difficult to\nkeep up with the complexity of our\nsystem and kind of understand what our\nmitigation should be. Tool failures are\nreally challenging. Process bottlenecks\nand failures add up in ways that folks\nwho are less familiar with the system\nwon't see and they won't understand. I\nthink one of the key differences here is\nalso that when SR systems fail, so the\ntools that we use to kind of manage and\nuh run our systems, the blast radius\nisn't one piece of code or one library\nor one repo. it's the entire system or\nsometimes every single incident that we\ntouch and so when we think about the\nscale of the work that we do it's often\nmuch bigger\num so we can understand friction a few\nways one I touched on already was\ncognitive load um how difficult is it\nfor us to be able to concentrate on the\nthings right um do we get alert noise\nwithout any context do we get error\nmessages that just say error\num what are the system states? Can we\nreally understand what's happening in\nthe system or is it all just kind of\nSchroinger's box? Um and mental model\ngaps particularly during a crisis,\nright? Many times we have these black\nboxes where we kind of understand how\nthat system boundary works\nuntil we really need to know what's\ninside of it. Uh tool friction is\nanother um any UI that fights us whether\nit's a a guey or a CLI, right? any UI\nthat is just difficult for us to use.\nUm, CLIs with flags that aren't easy to\nfind or that are often hidden or that I\ndon't know about you, I had a tool once\nthat changed the defaults randomly every\nonce in a while. Not the best. Uh,\ndashboards that aren't up to date or\nthat load really slowly and it's always\nslower at like those 2 a.m. and those\n3:00 a.m. calls. I don't know about you.\nUm, and then process friction. How do we\ncoordinate during events? How do we set\nup our war room? Which which Slack\nchannel is the right Slack channel? Um,\nthe one I hate the most is an approval\ngate that hits mid- incident. I mean, I\ndislike many approval gates, but the\nones that appear when we're trying to\nmove really quickly can be very\nchallenging. And then, of course, run\nbooks, right? Either it's wrong or you\nneed to have the right context or the\nwords could mean different things\ndepending on the team and the\norganization that you're in. All of\nthese things slow us down.\nUm, one example that I'm sure a handful\nof folks here have heard about is Night\nCapital. So, for those of you who aren't\naware, um, there were no automated\ndeployment tests. There were no Canary\nrollouts. This required rolling out to\neight different servers manually.\nUh, what happened?\nuh a script ended up reactivating a\nfeature flag that had been\ndecommissioned long ago. They weren't\nreally using it. They were using it for\nsomething else. That roll out only made\nit to seven of the eight servers. And so\nsystem went down. They lost $460 million\nin 45 minutes. So if you haven't heard\nof night capital, that's why you haven't\nheard of night capital.\nBut what we learned from this is the\nfriction\nthat developers and SRRES and ops were\nfeeling in their everyday work. That was\nthe gap in the system. That's what\nreally highlighted\nthe challenges and the risks that we\nface.\nUm, and friction doesn't just slow us\ndown. It increases our error rates under\npressure. Um, I love that we just heard\nso much about Javon's paradox because as\nwe get more automation, we can build\nmore and more and more faster and more\nfrequently. Is anyone's company or\norganization here spouting the virtues\nof AI and how many lines of code we can\nwrite so quickly and how many CLS?\nAnd yet, have all of our test suitees\nkept up? Have all of our tool has all of\nour tooling kept up? Have our processes\nkept up? I'm going to guess that's a no.\nAnd we just talked about a few of them.\nCognitive friction is really challenging\nhere because as our systems grow in\ncomplexity,\nnot only does our understanding of the\nsystem itself need to grow, but how the\nsystem has changed from before. We've\nalways had systems that change, but they\noften change on the order of weeks and\nmonths and sometimes years. So like I I\nthink about it like when I was doing a\nlot of coding, like I could kind of feel\na system, I could generally whiteboard\nit. Um, and as we pointed out, sometimes\nmy whiteboarding boxes would be a little\ndifferent, but we all had something in\ncommon. Now, sometimes on the order of\ndays or weeks, the system itself\nfundamentally changes. My whiteboard\nfrom 6 months ago might not overlap at\nall with what the system's doing now.\nUm, another piece here is tool friction.\nas we're seeing so many more\ncapabilities pop up and we've got like\nthree dozen AI agents and you know four\ndifferent coding tools we can use and so\nmany different interfaces and and\nobservability pieces\nassuming people are building\nobservability into these brand new\nsystems.\nUm we keep having to switch back and\nforth to kind of understand and keep\ntrack of what's happening and then of\ncourse the process friction. Um, tech is\neasy and people are hard and the faster\nour systems move, the harder it is for\nall of our people and our processes and\nour policies to keep up.\nSo, here's the first takeaway. Um, open\none of your runbooks this week, just\none. Just pick one and see if it\nreflects reality. See if it's easy to\nunderstand. Ask yourself, someone who's\nnew on the team, six months or less,\ncould they understand this? And if it\ndoesn't, you just found your first point\nof friction. This is one opportunity to\nclean things up. And as we just heard,\nyou might use AI to help clean it up.\nBut this is a good place to start. And I\nwant to call out, this is where every\ngood friction reduction or system\nimprovement program starts. Find one\nthing, look for an opportunity to\nimprove. I think anyone here can do\nthat.\nUm, speaking of our runbooks,\nAI is coming for our runbooks. Um, we\nare shipping more and more code whether\nwe planned on it or not. Um, and whether\nwe planned on our systems supporting\nthat or not. So, deployment frequency is\nup in many places that I uh speak with\nuh talk to across the industry. Now what\nfollows though is the incident rate\nright many of our systems right now we\nhave systems and tools that capture some\nproportion of incidents and bugs and bad\ncode right I'll make up a number let's\nsay 10%. as we see more and more and\nmore code shipped 10% is now a much\nlarger number. So how are we thinking\nabout capturing that? And then our on\ncall pressure compounds. We have more\nincidents. We have more friction. We\nhave a smaller understanding of our\nsystem. So as we can see here, AI is\njust multiplying the friction. It\naccelerates the good and it accelerates\nthe challenges that we have. Uh and just\nkind of a note here for a handful of\nfolks. If your baseline is already high,\nyikes,\nkeep an eye on a lot of this.\nUm, and you know, one example here is\nReplet. I'm sure many of us are familiar\nwith this.\nI know everyone says AI is going to\nsolve all the problems, but AI was here.\nJason Lumpkin said an explicit code\nfreeds. No changes to the live database\nin words written down. This is not like\nan implied assumption of how the system\nshould work. No changes to the database.\nI mean, it didn't change it. It just\ndeleted it.\nand I just wiped it out. And again, the\ncrazy thing is this was not a config\nflag. This wasn't a mistake. This was a\nstraight\ndelete.\nIt's the same failure mode that we've\nseen before. It's just a new way to do\nit at scale, faster.\nWhat could go wrong here? I think it's\nimportant for us to kind of realize and\nshare with others. AI just makes our\nfriction much more important and much\nmore costly and much more challenging.\nIt can remove some friction, but if we\naren't paying attention to the friction\nin our systems, it's really a challenge\nand it'll catch up with us at some\npoint. Um, AI also changes the the type\nof incidents that we see. So when our\nthe world that our runbooks were were\nwritten for, humans wrote those systems,\nthere was at least a handful of humans\nwho could understand and explain this\nsystem. But now that we have AI\ngenerated systems, they're fairly\nopaque. And the more that we see AI\ninteracting with these systems and\nchanging these systems and updating\nthese systems, the more opaque they will\nbe. So how can our runbooks account for\nthat? We also know that we have runbooks\nthat have written been written for known\nfailure patterns, but as our changes, as\nour systems are rapidly changing,\nwe'll find more failure modes that\npeople have never thought of before. And\nso we won't have a runbook or a playbook\nfor that.\nUh right now, maybe two years ago, we\nhave diffs that are that are readable,\nright? We can understand these. I used\nto make jokes about, you know, you\nsubmit five lines of code, you'll get\nfive comments. You submit a 100 lines of\ncode, LGTM.\nWell, now AI is like generating many,\nmany, many CL's that are or PRs that are\nhundreds or thousands of lines of code.\nAnd some folks say, well, this is\nexpected. How how are we going to review\nthat? We can't keep up with the review,\nbut how can we find ways to understand\nand abstract up the changes that have\nbeen made to the system? We just can't\nreason about them generally at all, but\nespecially under pressure. It's really\ntough.\nSo, I'll note quickly here space and\nDora. Um, for folks who have not heard\nof Dora before, it's a research program\nthat I ran for a handful of years. Um,\nand we have about four metrics that end\nup being a fairly good indicator of your\npipeline health. So, code commit to code\nrunning in production. So, we can use\nsome of these for SR as well. When we\nlook at deployment frequency, right? So,\nwhen we're talking about the pipeline,\nwe ask ourselves how how often can we\ndeploy code from an SR standpoint, we\ncan ask, you know, how often are we\nresponding to incidents? How often are\nwe called in for change events? um we\ncan baseline that kind of a tempo,\nright? Um lead time for changes is how\nlong it takes to get code through a\npipeline. Um this is similar question\nfor us, right? How long does it go take\nto go from merged to deployed and\nstable?\nSpeed can be a risk input. Now, I have\nsaid for years that speed and stability\ngo together, but that was also in a\nworld where we had systems that had\ntests and guard rails in place. And so,\nif we went for speed only for speed and\nwe didn't care about stability, of\ncourse, they didn't go together. Well,\nnow many of us are thinking about\nstability. We're thinking about quality\ngates, but they're not keeping up as\nfast as our code deployment is. Um,\nchange failure rate. What percentage of\nour changes cause incidents and how can\nwe find a way to reduce that percentage\nbecause when the sheer absolute number\nof deployments is going up a small\npercentage is no longer maintainable.\nAnd then MTTR, right? This this is a\npretty solid metric for us, but friction\nends up being a big contributor here,\nespecially when we have more and more\nincidents.\nUm, space uh is another measurement\nframework. Space helps us think about\nproductivity or measuring complex\nthings. It's often used for\nproductivity, but we can expand that to\nbe more complex. So, it has five\ndimensions. uh it is also an acronym so\nI can remember it. S is satisfaction.\nIt's generally things like how satisfied\nam I with the tools or with the system.\nP is performance. That's an outcome\nmetric, right? Is it speed? Is it\nquality? Um activity. It's a count of\nthings. Number of commits, number of\nlines of code, which is awful, but num\nanything that we can easily count. Most\npeople focus on activity because it's\nsomething we can easily instrument.\nCommunication is uh how many meetings\nwe're in. It can be API calls, how our\nsystems communicate. Um and then\nefficiency. Efficiency and flow is how\nlong it takes or like how many hops it\ntakes to get somewhere. So when we think\nabout this for S sur when we look at\nsatisfaction, we can look at an on call\nburden because that will I assume will\nprobably be infers of satisfaction. Uh\nwe can look at our satisfaction with our\ntools and also psychological safety\nduring incidents. How easy is it for\nfolks to talk about this? And how safe\ncan you feel when you say, \"I don't know\nwhat's happening because this entire\ncodebase was rewritten by AI,\" right? Or\ndo we need to like\nfuzz around it for performance? Um,\nmeanantime to detect, meanantime to\nrestore, alert precision. What is our\naccuracy under pressure? What are our\nwhat are our quality gates? What are our\ncompliance gates? What are our security\ngates? And what does that look like for\nactivity? Same thing. Anything we can\ncount. Uh toil ratio, runbook coverage,\nautomation percentage, uh how many times\nyou're on call, how many different\npeople on the team get pulled in uh that\nwere unexpected, how many escalations,\nhow many are tied to AI. Uh\ncommunication, this can be incident\ncoordination overhead. Uh how many\ndifferent places do you have to go to\nfind information? Is it three Slack\nchannels plus the runbook plus the email\nthread plus the\nsomething, right? And then also handoff\nquality because depending on how many\nhops it takes to get to the right person\nor how long it takes to resolve, how can\nwe kind of gauge that information flow?\nUm, and then efficiency. How long does\nit take to resolve incidents? How long\ndoes it take to find something? Are we\ninterrupted while we're doing our work?\nSo when we want to understand or think\nabout\nhow productive we are, I'm going to\nfinger quote productive, how well we can\ndo our jobs, I really encourage folks to\nlook at least a few of these and have\none measure from each. Even if it's a\nhunch, right? If if you look at all the\nmetrics that you have and they're only\nactivity metrics,\nyou run the risk of kind of like skewing\nthings off because you don't have any\nmetrics intention, right? And if if\nfolks want to gain something, activity\nones are often the easiest ones to gain,\neasier than satisfaction, even though\npeople get real mad about seesat.\nSo when we look at this again, right,\nyour experience because you understand\nand you feel that friction is an\nindicator of many of your reliability\noutcomes because we can't just automate\nall of it. People are still at the heart\nof a lot of this. So we should use this\nlike an internal diagnostic instrument.\nIt's not just about communicating how\nwell we did. It's about understanding\nour biggest opportunities to improve\nespecially as our systems are kind of\ngrowing in complexity.\nSo some things that I've seen as AI is\nchanging more of our workflow,\nefficiency often goes up because we can\nhand off many things to agents or or AI\nor LLMs. Um but then we have risks from\ntrust or sometimes people will slow the\nsystem down because they no longer trust\nit. Their intuition which we never fully\nunderstood our systems before anyway,\nright? But our intuition feels very very\ndifferent now from satisfaction.\nWe often wonder if the AI output is\ntrustworthy or we have a brand new tool\ninterface that is just really hard to\nuse\nuh for communication. this. It's often\nmuch harder to hand off context. In some\nways, we can use AI to summarize and\nprovide updates for folks during a\nhandoff, but now the volume of\ninformation has just gone up\nexponentially. How can we think about\nthat and manage it? For performance, uh\nthere's a new risk for again these these\nopaque failure modes. We used to know\nthe system, now we just don't.\nUh another takeaway here uh talk to one\nof your colleagues.\nAsk them you know here I'm saying what\nfriction impacts them. When do you swear\nat your systems?\nWhat is really hard?\nWhat is the thing that you like are mad\nat the most? Their answer is probably\ndifferent from yours.\nAnd that also invites opportunities for\nimprovement. Right? If it's the same\nthing, that's a good indication that\nlike even if the n is two, we should\nprobably improve something. If it's\ndifferent, that's really interesting.\nUnder which conditions do they find it?\nWhat's their operating model? I'll say\nI've been at a few companies where I was\nabsolutely swearing at a particular tool\nevery day. I was so mad, just always\nusing computers in anger. And someone\nelse just thought that was bizarre.\nWell, he'd worked at the company for 20\nyears. So, he had all of the shortcuts.\nHe had all the short keys memorized that\nyou could not find anywhere and he had\nlike a hundred shortcuts sort of built\naround and like mini automations built\naround that he forgot he built but they\nwere still there and so that surfaced an\nopportunity for us to realize this was a\nbig risk for any new hire that we had\ncoming into the company.\nUm, so here I think one thing we should\nthink about is making our\nWTF visible.\nWe can't fix what we can't measure or at\nleast we can't understand how well the\nfix has landed and we can't fund it if\nwe can't explain it, right? We can't get\nresourcing. So, I would like to propose\na new northstar metric. Meanime to what\nthe\nI think it's catchy.\nSo, here's here's here's the proposal.\nHow long it takes to go from the alert\nto I understand what's happening. So,\nit's a little different from detection\nand it's different from resolution, but\nwith the complexity of our systems\ngrowing, this is my proposal. I'm sure\nit'll take off. We have stickers of it\nalready.\n>> Oh, there's stickers already. I'm very\nexcited. Thank you, Liz. Um, the reason\nI like this is because it can act like a\nleading indicator of our systems and how\nbrittle they are because if our meantime\nto what the grows is grows, um, it will\nclimb first and then MTR, right? For\nnow, we'll have some things where MTR is\nfine, right? We'll have our generic\nmitigations. We can turn it off and turn\nit on again. We'll have a handful of\nthings that kind of work. But the longer\nit takes us to understand what's going,\nwe can start catching that earlier\nbefore our MTR goes up.\nSo, here are a few starting points to\nhelp kind of surface our meantime to\nWTF. Uh, first is add something in your\nretro.\nIt takes five minutes. Add a friction\ncontribution field or friction source\nfield, right? One field, no new process.\nWhere was the biggest source of\nfriction?\nUh you can also do an on call survey.\nYou said it's out quarterly, two or\nthree questions. What slowed you down?\nWhat would have helped? What did you\nhave to invent? What did our tools not\ncover? There are a few ideas here,\nright? When did you swear the most? That\none's my personal favorite, but it\ndoesn't make it past every corporate\npolicy. Um, and we can do a toil\ntracking sprint, right? A lot of\ncompanies do fix it weeks or hack weeks.\nWe can do one time box sprint kind of\ngathering together the things that we've\ncaptured about our biggest sources of\nfriction and we can start knocking them\nout. And frankly, we might not even need\na full sprint. This might be where we\ncan have the robots come in and help.\nThey can help identify these sources and\nthey can help help improve them. And\nthat's that's when we want to fix it.\nYou could also do a sprint and I'll kind\nof finger quote sprint here just to have\neveryone write down and track all of the\nsources of friction just so we have a\nlist just to give us better visibility\nand understanding of where our biggest\nsources of friction are because those\nare going to be the things that make it\ndifficult to continue growing at scale.\nUm so for this section start measuring\nthings. Here are a few ideas. Um start a\nfriction log just for yourself. Make\nnote of all of the times things aren't\nworking quite the right way or quite the\nway you expected. Um, time your MTWF\njust once.\nNext time you have an incident, just\nnotice how long it takes to understand.\nAnd some cases, we won't understand it\nuntil long after MTR hits.\nUm, and then we can also just declare a\ntoil hour.\nJust log all of the friction for\neveryone on your team. And this can just\nbe about capturing an inventory first.\nWe're not asking for much. And I don't\nknow about you, but every person in tech\nI've ever worked with is super excited\nto tell you about all of the stuff that\nsucks.\nThis is great. So, we're on the same\nteam.\nOkay, now that we have an understanding,\nan idea of where our opportunities are,\nand we may have fixed a couple of them,\nnow we can make the case, right? Because\nI I don't know if y'all have ever hit\nthis, but I have this great idea. I know\nit's going to be great. I know it's\nimportant, and then I go ask for\nresourcing and funding, and I get a nah.\nOr, do you have a business case? Or what\nis the math? Have Have we ever hit this?\nSee, this is the challenge because when\nwe're doing our jobs right, people don't\nremember us. We don't really exist. As\nsoon as something is wrong with the\nsystem, then we're everybody's best\nfriend. So, I will also say sometimes I\ntime this around an incident or around\nsomething that is high risk. So, then\npeople care about it a lot. But this is\nalso big, right? So, here's a couple uh\nresearch pieces here. uh Cisco found\nthat the cost of technical debt annually\nand this I think is as of last year was\n$ 1.52 trillion\nfor the US. McKenzie found that 40% of\ndev budgets are spent on avoidable\nrework.\nThis these are sources of friction. Um,\nanother study found, I think this was\nanother McKenzie study, developers feel\n68%\nproductive.\nUh, well, they did the math and that\nmissing 30-ish%\nis about 300 billion lost in GDP in the\nUS.\nThere's a lot of opportunity here. And\nas our systems start moving faster and\nfaster and as the scale and complexity\nincreases, this will only go up. So we\ncan make the argument this isn't about\nus being happy, right? Someone's like,\n\"Oh, well, you know, let's do a DevSat\nsurvey or an S surat survey.\" And then\nexecutive like, \"I mean, I want people\nto be happy, but I mostly want my\nsystems to work.\" This is about\nremaining a competitive\nactor in whatever industry you're\nworking in. So we can reframe some of\nthis. Now, this right here is about\ntalking to our peers. Right here we want\nto talk about experience. If I talk\nabout productivity,\nlook, any any metric will will be\ngained. Right? But if I'm talking to\nsomeone else and I want to understand\nand I want to learn about their system,\nthis opens up the conversation because\nit's not a threat. I'm not trying to\nassess their productivity. I want to\nunderstand what it's like to use the\nsystem. Um, productivity often implies\nthat we're measuring individual output,\nlines of code, number of PRs, number of\nCLS. But when we ask about experience, I\nwant to understand what it's like to use\nthe system. I want to know what tools\nyou absolutely love because then I want\nto use them. But I also want to know\nwhat's difficult and challenging for\nyou. I want to know about the obstacles.\nUm, leadership. Now, we talk about\nleadership uh, and productivity.\nWe just want to make sure people are\nworking hard enough, which is weird,\nright?\nBut we can reframe this for leadership\nto say we want to remove what's slowing\nus down. We want to enable more people\nto keep working faster. We want to make\nsure that we are bolstering our systems\nso that they can support this\nexponential workload that you see\ncoming. Right?\nUm,\none thing I'll note here, your\nstakeholders will often fund reliability\nif we can frame it the right way. They\nwon't always fund happiness,\nwhich isn't great because we know that\npeople who are happy in their jobs, when\nthey're satisfied, when they have good\npsychological safety, they do better\nwork. But it's hard to make the business\ncase for this. So, let's find a way to\nanchor things in reliability. So for the\nbusiness case we can talk about a\ndeveloper experience but it's much\nbetter if we can frame it in terms of\nreliability once we've already gotten\nthat data and we can connect things\ntogether right and I think this work\nback is what helps we can start with\nrevenue impact or profit impact right do\nwe have cost of downtime now what's our\nSLA risk what does that mean are there\nuh financial implications to our SLAs's\nthat works back into a higher change\nfail rate slower MTD MTDR\nAnd then we can talk about friction. If\nwe just try to talk about friction, that\njump can be challenging because for\nsomeone who isn't running systems all\nthe time, you know, figuring out how to\nget Outlook up or get the calendar\ninvite fixed, the line isn't direct for\nthem. They don't see, they don't\nnecessarily like feel in their bones how\nreally difficult systems can lead to\nthese types of outcomes. But we know\nthis.\nUm so here we can say you know we're\nproposing a better system not just SR\nsatisfaction but we'll get that too.\nOne thing I will note here when at all\npossible anchor it to something that\nthey already own that already exists and\nthat someone who is not you came up\nwith. So one example that I included\nhere is a downtime cost estimate. How\nmuch does it cost for downtime? How do\nthey model it? Where does that come\nfrom? Or do you have a risk cost or\nreputational cost estimate? What are the\ntypes of things that exist? What is your\nfully burdened engineering cost\nestimate? If we come up to it, it's\nchallenging. Go grab lunch with someone\nin finance. Ask them a couple questions.\nHelp them understand and really see and\nfeel that we're trying to help them out\nand we really value the work that they\ndo.\nand then we can build our math on top of\nthat. Um, I'll also mention sometimes we\ndon't need a cost piece. There are a few\nstrategies to making our business case.\nNumber three, dollar impact for sure,\nright? And when we do dollar impact,\nlike I said, use somebody else's number.\nUm, we can use simple data, just clear\naction. So for here, something like\nprogressive disclosure. If I know this\nsystem's broken this way, what's the\nnext question I would ask? What's the\nnext piece of detail to kind of\nbreadcrumb trail someone along?\nWe are often used to looking at\ndashboards with a hundred metrics, but\nbecause we look at them all the time,\nthey make sense. Have you ever shown\nlike an exact one of those dashboards\nand just watch their eyes glaze over?\nYou should do it sometime. It's wild.\nUm, and then we kind of like walk them\nthrough what this means. And if these\nlook the same way, it's fine. if these\nlook different. But if you just give\nthem that dashboard to look at all the\ntime, they'll either not look at it all\nthe time or look they'll walk away with\nwildly different conclusions. So kind of\nhelp walk them through what those\nquestions are. Another thing that's\nsuper powerful is just visibility,\njust capturing information, which is why\nI started with the suggestion of just\nwrite down something that doesn't work\nfor you and your team.\nOne example that I love was Dave\nAnderson at Amazon. So they asked him to\nimprove platform error rates. Hey Dave,\ngo fix this. Um, by the way, you have\nzero authority over any executive.\nI think a handful of us have maybe been\nin this case where our responsibility\nsorry is the reliability of the systems,\nbut we also can't tell all the\nexecutives what to do.\nSo what Dave did\nwas very clever. Um he pulled together\nall of the data and he published a\nmonthly S team report. So the S team at\nAmazon is uh the directs for the CEO,\nright? So for the execs, he made a\nreport error rates by team and he noted\nthe VP who owned those error rates.\nNo no orders, no actions. he just\npublished it. Uh within the first couple\nof weeks, directors and VPs raced to\nfigure out how to get themselves off the\nreport.\nAll it was was visibility, right? Which\nI think there's a lot of power again\nbecause we understand our systems. We\nunderstand what that looks like. There\ncan often be a couple clever ways just\nto surface that and drive some action.\nUh the note I had here,\nthe measurement doesn't have to mandate\nchange. It should just make status quo\nuncomfortable.\nThat can be one good pointer to what\ntypes of things we want to capture and\ndisplay. What is status quo and what\nshould be uncomfortable? How can we make\nthat uncomfortable?\nSo one takeaway, one thing that you can\ndo now is find out your org's cost of\ndowntime number or cost of something\nnumber. Like I said, take someone from\nfinance to lunch. For bonus points, find\nout how it's calculated. That'll give\nyou really interesting insight into how\nthe company thinks about these things.\nSo, I've chatted with probably hundreds\nof teams, uh, across the industry, uh,\ninternationally, and it's been really\ninteresting to see some companies have\nvery, very complex cost models. I won't\nsay advanced because people make the\nchoices that they make but it was very\nclearly understood like reput it\nincluded reputational risk it included\nrecovery time it included all of the\nincident reviews it included customers\nimpacted and it included forecast for\nfuture revenue um I've chatted with\nother large organizations where their\ncost of downtime is\nthe number of credits that they issued\nto customers\nwhich which is not going to be complex,\nright? It's going to be limited in very\nstrategic ways, but that also tells you\nthe way they think about this in large\npart is how it impacts large key\ncustomers. So that helped inform some of\nthe strategies around how we wanted to\ncommunicate risk or friction. All of it\nwas important, but in particular, how\ndid it affect the last n number of\ncustomers they had ever issued cloud\ncredits to or the customers they really\ndid not want to have to issue cloud\ncredits to? Um, because then we can just\nsay every hour of downtime cost us this\nmuch money. Friction is costing us this\nmuch time. I can draw a line between how\ndifficult our systems are to use and how\nthe complexity is growing and how it\nwill impact that downtime.\nOkay, here's our TLDDR as we wrap up a\nlittle bit. If you haven't been paying\nattention, look up now and take a\npicture. You'll get full credit. Back\nwhen Twitter was around, I'd say to post\nthis to Twitter, but RIP.\nUh, quick reminder, one thing we can do\ntoday, open a runbook, see if it's real.\nAnother one is talk to a peer. Ask what\nslows them down. Maybe compare to\nyourself.\nUh number three is to start a friction\nlog. Just ask folks around the team. It\ncould be an hour. It could be a week.\nLook for some patterns.\nFeed it into Gemini or Claude or Chat\nGBT and ask it what patterns are.\nLook for some opportunities for AI to\nassist some of those pieces.\nuh on one incident, time your MTWF\non a real incident and maybe ask a\ncouple other folks to do something\nsimilar. How long did it take them to\nunderstand the problem?\nNumber five, declare a toil hour.\nInventory first and then fix later. Even\njust having an inventory can be helpful\nto identify patterns. And then number\nsix, ask someone in finance what the\ncost of downtime is and how they\ncalculate it. It's nice to have some of\nthese numbers in your back pocket.\nSometimes\nanother way to look at this for anyone\nhere who's an IC, you can also map your\nworkflow for a week. Where are the\nplaces where you're losing 30 minutes?\nWrite it down. Ask someone else\nsomething similar.\nFor anyone here who's a team lead, you\ncan do a quick 30-minute retro. What\nslowed us down\nthat wasn't the work? Was it a tool? Was\nit a policy? Was it a process? Was it a\nrunbook? Was it poor documentation? Was\nit missing documentation?\nAnd for leaders,\njust set up three listening sessions. It\nsays listening sessions. It sounds very\nproper. Go grab coffee with someone.\nyou can napkin math the cost of some of\nthe friction points that get surfaced.\nUm, I do want to mention I just co-wrote\na book with Abby Nota. The QR code will\ntake you get the book if you want. I'd\nappreciate it. If not, uh, online we\nhave over a 100 pages of free rubrics\nand spreadsheets about understanding\nfriction, identifying friction, looking\nfor opportunities to improve it. If you\nwant to do a survey, we have a lot of\nfree survey questions and a full survey\nstructure. Um, if you're looking at\nimproving or changing things across an\norganization, we have guidelines and and\nplaybooks for if you're doing this as an\nindividual contributor and you're\nfollowing a grassroots process, if you\nare the director or the senior director\nor the VP of something and you have an\nexecutive mandate or if you're somewhere\nin the middle. So, there's a lot of good\nfree resources there. um interview\nguides, all sorts of stuff. So, thank\nyou so much for the time.",
+  "segments": [
+    {
+      "text": "As Patrick mentioned, I'll be talking today about the WTF problem. I'm sure a handful of us have experienced this before. Um, I'll start by introducing myself a little bit. I am Nicole Forsrren. I'm senior director of developer intelligence at Google and",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "core. Um, and nothing I say here, it represents Google or their uh policies or opinions. These are all mine. Um, check that off the the legal compliance checklist. Um, I've been working with systems for a really long time. I started my career as a software",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "developer at IBM. I managed large systems. Um, I racked and stacked back when that was still a thing. Uh, I'm sure a handful of folks don't even know what I'm talking about, which is great. Um, and then I decided that I needed to",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "start advocating better for my teams, and I never could with leadership. So, I went and did some research so I could win fights with data. Um, now I still occasionally win fights with data, but I also find ways to kind of communicate",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "what's happening with our system and finding ways that we can make it easier to work with our systems because they are increasingly complex. Um, this is what we'll be talking about today. um first we'll figure out if it's for you",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "uh and if it's not you can just tune out. Um we'll talk about friction a lot today and how it's a reliability risk and what it means for us. We'll talk a little about a little bit about AI um measuring friction um makering making",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "some of the WTF visible and then how we can advocate for improvements in our system. Um first of all though is this for me? Does this talk even matter? Um, has anyone here been paged for something that tooling should have caught?",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "RIP. Um, how many have a runbook or a playbook that you don't fully trust? Uh, and how many of us here have like switched out of an incident to figure out how to use the tools or like figure out the logs or like figure out something. Welcome.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "We are we are all in this together. Um, by the way, we just measured our developer experience or our S sur experience. Um, it wasn't great, but also we know that we have pretty good signal where our systems aren't working",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "the way that they were intended. Um, and by the way, this isn't like we're just not going to talk about feelings here and vibes, but it's really important that we can kind of surface and understand where our risks are. And our",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "experience is a property of the system. the way that we interact with that system and those complex boundaries is something that we need to think about. Um so I want to make the case here that this friction that we've just talked",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "about and several several other kinds of friction are actually a reliability risk. Um, now I will sometimes use the term S sur or ops or developers uh interchangeably because of the way we work with our systems, right? We write code, we build",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "tooling, we manage complex workflows. A lot of the things that um I think about when I study and when I talk to and when I measure development work ends up applying almost even better to SR because the complexity of our systems",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "are much larger. We very rarely have just a very small kind of focused constrained view of the system. Um and we have very similar failure modes. Cognitive load is really challenging. Right? If the com if the system itself is overly complex and we need to keep",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "all of the pieces in our head, having a difficult to use tool actually makes it much more difficult. Being paged at odd hours makes it much more difficult to keep up with the complexity of our system and kind of understand what our",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "mitigation should be. Tool failures are really challenging. Process bottlenecks and failures add up in ways that folks who are less familiar with the system won't see and they won't understand. I think one of the key differences here is",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "also that when SR systems fail, so the tools that we use to kind of manage and uh run our systems, the blast radius isn't one piece of code or one library or one repo. it's the entire system or sometimes every single incident that we",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "touch and so when we think about the scale of the work that we do it's often much bigger um so we can understand friction a few ways one I touched on already was cognitive load um how difficult is it for us to be able to concentrate on the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "things right um do we get alert noise without any context do we get error messages that just say error um what are the system states? Can we really understand what's happening in the system or is it all just kind of Schroinger's box? Um and mental model",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "gaps particularly during a crisis, right? Many times we have these black boxes where we kind of understand how that system boundary works until we really need to know what's inside of it. Uh tool friction is another um any UI that fights us whether",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "it's a a guey or a CLI, right? any UI that is just difficult for us to use. Um, CLIs with flags that aren't easy to find or that are often hidden or that I don't know about you, I had a tool once that changed the defaults randomly every",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "once in a while. Not the best. Uh, dashboards that aren't up to date or that load really slowly and it's always slower at like those 2 a.m. and those 3:00 a.m. calls. I don't know about you. Um, and then process friction. How do we",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "coordinate during events? How do we set up our war room? Which which Slack channel is the right Slack channel? Um, the one I hate the most is an approval gate that hits mid- incident. I mean, I dislike many approval gates, but the",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "ones that appear when we're trying to move really quickly can be very challenging. And then, of course, run books, right? Either it's wrong or you need to have the right context or the words could mean different things depending on the team and the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "organization that you're in. All of these things slow us down. Um, one example that I'm sure a handful of folks here have heard about is Night Capital. So, for those of you who aren't aware, um, there were no automated deployment tests. There were no Canary",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "rollouts. This required rolling out to eight different servers manually. Uh, what happened? uh a script ended up reactivating a feature flag that had been decommissioned long ago. They weren't really using it. They were using it for",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "something else. That roll out only made it to seven of the eight servers. And so system went down. They lost $460 million in 45 minutes. So if you haven't heard of night capital, that's why you haven't heard of night capital.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "But what we learned from this is the friction that developers and SRRES and ops were feeling in their everyday work. That was the gap in the system. That's what really highlighted the challenges and the risks that we face. Um, and friction doesn't just slow us",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "down. It increases our error rates under pressure. Um, I love that we just heard so much about Javon's paradox because as we get more automation, we can build more and more and more faster and more frequently. Is anyone's company or",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "organization here spouting the virtues of AI and how many lines of code we can write so quickly and how many CLS? And yet, have all of our test suitees kept up? Have all of our tool has all of our tooling kept up? Have our processes",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "kept up? I'm going to guess that's a no. And we just talked about a few of them. Cognitive friction is really challenging here because as our systems grow in complexity, not only does our understanding of the system itself need to grow, but how the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "system has changed from before. We've always had systems that change, but they often change on the order of weeks and months and sometimes years. So like I I think about it like when I was doing a lot of coding, like I could kind of feel",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "a system, I could generally whiteboard it. Um, and as we pointed out, sometimes my whiteboarding boxes would be a little different, but we all had something in common. Now, sometimes on the order of days or weeks, the system itself",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "fundamentally changes. My whiteboard from 6 months ago might not overlap at all with what the system's doing now. Um, another piece here is tool friction. as we're seeing so many more capabilities pop up and we've got like",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "three dozen AI agents and you know four different coding tools we can use and so many different interfaces and and observability pieces assuming people are building observability into these brand new systems. Um we keep having to switch back and",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "forth to kind of understand and keep track of what's happening and then of course the process friction. Um, tech is easy and people are hard and the faster our systems move, the harder it is for all of our people and our processes and our policies to keep up.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So, here's the first takeaway. Um, open one of your runbooks this week, just one. Just pick one and see if it reflects reality. See if it's easy to understand. Ask yourself, someone who's new on the team, six months or less,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "could they understand this? And if it doesn't, you just found your first point of friction. This is one opportunity to clean things up. And as we just heard, you might use AI to help clean it up. But this is a good place to start. And I",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "want to call out, this is where every good friction reduction or system improvement program starts. Find one thing, look for an opportunity to improve. I think anyone here can do that. Um, speaking of our runbooks, AI is coming for our runbooks. Um, we",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "are shipping more and more code whether we planned on it or not. Um, and whether we planned on our systems supporting that or not. So, deployment frequency is up in many places that I uh speak with uh talk to across the industry. Now what",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "follows though is the incident rate right many of our systems right now we have systems and tools that capture some proportion of incidents and bugs and bad code right I'll make up a number let's say 10%. as we see more and more and",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "more code shipped 10% is now a much larger number. So how are we thinking about capturing that? And then our on call pressure compounds. We have more incidents. We have more friction. We have a smaller understanding of our system. So as we can see here, AI is",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "just multiplying the friction. It accelerates the good and it accelerates the challenges that we have. Uh and just kind of a note here for a handful of folks. If your baseline is already high, yikes, keep an eye on a lot of this.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Um, and you know, one example here is Replet. I'm sure many of us are familiar with this. I know everyone says AI is going to solve all the problems, but AI was here. Jason Lumpkin said an explicit code freeds. No changes to the live database",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "in words written down. This is not like an implied assumption of how the system should work. No changes to the database. I mean, it didn't change it. It just deleted it. and I just wiped it out. And again, the crazy thing is this was not a config",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "flag. This wasn't a mistake. This was a straight delete. It's the same failure mode that we've seen before. It's just a new way to do it at scale, faster. What could go wrong here? I think it's important for us to kind of realize and",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "share with others. AI just makes our friction much more important and much more costly and much more challenging. It can remove some friction, but if we aren't paying attention to the friction in our systems, it's really a challenge",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "and it'll catch up with us at some point. Um, AI also changes the the type of incidents that we see. So when our the world that our runbooks were were written for, humans wrote those systems, there was at least a handful of humans",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "who could understand and explain this system. But now that we have AI generated systems, they're fairly opaque. And the more that we see AI interacting with these systems and changing these systems and updating these systems, the more opaque they will",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "be. So how can our runbooks account for that? We also know that we have runbooks that have written been written for known failure patterns, but as our changes, as our systems are rapidly changing, we'll find more failure modes that",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "people have never thought of before. And so we won't have a runbook or a playbook for that. Uh right now, maybe two years ago, we have diffs that are that are readable, right? We can understand these. I used to make jokes about, you know, you",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "submit five lines of code, you'll get five comments. You submit a 100 lines of code, LGTM. Well, now AI is like generating many, many, many CL's that are or PRs that are hundreds or thousands of lines of code. And some folks say, well, this is",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "expected. How how are we going to review that? We can't keep up with the review, but how can we find ways to understand and abstract up the changes that have been made to the system? We just can't reason about them generally at all, but",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "especially under pressure. It's really tough. So, I'll note quickly here space and Dora. Um, for folks who have not heard of Dora before, it's a research program that I ran for a handful of years. Um, and we have about four metrics that end",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "up being a fairly good indicator of your pipeline health. So, code commit to code running in production. So, we can use some of these for SR as well. When we look at deployment frequency, right? So, when we're talking about the pipeline,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "we ask ourselves how how often can we deploy code from an SR standpoint, we can ask, you know, how often are we responding to incidents? How often are we called in for change events? um we can baseline that kind of a tempo,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "right? Um lead time for changes is how long it takes to get code through a pipeline. Um this is similar question for us, right? How long does it go take to go from merged to deployed and stable? Speed can be a risk input. Now, I have",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "said for years that speed and stability go together, but that was also in a world where we had systems that had tests and guard rails in place. And so, if we went for speed only for speed and we didn't care about stability, of",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "course, they didn't go together. Well, now many of us are thinking about stability. We're thinking about quality gates, but they're not keeping up as fast as our code deployment is. Um, change failure rate. What percentage of",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "our changes cause incidents and how can we find a way to reduce that percentage because when the sheer absolute number of deployments is going up a small percentage is no longer maintainable. And then MTTR, right? This this is a",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "pretty solid metric for us, but friction ends up being a big contributor here, especially when we have more and more incidents. Um, space uh is another measurement framework. Space helps us think about productivity or measuring complex",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "things. It's often used for productivity, but we can expand that to be more complex. So, it has five dimensions. uh it is also an acronym so I can remember it. S is satisfaction. It's generally things like how satisfied am I with the tools or with the system.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "P is performance. That's an outcome metric, right? Is it speed? Is it quality? Um activity. It's a count of things. Number of commits, number of lines of code, which is awful, but num anything that we can easily count. Most",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "people focus on activity because it's something we can easily instrument. Communication is uh how many meetings we're in. It can be API calls, how our systems communicate. Um and then efficiency. Efficiency and flow is how",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "long it takes or like how many hops it takes to get somewhere. So when we think about this for S sur when we look at satisfaction, we can look at an on call burden because that will I assume will probably be infers of satisfaction. Uh",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "we can look at our satisfaction with our tools and also psychological safety during incidents. How easy is it for folks to talk about this? And how safe can you feel when you say, \"I don't know what's happening because this entire",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "codebase was rewritten by AI,\" right? Or do we need to like fuzz around it for performance? Um, meanantime to detect, meanantime to restore, alert precision. What is our accuracy under pressure? What are our what are our quality gates? What are our",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "compliance gates? What are our security gates? And what does that look like for activity? Same thing. Anything we can count. Uh toil ratio, runbook coverage, automation percentage, uh how many times you're on call, how many different",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "people on the team get pulled in uh that were unexpected, how many escalations, how many are tied to AI. Uh communication, this can be incident coordination overhead. Uh how many different places do you have to go to find information? Is it three Slack",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "channels plus the runbook plus the email thread plus the something, right? And then also handoff quality because depending on how many hops it takes to get to the right person or how long it takes to resolve, how can we kind of gauge that information flow?",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Um, and then efficiency. How long does it take to resolve incidents? How long does it take to find something? Are we interrupted while we're doing our work? So when we want to understand or think about how productive we are, I'm going to",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "finger quote productive, how well we can do our jobs, I really encourage folks to look at least a few of these and have one measure from each. Even if it's a hunch, right? If if you look at all the metrics that you have and they're only activity metrics,",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "you run the risk of kind of like skewing things off because you don't have any metrics intention, right? And if if folks want to gain something, activity ones are often the easiest ones to gain, easier than satisfaction, even though",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "people get real mad about seesat. So when we look at this again, right, your experience because you understand and you feel that friction is an indicator of many of your reliability outcomes because we can't just automate",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "all of it. People are still at the heart of a lot of this. So we should use this like an internal diagnostic instrument. It's not just about communicating how well we did. It's about understanding our biggest opportunities to improve",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "especially as our systems are kind of growing in complexity. So some things that I've seen as AI is changing more of our workflow, efficiency often goes up because we can hand off many things to agents or or AI or LLMs. Um but then we have risks from",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "trust or sometimes people will slow the system down because they no longer trust it. Their intuition which we never fully understood our systems before anyway, right? But our intuition feels very very different now from satisfaction.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "We often wonder if the AI output is trustworthy or we have a brand new tool interface that is just really hard to use uh for communication. this. It's often much harder to hand off context. In some ways, we can use AI to summarize and",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "provide updates for folks during a handoff, but now the volume of information has just gone up exponentially. How can we think about that and manage it? For performance, uh there's a new risk for again these these opaque failure modes. We used to know",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "the system, now we just don't. Uh another takeaway here uh talk to one of your colleagues. Ask them you know here I'm saying what friction impacts them. When do you swear at your systems? What is really hard? What is the thing that you like are mad",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "at the most? Their answer is probably different from yours. And that also invites opportunities for improvement. Right? If it's the same thing, that's a good indication that like even if the n is two, we should probably improve something. If it's",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "different, that's really interesting. Under which conditions do they find it? What's their operating model? I'll say I've been at a few companies where I was absolutely swearing at a particular tool every day. I was so mad, just always",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "using computers in anger. And someone else just thought that was bizarre. Well, he'd worked at the company for 20 years. So, he had all of the shortcuts. He had all the short keys memorized that you could not find anywhere and he had",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "like a hundred shortcuts sort of built around and like mini automations built around that he forgot he built but they were still there and so that surfaced an opportunity for us to realize this was a big risk for any new hire that we had",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "coming into the company. Um, so here I think one thing we should think about is making our WTF visible. We can't fix what we can't measure or at least we can't understand how well the fix has landed and we can't fund it if",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "we can't explain it, right? We can't get resourcing. So, I would like to propose a new northstar metric. Meanime to what the I think it's catchy. So, here's here's here's the proposal. How long it takes to go from the alert",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "to I understand what's happening. So, it's a little different from detection and it's different from resolution, but with the complexity of our systems growing, this is my proposal. I'm sure it'll take off. We have stickers of it already.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": ">> Oh, there's stickers already. I'm very excited. Thank you, Liz. Um, the reason I like this is because it can act like a leading indicator of our systems and how brittle they are because if our meantime to what the grows is grows, um, it will",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "climb first and then MTR, right? For now, we'll have some things where MTR is fine, right? We'll have our generic mitigations. We can turn it off and turn it on again. We'll have a handful of things that kind of work. But the longer",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "it takes us to understand what's going, we can start catching that earlier before our MTR goes up. So, here are a few starting points to help kind of surface our meantime to WTF. Uh, first is add something in your retro. It takes five minutes. Add a friction",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "contribution field or friction source field, right? One field, no new process. Where was the biggest source of friction? Uh you can also do an on call survey. You said it's out quarterly, two or three questions. What slowed you down?",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "What would have helped? What did you have to invent? What did our tools not cover? There are a few ideas here, right? When did you swear the most? That one's my personal favorite, but it doesn't make it past every corporate policy. Um, and we can do a toil",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "tracking sprint, right? A lot of companies do fix it weeks or hack weeks. We can do one time box sprint kind of gathering together the things that we've captured about our biggest sources of friction and we can start knocking them",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "out. And frankly, we might not even need a full sprint. This might be where we can have the robots come in and help. They can help identify these sources and they can help help improve them. And that's that's when we want to fix it.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "You could also do a sprint and I'll kind of finger quote sprint here just to have everyone write down and track all of the sources of friction just so we have a list just to give us better visibility and understanding of where our biggest",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "sources of friction are because those are going to be the things that make it difficult to continue growing at scale. Um so for this section start measuring things. Here are a few ideas. Um start a friction log just for yourself. Make",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "note of all of the times things aren't working quite the right way or quite the way you expected. Um, time your MTWF just once. Next time you have an incident, just notice how long it takes to understand. And some cases, we won't understand it",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "until long after MTR hits. Um, and then we can also just declare a toil hour. Just log all of the friction for everyone on your team. And this can just be about capturing an inventory first. We're not asking for much. And I don't",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "know about you, but every person in tech I've ever worked with is super excited to tell you about all of the stuff that sucks. This is great. So, we're on the same team. Okay, now that we have an understanding, an idea of where our opportunities are,",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "and we may have fixed a couple of them, now we can make the case, right? Because I I don't know if y'all have ever hit this, but I have this great idea. I know it's going to be great. I know it's important, and then I go ask for",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "resourcing and funding, and I get a nah. Or, do you have a business case? Or what is the math? Have Have we ever hit this? See, this is the challenge because when we're doing our jobs right, people don't remember us. We don't really exist. As",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "soon as something is wrong with the system, then we're everybody's best friend. So, I will also say sometimes I time this around an incident or around something that is high risk. So, then people care about it a lot. But this is",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "also big, right? So, here's a couple uh research pieces here. uh Cisco found that the cost of technical debt annually and this I think is as of last year was $ 1.52 trillion for the US. McKenzie found that 40% of dev budgets are spent on avoidable rework.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "This these are sources of friction. Um, another study found, I think this was another McKenzie study, developers feel 68% productive. Uh, well, they did the math and that missing 30-ish% is about 300 billion lost in GDP in the US.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "There's a lot of opportunity here. And as our systems start moving faster and faster and as the scale and complexity increases, this will only go up. So we can make the argument this isn't about us being happy, right? Someone's like,",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "\"Oh, well, you know, let's do a DevSat survey or an S surat survey.\" And then executive like, \"I mean, I want people to be happy, but I mostly want my systems to work.\" This is about remaining a competitive actor in whatever industry you're",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "working in. So we can reframe some of this. Now, this right here is about talking to our peers. Right here we want to talk about experience. If I talk about productivity, look, any any metric will will be gained. Right? But if I'm talking to",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "someone else and I want to understand and I want to learn about their system, this opens up the conversation because it's not a threat. I'm not trying to assess their productivity. I want to understand what it's like to use the",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "system. Um, productivity often implies that we're measuring individual output, lines of code, number of PRs, number of CLS. But when we ask about experience, I want to understand what it's like to use the system. I want to know what tools",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "you absolutely love because then I want to use them. But I also want to know what's difficult and challenging for you. I want to know about the obstacles. Um, leadership. Now, we talk about leadership uh, and productivity. We just want to make sure people are",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "working hard enough, which is weird, right? But we can reframe this for leadership to say we want to remove what's slowing us down. We want to enable more people to keep working faster. We want to make sure that we are bolstering our systems",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "so that they can support this exponential workload that you see coming. Right? Um, one thing I'll note here, your stakeholders will often fund reliability if we can frame it the right way. They won't always fund happiness,",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "which isn't great because we know that people who are happy in their jobs, when they're satisfied, when they have good psychological safety, they do better work. But it's hard to make the business case for this. So, let's find a way to",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "anchor things in reliability. So for the business case we can talk about a developer experience but it's much better if we can frame it in terms of reliability once we've already gotten that data and we can connect things together right and I think this work",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "back is what helps we can start with revenue impact or profit impact right do we have cost of downtime now what's our SLA risk what does that mean are there uh financial implications to our SLAs's that works back into a higher change fail rate slower MTD MTDR",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "And then we can talk about friction. If we just try to talk about friction, that jump can be challenging because for someone who isn't running systems all the time, you know, figuring out how to get Outlook up or get the calendar",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "invite fixed, the line isn't direct for them. They don't see, they don't necessarily like feel in their bones how really difficult systems can lead to these types of outcomes. But we know this. Um so here we can say you know we're",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "proposing a better system not just SR satisfaction but we'll get that too. One thing I will note here when at all possible anchor it to something that they already own that already exists and that someone who is not you came up",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "with. So one example that I included here is a downtime cost estimate. How much does it cost for downtime? How do they model it? Where does that come from? Or do you have a risk cost or reputational cost estimate? What are the",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "types of things that exist? What is your fully burdened engineering cost estimate? If we come up to it, it's challenging. Go grab lunch with someone in finance. Ask them a couple questions. Help them understand and really see and",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "feel that we're trying to help them out and we really value the work that they do. and then we can build our math on top of that. Um, I'll also mention sometimes we don't need a cost piece. There are a few strategies to making our business case.",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "Number three, dollar impact for sure, right? And when we do dollar impact, like I said, use somebody else's number. Um, we can use simple data, just clear action. So for here, something like progressive disclosure. If I know this",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "system's broken this way, what's the next question I would ask? What's the next piece of detail to kind of breadcrumb trail someone along? We are often used to looking at dashboards with a hundred metrics, but because we look at them all the time,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "they make sense. Have you ever shown like an exact one of those dashboards and just watch their eyes glaze over? You should do it sometime. It's wild. Um, and then we kind of like walk them through what this means. And if these",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "look the same way, it's fine. if these look different. But if you just give them that dashboard to look at all the time, they'll either not look at it all the time or look they'll walk away with wildly different conclusions. So kind of",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "help walk them through what those questions are. Another thing that's super powerful is just visibility, just capturing information, which is why I started with the suggestion of just write down something that doesn't work for you and your team.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "One example that I love was Dave Anderson at Amazon. So they asked him to improve platform error rates. Hey Dave, go fix this. Um, by the way, you have zero authority over any executive. I think a handful of us have maybe been",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "in this case where our responsibility sorry is the reliability of the systems, but we also can't tell all the executives what to do. So what Dave did was very clever. Um he pulled together all of the data and he published a",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "monthly S team report. So the S team at Amazon is uh the directs for the CEO, right? So for the execs, he made a report error rates by team and he noted the VP who owned those error rates. No no orders, no actions. he just",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "published it. Uh within the first couple of weeks, directors and VPs raced to figure out how to get themselves off the report. All it was was visibility, right? Which I think there's a lot of power again because we understand our systems. We",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "understand what that looks like. There can often be a couple clever ways just to surface that and drive some action. Uh the note I had here, the measurement doesn't have to mandate change. It should just make status quo uncomfortable.",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "That can be one good pointer to what types of things we want to capture and display. What is status quo and what should be uncomfortable? How can we make that uncomfortable? So one takeaway, one thing that you can do now is find out your org's cost of",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "downtime number or cost of something number. Like I said, take someone from finance to lunch. For bonus points, find out how it's calculated. That'll give you really interesting insight into how the company thinks about these things.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "So, I've chatted with probably hundreds of teams, uh, across the industry, uh, internationally, and it's been really interesting to see some companies have very, very complex cost models. I won't say advanced because people make the",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "choices that they make but it was very clearly understood like reput it included reputational risk it included recovery time it included all of the incident reviews it included customers impacted and it included forecast for future revenue um I've chatted with",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "other large organizations where their cost of downtime is the number of credits that they issued to customers which which is not going to be complex, right? It's going to be limited in very strategic ways, but that also tells you",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "the way they think about this in large part is how it impacts large key customers. So that helped inform some of the strategies around how we wanted to communicate risk or friction. All of it was important, but in particular, how",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "did it affect the last n number of customers they had ever issued cloud credits to or the customers they really did not want to have to issue cloud credits to? Um, because then we can just say every hour of downtime cost us this",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "much money. Friction is costing us this much time. I can draw a line between how difficult our systems are to use and how the complexity is growing and how it will impact that downtime. Okay, here's our TLDDR as we wrap up a",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "little bit. If you haven't been paying attention, look up now and take a picture. You'll get full credit. Back when Twitter was around, I'd say to post this to Twitter, but RIP. Uh, quick reminder, one thing we can do today, open a runbook, see if it's real.",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "Another one is talk to a peer. Ask what slows them down. Maybe compare to yourself. Uh number three is to start a friction log. Just ask folks around the team. It could be an hour. It could be a week. Look for some patterns.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "Feed it into Gemini or Claude or Chat GBT and ask it what patterns are. Look for some opportunities for AI to assist some of those pieces. uh on one incident, time your MTWF on a real incident and maybe ask a couple other folks to do something",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "similar. How long did it take them to understand the problem? Number five, declare a toil hour. Inventory first and then fix later. Even just having an inventory can be helpful to identify patterns. And then number six, ask someone in finance what the",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "cost of downtime is and how they calculate it. It's nice to have some of these numbers in your back pocket. Sometimes another way to look at this for anyone here who's an IC, you can also map your workflow for a week. Where are the",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "places where you're losing 30 minutes? Write it down. Ask someone else something similar. For anyone here who's a team lead, you can do a quick 30-minute retro. What slowed us down that wasn't the work? Was it a tool? Was",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "it a policy? Was it a process? Was it a runbook? Was it poor documentation? Was it missing documentation? And for leaders, just set up three listening sessions. It says listening sessions. It sounds very proper. Go grab coffee with someone.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "you can napkin math the cost of some of the friction points that get surfaced. Um, I do want to mention I just co-wrote a book with Abby Nota. The QR code will take you get the book if you want. I'd appreciate it. If not, uh, online we",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "have over a 100 pages of free rubrics and spreadsheets about understanding friction, identifying friction, looking for opportunities to improve it. If you want to do a survey, we have a lot of free survey questions and a full survey",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "structure. Um, if you're looking at improving or changing things across an organization, we have guidelines and and playbooks for if you're doing this as an individual contributor and you're following a grassroots process, if you",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "are the director or the senior director or the VP of something and you have an executive mandate or if you're somewhere in the middle. So, there's a lot of good free resources there. um interview guides, all sorts of stuff. So, thank you so much for the time.",
+      "start": 894,
+      "duration": 6
+    }
+  ]
+}

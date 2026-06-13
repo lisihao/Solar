@@ -1,0 +1,539 @@
+{
+  "videoId": "IVHRqKS2JmY",
+  "title": "SREcon26 Americas - From Chaos to Confidence: How SREs Can Leverage 50 (and Counting) Failure...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 25908,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So, thank you everyone for coming to our\ntalk and let's get started. So, as we\nare just coming back from lunch, we\ncould use some exercise. So,\nuh how many of us have like or in the\nmiddle of an incident or you know just\ndebugging thrown some you know logs,\nmetrics, or code at an LLM?\nMost of the room?\nAll right, let's go next. Oops.\nUh how many of you have tried building\nan AI agent or an assistant? You found\nyourselves asking the LLM the same\nquestion and you're like, \"Okay, I can\nbuild something out of it.\" Okay, so\nglad to see that there's some people in\nthe room.\nUh and then some of us who have been on\nthe other side where someone in the\nleadership comes up and asks us, \"Hey,\nyou know,\nuh this AI tool is out here or you know\nwe have many vendors including ourselves\nout there as well saying that hey, you\nknow, this prompt this is all we can\npromise. Do you want to try it, right?\"\nSo,\nagain a few people in the room there and\nthen now you've built these tools,\nyou've been either asked to use them.\nHave you had a reproducible way to test\nany of this?\nAnyone? Maybe? No? No? Oh, one person in\nthe room there. So,\nall right. So, when we started on our\njourney last year with all the LLMs,\nright? So,\nwe IBM with IBM research were already\ndoing a lot of work in incident analysis\nand whatever have you and then LLMs came\nalong, right? So, so we folks in the\nteam were like, \"Okay, so what does it\nmean to start using LLMs for this?\" And\nthen over a period of time you'll see\nthat, you know, whether it be IBM or\nsome of our competitors, you know, these\nare all like public articles which\nsomeone can go and read and they have\nall the claims, right? That hey, we are\ndoing this, we are doing 90% faster root\ncause analysis and whatever have you.\nRight? So, Bhavya, uh would you like to\ncomment on?\n>> Yeah. So, okay, we've seen all the\npromises, but what about the reality of\nit?\nUm so, again, you'll see a lot of\narticles out there talking about, you\nknow, first of all, whether AI is really\nneeded. So, if you look at some of the\nincidents and it would show that, you\nknow, just 1 minute of of testing would\nhave discovered the issue rather than\nthrowing so much investment into AI.\nUm then, even if you use AI, right? Um\nfor example, Meta's AI only has 42%\nsuccess rate in finding the root cause\nfor these incidents.\nUm and not just that, you know, there's\npeople who are there SREs who are using\nuh AI. Um some of them, yeah, show\nincreased productivity, but there's also\na lot of increased toil um due to these\nuh additional AI tools.\nSo, we see a big gap, you know, there's\nso much being promised, but the reality\nis um the accuracy isn't that great um\nand the usefulness of these tools is is\nstill questionable.\nSo,\nsame thing we've seen in our, you know,\nexperimentation testing with these uh AI\ntools that um just throwing a lot of\ndata on LLMs is is not going to get you\nanywhere. You know, um so, we tried\nthis, we came up with this uh you know,\nsimulated kind of um\nuh incident where we had like alerts and\nsome data like events, etc. And we gave\nthis context to LLMs.\nfull disclosure, you know, we came up\nwith this uh test about a year ago and\nthen yesterday when I was um playing\nwith the same incident, I thought, \"Hmm,\nwill this uh incident still be tough for\nthe the latest models?\" And lo and\nbehold, even the latest models like\nGemini 3 Pro, um Claude Sonnet 4.6, all\nof them struggled. So, um what was the\nissue, you know? The issue is that the\ncontext is not clean. You'll see a lot\nof events\nand it's like a needle in a haystack\nproblem.\nThe correct root cause in this case was\na config issue, whereas all the LLMs got\nconfused by a\nnetwork policy which was applied but\nthen quickly reverted.\nSo, that signal was missed by by the\nLLMs and it just latched on to something\nwhich would seem like the right answer\nbut it wasn't. And feel free to try, you\nknow, you have the QR codes here so you\ncan try your favorite LLM, do some\nprompt engineering and see if you can\nget the LLM to give the right answer.\nSo, along this journey, you know, we\nSorry.\nThe other direction.\n>> Oh, you're going the other way.\nUm so, along this journey, we we learned\na lot of lessons, you know. So, one one\nwe talked about where context quality is\nway more important than using the best\nmodel out there.\nYou know, garbage in, garbage out.\nYou've heard that a lot of times.\nIf you're not giving it the right data,\nno model can get you the right answer.\nThe other thing is\nwe want to take a more of a scientific\napproach\nto this, you know, as we are building\nagents for our use case.\nSo, when we're doing this,\nreproducibility is key. How do we\nmeasure progress unless we can replay\nthe same scenarios, the same fault, you\nknow, give it the same exact context and\nask it to to solve it?\nand then maybe Rohan can talk about the\nother lessons. Yeah. So, question was,\ncan we build such an evaluation\nframework, right? Was there something\nexisting out there which we could build\nand then which or which we could build\non? But when we were out there looking\nfor something like this about an year\nback, what we found was oh, you had\nthese environments which were like\ncompletely like offline, just like an AI\nresearcher would come in use an offline\ndata set to do any of the visual\nanalysis or whatever have you. But we\nknow from our experience of building\ncloud native applications that this\ndomain is different, right? So,\ngoing to So,\nwhat started was what we now call as the\nIT bench effort. So, again, it's a Basho\n2.0. It's on GitHub. Folks can go in.\nIt's completely Kubernetes based. So,\nthe layers where you could go come in,\nyou have a Kubernetes cluster, you\ndeploy certain applications on the top\nof it. You deploy a bunch of\nobservability tools which are\nopen-sourced\nand ready to use. And as a part of that,\nwhat we started to do was we started\nlooking at some of the incidents which\nyou were seeing from our own internal\nsystems, whether it be\nthe likes of the IBM software products\nand then extending to what incidents you\nwere seeing from AWS and Azure and\nwhatever have you and started to build\nthis notion of what does it mean to\nbring those incidents into such a\nsandboxed environment. Um and then the\nidea whole idea was could we build\nsomething which was vendor neutral,\nright? So, whether it be our own IBM\nproducts or be any vendor out there,\nthis was more of a mission for us both\nfrom, you know, to prove that our agents\nare doing better, but also from a\nresearch perspective, we wanted the\nacademic community to have such an\nenvironment where as they\nadopt AI and build certain toolings,\nthey can come and build with us. So,\nas you can see here, right? So,\nwe refer to an IT bench scenario. So,\nwhat does a scenario entail? A scenario\nentails\nbasically you go ahead and you deploy\nthe environment. So, a lot of the\nexecution is completely Ansible based.\nAgain, we were trying to wear the lens\nof what people like SREs themselves\nwould be using as opposed to like we got\nkind of a pushback back our AI\nresearchers, hey, like, you know, this\nis not our preferred mode, we have a\nlearning curve, etc. But, we stuck to\nthat one. So, again, as you can see, a\nlot of the open source tools out there,\nwhen we started out there, our hat which\nyou were wearing was primarily an SRE\nlens. And then what we started to\nobserve was\nyes, there are certain decisions an SRE\ncan take by themselves, but it could be\nthat they are put in certain situations\nwhich are also drawn from other domains\nlike FinOps.\nA popular like I shouldn't popular is\nprobably the wrong word.\nBut, an infamous incident which we were\nbrought to was where there was a\nexponential cost because some malicious\nactor had entered into the environment\none of the large corporations. They were\nmanaging to spin up VMs with GPUs on\nthem and then using it for mining. And\nthe only reason that got noticed was\nbecause some FinOps professional noticed\nthat, hey, there's this un you know,\nunexpected surge in some cost, and then\nthey went to the SRE teams and be like,\nhey, you know, what's this happening?\nAnd then that in turn led to them\nreaching out to the folks in compliance\nand security being like, and that's what\nmade us think that, you know, if you\nbuild something like this, it need not\njust be limited to site reliability\nengineering, it could extend to other\ndomains as well. Um and then the next\nstep was, you know, okay, so you have\nsome sample applications. So, I'm hoping\nmost of us have heard of astronomy shop\nwhile working with hotel telemetry and\nwhatever have you. So, that's the first\napplication which we adopted. Now, we\nalso have Istio's book info if folks are\nfamiliar with it on board it as well.\nAnd then the third step is where,\nyou know, we have made some initial\ndents, and we would expect as you go\nthrough this journey that folks in the\nroom would join us on, right? So, think\nabout fault mechanisms as failures which\nyou could introduce in this sandbox\nenvironment. Again, through through code\nchanges or\nyou know, firing up certain load\ngenerators and whatever have you, right?\nSo, so that's what uh\nis is the ball. So, going back to when\nwe started, right? So,\nuh a leadership someone comes in and\nsays, \"Hey, can you please evaluate AI\ncapabilities of X?\" You could be like,\n\"Hey, I don't need any external tooling.\nI could build something over lunch. Just\nfire up cloud code, build something\nwhich you use daily.\" Or but the\neventual question is, how do you\nevaluate?\nHow do you go about saying I have built\nis better or what someone is else is\noffering to me is better, right? So,\nfrom an IT bench perspective, this is\nwhat we came up with it was a checklist,\nright? So, okay.\nYeah, um\nis there hotel support already present\nfor your application? Can your\napplication be deployed on Kubernetes?\nAnd then, you know, you can set up\nwhatever data exporter you want. And\nthen, with the intention that whatever\nscenarios which we've been building as a\npart of this IT bench open source\nframework, could you take it and replay\nthese scenarios in your environment for\nyour application, right? And then,\neventually what you land up with, you\nhave a set of fault mechanisms, you have\nthe same set of evaluation metrics which\nBhavya will talk about later, and then\nyou are being a you have the capability\nto use these different toolings, whether\nit be your in-house tooling or whatever\nvendor you may go to, right? So, leading\nto more like an apples-to-apples\ncomparison uh overall.\nSo, just to for people to start getting\nsome familiarity, right? So, you can see\nthat within this small YAML snippet, if\nyou will,\nthis is all if you have Helm chart, this\nis what you basically need to bring in\nyour application, right? So, you could\njust go, you know, uh plug in the\ncorresponding Helm chart values. There\nmight be some template configurations\nthat you need for your application, and\nthat's it, right? Now, you just go\nahead, run a bunch of Ansible playbooks,\nand you will have the application\ndeployed into this IT bench environment\nwhich you could have on your own\ninternal clusters or whatever have you.\nUh similarly for scenarios.\nSo, what is a scenario, right? Going\nback, rehashing, it's a combination of\nthe observability stack, the\napplication, and the fault mechanism.\nSo, here you can see that uh you know,\nwe have created a fault mechanism where\ndue to some deployment changes, you now\nhave an unsupported architecture image\nwhich is getting deployed into your\nenvironment, right? Or maybe someone\nmade a change to their build scripts,\nand now they had it going around\nbuilding for an incorrect architecture\nas an example. And there here you can\nsee that the name checkout of the\ntargeted workloads or checkout is one of\nthe components in Astronomer shop, but\nhere again you could see if you had your\nown application, you could basically\nchange it to that, right? So, basically\nreusing these fault mechanisms for your\nown environment.\nand so then, you know, so what does it\nWhere do we go from here, right? So,\nwe've been thinking about uh for let's\nsay a community at large,\nif we go back and we start looking at\nsome of our own internal incident\nreports,\nis there some summary or some sort of a\npostmortem I can get from those reports?\nAnd then, you know,\nI'm trying to see, okay, the failure\nhappened, right? As a part of all our\ninvestigations, we go ahead figuring\nout, okay, this is why it happened and\nwhatever have you. What would be a\nrepresentation of that? And then, what\nwe have landed up creating are like two\nexperiences as a part of it. So, one\nexperience is where let's say you you\nwant to be where, \"Hey, I don't want to\nuse an LLM. I just want it to be\ncompletely like, you know,\nscript-driven. I want to contribute the\ncode, whatever have you.\" You basically\ngo in, run, make scaffold fault. It will\ngo ahead, run through the execution,\nprompting you, \"Hey, you know, what\nfault mechanism you want to create,\netc.\" It will create the relevant\nplaceholders for you into the IT bench\nenvironment. And then you can go ahead\nand deploy that, right? So, that's this\none experience which one can go for.\nIn the case of an LLM assisted\nexperience, it's more like we have\ndeveloped like a cloud skills. Folks in\nthe room familiar with cloud skills?\nSome? No? Some? Yeah. So, what we were\nable to do is we have tried to leverage\nthat, grounded into this astronomy shop\ndemo application. So, all what you need\nto do is just bring in an incident\nreport, right? So, and let's see if the\ntech permits here.\nSo, right before our our discussion\nhere,\num I basically went online looking for,\n\"Hey, you know, are there some incidents\nwhich we could look at?\" And then I was\nlike, \"Okay, so there was this incident\nreport which showed up.\" This is from an\nAI startup, again planning promising\nthings to do in the landscape. And then\nthis entire experience from there,\nright? Backed by cloud skills,\nnot taking any credit there away from\nour folks at Anthropic, right? Is able\nto drive in through this step-by-step.\nSo, it goes and okay, it goes fetches.\nNo, okay. It goes ahead, it goes\nfetches. Once it goes ahead and fetches\nthe scenario, it tries to come up with\nsome summary of the incident, right?\nOnce it draws some summary of it I'll\nhave to probably hit no here so that it\ndoesn't keep scrolling.\nUm and then it goes, it creates, you\nknow, some summary of the incident and\nthen it starts to ground it into the IT\nbench framework, right? So, which means\nwhat does it mean in the context of OTel\ndemo?\nAnd are there services inside OTel demo\nwhich it can leverage? So, in the first\nexecution, right? Now, if it was a human\nwas not intervening this interaction,\nyou will soon see that what it tried to\ndo a few minutes ago was just introduce\nthe corrupted image for the OTel\ncollector itself. And we as\npractitioners know that if you basically\nwatch the hotel collector itself, you\nwill have no observability data coming\nin and you hence, you know, the scenario\nis null and void. So, you as a human can\ngo in and then provide some input\nsaying, \"Hey, you know, that may not be\nthe right\nLet's see. I'm just trying to scroll\nthrough here till I get to the point.\nYeah, where I basically go ahead and\ntell it,\n\"Hey, you know, this is not the right\nthing to put it on. You go and you would\ngo to the checkout service and then it\nstarts looking into the checkout service\nand it goes and does the same thing for\nthe checkout service, right?\" Instead of\ntrying to do it for\nAnd then as a part of the execution, as\nyou can see, I can guide it through\nsteps where it's basically now going\nahead and trying to run the scenario\nhere. So, it's basically it's showing\nthat, okay, you know, it's gone ahead\nand verified that now it has, you know,\nan invalid image pushed to and updated\nto the checkout service and so on,\nright? So, the idea here is basically to\nmake the experience as seamless as\npossible for any practitioner to come in\nand contribute, whether it be these\nfault mechanisms or the scenarios or\nbasically take this environment back to\nyour estate and see, you know, how do\nyou go about evaluating any of the AI\ntoolings out there.\nSo, going back to our charts.\nYep. So, that's where we went from, you\nknow, going from incident scenarios and\nthen,\nyou know, folks who are interested can\nalso\nPRs on that. So, now that we have run a\nscenario, the question becomes what does\nit mean to go ahead and start evaluating\nhow all the performance of the AI agent\nwas. So, again, when we first started\noff, we had like\nwe were our evaluation was kind of\nsecret, but off late in the last couple\nof months, the team has worked to go\nahead and make it open sourced as well.\nSo, again, if you go to the main IT\nbench hub organization, you will see\nthat even the evaluations is open source\nfor you to bring in and start\nevaluating. So, would you like to cover\nsome of the metrics?\nOkay, so again when we we are building a\nbenchmark, so the obvious question is\nhow do you measure whether your agent is\nsuccessful or not, right?\nSo, in this task we have kind of two\nsubtasks. One is diagnosis, which is\nwhether the agent get the correct root\ncause or not. So again, if you think\nabout the the example slide I showed in\nthe beginning, in that case the agent\ndid not get the root cause right, right?\nSo, that is the diagnosis part and then\nyou have mitigation, which is the final\ngoal\nin some sense, which is whether the\nagent cleared the alerts or not. So, it\nfixed the issue or not.\nAnd then of course, you would like to\nmeasure how fast or slow was it\nat correcting the issue.\nSo, to dig a little bit into the actual\nmetrics, so for diagnosis we use\nsomething called pass at K, which is\nused quite often in the AI literature.\nSo, it basically measures whether the\nagent got the root cause entity right or\nnot within the first K attempts.\nSo, in some sense it is also an attempt\nto measure the robustness of the agent,\nright? So, let's say we run the agent 10\ntimes, but it only got the the correct\nroot cause one in 10 times, right? So,\nso that's not really useful\nversus\nthe agent getting it right every time.\nBeyond just getting the root cause\nentity right, we also want to measure\nwhether the reasoning is right or not,\nright? So, what is the exact\nreasoning, so the why behind\nthe the incident.\nAnd this one is a little bit harder to\nmeasure because it's it's all natural\nlanguage, right? So, it's not like one\nentity so one service, but it's like you\ncan express the same reason in multiple\nways.\nUm, so it's a little bit harder to\nmeasure that.\nUm, then in terms of mitigation, you\nagain have passed at K, and I'm sure\nyou're all familiar with mean time to\nresolution,\num, which is the end-to-end, uh, clock\ntime the agent took.\nUm, and I would just like to, uh, give a\nquick shout out to, uh, Nicole who who\nintroduced this mean time to a W2F, uh,\nin this conference. Um, so, you know,\nyou when you're building an agency, you\nshould always think about the\nusefulness. Ultimately, you know, uh,\nhumans, your SREs would be using it. So,\nwe don't want the agent to do something\nthat confuses them even more, right? So,\nyou want to reduce,\num, the the burden or the friction to\nthe, um, SREs. Um, so, yeah, these\nmetrics are great, but always think\nabout, uh, the human, uh, factor.\nUm.\nSo, how are our agents doing on on the\nbenchmark, right? So, again, when we\nstarted, uh, this journey, it was about,\nI think, late, uh, 2024, um, is when we\nstarted. And at that time, and I think\neven now, um, React is is one of the\npopular, uh, architectures, uh, that is\nused, which is basically used the LLM to\ndo everything. Right? Um, so, the LLM\ndoes the planning, um, it uses tools to\ninteract with your environment. It'll\ncollect the data, analyze the data, and\nso on and so forth.\nUm, so, as you can see, the agent didn't\ndo a great job. It was only getting\nabout, uh, 14% on the diagnosis task,\nand mitigation was way even worse, about\n11% or so.\nUm, so, not great, right? So, what did\nwe do? We we looked at what the agent\nwas doing, tried to do some error\nanalysis,\num, and we found some obvious things,\nlike, okay, it hallucinates, um,\nyou know, it's not able to plan\ncorrectly,\nit's it's wandering about. So, the\nenvironment as you know, like a\nKubernetes environment can be huge,\nright? There's so many services.\nSo, it can take a lot of detours and\njust get lost in in the huge\nenvironment.\nSo,\nwe took those as lessons and and one of\nthe members of our team\nwho is a domain expert\nthought of using the application\ntopology.\nSo, it's a\na way to guide or scaffold the LLM\nand constrain like the search space.\nSo,\nthe So, we start with the\nservices in the alerts and search only\nwithin the neighborhood of the of those\nservices.\nAnd even within that, right? We have a\ndeterministic way of providing the\ncontext. So, the LLM\njob is reduced. It doesn't have to make\ntool calls. It doesn't have to\nunderstand the raw context. A lot of it\nis engineered in that way.\nAnd and this agent does a lot better as\nyou can see it's close to 95% pass at\nthree.\nSmall caveat, this is evaluated on a\nsnapshot of the data. We we are still in\nthe process of evaluating it on the the\nlive environment, but we expect the\nnumbers to be around somewhere in that\nballpark.\nSo, that's great, right? I think the\nproblem is solved.\nWhat do you think?\nSo, we can like all SREs can stop\nworking and let the agent do our jobs.\nFortunately, that's that's not the news.\nSo, this is where we we would like to\ninvite the entire community and\nneed your help to like evolve the\nbenchmark and participate in the in the\nbenchmark as well.\nDo you want to talk about this? Yep. So,\nSo, as you guys saw, right? From the\nmore targeted exploration which our\ncolleague Saurabh who's also on the\non the talk went ahead and explored,\nright? You can see the improvement which\nhe got in terms of the benchmark. But,\nwhat what we have realized is that even\nwhen you look at the fault injection\nmechanisms which are present in the part\nof the benchmark, it\nit around coverage is around 15% of all\nthe universe of fault mechanisms which\nyou could have.\nWhat we see in, you know, one of the\nlarge\ncloud providers or whatever have you,\nright? So, so that's where we are hoping\nthat the community will come in and help\nwith the there two intentions here. One\nis we help folks build better agents\nwhich in turn become better assistants\nfor all of us.\nAnd also to the part where we see this\nas knowledge sharing, right? So, there\nare students out there in grad schools\nthat we interact with who are interested\nin this domain and they are very keen to\nstart, you know, tinkering with, \"Hey,\nwhat does this IT incidents look like?\nWhat does it mean to be an SRE?\" and\nthings like that. So, so whenever we\nlook at, you know, and that was a\nrealization like both being from UI, you\nsee that was the one of the realizations\nwe had as we went on this journey.\nUm and then also if there are any other\nagent developers in the room, right? Uh\nwe'll be more than happy to see how do\nyour agents or methods perform on the IT\nbench. There's also like a leaderboard\nwhich people can come in and participate\nin.\nand then, you know, last but not the\nleast for us it is more about making AI\nagents better and then as in the morning\ntalk it was stated, right? It's all\nabout building trust. So, how do we go\nabout building trust as we go on this\njourney?\nand then, yeah. So, feel free to scan\nthis QR code. This should take you to\nthe\nthe parent repo of IT bench and yeah,\ngive it a shot. If you have any\nquestions or any point you find a bug,\nplease go ahead and create an issue and\nuh we'll be more than happy to hear any\nthoughts, any PRs, any contributions, or\nany any like we were talking to our folk\ncolleagues at Red Hat the other day and\nthey brought up like hey you know we\nhave this CICD pipeline which we use and\nwe think that there are these 10\nincidents which we have seen in the last\n3 months which we want to contribute to\nthe to the benchmark right so so that's\nthat's how we see this continuing to\nevolve and stay Apache 2 licensed and\nwhatever have you.\nand then you know as\nas a part of you know one of our\ncollaborations\nanother QR code for you to scan. This is\nmore about like a survey. This is not a\nsurvey being done by IBM. This is being\na survey done by our alumni at UIUC\nwhere they want to hear from SREs to see\nhow they are using AI today if they are\nusing AI and if it helped you and do\ncertain things in a particular way how\ndid it help you right so\nthe first is more like a 10 to 15 minute\nyou know conversation to learn more\nabout what you're doing and then\neventually leading to a longer\ninterview.\nAnd again right this is all with the\nintent of they're going to go ahead and\npublish these findings and share with\nthe broader community at large as to how\nyou as a community are thinking about\nconsuming some of these things as a part\nof your day-to-day\nwork.\nand yeah I think we are\nthis is just a bunch of fault mechanisms\nwhich we have already implemented as a\npart of the IT Bench framework. Uh\nand that\nAnything else Bobby you'd like to add? I\ndon't think so. All right yep that\nconcludes our talk.",
+  "segments": [
+    {
+      "text": "So, thank you everyone for coming to our talk and let's get started. So, as we are just coming back from lunch, we could use some exercise. So, uh how many of us have like or in the middle of an incident or you know just debugging thrown some you know logs,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "metrics, or code at an LLM? Most of the room? All right, let's go next. Oops. Uh how many of you have tried building an AI agent or an assistant? You found yourselves asking the LLM the same question and you're like, \"Okay, I can",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "build something out of it.\" Okay, so glad to see that there's some people in the room. Uh and then some of us who have been on the other side where someone in the leadership comes up and asks us, \"Hey, you know, uh this AI tool is out here or you know",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "we have many vendors including ourselves out there as well saying that hey, you know, this prompt this is all we can promise. Do you want to try it, right?\" So, again a few people in the room there and then now you've built these tools,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "you've been either asked to use them. Have you had a reproducible way to test any of this? Anyone? Maybe? No? No? Oh, one person in the room there. So, all right. So, when we started on our journey last year with all the LLMs, right? So,",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "we IBM with IBM research were already doing a lot of work in incident analysis and whatever have you and then LLMs came along, right? So, so we folks in the team were like, \"Okay, so what does it mean to start using LLMs for this?\" And",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "then over a period of time you'll see that, you know, whether it be IBM or some of our competitors, you know, these are all like public articles which someone can go and read and they have all the claims, right? That hey, we are",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "doing this, we are doing 90% faster root cause analysis and whatever have you. Right? So, Bhavya, uh would you like to comment on? >> Yeah. So, okay, we've seen all the promises, but what about the reality of it? Um so, again, you'll see a lot of",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "articles out there talking about, you know, first of all, whether AI is really needed. So, if you look at some of the incidents and it would show that, you know, just 1 minute of of testing would have discovered the issue rather than",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "throwing so much investment into AI. Um then, even if you use AI, right? Um for example, Meta's AI only has 42% success rate in finding the root cause for these incidents. Um and not just that, you know, there's people who are there SREs who are using",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "uh AI. Um some of them, yeah, show increased productivity, but there's also a lot of increased toil um due to these uh additional AI tools. So, we see a big gap, you know, there's so much being promised, but the reality is um the accuracy isn't that great um",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "and the usefulness of these tools is is still questionable. So, same thing we've seen in our, you know, experimentation testing with these uh AI tools that um just throwing a lot of data on LLMs is is not going to get you anywhere. You know, um so, we tried",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "this, we came up with this uh you know, simulated kind of um uh incident where we had like alerts and some data like events, etc. And we gave this context to LLMs. full disclosure, you know, we came up with this uh test about a year ago and",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "then yesterday when I was um playing with the same incident, I thought, \"Hmm, will this uh incident still be tough for the the latest models?\" And lo and behold, even the latest models like Gemini 3 Pro, um Claude Sonnet 4.6, all",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "of them struggled. So, um what was the issue, you know? The issue is that the context is not clean. You'll see a lot of events and it's like a needle in a haystack problem. The correct root cause in this case was a config issue, whereas all the LLMs got",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "confused by a network policy which was applied but then quickly reverted. So, that signal was missed by by the LLMs and it just latched on to something which would seem like the right answer but it wasn't. And feel free to try, you",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "know, you have the QR codes here so you can try your favorite LLM, do some prompt engineering and see if you can get the LLM to give the right answer. So, along this journey, you know, we Sorry. The other direction. >> Oh, you're going the other way.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "Um so, along this journey, we we learned a lot of lessons, you know. So, one one we talked about where context quality is way more important than using the best model out there. You know, garbage in, garbage out. You've heard that a lot of times.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "If you're not giving it the right data, no model can get you the right answer. The other thing is we want to take a more of a scientific approach to this, you know, as we are building agents for our use case. So, when we're doing this,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "reproducibility is key. How do we measure progress unless we can replay the same scenarios, the same fault, you know, give it the same exact context and ask it to to solve it? and then maybe Rohan can talk about the other lessons. Yeah. So, question was,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "can we build such an evaluation framework, right? Was there something existing out there which we could build and then which or which we could build on? But when we were out there looking for something like this about an year",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "back, what we found was oh, you had these environments which were like completely like offline, just like an AI researcher would come in use an offline data set to do any of the visual analysis or whatever have you. But we know from our experience of building",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "cloud native applications that this domain is different, right? So, going to So, what started was what we now call as the IT bench effort. So, again, it's a Basho 2.0. It's on GitHub. Folks can go in. It's completely Kubernetes based. So,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "the layers where you could go come in, you have a Kubernetes cluster, you deploy certain applications on the top of it. You deploy a bunch of observability tools which are open-sourced and ready to use. And as a part of that,",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "what we started to do was we started looking at some of the incidents which you were seeing from our own internal systems, whether it be the likes of the IBM software products and then extending to what incidents you were seeing from AWS and Azure and",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "whatever have you and started to build this notion of what does it mean to bring those incidents into such a sandboxed environment. Um and then the idea whole idea was could we build something which was vendor neutral, right? So, whether it be our own IBM",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "products or be any vendor out there, this was more of a mission for us both from, you know, to prove that our agents are doing better, but also from a research perspective, we wanted the academic community to have such an environment where as they",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "adopt AI and build certain toolings, they can come and build with us. So, as you can see here, right? So, we refer to an IT bench scenario. So, what does a scenario entail? A scenario entails basically you go ahead and you deploy",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the environment. So, a lot of the execution is completely Ansible based. Again, we were trying to wear the lens of what people like SREs themselves would be using as opposed to like we got kind of a pushback back our AI researchers, hey, like, you know, this",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "is not our preferred mode, we have a learning curve, etc. But, we stuck to that one. So, again, as you can see, a lot of the open source tools out there, when we started out there, our hat which you were wearing was primarily an SRE",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "lens. And then what we started to observe was yes, there are certain decisions an SRE can take by themselves, but it could be that they are put in certain situations which are also drawn from other domains like FinOps. A popular like I shouldn't popular is",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "probably the wrong word. But, an infamous incident which we were brought to was where there was a exponential cost because some malicious actor had entered into the environment one of the large corporations. They were managing to spin up VMs with GPUs on",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "them and then using it for mining. And the only reason that got noticed was because some FinOps professional noticed that, hey, there's this un you know, unexpected surge in some cost, and then they went to the SRE teams and be like,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "hey, you know, what's this happening? And then that in turn led to them reaching out to the folks in compliance and security being like, and that's what made us think that, you know, if you build something like this, it need not",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "just be limited to site reliability engineering, it could extend to other domains as well. Um and then the next step was, you know, okay, so you have some sample applications. So, I'm hoping most of us have heard of astronomy shop",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "while working with hotel telemetry and whatever have you. So, that's the first application which we adopted. Now, we also have Istio's book info if folks are familiar with it on board it as well. And then the third step is where,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "you know, we have made some initial dents, and we would expect as you go through this journey that folks in the room would join us on, right? So, think about fault mechanisms as failures which you could introduce in this sandbox",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "environment. Again, through through code changes or you know, firing up certain load generators and whatever have you, right? So, so that's what uh is is the ball. So, going back to when we started, right? So, uh a leadership someone comes in and",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "says, \"Hey, can you please evaluate AI capabilities of X?\" You could be like, \"Hey, I don't need any external tooling. I could build something over lunch. Just fire up cloud code, build something which you use daily.\" Or but the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "eventual question is, how do you evaluate? How do you go about saying I have built is better or what someone is else is offering to me is better, right? So, from an IT bench perspective, this is what we came up with it was a checklist, right? So, okay.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, um is there hotel support already present for your application? Can your application be deployed on Kubernetes? And then, you know, you can set up whatever data exporter you want. And then, with the intention that whatever",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "scenarios which we've been building as a part of this IT bench open source framework, could you take it and replay these scenarios in your environment for your application, right? And then, eventually what you land up with, you",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "have a set of fault mechanisms, you have the same set of evaluation metrics which Bhavya will talk about later, and then you are being a you have the capability to use these different toolings, whether it be your in-house tooling or whatever",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "vendor you may go to, right? So, leading to more like an apples-to-apples comparison uh overall. So, just to for people to start getting some familiarity, right? So, you can see that within this small YAML snippet, if you will,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "this is all if you have Helm chart, this is what you basically need to bring in your application, right? So, you could just go, you know, uh plug in the corresponding Helm chart values. There might be some template configurations",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "that you need for your application, and that's it, right? Now, you just go ahead, run a bunch of Ansible playbooks, and you will have the application deployed into this IT bench environment which you could have on your own",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "internal clusters or whatever have you. Uh similarly for scenarios. So, what is a scenario, right? Going back, rehashing, it's a combination of the observability stack, the application, and the fault mechanism. So, here you can see that uh you know,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "we have created a fault mechanism where due to some deployment changes, you now have an unsupported architecture image which is getting deployed into your environment, right? Or maybe someone made a change to their build scripts,",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "and now they had it going around building for an incorrect architecture as an example. And there here you can see that the name checkout of the targeted workloads or checkout is one of the components in Astronomer shop, but",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "here again you could see if you had your own application, you could basically change it to that, right? So, basically reusing these fault mechanisms for your own environment. and so then, you know, so what does it Where do we go from here, right? So,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "we've been thinking about uh for let's say a community at large, if we go back and we start looking at some of our own internal incident reports, is there some summary or some sort of a postmortem I can get from those reports? And then, you know,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "I'm trying to see, okay, the failure happened, right? As a part of all our investigations, we go ahead figuring out, okay, this is why it happened and whatever have you. What would be a representation of that? And then, what",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "we have landed up creating are like two experiences as a part of it. So, one experience is where let's say you you want to be where, \"Hey, I don't want to use an LLM. I just want it to be completely like, you know, script-driven. I want to contribute the",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "code, whatever have you.\" You basically go in, run, make scaffold fault. It will go ahead, run through the execution, prompting you, \"Hey, you know, what fault mechanism you want to create, etc.\" It will create the relevant",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "placeholders for you into the IT bench environment. And then you can go ahead and deploy that, right? So, that's this one experience which one can go for. In the case of an LLM assisted experience, it's more like we have developed like a cloud skills. Folks in",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "the room familiar with cloud skills? Some? No? Some? Yeah. So, what we were able to do is we have tried to leverage that, grounded into this astronomy shop demo application. So, all what you need to do is just bring in an incident",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "report, right? So, and let's see if the tech permits here. So, right before our our discussion here, um I basically went online looking for, \"Hey, you know, are there some incidents which we could look at?\" And then I was",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "like, \"Okay, so there was this incident report which showed up.\" This is from an AI startup, again planning promising things to do in the landscape. And then this entire experience from there, right? Backed by cloud skills,",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "not taking any credit there away from our folks at Anthropic, right? Is able to drive in through this step-by-step. So, it goes and okay, it goes fetches. No, okay. It goes ahead, it goes fetches. Once it goes ahead and fetches",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the scenario, it tries to come up with some summary of the incident, right? Once it draws some summary of it I'll have to probably hit no here so that it doesn't keep scrolling. Um and then it goes, it creates, you know, some summary of the incident and",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "then it starts to ground it into the IT bench framework, right? So, which means what does it mean in the context of OTel demo? And are there services inside OTel demo which it can leverage? So, in the first execution, right? Now, if it was a human",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "was not intervening this interaction, you will soon see that what it tried to do a few minutes ago was just introduce the corrupted image for the OTel collector itself. And we as practitioners know that if you basically watch the hotel collector itself, you",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "will have no observability data coming in and you hence, you know, the scenario is null and void. So, you as a human can go in and then provide some input saying, \"Hey, you know, that may not be the right Let's see. I'm just trying to scroll",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "through here till I get to the point. Yeah, where I basically go ahead and tell it, \"Hey, you know, this is not the right thing to put it on. You go and you would go to the checkout service and then it starts looking into the checkout service",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "and it goes and does the same thing for the checkout service, right?\" Instead of trying to do it for And then as a part of the execution, as you can see, I can guide it through steps where it's basically now going ahead and trying to run the scenario",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "here. So, it's basically it's showing that, okay, you know, it's gone ahead and verified that now it has, you know, an invalid image pushed to and updated to the checkout service and so on, right? So, the idea here is basically to",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "make the experience as seamless as possible for any practitioner to come in and contribute, whether it be these fault mechanisms or the scenarios or basically take this environment back to your estate and see, you know, how do",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "you go about evaluating any of the AI toolings out there. So, going back to our charts. Yep. So, that's where we went from, you know, going from incident scenarios and then, you know, folks who are interested can also PRs on that. So, now that we have run a",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "scenario, the question becomes what does it mean to go ahead and start evaluating how all the performance of the AI agent was. So, again, when we first started off, we had like we were our evaluation was kind of secret, but off late in the last couple",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "of months, the team has worked to go ahead and make it open sourced as well. So, again, if you go to the main IT bench hub organization, you will see that even the evaluations is open source for you to bring in and start evaluating. So, would you like to cover",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "some of the metrics? Okay, so again when we we are building a benchmark, so the obvious question is how do you measure whether your agent is successful or not, right? So, in this task we have kind of two subtasks. One is diagnosis, which is",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "whether the agent get the correct root cause or not. So again, if you think about the the example slide I showed in the beginning, in that case the agent did not get the root cause right, right? So, that is the diagnosis part and then",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "you have mitigation, which is the final goal in some sense, which is whether the agent cleared the alerts or not. So, it fixed the issue or not. And then of course, you would like to measure how fast or slow was it at correcting the issue.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So, to dig a little bit into the actual metrics, so for diagnosis we use something called pass at K, which is used quite often in the AI literature. So, it basically measures whether the agent got the root cause entity right or not within the first K attempts.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So, in some sense it is also an attempt to measure the robustness of the agent, right? So, let's say we run the agent 10 times, but it only got the the correct root cause one in 10 times, right? So, so that's not really useful versus",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "the agent getting it right every time. Beyond just getting the root cause entity right, we also want to measure whether the reasoning is right or not, right? So, what is the exact reasoning, so the why behind the the incident.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "And this one is a little bit harder to measure because it's it's all natural language, right? So, it's not like one entity so one service, but it's like you can express the same reason in multiple ways. Um, so it's a little bit harder to measure that.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Um, then in terms of mitigation, you again have passed at K, and I'm sure you're all familiar with mean time to resolution, um, which is the end-to-end, uh, clock time the agent took. Um, and I would just like to, uh, give a",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "quick shout out to, uh, Nicole who who introduced this mean time to a W2F, uh, in this conference. Um, so, you know, you when you're building an agency, you should always think about the usefulness. Ultimately, you know, uh,",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "humans, your SREs would be using it. So, we don't want the agent to do something that confuses them even more, right? So, you want to reduce, um, the the burden or the friction to the, um, SREs. Um, so, yeah, these metrics are great, but always think",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "about, uh, the human, uh, factor. Um. So, how are our agents doing on on the benchmark, right? So, again, when we started, uh, this journey, it was about, I think, late, uh, 2024, um, is when we started. And at that time, and I think",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "even now, um, React is is one of the popular, uh, architectures, uh, that is used, which is basically used the LLM to do everything. Right? Um, so, the LLM does the planning, um, it uses tools to interact with your environment. It'll",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "collect the data, analyze the data, and so on and so forth. Um, so, as you can see, the agent didn't do a great job. It was only getting about, uh, 14% on the diagnosis task, and mitigation was way even worse, about 11% or so.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "Um, so, not great, right? So, what did we do? We we looked at what the agent was doing, tried to do some error analysis, um, and we found some obvious things, like, okay, it hallucinates, um, you know, it's not able to plan correctly,",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "it's it's wandering about. So, the environment as you know, like a Kubernetes environment can be huge, right? There's so many services. So, it can take a lot of detours and just get lost in in the huge environment. So, we took those as lessons and and one of",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "the members of our team who is a domain expert thought of using the application topology. So, it's a a way to guide or scaffold the LLM and constrain like the search space. So, the So, we start with the services in the alerts and search only",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "within the neighborhood of the of those services. And even within that, right? We have a deterministic way of providing the context. So, the LLM job is reduced. It doesn't have to make tool calls. It doesn't have to understand the raw context. A lot of it",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "is engineered in that way. And and this agent does a lot better as you can see it's close to 95% pass at three. Small caveat, this is evaluated on a snapshot of the data. We we are still in the process of evaluating it on the the",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "live environment, but we expect the numbers to be around somewhere in that ballpark. So, that's great, right? I think the problem is solved. What do you think? So, we can like all SREs can stop working and let the agent do our jobs.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "Fortunately, that's that's not the news. So, this is where we we would like to invite the entire community and need your help to like evolve the benchmark and participate in the in the benchmark as well. Do you want to talk about this? Yep. So,",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "So, as you guys saw, right? From the more targeted exploration which our colleague Saurabh who's also on the on the talk went ahead and explored, right? You can see the improvement which he got in terms of the benchmark. But,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "what what we have realized is that even when you look at the fault injection mechanisms which are present in the part of the benchmark, it it around coverage is around 15% of all the universe of fault mechanisms which you could have.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "What we see in, you know, one of the large cloud providers or whatever have you, right? So, so that's where we are hoping that the community will come in and help with the there two intentions here. One is we help folks build better agents",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "which in turn become better assistants for all of us. And also to the part where we see this as knowledge sharing, right? So, there are students out there in grad schools that we interact with who are interested in this domain and they are very keen to",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "start, you know, tinkering with, \"Hey, what does this IT incidents look like? What does it mean to be an SRE?\" and things like that. So, so whenever we look at, you know, and that was a realization like both being from UI, you",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "see that was the one of the realizations we had as we went on this journey. Um and then also if there are any other agent developers in the room, right? Uh we'll be more than happy to see how do your agents or methods perform on the IT",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "bench. There's also like a leaderboard which people can come in and participate in. and then, you know, last but not the least for us it is more about making AI agents better and then as in the morning talk it was stated, right? It's all",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "about building trust. So, how do we go about building trust as we go on this journey? and then, yeah. So, feel free to scan this QR code. This should take you to the the parent repo of IT bench and yeah, give it a shot. If you have any",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "questions or any point you find a bug, please go ahead and create an issue and uh we'll be more than happy to hear any thoughts, any PRs, any contributions, or any any like we were talking to our folk colleagues at Red Hat the other day and",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "they brought up like hey you know we have this CICD pipeline which we use and we think that there are these 10 incidents which we have seen in the last 3 months which we want to contribute to the to the benchmark right so so that's",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "that's how we see this continuing to evolve and stay Apache 2 licensed and whatever have you. and then you know as as a part of you know one of our collaborations another QR code for you to scan. This is more about like a survey. This is not a",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "survey being done by IBM. This is being a survey done by our alumni at UIUC where they want to hear from SREs to see how they are using AI today if they are using AI and if it helped you and do certain things in a particular way how did it help you right so",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "the first is more like a 10 to 15 minute you know conversation to learn more about what you're doing and then eventually leading to a longer interview. And again right this is all with the intent of they're going to go ahead and",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "publish these findings and share with the broader community at large as to how you as a community are thinking about consuming some of these things as a part of your day-to-day work. and yeah I think we are this is just a bunch of fault mechanisms",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "which we have already implemented as a part of the IT Bench framework. Uh and that Anything else Bobby you'd like to add? I don't think so. All right yep that concludes our talk.",
+      "start": 624,
+      "duration": 6
+    }
+  ]
+}

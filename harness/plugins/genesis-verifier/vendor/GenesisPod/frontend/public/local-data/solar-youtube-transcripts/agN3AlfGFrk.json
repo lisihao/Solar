@@ -1,0 +1,1339 @@
+{
+  "videoId": "agN3AlfGFrk",
+  "title": "Stanford CME296 Diffusion & Large Vision Models | Spring 2026 | Lecture 3 - Flow matching",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 68647,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello, everyone, and welcome\nto lecture 3 of CME 296.\nSo today is a very\nspecial day because we're\ngoing to talk about\nflow matching, which\nis a generation paradigm that\nis quite trendy these days.\nSo if you're a member,\nlectures 1 and lecture 2\nwere also about\ngeneration paradigm\nwhere we talked about diffusion\nwith DPM and lecture 1\nand score matching in lecture 2.\nSo flow matching is yet\nanother generation paradigm.\nAnd we're going to\nsee in this lecture\nwhat is the mindset behind\nthat separate paradigm\nand how it relates to\ndiffusion and score matching.\nSo as usual we're going to\nstart the class with a recap\nof the last episodes.\nSo if you remember\nlecture 1, we saw\nhow we could\ngenerate new samples,\nand the way we thought\nabout doing that\nwas taking images from\nour training set, which\nwe named clean images.\nAnd what we did is that we\ngradually corrupted them\nwith a process that we\ndefined, a process q,\nwhich, given an image\nat a given time step,\nnoised it by adding some\nGaussian noise weighted\nby some coefficients.\nAnd the goal of diffusion\nwith DPM was to find\nor was to learn a\nreverse process, which\nwe noted p theta that\nremoved the noise gradually.\nAnd what we saw was that\nin order to learn p theta.\nWhat we did is try to maximize\nthe likelihood of our model\nseeing the training data.\nAnd if you remember,\nwe did some clever math\nwith some estimation\nof the lower bound.\nSo the elbow and we\nderived some terms\nand we ended up\nwith a pretty good\nlooking loss, which was just an\nL2 regression on the noise that\nwas added up to the\nimage at timestamp t.\nAnd so this was lecture 1.\nLecture 2 was taking\nanother perspective\nand just taking a\nstep back, thinking\nof images in the space of the\nn dimensional space of images,\nand the fact that\nwhat we wanted to do\nwas sample from an\neasy distribution\nand then work our way up until\nthe true data distribution.\nSo how did we do that?\nThe whole point\nof the lecture was\nto learn what we call\nthe score, which is\nthe gradient of the log of p.\nAnd why did we do that?\nBecause it acted as\na compass from where\nwe were up until\nregions of high density.\nAnd if we learn such a\nscore, what we could do\nwas use sampling techniques\nsuch as Langevin sampling, which\nallowed us to move towards\nhigh density regions,\nbut also allow for some\ndiversity with some noise term.\nAnd we saw that in order for\nus to estimate that score,\nwe cleverly noised the initial\ndata distribution in order\nto learn the score of\nthe noised distribution.\nAnd then we had a\nprogressive noise schedule\nthat allowed us to\nprogressively work our way up\nuntil the data distribution.\nSo we ended up with\na score function\nthat was a function of\nthe position in space,\nbut also the noise level.\nAnd again, after doing\nsome clever math,\nwe also ended up with an\nL2 regression loss, which\nwas quite easy to compute.\nBut what we also saw was\nthat what we saw in lecture 2\nwas actually quite related\nto what we saw in lecture 1,\nbecause both involved\nadding noise.\nAnd in particular,\nwe saw that there\nwas a relationship between the\nscore of a noisy distribution\nand the noise that we\nadded from the clean image\nto the noisy image.\nSo given that, what\nwe did was think\nof a unified way of looking\nat both these perspectives,\nand we moved from a\ndiscrete representation\nto a continuous one, and\nwe obtained this SDE, which\nwas of the form dx equal f\nof x and t dt plus gt times\ndw, where w is our Wiener\nprocess which is introducing\nthe stochasticity.\nAnd in particular, the first\nterm is called the drift term,\nand it is a term that quantifies\nthe deterministic movement\nin space across time.\nAnd the second term is\ncalled the diffusion term,\nwhich quantifies the\namount of stochasticity\nthat you have in your process.\nSo this expression is the\nexpression of the forward pass,\nmeaning, you're actually\nnoising your images.\nAnd we saw that in\nspace, if we were\nto represent that,\nit meant, again,\nhaving a drift component\nand a diffusion component.\nSo now if we wanted\nto denoise our image,\nwe were actually interested\nin the reverse process,\nwhich we saw thanks to the\nresult from the '80s involved\nknowing the score.\nSo this expression is\nthe reverse process\nthat allows us to\ndenoise images, which is\nwhy we need to learn the score.\nAnd this is where\nthe score comes in,\nin the continuous view.\nSo this was two weeks\nago and a week ago.\nBut today we're going to see\nthis third generation paradigm,\nwhich is called flow matching.\nAnd similar to the\npast lectures, what\nwe're going to try\nto do is to have\na nice balance between\nintuition and math,\nbecause you will see that\nthese papers are full of math,\nfull of equations,\nand we will try\nto approach it from an\nintuitive perspective,\nbut not shy away\nfrom the math either.\nAnd of course, please\ninterrupt me at any point\nif you feel there's\nsomething that's not clear.\nCool?\nOK, let's start.\nSo the whole point of\nthese first three lectures\nis to find a way to\ngo from somewhere\nthat is easy to sample\nfrom up until our data\ndistribution of interests.\nSo the way that flow\nmatching works is.\nIt has two distributions.\nThe first one is called\nthe initial distribution,\nwhich is the distribution\nthat you're starting from.\nAnd then the second distribution\nis called the target\ndistribution, and it\nis the distribution\nthat you want to end up with.\nAnd the whole point\nof flow matching\nis finding a way to transport\nour initial data distribution up\nuntil the target distribution.\nAnd just note the terminology\nI'm using, transport.\nSo what we want is to transport\nthe whole density that we have,\nand remember that\nprobability, densities\nhave this very nice\nproperty of summing to 1.\nSo we want to transport the\nwhole density distribution\nfrom one place to another.\nSo this is the idea\nbehind flow matching.\nAnd we're going to see\nhow we can do that.\nSo I'm going to just give you a\nwarning in terms of conventions.\nIn the past, we've seen\nthat 0 was clean data\nand then capital T\nwas the noise data.\nBut here it's going\nto be different.\nSo we will be noting p0 our\ninitial data distribution, which\nis typically something\nthat is easy to sample\nfrom such as Gaussian noise.\nAnd the target data\ndistribution is\ngoing to be noted p1,\nt equal 1, and this is\nwhere we want to end up with.\nAnd then again, so\nthis slide is just\nto say that lectures 1\nand 2 we said 0 was clean,\ncapital T was noise.\nBut here 0 will be noise\nand 1 will be what we want,\nwhich is the clean images,\nwhich is the data distribution.\nSo the reason why we\nchose to proceed that way\nis just that the field\nchose these conventions.\nAnd if we were to keep the\nconventions of the diffusion\nand score matching fields,\nit would just completely\nconfuse if you were to read\npapers from the flow matching\nfield, which is the reason\nwhy we're keeping things\nconsistent with the paper.\nBut just keep those\nthings in mind,\nbecause sometimes these\nconventions can also\nbe reversed, depending on\nwhich paper you're reading.\nBut this one is by\nfar the most common.\nSo with that warning\naside, what we want to do\nis to sample an observation from\nour initial data distribution\nand then map it to the\ntarget data distribution.\nSo in order to do\nthat, we're now\ngoing to go through\nsome common notations.\nAnd the first one is\ncalled the trajectory.\nSo the trajectory is\nnotated xt, and it\nis the path that is taken by\nan observation between times 0\nand 1.\nSo by the way, the time\n0 and 1 is arbitrary.\nIt's just a way for us to\nsay, OK, when are we starting\nand when are we ending?\nAnd so here at time t\nequals 0, we have x0.\nAnd what we want to do\nis for our trajectory\nto map a point from\np0 up until p1.\nSo that's our goal.\nSo now, let's see\nanother notation.\nSo this one is called the flow.\nThe flow is known\nas psi of T of x0.\nSo I'm just going to\nwrite that down here.\nSo it is a function that takes\ntime and an initial condition.\nAnd it gives you where\nthat point at time t.\nSo this is the time\nso belongs to 01.\nThis one is to your\nspace, which is maybe--\nI don't know-- d dimensional.\nAnd this one is also in\nthe d dimensional space.\nAnd you have psi\nof T of x0, which\nis equal to your point at\ntime t, which is x of t.\nSo the flow you can interpret\nit in different ways.\nSo one way you can\ninterpret it is it's\na collection of trajectories.\nBecause if you change\nthe initial condition x0,\nthen psi t of x0 is all\nthe possible trajectories\nthat go from an initial\ncondition x0 up until time t.\nYeah?\nThe flow can also be\nseen as a function that\nmaps your initial condition to\nwhere it should be at time t.\nAnd this is why it's\ncalled the flow.\nSo this function\nis quite important\nbecause at the end\nof the day, what\nyou want is psi 1 of x0 to be\nsampled from-- to be as if it\nwas sampled from p1, which is\nyour target distribution, data\ndistribution.\nCool.\nSo now we have our\nnext terminology\nwhich is called the probability\npath, and it's denoted pt of x.\nSo pt of x is the\nprobability distribution\nof your observations at time t.\nSo p0 of x is your initial\ndata distribution, and p1 of x\nis your target\ndata distribution.\nSo if t is between 0\nand 1, it's basically\nthe intermediary probability\ndata distribution.\nAnd as you can imagine, in\norder to go from p0 to p1,\nyou have an infinite\nnumber of ways\nof going from one to the other.\nSo pt by no means unique.\nThere are many ways for\nyou to go from 0 to 1.\nCool.\nAnd now we're going to\ntalk about a central object\nof this whole field, and\nit's called the vector field.\nSo vector field\nis noted ut of x.\nAnd it is a function that takes\nin a place in space, so x,\nand a time t.\nAnd it gives you a vector.\nAnd that vector,\nyou can interpret it\nas the direction and the speed\nthat particles should move\nat that location at that time.\nSo again, the vector\nfield takes in a vector,\nwhich is your position\nin space and gives you\nalso a vector, which is where\nyou need to move and how fast.\nAnd we're going to see\nthat the vector field is\nquite central to flow matching.\nBut before we do that,\nI know last lecture,\nwe talked about the score.\nAnd the score was also a vector.\nAnd if you remember,\nthe score was also\nsomething we used in order\nto go from noise to data.\nSo one natural question you may\nbe asking yourself right now\nis, well, how does this vector\nfield or velocity relate\nto the score?\nSo I'm going to give you\nthe following analogy.\nSo let's suppose you want to go\nfrom your initial distribution\nto your target distribution.\nAnd let's suppose\nthat you're thinking\nof this in terms of self-driving\ncars that are distributed,\nlet's say, in a Gaussian fashion\nin the middle of the desert.\nAnd what you want to do is to\nposition your self-driving cars\nin a certain way so that\nit follows, let's say,\na target data distribution.\nSo the way you would\nthink of the velocity\nwould be instructions\nthat you would\ngive to your self-driving\ncars at a given location\nand at a given time t So if\nthe vector field was not time\ndependent, you could even think\nof it as highways or routes\nwith speed limits.\nBut here, the vector\nfield is actually\ntime dependent, which means that\nat a given location x and at two\ndifferent time steps, t1 and\nt2, that vector can actually\nbe different.\nAnd in that sense,\njust following\nwith that self-driving\ncar example,\nthe score would be\na bit like a compass\nthat you could see in your\ncar of where high density\nregions are.\nSo I hope this is\nuseful to just picture\nthe difference between what a\nvelocity is and what a score is.\nSo these two are\nvectors, but they\nhave different interpretations.\nAny questions so far?\nWe've barely started, so we're\ngoing to see a few things here.\nBut I just want to make sure\nthat the notation so far are\nclear.\nYeah, all good?\nCool.\nSo we're going to see\nour first identity here.\nSo we introduced the vector\nfield, a.k.a. the velocity,\nbecause this is the way we're\ngoing to have our particles\nmove from one place to another.\nAnd in particular,\nthe definition\nwe're giving to the velocity,\na.k.a. the vector field,\nis given as follows.\nSo what we're going to say\nis that a change in position\nwill be associated with the\nvelocity at that location\nat that time t times dt.\nSo in other words, a given\nparticle in a given location\nwill be moving according\nto that velocity.\nAnd one thing that\nI want to tell you\nis that the trajectory,\nwhich as a reminder,\nis the whole path that the\nparticle is taking from time t\nequals 0 to time t equal to\n1, that trajectory is actually\ngoing to be unique for a\ngiven initial condition\nif there is a special condition\non the vector field, which\nis that if the vector field\nis Lipschitz continuous.\nSo the reason why\nI'm bringing this up\nis because it's going\nto be important.\nAnd so who knows what\nLipschitz continuity is?\nHave you ever\nheard of this term?\nYeah?\nNo?\nOK, so maybe I can just recap\nthe mathematical definition\nand maybe how it\nmeans-- what it means.\nSo Lipschitz continuity\nof a function f\nis when you have some\nconstants, let's call\nit m such that for all x and\ny in your space of interest,\nyou have your function f that\nsatisfies this relationship.\nSo the norm of f of x\nminus f of y is less than\nor equal than m times\nthe norm of x minus y.\nSo what this means is that f\nneeds to be continuous, but also\nnot in a very dramatic way.\nSo this is the\nmathematical definition\nof Lipschitz continuity.\nAnd what I'm saying here\nis if the vector field\nis Lipschitz continuous,\nthen the trajectories x\nwill be unique for a\ngiven initial condition.\nAnd so I'm going\nto just give you\nan example of when\ntrajectories are not unique.\nSo here we have our ODE\nwhich is here like so.\nSo I'm just going to give you an\nexample of if we have a vector\nfield that is not Lipschitz\ncontinuous, how we can have\ntrajectories that start\nfrom the same point\nbut that are actually different.\nSo here, the example\nis as follows.\nSo let's suppose\nwe have your vector\nfield, which is given this, by,\nlet's say, square root of x.\nAnd you only consider, by\nthe way, x positive or 0.\nSo if your vector field, by\nthe way, is time independent\nand it's just a function of\nx by square root of x, then\nif you say you want your\ninitial condition to be x0\nis equal to 0, then xt equal\nto 0 is going to be a solution,\nbut xt equals to\nt squared over 4\nis also going to be a solution.\nSo here t squared over 4.\nSo the derivative is t over 2.\nAnd here's when you put this\nalso in the square root,\nit's also t over 2.\nSo all of that to say that\nyour vector field needs\nto behave in a\ncertain way if you\nwant to guarantee that your\ntrajectories are unique.\nAnd this is\nLipschitz continuity.\nAnd you're going to\nsee why that matters.\nCool.\nSo that's the first equation\nthat's going to be important.\nSo the ODE here,\nwhich is dx over dt\nis equal to the velocity\nat location x and time t.\nIt's the first one.\nThe second one that we're\ngoing to see is the following.\nSo I told you that\nwhat we want to do\nis transport our distribution\nfrom one place to another.\nSo when you transport\nsomething, one thing\nthat you want to guarantee\nis that you're not\ngoing to lose or gain anything\nof what you're transporting.\nYou have what we call\nconservation of mass.\nAnd this idea is also something\nwe want to put in writing.\nAnd in particular, we're going\nto focus on the following case.\nSo let's assume you're\nin a region of space\nand you consider\na very small area.\nAnd here you have your data\ndistribution that is around it.\nSo the equation that we\nwant to put in writing\nis around making sure that\nthe evolution of your density\nat time t is equal\nto the density that\nis coming minus the density that\nis going out or that is leaving.\nDo you all agree with this idea?\nSo the evolution of\ndensity as at time t\nis a function of how\nmuch density comes\nin minus how many comes out.\nSo the left-hand\nside is kind of easy.\nIt's just a partial derivative\nof your probability path\nat that region with\nrespect to time.\nBut then the right side, I don't\nabout you, but very intuitively,\nthere's not like a supernatural\noperator that does that.\nSo what we're\ngoing to see now is\nhow we can quantify the\nidea on the right side\nof the equal sign.\nBut before we do that, I\njust want to take a pause.\nDoes this idea make sense,\nconservation of mass?\nBy the way, have you\nseen it in another topic?\nYeah?\nSo in physics, you\nhave the same thing,\nand it's actually\ncalled-- it has a name.\nIt's called the\ncontinuity equation.\nAnyways, so instead of just\ngiving you the formula,\nwe're just going to\nintuitively get to it.\nAnd in particular, I want us to\nthink about this right-hand side\nof this equation\nand think for a bit\nhow we want to quantify the\ninflow minus outflow bit.\nSo let's suppose you\nhave an operator that's\ncalled of the divergence.\nBut right now, I'm not\ntelling you anything\nabout what that operator is.\nI'm just telling you that\nthe operator is positive\nwhen things are coming\nout more than coming in.\nAnd we're going to\nsee what happens then.\nSo here, when we're talking\nabout coming in and coming out,\nwe're, of course,\ntalking about vectors.\nSo here we're\nassuming, for instance,\nif there's more coming\nout than coming in that--\nlet's assume if we are\nin one dimensional space,\nyou have a vector that is\nsuch that at first it's\nsmall in magnitude, and then\nit's much bigger in magnitude.\nSo here, do you agree\nwith me that whatever\nthis vector is\nrepresenting, there is more\ncoming out than coming in?\nYou all agree?\nOK, so that's one\ncase where coming out\ncan be more than coming in.\nSo let's see a second case.\nSo second case is here.\nAnd then let's say your vector\nis coming out here and coming\nout there.\nYeah?\nI'm sure you can have\nmore cases than that.\nBut in this 1D example, if you\nwere to represent your vector,\nlet's say f, over the\ndimension x, here,\nwhat is the\nmagnitude of f doing?\nIt is increasing.\nOK, so here, we just see that\npartial derivative of x/x\nis increasing.\nHow about here?\nSo here it's negative.\nAnd then it becomes positive.\nAlso increasing, right?\nOK, so based on this very\nback-of-the-envelope intuition,\nwe see that when\nthings are leaving,\npartial derivative of x over\nthis dimension of f over this\ndimension x is positive, which\nseems to match the sign that we\nwant from our\ndivergence operation.\nSo now let's see the other case.\nSo let's assume that we have\nnow the case where we want\nour operator to be negative\nwhen there is, quote unquote,\n\"more coming than leaving.\"\nSo here again, this example.\nSo you have, let's say, a\nbigger vector here coming\nand then a smaller one leaving.\nAnd then let's say you\nhave another case, which\nis given by this, which\nis just vectors pointing\ntowards that area.\nSo here you see that f is\nbecoming more and more negative\nwhen you project it on x.\nSo here you have\npartial derivative\nof f over x, which is negative.\nAnd here you see that\nit was first positive,\nand then it becomes negative,\nwhich again, boils down to this.\nSo this is by no\nmeans a formal proof,\nbut I hope I gave you some\nintuition that if you take\nthe partial derivative of your\nfunction that is outputting\na vector over its\ncoordinates, at least in 1D,\nit would give you this\nintuition that if it's positive,\nthen it's more coming out,\nand when it's negative,\nthen there's more coming in.\nSo based on this intuition,\nwhat I'm now telling\nyou is that there is an\noperator that is indeed\ncalled the divergence that is\na function of a vector, that\nis a function of x, which\nis also multidimensional.\nAnd what it is\ndoing is it is just\nthe sum of the partial\nderivatives of x\nover each dimension.\nSo the divergence is a scalar.\nIt's a number.\nAnd if it's positive,\nit just means that there\nare more things coming out.\nAnd if it's negative, it means\nthere are more things coming in.\nSo based on that, we want to see\nhow we can use this divergence\noperator back into our\ncontinuity equation example,\nwhere we want to quantify\nthe fact that we want\nthe net inflows, which\nis how much density\nis coming in versus out.\nSo now a second\nquestion is something\nthat we ask ourselves, which\nis OK, what should we use as f?\nWhat should f be?\nSo we saw the\nvector field, which\nis a vector that\ncould be a candidate.\nSo do you think the vector\nfield could be a good candidate?\nSo let's see with an example.\nSo let's suppose you\nhave two points in space,\nlet's say x1 and x2.\nAnd then you have their\nrespective vector fields.\nIf you happen to have a higher\ndensity in one of the two\npoints, then our\nintuition tells us\nthat you would want the point\nin the higher density region\nto transport more things than\nthe one in the lower density\nregion.\nSo in that case, the vector\nfield alone would actually not\nbe a good candidate.\nInstead, and maybe you\nhave guessed it, in order\nto quantify the movement\nof density, we, of course,\nneed to take into consideration\nthe probability density.\nAnd so here the actual\nquantity that we will use\nis called the\nprobability flux, and it\nis defined by dt,\nwhich is a scalar times\nut, which is the vector field.\nSo going back to\nthe equation that we\nwanted to put in writing,\nwhat we're saying\nis that the temporal evolution\nof the density at time t, which\nwe said is simply the partial\nderivative of p with respect\nto t.\nWe're now saying that this is\nequal to minus the divergence\nof the probability flux.\nAnd this quantity, so minus\ndivergence of dt ut of x.\nIt just means that we're\ninterested in the net inflows\nof density within\nour small volume.\nSo all in all, that equation,\nwhich I'm going to write,\nis nothing else than the\ncontinuity equation, which\nyou may have seen in physics.\nSo I'm going to write it down.\nAnd of course, OK, this is here.\nSo what we're saying is that the\nevolution of density at a given\nlocation, the temporal evolution\nof the density at a given\nlocation, is given by how much\ndensity is coming in minus\nhow much density is coming out.\nAnd this just conveys\nthe facts that we're not\ncreating new density\nout of thin air,\nwe're just conserving it\nwhen time goes from t0 to 1.\nAnd compared to the\nODE that we saw before,\nyou can think of this\nequation as being\na macro perspective of how\nyour probability path evolves.\nAnd the ODE itself\nis actually centered\non how one particle\nevolves, which\nis more a micro perspective,\nwhich we're going to see here.\nSo a single sample, you take\nyour sample x at time t.\nAnd what you're saying is that\nhow fast that particle is going\nis actually given\nby the vector field\nat that location at that time.\nSo the distance dx is\ngiven by ut of x times dt.\nSo this is the\nmicro perspective.\nBut we also saw that\nthis vector field that\nwas coming into the picture\nin this micro perspective\nis also in the\nmacro perspective.\nAnd what we're saying is\ngiven that we're transporting\nthe density and we're not\nlosing it or gaining it,\nwe also have this nice\nidentity that we can use,\nwhich is also called\nthe continuity equation.\nAnd so there is expression that\nyou will see a lot in papers.\nI'm going to read it out loud.\nThe vector field ut of x\ngenerates the probability path.\nSo when people say\nthat, what they mean\nis that ut and dt satisfy\nthe continuity equation.\nSo now you may wonder,\nwell, why should we care?\nSo just remember\nthat our goal is\nto sample an observation from\nthe initial distribution p0,\nand to map it to the\ntarget data distribution.\nAnd the way we want\nto map it is we\nwant that particle\nto go from one place\nto another using\nthe vector field.\nAnd so what we want is to find\na probability path that will\nallow us to go from p0 to p1.\nAnd in order to find\nthe probability path,\nwe also need to find the\nassociated vector field that\nwill allow us to actually do\nthe mapping because that vector\nfield is in the single\nsample perspective.\nSo that's the idea.\nWe're going to see it in\nother words, in a little bit.\nBut this is the intuition\nbehind flow models.\nAny questions on this?\nEverything is clear so far?\nYep.\nSo question is the\nsolution of this equation\nwould be the target.\nSo on the left-hand\nside, if we know ut\nand if we know that ut is\nallowing pt to go from p0,\nsomething that we decide\nthat is easy to sample\nto p1, what we care\nabout, what we're saying\nis if we know such a ut,\nthen on the left-hand side,\nif you sample x from p0, you\nhave your initial condition.\nAnd if you ut,\nwhat that means is\nyou can solve this equation\nin order to find x1.\nAnd x1, by definition, will be\nas if it was sample from p1.\nSo that's the idea.\nI know it was a lot.\nI know it may not seem\nclear, but don't worry,\nwe have a lot of\nexamples down the line.\nSo let's move on.\nOh, this is exactly my\nnext slide actually.\nSo here what we're saying is the\nrelationship between these two\nperspectives, I'm\ngoing to just repeat\nwhat I said but in\nmathematical terms,\nis if we sample x0 from p0.\nGiven that our particle\nx is subject to velocity,\nthen what that means is, if\nthat velocity is actually\ngenerating the probability path\nfrom the initial to the target\none, then what that means is\nthat xt will be sampled from dt.\nAnd in particular, t=1, x1\nwill be sampled from p1.\nOK, cool.\nSo don't worry.\nWe're going to go into\nmore details on this.\nSo the whole goal of flow models\nis to map points, is to map x0\nto x1.\nSo what is our strategy here?\nWe saw that the vector\nfield was a central piece\nof this whole problem.\nSo number one,\nstep number one is\nfor us to estimate this\nvector field via some model\nthat we're going to\nnote ut theta of x.\nSo theta is the parameters\nthat we're learning.\nSo if we learn such\na vector field,\nthen what we're going to\ndo in order to map x0 to x1\nis we're going to use the\nODE and solve it numerically.\nSo what does that mean?\nThat means that we're\ngoing to sample x0,\nand we're just going to\nfollow the vector field up\nuntil time equal to 1.\nSo this integral\nhere in practice\nis going to be just a numerical\nsolver that maybe Euler,\nfor instance.\nAnd it's going to be giving\nyou x1, which is what you want,\nbecause at the end of the day,\nyou want to be able to sample\nfrom your target\ndata distribution.\nSo starting from\nnow, our full focus\nwill be around finding the\nvector field ut theta of x.\nBecause right now, I just\ntold you what we care about.\nBut I didn't tell you how\nwe're going to do that.\nSo now we're going\nto focus on that.\nSo in the past, there\nhas been many papers\npublished on how you can\nestimate your vector field.\nAnd there is one method that\nI'm going to mention here,\nwhich is not going to be\nthe focus of this class\nbecause it is a method that\nwas used a number of years ago.\nSo eight years ago, I believe.\nBut it is not something that\ncould be used in practice.\nSo people are not\nusing it so far.\nBut I'm just telling you\njust for historical purposes.\nSo one way of learning\nthe vector fields\nis by maximizing the likelihood\nthat your model is seeing\nthe data, the training set.\nSo how can you do that?\nWell, if you take the\ncontinuity equation that we saw,\nso this one--\nso if you take this\nequation, then what happens\nis if you do some\nmath, you can actually\npop up that log\nof dt of x, which\nis what you want to maximize.\nAnd you can have the\nfollowing strategy.\nSo you want to determine\nlog of p1 of x1.\nSo x1 is the data\nfrom the training set.\nSo you want to compute the\nprobability of your model\nseeing x1.\nThe problem is you\ndon't how to compute it.\nSo the way you're going\nto do this is you're\nfirst going to realize that\nyou can compute the probability\nthat the initial distribution\nis seeing x0, because typically,\nthe initial distribution is an\neasy one, something that you\ncan analytically compute,\nsuch as a Gaussian.\nSo you know how to\ncompute log p0 of x0.\nAnd what you're\ngoing to do is you're\ngoing to link x1 and\nx0 by integrating\nthe divergence of the vector\nfields, because you have--\nthe formula above that is true.\nSo if you know log p0 of x0 and\nif you know the vector field,\nthen you can compute\nthis quantity.\nAnd so what that\npaper was doing,\nwhich is called continuous\nnormalizing flow,\nwas that it was us trying to\nlearn the parameters theta\nby maximizing the likelihood\nof your training sets\nhappening under theta.\nAnd it was computing the\nlikelihood using this formula.\nSo what is the problem?\nThe problem is that\nat training time,\nyou need to constantly\nsolve this integral.\nSo it's a numerical solver\nthat works all the time.\nSo it's very expensive\nand very slow,\nwhich is why we\nhave a snail emoji.\nSo it's just not practical.\nPeople just couldn't use that.\nAnd for that\nreason, I hope I did\na good job of motivating\nthe reason why\nwe needed another approach.\nThe approach we're\ngoing to see now\nis actually what is called\nflow matching, because we're\ngoing to see we're not doing\nmaximum likelihood estimation.\nWe're instead trying to\ndirectly learn the vector field.\nSo if you remember\nfor score matching,\nyou were directly trying\nto learn the score.\nSo here we're directly trying\nto learn the vector field.\nBut the problem is that\nyou don't know what it is.\nSo we're going to see how\nwe can compute this loss\nand indeed optimize on theta in\norder to find our vector field.\nSo just remember that the\nproblem that we have is we\nhave an initial data\ndistribution and a target data\ndistribution.\nAnd what we care\nabout is finding\nthis ut of x, which will\nallow us to go from p0 to p1.\nThat is our goal.\nWell, p0 is easy, so it's\na Gaussian typically.\nBut then p1 can be\nsuper complicated.\nSo one idea we can\nhave is what if we just\nremember that the target\ndata distribution is just\ncomposed of points from\nyour training data?\nSo it's like individual points.\nSo what if instead we\nsimplify our problem\nand we ask ourselves how we\ncan transport the initial data\ndistribution, not to the target\none, but to a single point?\nHow about if we just move\nour whole data distribution\nfrom initial to a single point?\nAnd here, I noted\nthe single point\nwith the distribution delta x1.\nSo delta x1 is the notation\nfor a Dirac delta distribution.\nSo who has heard of\nthe Dirac distribution?\nYeah?\nSo Dirac distribution\nis actually probably\nthe simplest\ndistribution out there\nbecause it's a\ndeterministic distribution.\nIt will always give\nyou one quantity.\nSo here delta-- so I'm\ngoing to write it down.\nSo delta x1 of x is going to\nbe 0 if x is different than x1.\nAnd otherwise, it will be\nactually a very high number.\nSo typically, people\nsay, let's say infinity.\nBut of course, it's\ninfinity, but the integral\nof this distribution, like\nthe density needs to be 1.\nSo long story short is that\nwe simplified our problem\nfrom initial data distribution\nto your target one.\nSo we changed from that\nformulation to initial data\ndistribution to a single point.\nSo one idea could be for us\nto think of the following way\nof going from one to the other.\nSo let's suppose you\nhave a probability\npath that is super simple.\nIt's just a Gaussian\ndistribution\nthat is being interpolated\nbetween 0 and x1.\nSo here what I'm saying is,\nhow about we think of the way\nwe want to go from\n0 to the points\nby taking our normal\ndistribution of mean 0\nand variance identity?\nAnd how about we\njust scale it down,\nscale it down and then\nmove it towards x1\nuntil it becomes\njust that point?\nSo here pt-- so we say\nx given x1, because it's\na conditional probability, it's\nlike given we're arriving at x1\nat time t equal 1, it will\nbe given by a mean of t x1\nand a variance of 1 minus\nt squared times identity.\nSo let me tell you\nwhy that is the case.\nSo what I'm saying here is\nthat I'm proposing a way for us\nto go from the normal\ndistribution that\nis this one of mean 0 and\nthen variance the identity.\nSo what I'm saying is in order\nto go from here to this point,\nwhich is x1, what\nI'm telling you\nis we're going to have a\npath pt given x1, which\nis a normal distribution of--\nas a function of t because it's\nprobability path at time t,\nt x1 and 1 minus t squared I.\nSo when t equals 0, this\nis 0, this is identity.\nSo p0 is just the\nnormal distribution of 0\nand I. And p1 is--\nwell, t=1 is just x1.\nAnd this one is a variance of 0.\nSo you can think of\nt just tending to 0.\nSo p1 is just a\nDirac distribution.\nSo this probability path\nthat I'm telling you\nis something that is letting\nus go from our initial data\ndistribution to this point.\nSo it's a valid one.\nSo why am I choosing this?\nWell it can be shown that\none vector field that\nis generating this\nprobability path\nhas the following expression.\nSo ut of x given x1 is x1\nminus x over 1 minus t.\nSo I'm just giving you the\nformula so you can derive it.\nSo I'm looking at the time,\nwe will not have time.\nBut the reason why I proposed\nthe probability path,\nthe conditional\nprobability path is\nbecause it's much easier for\nus to compute a vector field,\nand it's something that\nwe can actually write.\nAnd it is this one.\nAnd what I'm going\nto tell you is\nthat this vector\nfield is generating\nthe conditional\nprobability path.\nSo in other words,\nthe vector field\nwill be such that if\nyou sample from p0\nof this conditional\nprobability path,\nand if you follow these\nconditional vector fields,\nwhat I am telling you\nis that you will end up\nat time equal t\nwith xt following\nyour conditional\nprobability path.\nWell, that's a huge\nstep forward, no?\nSo how do you prove\nthat, by the way?\nSo you just use the quantities,\nyou use the vector field that\nis just this formula, and you\nuse the conditional probability\npaths which you can\nanalytically derive.\nBecause, if you remember\nthe Gaussian distribution,\nwe just know\neverything about it.\nWe also know the\ndensity formula.\nSo if you take both formula\nand if you use the continuity\nequation, which is\nhere, you can show\nthat this expression is true.\nAnd this is how you prove that.\nNow we're not going to do it\nbecause this is just some math.\nBut maybe one thing\nI will tell you\nis why that vector\nfields makes sense.\nSo we said that--\nwe said that the conditional\nvector field, which\nis noted ut of x\ngiven x1, what we said\nwas that this was equal to\nx1 minus x over 1 minus t.\nWell, when t is approaching 1,\nand when your x is not near x1,\nthen what you're seeing is\nthat this quantity goes crazy,\ngoes very close to infinity.\nIt goes very, very high.\nWell, why does that make sense?\nIt's because at time t equal 1,\nyour distribution is literally\na deterministic\ndistribution that is x1.\nSo you want all your\nparticles to be exactly at x1.\nSo if you're not at x1,\nthen you better hurry.\nYour velocity will\nbe very, very high.\nSo that's one thing\nI want to say.\nAnd one other\nthing I want to say\nis there is a very\nnice expression\nof the conditional\nvector fields if xt\nis drawn from that conditional\nprobability path, which\nas a reminder, is a normal\ndistribution of mean t x1\nand 1 minus t squared I.\nSo if xt is drawn from such\na conditional probability\npath, that means that you\ncan express xt as follows.\nSo t x1 plus 1\nminus t x0, with x0\ndrawn from a normal\ndistribution.\nSo what that means is\nut of xt, given x1,\nif I were to just replace xt\nin this formula, what I would\nobtain is x1 minus--\nso x, I'm just\ngoing to directly replace just\nbecause I don't have space.\nSo t x1 plus 1 minus\nt x0 over 1 minus t.\nSo x1 minus t x1 is 1 minus\nt times x1 minus 1 minus t\ntimes x0 over 1 minus t.\nSo what that means this\nis equal to x1 minus x0.\nThe conditional\nvector field for xt,\nwhich is drawn from a\nconditional probability path,\nis nothing else than x1\nminus x0, which is very nice.\nSo why is it very nice?\nWell, it's tractable and it's\ngoing to be useful for us.\nOK, any questions?\nYeah?\nSo the question is, how do\nwe get to that equation?\nSo the question is, where\ndoes this equation come from?\nSo this one, the one\nabove is just an equation\nthat I'm just telling\nyou, I'm just giving you.\nAnd you can verify\nthat it actually\nis generating the\nconditional probability path.\nYou can prove it, but\nwe're not doing it.\nSo given that this\npart is just me\ntelling you that\nthis expression can\nbe even further simplified if\nthe x that you're putting here\nis actually drawn from the\nconditional probability path.\nSo as a reminder, the\nconditional probability path\nis given by a normal\ndistribution of mean t x1\nand 1 minus t\nsquared I. So if you\nwere to draw from\nsuch a distribution.\nIt would be the same\nthing because you x1.\nIt would be the same\nthing as sampling\nfrom just a standard\nnormal Gaussian\nand writing xt as follows,\nbecause this is your variance,\nthis is the mean.\nSo this is the mean\nplus the variance times\nsomething that is run from\nthe normal distribution.\nAnd so what I'm\ntelling you is if you\nwere to plug in that\nexpression in here,\nthen a lot of\nsimplifications occur.\nAnd you end up with a\nvery simple expression\nof the conditional vector\nfield at that point\nbeing equal to just x1 minus\nx0, where x0 is basically\nthis component of xt.\nAnd follow up question is, well,\nwhy are you telling me this?\nIt's a very fair question.\nI'm going to tell\nyou in 15 minutes.\nBut does everyone\nagree with me so far?\nI'm going to take that as a yes.\nOK, so now that we looked at a\nvery simple case of transporting\nour data distribution from this\ninitial one to a single point,\nnow our goal is going to figure\nout how we can map that back\nto our initial problem.\nSo our initial problem is\nto map from the initial data\ndistribution to the\ntarget data distribution.\nSo an idea to obtain the\ntarget data distribution\nis to replicate this\nconditional path\nover all points of your\ntarget data distribution.\nSo if we do that,\nwe consider, let's\nsay, one point of your\ntarget data distribution,\nwe have this conditional\nprobability path.\nWe consider a second point.\nAnd let's assume here that\nour target data distribution,\nour training set\nonly has two points.\nThen what that means\nis that at time t,\nwe can consider what we call\na marginal probability path.\nSo marginal because we\nmarginalize across the x1's.\nAnd we will end up with\na mixture of Gaussians,\nwhere each Gaussian\nis interpolating\nbetween the normal one\nto the single point.\nSo let me tell you why I'm\ntelling you all of this.\nSo just remember that\nwhat we care about\nis to map our initial\ndistribution to the target one.\nSo there are many ways to\ngo from one to the other.\nAnd what we say is\nthat we can just\npropose this marginal\nprobability path, which I'm\ngoing to explain in a second.\nSo what I'm telling\nyou is let's fix x1.\nAnd just consider the\nconditional probability path.\nSo p of x given x1\nwhich is what we saw.\nBefore Now let's consider all\nsuch conditional probability\npath across all the x1's that\nare composing our target data\ndistribution.\nAnd let's consider the\nfollowing expression,\nwhich is a natural\nway of defining it.\nSo we notice that p0 of x--\nso p0 of x, given x1 is just the\nstandard normal distribution,\np0.\nSo this is indeed the\ninitial data distribution.\nSo the standard Gaussian.\nAnd p1, what is p1?\nSo we said that when t equals\n1, p of x given x1 is the Dirac.\nSo when t equal 1, this one\nis equal to Dirac of x1 at x.\nSo this whole thing\nsimplifies to P data of x.\nSo this marginal\nprobability path\nis verifying p0,\nlike t equals 0,\nis equal to your initial\ndata distribution.\nAnd p1 is your target\ndata distribution.\nSo it is a valid path\nto go from 0 to 1.\nSo now our goal-- because\njust remember, what we want\nis to go from 0 to 1.\nAnd we want to learn\nthe vector field that\nis getting us from 0 to 1.\nSo the good thing here is we\nhave a probability path that\nis getting us from 0 to 1.\nSo now let's look\nat the vector field.\nLet's see if there\nis a way for us\nto aggregate the conditional\nvector fields such\nthat it is going to enable\nus to go from 0 to 1.\nSo here we consider the\nconditional vector field\nfor each data point like\nconditional on each data point.\nSo this one and this one.\nAnd what we want is to\nalso have a marginal vector\nfield, something that\nis able to generate\nthe marginal probability path.\nAnd what I'm going\nto tell you is\nthat the way we want to\naggregate the vector field\nis going to actually\nbe quite intuitive.\nSo I'm going to\njust write it down.\nSo up until now,\nwhat we're doing is\nwe're constructing things.\nWe're constructing\nthings, and then we're\nverifying that it's actually\nsomething that is what we want.\nSo what I'm saying\nis we're going\nto aggregate the conditional\nvector fields by considering\nthe following aggregation.\nSo I'm going to take my\nconditional vector fields.\nI'm going to aggregate\nit as follows.\nSo I'm going to say\nit's equal to this.\nSo the conditional probability\npath times p data of x1\nover the marginal\nprobability path which we\nhave derived a short while ago.\nAnd I'm going to say that\nthis is my definition.\nThis is my proposed definition\nof the marginal vector field.\nSo this expression\nmay seem scary to you,\nbut if you remember\nBayes' rule, this one--\nyou recognize Bayes'\nrule here, a little bit?\nSo it's as if-- so I'm\ngoing to put this in quotes.\nSo it's as if it was the\nprobability of x1 being\nwhere you're headed given\nx, which is where you are.\nSo the way you're aggregating\nyour conditional vector\nfields is OK, I'm\nat point x and I'm\ngoing to weight each conditional\nvector fields with a weight that\nis telling me the probability\nof this x1 being my destination\ngiven where I am.\nSo you can think of this\nas the posterior mean.\nAnd this coefficient can\nbe interpreted as OK,\ngiven where I am, how likely\nis it that this point is\nwhere I want to go?\nAnd now I'm going to tell\nyou the biggest result.\nThese marginal vector\nfield which we defined\nis actually generating\nthe probability path,\nthe marginal probability path.\nSo this is a big deal.\nSo what that means is there is a\nvector field that is generating\nthe probability path that\nis actually something that\nsatisfies what we want, which\nis it's a path that goes\nfrom the initial to the target.\nSo I'm looking at the time.\nI'm not going to\nderive it, but I'm\ngoing to derive\nsomething else instead.\nSo in order for you to show that\nthis vector field is generating\nthe probability path is by\njust plugging these quantities\nin the continuity equation.\nSo I'm not going to do it.\nI'm just going to tell\nyou how you would do it.\nSo you just do that.\nSo you take your marginal\nprobability path.\nYou derive it here,\nand just recognize\nthat it is indeed the\nminus the divergence\nof the marginal probability path\nand the marginal vector field.\nSo what this is telling\nus is if we sample x0\nfrom p0, which is the initial\none, then if we follow\nthe marginal vector\nfield, then xt\nis going to be following\nthe probability path p of t.\nThis is huge because\nif you take x0\nand you take it all the way to\nt equal 1 with the vector field,\nthen x1 will be\nactually following p1,\nwhich is what you care about.\nSo this is huge.\nThis can be proven\nmathematically.\nWe're not going to\ndo it with respect\nto how much time we have.\nAnd so this leads us\nto our initial problem,\nwhich is us wanting to learn\na vector field that will\nallow us to go from p0 to p1.\nSo here, what I'm\ngoing to tell you\nis that optimizing for\nthe flow matching loss\nthat I told you at\nthe very beginning\nis equivalent to you\noptimizing for what\nwe call the conditional\nflow matching\nloss, which is given by here.\nAnd I'm going to tell you more\nabout this for the next five\nminutes.\nSo let me take this.\nSo here, what we want is\nto have a tractable loss.\nAnd if you look at the\nflow matching loss,\nit is still a loss\nthat is quite complex.\nSo our goal is to\nreally make our loss\nas tractable as possible.\nSo as a result what\nwe're saying is\nthat the loss of\nflow matching, which\nis given by this, so\nit's the expectation\nof the squared distance\nof your learned\nvector field minus the\nmarginal vector field\nthat you constructed.\nSo what we're saying is\noptimizing for the loss above\nis the same as optimizing\nfor the conditional flow\nmatching loss,\nwhich is this one.\nSo if we aggregate\nover time steps t and x\ndrawn from the probability\npath dt of this expression,\nwhat I'm saying is that\noptimizing for this loss\nis the same as optimizing\nfor the conditional flow\nmatching loss, where the\nexpectation is over t x1,\nand then x belonging to the\nconditional probability path.\nAnd back to your question.\nThis whole expression\nthat we had here\nwas ut of xt given x1,\nwhich was x1 minus x0.\nSo this thing is super simple.\nIt is just the thing that you\nwant to learn minus x1 minus x0.\nSuper simple.\nOK, so now why is it\nequivalent to optimize\non the flow matching and the\nconditional flow matching loss?\nThat's another question.\nSo if you remember,\nfor score matching,\nwe had a very similar question.\nSo I'm going to give\nyou the same trick.\nSo let's assume you have\ndistance squared of a minus\nB, which is basically\nwhat we have here.\nAnd what you want is to optimize\nthese losses with respect\nto the parameters\nof the model theta.\nSo everything that you\ncare here is only terms\nthat are a function of theta.\nSo a minus b that norm squared\nis equal to a squared minus 2\ndot product of a and\nb plus b squared.\nSo ut theta x squared,\nthis and this are the same.\nPerfect.\nSo how about this term.\nThe b term is actually\nnot dependent on theta.\nSo we actually don't care.\nSo a is good.\nIt's the same.\nb is not a function of theta.\nWe don't care.\nThe only thing that is\ndifferent between these two\nis the dot product of a and b.\nSo this one and this one\nand this one and this one.\nSo what we want to show\nis the expectation over t\nand x of this dot product is\nthe same as the expectation\nover this.\nSo t x1 and x over the\nconditional probability\npart of this one and this one.\nWe want to show that\nthese two are the same.\nSo I'm going to do\nthis in two minutes.\nOK.\nSo let's suppose-- so we're\ngoing to go from one side\nand end up with another.\nSo what I'm going to do is\nstart from the dot product\nof the conditional flow matching\nloss and end up with the one\nfrom the flow matching one.\nSo what I'm going to\ncompute is the expectation.\nAnd here, I'm going\nto say t x1 and x\nof the dot product of ut theta\nof x and your conditional vector\nfield.\nSo ut of x given x1.\nSo what I'm telling you is by\ndefinition of the expectation--\nso this is just a\nbunch of integrals.\nSo this is the integral over\nt over x1 and x of ut of theta\nof x dot product with the\nconditional vector field\nut of x given x1.\nAnd this is over x1 and x so I'm\ngoing to say it's p data of x1.\nAnd then the conditional\nprobability path x\ngiven x1 dx1, dx, dt.\nSo far so good?\nSo here what we\nnotice is that if we\nput this quantity here,\nthis quantity here,\nand if I divide by dt of x and I\ndo times dt of x, then what I'm\ngoing to recognize is\nthe marginal vector field\nthat we have constructed.\nSo this is going to be equal to\nthe integral over t integral.\nSo this integral over x1\nis also going to come here.\nSo integral over t, integral\nover x of ut theta of x.\nAnd this ut of x, which is\nthe marginal vector field,\ntimes this marginal probability\npath dt of x, dx, dt.\nAnd this is nothing else\nthan the expectation over t\nand x, which is run from\nthe marginal probability\npath of the dot product\nof ut theta of x\nand the marginal vector field,\nwhich is exactly what we want.\nSo what I'm showing you here is\nthat the marginal vector field,\nthe way we\nconstructed it, allows\nus to optimize on a loss,\nthe conditional flow matching\nloss, which is much\nmore tractable,\nand leads us to the same\ngradients with respect to theta.\nAnd so long story short,\nwe have this loss,\nwhich is called the conditional\nflow matching loss, which\nis the expectation over t x1,\nwhich is run over the pdata,\nand then x drawn over the\nconditional probability\npath of a quantity that\nis extremely simple.\nSo it's just the\nsquared distance\nbetween the learned velocity,\nwhich is what you want to learn,\nand the conditional\nvector field,\nwhich we saw was nothing\nelse than just x1 minus x0.\nSo it's a very\ntractable loss, and it\ndoes exactly what you want.\nAny questions?\nSo it's a lot.\nAre we all clear with this?\nOK, I'm going to say that it's\nOK if you feel like it's a lot.\nIt is indeed a lot.\nSo I'm going to\nrecap the strategy.\nSo what we said at\nthe very beginning\nwas that we had\ntwo different views\nof how we want to go\nfrom one distribution\nto another distribution.\nWhat we said was that there was\nthis quantity called the vector\nfield, a.k.a. the velocity that\nwas linked to how we could move\nour particles, so with the ODE\ndx over dt equal vector field\nthat one, but also\nthe continuity\nequation that linked the vector\nfield with the probability path.\nSo what we want is to find\nthe vector field that will\nallow us to go from p0 to p1.\nSo what you need to\ndo is to find first\na probability path that goes\nfrom p1 to-- sorry, from p0\nto p1.\nFirst you need to find that.\nAnd then you need to construct\na vector field that indeed\nallows you to go from p0 to p1.\nSo how do you do--\nhow do you do that?\nWell, you propose\nsome quantities\nand you try to see if the\ncontinuity equation is indeed\nsatisfied.\nSo that's step number one.\nOnce you your vector\nfield of interest,\nyour goal now is to learn it.\nBecause if you learn\nit, then what you can do\nis to integrate the ODE.\nWhy do you want to\nintegrate the ODE?\nIt's because you want\nto go from x0 to x1.\nTherefore, you need to\nlearn your vector field.\nAnd here what we did is, in\norder to learn the vector field,\nwe first thought of\na very simple case\nof us wanting to\ngo from the initial\nto a single point via the\nconditional probability\npath and the conditional\nvector field.\nSo this is the simple case\nwith the Dirac distribution\nbeing the target distribution.\nAnd then what we said was OK,\ngiven this very simple case that\nis super tractable, let's try to\nmatch our initial distribution\nwith the actual target\none of interest, which\nis the whole data distribution,\nnot just a single point,\nbut the whole data distribution.\nAnd we proposed the\nmarginal probability\npath which satisfies t equals\n0 equals p0 and t equal 1.\nIt's equal to p data.\nSo it was a valid\nprobability path.\nAnd we also saw that the\nconstructed vector field\nwas actually generating that\nproposed marginal probability\npath.\nIt was generating it, why?\nBecause it satisfies the\ncontinuity equation, which\nI said I don't have\ntime to derive,\nbut you just need to\nreplace the quantities\nand see that the continuity\nequation is indeed satisfied.\nSo given that we were finally\nwith the vector field,\nthat was something that was\nadapted to our use case.\nBut now what we wanted\nto do was to learn it\nwith the tractable loss.\nSo in this last\npart, what we did\nis show that the loss\nthat we wanted to optimize\nwas actually equivalent\nto another loss that\nwas extremely tractable, which\nis the conditional flow matching\nloss.\nAnd the way we showed\nthat was by showing\nthat the gradient of this\nlosses with respect to theta\nwere equal, which\nis what I did here.\nAnd then finally, we have\nour final loss function,\nwhich is ut theta of x minus x1\nminus x0 expectation of that.\nSo it's incredibly simple.\nSo everything I told you is\nactually-- so a lot of it\nis coming from this paper\nthat's called Flow Matching\nfor Generative Modeling.\nSo I highly\nrecommend reading it.\nIt may not be the\nsimplest to read,\nbut I hope what I\njust told you actually\nwill allow you to understand the\nformulas in there a bit better.\nBut I didn't want to\ngive it to Shervine\nbefore telling you a bit\nmore about why we're calling\nthis whole thing flow matching.\nBecause core matching,\nit was called core\nmatching because you\ntried to match the score.\nBut here, we're not\nmatching the flow,\nwe're matching the velocity.\nSo one natural question\nis, why is it not\ncalled velocity matching?\nWhy is it not called\nvector field matching?\nWhy is it called flow matching?\nSo these points are\na bit more informal.\nIt's just a personal take\non why that is the case.\nSo one potential reason\nis, historically,\nthese models which\nare flow models,\nmeaning trying to map a point\nto another via this psi t of x\nminus 0, they had the\nterm flow in their names,\nand in particular the\nmethod that I mentioned\nthat try to learn the vector\nfield with maximum likelihood\nestimation.\nThat one was called\ncontinuous normalizing flows.\nSo one reason is maybe\nbranding, but actually, I\nwant to get back to my earlier\nLipschitz continuity comment.\nIt turns out that if the vector\nfield that you learn here\nis Lipschitz continuous,\nthen what happens\nis that your trajectories,\nthey're all unique.\nSo you actually have a\nmapping between vector fields\nthat you learn and the flow.\nSo if you're matching\nthe velocity,\nyou're also matching the flow.\nNow you may be\nwondering, OK, how\ndo that the learned vector field\nis indeed Lipschitz continuous?\nWell, we have not seen that yet.\nWe're going to see\nthat in lecture 5.\nBut the model that\nis behind this\nlearned vector\nfield is something\nthat is composed of\nmatrix multiplications\nand some smooth\nactivation functions.\nAll of that is\nLipschitz continuous.\nSo what you will\nlearn is actually\nLipschitz continuous\nvector field\nwith respect to\nx, which is going\nto give you a one-to-one mapping\nbetween velocity and flow.\nAnd we have two minutes.\nSo bear with me.\nIn two minutes,\nI'm going to cover\nhow we train and do inference.\nBut it's going to be very easy.\nSo let's see how we do training.\nSo as I mentioned, the\nloss is extremely simple.\nAnd so what we do is\nwe sample the noise.\nSo x0 from your standard\nGaussian distribution,\nyour clean image, so\nx1 from your training\nset, which is pdata, and you\nalso sample your time step.\nAnd what you do is you\nconstruct xt, your noise image.\nAnd what I'm telling you is\nthanks to the loss function\nthat we derived, what we do is\nwe use xt, the noise image and t\nto predict x1 minus x0, which\nis the conditional vector\nfield via this model that\nis your vector field model.\nAnd you're going to compute\nthe loss and backpropagate.\nThat's how you do training.\nNow, how do you do inference?\nWell, inference, you just sample\nfrom an easy data distribution.\nAnd here it's, again,\nstandard, normal distribution.\nAnd what you're going to do is\nto numerically solve the ODE.\nSo what you do is you go\ntime step to time step,\nand you use your\nlearned vector fields,\nand you end up with your\nfinal estimated image x1.\nAnd that's how you do inference.\nAnd with that, I'm going\nto give it to Shervine.\nThank you, Afshine.\nSo now we're going to see\nin a more visual manner\nthe training process and\ndiscuss some edge cases\nand how to solve\nthem in practice.\nSo you remember the\ntraining process\nthat Afshine just mentioned.\nYou sample x0 from the\nnormal distribution,\nyou sample x1 from\nyour training set.\nAnd what you do is that you draw\na straight line between the two,\nand you try to fit the\nvelocity to this x1 minus x0.\nNow I want you to imagine that\nwe do that for a given pair.\nAnd now for another pair.\nAnd suppose that these pairings\nintersect at a given point.\nAnd let's suppose that this\nintersection is for a same t.\nSo in other words, we're trying\nto fit the loss at a same x,\nat a same T on two\ndifferent vectors.\nSo who knows what the resulting\nlearned velocity will be?\nSo it cannot be two\nvelocities right.\nWe cannot have two\nvectors at a single point.\nIt has to be one.\nSo we have this MSE loss\nthat will make it such\nthat it will be an\naverage of all the vectors\nthat we tried to fit at\nthat given point points x\nand at given point t and you\nsee that as being a problem\nor, so what does that mean?\nSo here in practice, let's\nsay you're at inference time\nand you want to go from,\nlet's say, x0 to x1.\nAnd let's say you have learned\na vector fields of velocity that\ndoesn't go to x1.\nThat goes in an\naverage direction.\nAre you going to be\nable to go to x1?\nNo, right?\nSo the thing that will\noccur is that you're\ngoing to have something\naveraged that might repel\nthe trajectories that you try to\nlearn into different directions.\nBut be reassured,\nwe showed that these\nlearned vector fields\nwas such that if you\nsample a point in the\nnormal distribution\nand follow the\nlearned vector field,\nyou land into a\ndistribution land, that will\nbe your distribution pdata.\nSo that part is fine.\nBut still, you\nhave this property\nthat the learned\ntrajectories are not\ngoing to be the same as the\nones that you teach your model.\nAnd that is a source of what\nI would call complexity, where\nyou teach a model\nthat doesn't follow\nwhat you said at test time.\nSo that is inherently--\nso your intuition could make you\nfeel that this is not efficient.\nAnd the second thing\nthat I want to say\nis that you could have\nthis phenomenon happening,\neven though the\npoints of intersection\nare not at the exact same T,\nbecause in practice, you're\ngoing to learn this vector\nfield with a neural network.\nAnd neural network\nare going to be\na class of functions that are\ngoing to be smoothing things\nin space.\nSo you won't have a\ndrastic change of velocity\nfor neighboring t's.\nAnd so because\none thing that you\ncould have told me\nis, but Shervine,\nthat is never going to happen.\n01 is an interval with\ninfinitely many numbers.\nYou're never going to draw the\nsame t, and you would be right.\nAnd I'm just saying that it\ncould be valid for neighboring\nt's.\nAnd more importantly, let's say\nyou sample your point x0 out\nof your normal distribution.\nWhat is going to\nbe your issue here?\nAfshine mentioned that\nyou want to integrate\nthe ODE at inference time.\nAnd we had seen\nlast time that you\nwant to find methods that\noptimize that number of NFEs\nin such a way that you can\nfind your target sample\nin a minimum amount of steps.\nAnd when you have a path\nthat is getting curved,\nso you don't have these straight\nlines at inference time,\nyou're not going to be able to\nsolve that in a single step.\nBecause let's say you use Euler.\nEuler is estimating the velocity\nat the beginning points.\nAnd if you try to do\nit in a single step,\nit will end up somewhere else.\nIt will follow a straight\npath, whereas the curve isn't\ngoing to be taken into account.\nAnd you're going to tell\nme, but Shervine, you\nhave tricks in your pockets.\nLast time you talked\nabout a DPM solver\nin a different setting that\nwas able to reframe things\nin an exact way.\nWell, no.\nThis time, the ODE that\nwe want to integrate\nhas no linear components.\nIt's all non-linear\nbecause here we're directly\nlearning that velocity field.\nSo no DPM solver here.\nYou need to use traditional\nsampler techniques.\nSo not quite happy.\nWe're happy but not quite.\nSo now I'm going to walk\nyou through the intuition\nof a retraining or fine tuning\nprocedure that is called reflow.\nAnd so first I'm going to\nrecap the training procedure\nthat we have already.\nSo you sample a point x0,\nyou sample a point x1,\nyou draw a path and then\nyou fit a velocity on it.\nSo it is called in that paper\na one rectified flow model.\nAnd you obtain trajectories that\nwe saw we're going to be curved.\nAnd one idea that we have\nhere, one temptation,\nis to locate these new pairings.\nSo you started from point x0.\nYou integrated the ODE.\nYou ended up at somewhere in\nthe distribution of pdata.\nYou're tempted to use these\nnew pairs as your new pairings,\nbecause they will\nbe, by construction,\nin such a way that the\nvelocity field will carry\nthe trajectory directly there.\nSo the reflow\nprocedure says, OK,\nlet's take these\nnew pairs as those\nthat we use to\nretrain the model.\nSo this will be our new lines\nthat we fit our new model.\nAnd so this is the reflow step.\nAnd you do that\nprocess again and again\nuntil your lines\nbecomes straighter.\nAnd once that is the\ncase, at inference time,\nyou're able to use a limited\namount of inference steps\nin order to get your\nsample in the pdata space.\nSo does this\nprocedure make sense?\nYep?\nSo the comment is\nif you retrain, then\nthe two points are going to\nbe from the new distribution.\nSo the magic in all of this--\nso first, you're going to keep\nthat Gaussian distribution\nat the beginning.\nThat will not change.\nAnd at the end,\nwe're going to see\nthat there are some\nproperties that\nmakes it such that the resulting\npoints that you get still\npreserve the\ndistribution p data.\nSo there is some\ntheoretical justification\nthat it does follow pdata.\nBut this is a great point.\nWe're going to discuss that\nin more detail in two slides.\nAny other questions or comments?\nOK, so you're right\nto be skeptical.\nSo this works because\nof two things.\nSo first, actually, one slide.\nSo we need to show that this\nfollows the distribution pdata.\nSo I'm not going to give\nyou the whole proof, just\nthe gist of it.\nSo you start by defining\nthis random variable that\nstarts at x0.\nAnd you integrate the ODE\nto end up in the new space\nand define this velocity for the\nx random variable and the proof\nto show that the law that you\nget for the end distribution\nafter a reflow\nprocedure goes through,\nshowing that these two\nprobability flows respect\nthe same continuity equation.\nAnd with some uniqueness\ntheorem and the presence\nof initial conditions at the\nfact that dt equals 0 is still\nthe Gaussian\ndistribution, you can\nshow that it's valid for all t\nand, in particular, t equals 1.\nSo yeah, just hand-waving\nthe proof here.\nSo it's theoretically the case.\nBut you are right\nto be skeptical,\nbecause once you\nintegrate the ODE,\nyou have errors that\ncome in from two sources.\nSo the first error is\nthe discretization error.\nSo as we said, we're\nsampling these new points.\nSo maybe you have some errors\nin the way you do these steps.\nSo you don't necessarily end\nup in a theoretical location\nyou should be at.\nAnd the second point is\nthat you're operating off\nof a learned vector field\nthat is approximated\nby a neural network,\nand it is possible\nthat you haven't\nlearned it perfectly.\nI mean, of course\nit's sure that you\nhaven't learned it perfectly.\nAnd the quality of\nyour results will\nbe a function of how well\nyou learn that vector field\nand of your\ndiscretization errors.\nAnd we're going to see\nvery soon that this\nis one of the reasons why we\ndon't perform this procedure too\nmany times, because the\ndegradation is going to be\na trade off to balance here.\nSo this is the first\npoint I wanted to justify.\nThe second point I\nwanted to justify\nis we hand waved the fact that\nthe flows like the trajectories\nwere getting\nstraighter, and there\nis a mathematical way of\nwriting it down and proving it.\nAnd this is also something\nthat is being proven\nin case you're interested.\nAnd for the interest of time,\nI'm not going to be covering it,\nbut that s quantity quantifies\nstraightness and compares\nthe actual velocity with\nthe theoretical one.\nAnd we show that it\ndecays with a good speed.\nAnd this is why we're saying\nit's getting straighter.\nAnd exactly as we discussed,\nthe reflow procedure\nis one that you wouldn't\nwant to do too many times,\nbut usually, one procedure\nis already great.\nAnd the goal is for us to use a\nvery simple sampling techniques,\nsuch as Euler, optimally\nin just a few steps,\nfinding the right solution.\nAnd of course, it\nisn't a free lunch.\nIt comes at a trade off.\nSo you're trading off simplicity\nand potentially lower quality\nfor faster inference\ntime speeds.\nOK, great.\nSo this past three lectures,\nincluding this one,\nwe've come across these concepts\nof diffusion, score matching,\nand now flows, flow matching.\nAnd I want to spend\nfive minutes together\nto tie all of these frameworks\ntogether in a way that\nwill hopefully show links\nbetween them and the fact\nthat we are solving the\nsame category of problems\nbut from different lenses.\nAnd in order to\ndo that, I'm going\nto look at each of the\nprocesses that we defined\nand then look at the difference\nwith respect to each method.\nSo the first one is\nthe forward process.\nSo it's a long time ago.\nAlready two weeks ago, we talked\nabout DPM and all this class\nof discrete time, diffusion.\nAnd then we saw in score-based\ndiffusion world that if you\nreframed these equations and\nconverted it into continuous\ntime, put some delta t to 0, you\ncould get some SDE formulation\nthat was equivalent to it, Where\nwe saw at the DPM solver section\nthat actually, in diffusion\nspace, you could approximate--\nI mean, you could always\nassume that f of x and t\nwas linear in x.\nAnd this is why.\nSo it's something that\nwe haven't seen so far\nbut I'm telling you that\nyou have a nice closed form\nexpression with respect\nto f and g of xt.\nAnd now we saw today\nthat you can write down\nxt as an interpolation between\nx0 and x1 in flow matching.\nAnd now we're going to see\nthat in all of these methods,\nyou start from a clean sample.\nSo in a diffusion space, we\nstart the clean sample from t\nequals 0.\nBut in flow matching\nspace, we saw\nthat the notation was reversed.\nClean sample is t equals 1.\nAnd on the other\nside of the spectrum,\nyou have noise, which was in\ndiffusion world t equals big t.\nAnd here it's t equals 0.\nSo you're here drawing an\ninterpolation between the two\nin each of these cases.\nNow when we look at\nthe loss functions,\nwe saw that the diffusion\nview of writing things down\nwas focusing on noise.\nThe score matching view\nwas linking scores,\nand you had a nice relationship\nbetween noise and score.\nAnd in the flow matching world,\nyou were directly fitting\nthe velocity field such\nthat you have the simplest\nODE to integrate in the end.\nNow, when we look at\nthe generation process,\nwe saw in the diffusion\nworld that you\nhad all these\nsteps to go through\nwith some stochasticity,\nwhich you also\nhad in the score-based\ndiffusion world,\nand you had for the first two,\na deterministic counterpart.\nAnd you will notice\nthat the flow matching\none doesn't have such\na balance because it's\ndeterministic to start with.\nAnd I'm just showing you some\nrelationships between all\nthese methods, but\nactually, there\nis a whole theory linking these\nconcepts in a very nice way.\nAnd this is why I recommend\nif you're interested.\nSo it's out of scope\nfor this class.\nAnd just if you're interested,\nto take a look at the paper\ncalled Stochastic Interpolants\nthat writes down equations that\nlinks all of these together.\nAnd turns out that r of\nnoise, score, and velocity,\nif you know two of them, you\ncan deduce the third one.\nAnd that paper designs\na problem space\nthat is bigger than what each\nof these frameworks detailed.\nAnd all of these\nframeworks can live\nin the same unified framework.\nAnd with that, I hope\nyou have a great weekend.",
+  "segments": [
+    {
+      "text": "Hello, everyone, and welcome to lecture 3 of CME 296. So today is a very special day because we're going to talk about flow matching, which is a generation paradigm that is quite trendy these days. So if you're a member, lectures 1 and lecture 2",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "were also about generation paradigm where we talked about diffusion with DPM and lecture 1 and score matching in lecture 2. So flow matching is yet another generation paradigm. And we're going to see in this lecture what is the mindset behind",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "that separate paradigm and how it relates to diffusion and score matching. So as usual we're going to start the class with a recap of the last episodes. So if you remember lecture 1, we saw how we could generate new samples, and the way we thought",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "about doing that was taking images from our training set, which we named clean images. And what we did is that we gradually corrupted them with a process that we defined, a process q, which, given an image at a given time step, noised it by adding some",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Gaussian noise weighted by some coefficients. And the goal of diffusion with DPM was to find or was to learn a reverse process, which we noted p theta that removed the noise gradually. And what we saw was that in order to learn p theta.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "What we did is try to maximize the likelihood of our model seeing the training data. And if you remember, we did some clever math with some estimation of the lower bound. So the elbow and we derived some terms and we ended up with a pretty good",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "looking loss, which was just an L2 regression on the noise that was added up to the image at timestamp t. And so this was lecture 1. Lecture 2 was taking another perspective and just taking a step back, thinking of images in the space of the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "n dimensional space of images, and the fact that what we wanted to do was sample from an easy distribution and then work our way up until the true data distribution. So how did we do that? The whole point of the lecture was to learn what we call",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "the score, which is the gradient of the log of p. And why did we do that? Because it acted as a compass from where we were up until regions of high density. And if we learn such a score, what we could do was use sampling techniques",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "such as Langevin sampling, which allowed us to move towards high density regions, but also allow for some diversity with some noise term. And we saw that in order for us to estimate that score, we cleverly noised the initial data distribution in order",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "to learn the score of the noised distribution. And then we had a progressive noise schedule that allowed us to progressively work our way up until the data distribution. So we ended up with a score function that was a function of the position in space,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "but also the noise level. And again, after doing some clever math, we also ended up with an L2 regression loss, which was quite easy to compute. But what we also saw was that what we saw in lecture 2 was actually quite related to what we saw in lecture 1,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "because both involved adding noise. And in particular, we saw that there was a relationship between the score of a noisy distribution and the noise that we added from the clean image to the noisy image. So given that, what we did was think",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "of a unified way of looking at both these perspectives, and we moved from a discrete representation to a continuous one, and we obtained this SDE, which was of the form dx equal f of x and t dt plus gt times dw, where w is our Wiener",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "process which is introducing the stochasticity. And in particular, the first term is called the drift term, and it is a term that quantifies the deterministic movement in space across time. And the second term is called the diffusion term, which quantifies the",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "amount of stochasticity that you have in your process. So this expression is the expression of the forward pass, meaning, you're actually noising your images. And we saw that in space, if we were to represent that, it meant, again, having a drift component",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "and a diffusion component. So now if we wanted to denoise our image, we were actually interested in the reverse process, which we saw thanks to the result from the '80s involved knowing the score. So this expression is the reverse process that allows us to",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "denoise images, which is why we need to learn the score. And this is where the score comes in, in the continuous view. So this was two weeks ago and a week ago. But today we're going to see this third generation paradigm, which is called flow matching.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And similar to the past lectures, what we're going to try to do is to have a nice balance between intuition and math, because you will see that these papers are full of math, full of equations, and we will try to approach it from an intuitive perspective,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "but not shy away from the math either. And of course, please interrupt me at any point if you feel there's something that's not clear. Cool? OK, let's start. So the whole point of these first three lectures is to find a way to go from somewhere",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "that is easy to sample from up until our data distribution of interests. So the way that flow matching works is. It has two distributions. The first one is called the initial distribution, which is the distribution that you're starting from.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And then the second distribution is called the target distribution, and it is the distribution that you want to end up with. And the whole point of flow matching is finding a way to transport our initial data distribution up until the target distribution.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "And just note the terminology I'm using, transport. So what we want is to transport the whole density that we have, and remember that probability, densities have this very nice property of summing to 1. So we want to transport the whole density distribution",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "from one place to another. So this is the idea behind flow matching. And we're going to see how we can do that. So I'm going to just give you a warning in terms of conventions. In the past, we've seen that 0 was clean data and then capital T",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "was the noise data. But here it's going to be different. So we will be noting p0 our initial data distribution, which is typically something that is easy to sample from such as Gaussian noise. And the target data distribution is going to be noted p1,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "t equal 1, and this is where we want to end up with. And then again, so this slide is just to say that lectures 1 and 2 we said 0 was clean, capital T was noise. But here 0 will be noise and 1 will be what we want, which is the clean images,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "which is the data distribution. So the reason why we chose to proceed that way is just that the field chose these conventions. And if we were to keep the conventions of the diffusion and score matching fields, it would just completely",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "confuse if you were to read papers from the flow matching field, which is the reason why we're keeping things consistent with the paper. But just keep those things in mind, because sometimes these conventions can also be reversed, depending on",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "which paper you're reading. But this one is by far the most common. So with that warning aside, what we want to do is to sample an observation from our initial data distribution and then map it to the target data distribution. So in order to do that, we're now",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "going to go through some common notations. And the first one is called the trajectory. So the trajectory is notated xt, and it is the path that is taken by an observation between times 0 and 1. So by the way, the time 0 and 1 is arbitrary.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "It's just a way for us to say, OK, when are we starting and when are we ending? And so here at time t equals 0, we have x0. And what we want to do is for our trajectory to map a point from p0 up until p1. So that's our goal. So now, let's see another notation.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "So this one is called the flow. The flow is known as psi of T of x0. So I'm just going to write that down here. So it is a function that takes time and an initial condition. And it gives you where that point at time t. So this is the time so belongs to 01.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "This one is to your space, which is maybe-- I don't know-- d dimensional. And this one is also in the d dimensional space. And you have psi of T of x0, which is equal to your point at time t, which is x of t. So the flow you can interpret it in different ways.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "So one way you can interpret it is it's a collection of trajectories. Because if you change the initial condition x0, then psi t of x0 is all the possible trajectories that go from an initial condition x0 up until time t. Yeah? The flow can also be",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "seen as a function that maps your initial condition to where it should be at time t. And this is why it's called the flow. So this function is quite important because at the end of the day, what you want is psi 1 of x0 to be sampled from-- to be as if it",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "was sampled from p1, which is your target distribution, data distribution. Cool. So now we have our next terminology which is called the probability path, and it's denoted pt of x. So pt of x is the probability distribution of your observations at time t.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So p0 of x is your initial data distribution, and p1 of x is your target data distribution. So if t is between 0 and 1, it's basically the intermediary probability data distribution. And as you can imagine, in order to go from p0 to p1, you have an infinite",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "number of ways of going from one to the other. So pt by no means unique. There are many ways for you to go from 0 to 1. Cool. And now we're going to talk about a central object of this whole field, and it's called the vector field. So vector field",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "is noted ut of x. And it is a function that takes in a place in space, so x, and a time t. And it gives you a vector. And that vector, you can interpret it as the direction and the speed that particles should move at that location at that time.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "So again, the vector field takes in a vector, which is your position in space and gives you also a vector, which is where you need to move and how fast. And we're going to see that the vector field is quite central to flow matching. But before we do that,",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "I know last lecture, we talked about the score. And the score was also a vector. And if you remember, the score was also something we used in order to go from noise to data. So one natural question you may be asking yourself right now",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "is, well, how does this vector field or velocity relate to the score? So I'm going to give you the following analogy. So let's suppose you want to go from your initial distribution to your target distribution. And let's suppose that you're thinking",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "of this in terms of self-driving cars that are distributed, let's say, in a Gaussian fashion in the middle of the desert. And what you want to do is to position your self-driving cars in a certain way so that it follows, let's say, a target data distribution.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "So the way you would think of the velocity would be instructions that you would give to your self-driving cars at a given location and at a given time t So if the vector field was not time dependent, you could even think of it as highways or routes",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "with speed limits. But here, the vector field is actually time dependent, which means that at a given location x and at two different time steps, t1 and t2, that vector can actually be different. And in that sense, just following with that self-driving",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "car example, the score would be a bit like a compass that you could see in your car of where high density regions are. So I hope this is useful to just picture the difference between what a velocity is and what a score is. So these two are vectors, but they",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "have different interpretations. Any questions so far? We've barely started, so we're going to see a few things here. But I just want to make sure that the notation so far are clear. Yeah, all good? Cool. So we're going to see our first identity here.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "So we introduced the vector field, a.k.a. the velocity, because this is the way we're going to have our particles move from one place to another. And in particular, the definition we're giving to the velocity, a.k.a. the vector field, is given as follows.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "So what we're going to say is that a change in position will be associated with the velocity at that location at that time t times dt. So in other words, a given particle in a given location will be moving according to that velocity. And one thing that",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "I want to tell you is that the trajectory, which as a reminder, is the whole path that the particle is taking from time t equals 0 to time t equal to 1, that trajectory is actually going to be unique for a given initial condition",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "if there is a special condition on the vector field, which is that if the vector field is Lipschitz continuous. So the reason why I'm bringing this up is because it's going to be important. And so who knows what Lipschitz continuity is? Have you ever",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "heard of this term? Yeah? No? OK, so maybe I can just recap the mathematical definition and maybe how it means-- what it means. So Lipschitz continuity of a function f is when you have some constants, let's call it m such that for all x and",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "y in your space of interest, you have your function f that satisfies this relationship. So the norm of f of x minus f of y is less than or equal than m times the norm of x minus y. So what this means is that f needs to be continuous, but also",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "not in a very dramatic way. So this is the mathematical definition of Lipschitz continuity. And what I'm saying here is if the vector field is Lipschitz continuous, then the trajectories x will be unique for a given initial condition. And so I'm going",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "to just give you an example of when trajectories are not unique. So here we have our ODE which is here like so. So I'm just going to give you an example of if we have a vector field that is not Lipschitz continuous, how we can have trajectories that start",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "from the same point but that are actually different. So here, the example is as follows. So let's suppose we have your vector field, which is given this, by, let's say, square root of x. And you only consider, by the way, x positive or 0.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So if your vector field, by the way, is time independent and it's just a function of x by square root of x, then if you say you want your initial condition to be x0 is equal to 0, then xt equal to 0 is going to be a solution, but xt equals to t squared over 4",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "is also going to be a solution. So here t squared over 4. So the derivative is t over 2. And here's when you put this also in the square root, it's also t over 2. So all of that to say that your vector field needs to behave in a certain way if you",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "want to guarantee that your trajectories are unique. And this is Lipschitz continuity. And you're going to see why that matters. Cool. So that's the first equation that's going to be important. So the ODE here, which is dx over dt is equal to the velocity",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "at location x and time t. It's the first one. The second one that we're going to see is the following. So I told you that what we want to do is transport our distribution from one place to another. So when you transport something, one thing",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "that you want to guarantee is that you're not going to lose or gain anything of what you're transporting. You have what we call conservation of mass. And this idea is also something we want to put in writing. And in particular, we're going",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "to focus on the following case. So let's assume you're in a region of space and you consider a very small area. And here you have your data distribution that is around it. So the equation that we want to put in writing is around making sure that",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "the evolution of your density at time t is equal to the density that is coming minus the density that is going out or that is leaving. Do you all agree with this idea? So the evolution of density as at time t is a function of how much density comes",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "in minus how many comes out. So the left-hand side is kind of easy. It's just a partial derivative of your probability path at that region with respect to time. But then the right side, I don't about you, but very intuitively, there's not like a supernatural",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "operator that does that. So what we're going to see now is how we can quantify the idea on the right side of the equal sign. But before we do that, I just want to take a pause. Does this idea make sense, conservation of mass? By the way, have you",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "seen it in another topic? Yeah? So in physics, you have the same thing, and it's actually called-- it has a name. It's called the continuity equation. Anyways, so instead of just giving you the formula, we're just going to intuitively get to it.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "And in particular, I want us to think about this right-hand side of this equation and think for a bit how we want to quantify the inflow minus outflow bit. So let's suppose you have an operator that's called of the divergence. But right now, I'm not",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "telling you anything about what that operator is. I'm just telling you that the operator is positive when things are coming out more than coming in. And we're going to see what happens then. So here, when we're talking about coming in and coming out,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "we're, of course, talking about vectors. So here we're assuming, for instance, if there's more coming out than coming in that-- let's assume if we are in one dimensional space, you have a vector that is such that at first it's small in magnitude, and then",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "it's much bigger in magnitude. So here, do you agree with me that whatever this vector is representing, there is more coming out than coming in? You all agree? OK, so that's one case where coming out can be more than coming in. So let's see a second case.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "So second case is here. And then let's say your vector is coming out here and coming out there. Yeah? I'm sure you can have more cases than that. But in this 1D example, if you were to represent your vector, let's say f, over the dimension x, here, what is the",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "magnitude of f doing? It is increasing. OK, so here, we just see that partial derivative of x/x is increasing. How about here? So here it's negative. And then it becomes positive. Also increasing, right? OK, so based on this very",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "back-of-the-envelope intuition, we see that when things are leaving, partial derivative of x over this dimension of f over this dimension x is positive, which seems to match the sign that we want from our divergence operation. So now let's see the other case.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So let's assume that we have now the case where we want our operator to be negative when there is, quote unquote, \"more coming than leaving.\" So here again, this example. So you have, let's say, a bigger vector here coming and then a smaller one leaving.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "And then let's say you have another case, which is given by this, which is just vectors pointing towards that area. So here you see that f is becoming more and more negative when you project it on x. So here you have partial derivative",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "of f over x, which is negative. And here you see that it was first positive, and then it becomes negative, which again, boils down to this. So this is by no means a formal proof, but I hope I gave you some intuition that if you take",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "the partial derivative of your function that is outputting a vector over its coordinates, at least in 1D, it would give you this intuition that if it's positive, then it's more coming out, and when it's negative, then there's more coming in.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So based on this intuition, what I'm now telling you is that there is an operator that is indeed called the divergence that is a function of a vector, that is a function of x, which is also multidimensional. And what it is doing is it is just",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "the sum of the partial derivatives of x over each dimension. So the divergence is a scalar. It's a number. And if it's positive, it just means that there are more things coming out. And if it's negative, it means there are more things coming in.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "So based on that, we want to see how we can use this divergence operator back into our continuity equation example, where we want to quantify the fact that we want the net inflows, which is how much density is coming in versus out. So now a second",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "question is something that we ask ourselves, which is OK, what should we use as f? What should f be? So we saw the vector field, which is a vector that could be a candidate. So do you think the vector field could be a good candidate?",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "So let's see with an example. So let's suppose you have two points in space, let's say x1 and x2. And then you have their respective vector fields. If you happen to have a higher density in one of the two points, then our intuition tells us",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "that you would want the point in the higher density region to transport more things than the one in the lower density region. So in that case, the vector field alone would actually not be a good candidate. Instead, and maybe you have guessed it, in order",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "to quantify the movement of density, we, of course, need to take into consideration the probability density. And so here the actual quantity that we will use is called the probability flux, and it is defined by dt, which is a scalar times",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "ut, which is the vector field. So going back to the equation that we wanted to put in writing, what we're saying is that the temporal evolution of the density at time t, which we said is simply the partial derivative of p with respect to t.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "We're now saying that this is equal to minus the divergence of the probability flux. And this quantity, so minus divergence of dt ut of x. It just means that we're interested in the net inflows of density within our small volume. So all in all, that equation,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "which I'm going to write, is nothing else than the continuity equation, which you may have seen in physics. So I'm going to write it down. And of course, OK, this is here. So what we're saying is that the evolution of density at a given",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "location, the temporal evolution of the density at a given location, is given by how much density is coming in minus how much density is coming out. And this just conveys the facts that we're not creating new density out of thin air, we're just conserving it",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "when time goes from t0 to 1. And compared to the ODE that we saw before, you can think of this equation as being a macro perspective of how your probability path evolves. And the ODE itself is actually centered on how one particle evolves, which",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "is more a micro perspective, which we're going to see here. So a single sample, you take your sample x at time t. And what you're saying is that how fast that particle is going is actually given by the vector field at that location at that time.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "So the distance dx is given by ut of x times dt. So this is the micro perspective. But we also saw that this vector field that was coming into the picture in this micro perspective is also in the macro perspective. And what we're saying is",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "given that we're transporting the density and we're not losing it or gaining it, we also have this nice identity that we can use, which is also called the continuity equation. And so there is expression that you will see a lot in papers.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to read it out loud. The vector field ut of x generates the probability path. So when people say that, what they mean is that ut and dt satisfy the continuity equation. So now you may wonder, well, why should we care? So just remember",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "that our goal is to sample an observation from the initial distribution p0, and to map it to the target data distribution. And the way we want to map it is we want that particle to go from one place to another using the vector field.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "And so what we want is to find a probability path that will allow us to go from p0 to p1. And in order to find the probability path, we also need to find the associated vector field that will allow us to actually do the mapping because that vector",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "field is in the single sample perspective. So that's the idea. We're going to see it in other words, in a little bit. But this is the intuition behind flow models. Any questions on this? Everything is clear so far? Yep. So question is the",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "solution of this equation would be the target. So on the left-hand side, if we know ut and if we know that ut is allowing pt to go from p0, something that we decide that is easy to sample to p1, what we care about, what we're saying is if we know such a ut,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "then on the left-hand side, if you sample x from p0, you have your initial condition. And if you ut, what that means is you can solve this equation in order to find x1. And x1, by definition, will be as if it was sample from p1. So that's the idea.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "I know it was a lot. I know it may not seem clear, but don't worry, we have a lot of examples down the line. So let's move on. Oh, this is exactly my next slide actually. So here what we're saying is the relationship between these two perspectives, I'm",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "going to just repeat what I said but in mathematical terms, is if we sample x0 from p0. Given that our particle x is subject to velocity, then what that means is, if that velocity is actually generating the probability path from the initial to the target",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "one, then what that means is that xt will be sampled from dt. And in particular, t=1, x1 will be sampled from p1. OK, cool. So don't worry. We're going to go into more details on this. So the whole goal of flow models is to map points, is to map x0 to x1.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "So what is our strategy here? We saw that the vector field was a central piece of this whole problem. So number one, step number one is for us to estimate this vector field via some model that we're going to note ut theta of x. So theta is the parameters",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "that we're learning. So if we learn such a vector field, then what we're going to do in order to map x0 to x1 is we're going to use the ODE and solve it numerically. So what does that mean? That means that we're going to sample x0, and we're just going to",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "follow the vector field up until time equal to 1. So this integral here in practice is going to be just a numerical solver that maybe Euler, for instance. And it's going to be giving you x1, which is what you want, because at the end of the day,",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "you want to be able to sample from your target data distribution. So starting from now, our full focus will be around finding the vector field ut theta of x. Because right now, I just told you what we care about. But I didn't tell you how",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "we're going to do that. So now we're going to focus on that. So in the past, there has been many papers published on how you can estimate your vector field. And there is one method that I'm going to mention here, which is not going to be",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "the focus of this class because it is a method that was used a number of years ago. So eight years ago, I believe. But it is not something that could be used in practice. So people are not using it so far. But I'm just telling you just for historical purposes.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "So one way of learning the vector fields is by maximizing the likelihood that your model is seeing the data, the training set. So how can you do that? Well, if you take the continuity equation that we saw, so this one-- so if you take this",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "equation, then what happens is if you do some math, you can actually pop up that log of dt of x, which is what you want to maximize. And you can have the following strategy. So you want to determine log of p1 of x1. So x1 is the data from the training set.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "So you want to compute the probability of your model seeing x1. The problem is you don't how to compute it. So the way you're going to do this is you're first going to realize that you can compute the probability that the initial distribution",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "is seeing x0, because typically, the initial distribution is an easy one, something that you can analytically compute, such as a Gaussian. So you know how to compute log p0 of x0. And what you're going to do is you're going to link x1 and x0 by integrating",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "the divergence of the vector fields, because you have-- the formula above that is true. So if you know log p0 of x0 and if you know the vector field, then you can compute this quantity. And so what that paper was doing, which is called continuous",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "normalizing flow, was that it was us trying to learn the parameters theta by maximizing the likelihood of your training sets happening under theta. And it was computing the likelihood using this formula. So what is the problem? The problem is that",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "at training time, you need to constantly solve this integral. So it's a numerical solver that works all the time. So it's very expensive and very slow, which is why we have a snail emoji. So it's just not practical. People just couldn't use that. And for that",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "reason, I hope I did a good job of motivating the reason why we needed another approach. The approach we're going to see now is actually what is called flow matching, because we're going to see we're not doing maximum likelihood estimation.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "We're instead trying to directly learn the vector field. So if you remember for score matching, you were directly trying to learn the score. So here we're directly trying to learn the vector field. But the problem is that you don't know what it is.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "So we're going to see how we can compute this loss and indeed optimize on theta in order to find our vector field. So just remember that the problem that we have is we have an initial data distribution and a target data distribution. And what we care",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "about is finding this ut of x, which will allow us to go from p0 to p1. That is our goal. Well, p0 is easy, so it's a Gaussian typically. But then p1 can be super complicated. So one idea we can have is what if we just remember that the target",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "data distribution is just composed of points from your training data? So it's like individual points. So what if instead we simplify our problem and we ask ourselves how we can transport the initial data distribution, not to the target",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "one, but to a single point? How about if we just move our whole data distribution from initial to a single point? And here, I noted the single point with the distribution delta x1. So delta x1 is the notation for a Dirac delta distribution. So who has heard of",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "the Dirac distribution? Yeah? So Dirac distribution is actually probably the simplest distribution out there because it's a deterministic distribution. It will always give you one quantity. So here delta-- so I'm going to write it down.",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "So delta x1 of x is going to be 0 if x is different than x1. And otherwise, it will be actually a very high number. So typically, people say, let's say infinity. But of course, it's infinity, but the integral of this distribution, like",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "the density needs to be 1. So long story short is that we simplified our problem from initial data distribution to your target one. So we changed from that formulation to initial data distribution to a single point. So one idea could be for us",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "to think of the following way of going from one to the other. So let's suppose you have a probability path that is super simple. It's just a Gaussian distribution that is being interpolated between 0 and x1. So here what I'm saying is,",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "how about we think of the way we want to go from 0 to the points by taking our normal distribution of mean 0 and variance identity? And how about we just scale it down, scale it down and then move it towards x1 until it becomes just that point?",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "So here pt-- so we say x given x1, because it's a conditional probability, it's like given we're arriving at x1 at time t equal 1, it will be given by a mean of t x1 and a variance of 1 minus t squared times identity. So let me tell you why that is the case.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "So what I'm saying here is that I'm proposing a way for us to go from the normal distribution that is this one of mean 0 and then variance the identity. So what I'm saying is in order to go from here to this point, which is x1, what I'm telling you",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "is we're going to have a path pt given x1, which is a normal distribution of-- as a function of t because it's probability path at time t, t x1 and 1 minus t squared I. So when t equals 0, this is 0, this is identity. So p0 is just the normal distribution of 0",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "and I. And p1 is-- well, t=1 is just x1. And this one is a variance of 0. So you can think of t just tending to 0. So p1 is just a Dirac distribution. So this probability path that I'm telling you is something that is letting us go from our initial data",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "distribution to this point. So it's a valid one. So why am I choosing this? Well it can be shown that one vector field that is generating this probability path has the following expression. So ut of x given x1 is x1 minus x over 1 minus t.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "So I'm just giving you the formula so you can derive it. So I'm looking at the time, we will not have time. But the reason why I proposed the probability path, the conditional probability path is because it's much easier for us to compute a vector field,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "and it's something that we can actually write. And it is this one. And what I'm going to tell you is that this vector field is generating the conditional probability path. So in other words, the vector field will be such that if you sample from p0",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "of this conditional probability path, and if you follow these conditional vector fields, what I am telling you is that you will end up at time equal t with xt following your conditional probability path. Well, that's a huge step forward, no?",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "So how do you prove that, by the way? So you just use the quantities, you use the vector field that is just this formula, and you use the conditional probability paths which you can analytically derive. Because, if you remember the Gaussian distribution,",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "we just know everything about it. We also know the density formula. So if you take both formula and if you use the continuity equation, which is here, you can show that this expression is true. And this is how you prove that. Now we're not going to do it",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "because this is just some math. But maybe one thing I will tell you is why that vector fields makes sense. So we said that-- we said that the conditional vector field, which is noted ut of x given x1, what we said was that this was equal to",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "x1 minus x over 1 minus t. Well, when t is approaching 1, and when your x is not near x1, then what you're seeing is that this quantity goes crazy, goes very close to infinity. It goes very, very high. Well, why does that make sense?",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "It's because at time t equal 1, your distribution is literally a deterministic distribution that is x1. So you want all your particles to be exactly at x1. So if you're not at x1, then you better hurry. Your velocity will be very, very high.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "So that's one thing I want to say. And one other thing I want to say is there is a very nice expression of the conditional vector fields if xt is drawn from that conditional probability path, which as a reminder, is a normal distribution of mean t x1",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "and 1 minus t squared I. So if xt is drawn from such a conditional probability path, that means that you can express xt as follows. So t x1 plus 1 minus t x0, with x0 drawn from a normal distribution. So what that means is ut of xt, given x1,",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "if I were to just replace xt in this formula, what I would obtain is x1 minus-- so x, I'm just going to directly replace just because I don't have space. So t x1 plus 1 minus t x0 over 1 minus t. So x1 minus t x1 is 1 minus t times x1 minus 1 minus t",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "times x0 over 1 minus t. So what that means this is equal to x1 minus x0. The conditional vector field for xt, which is drawn from a conditional probability path, is nothing else than x1 minus x0, which is very nice. So why is it very nice?",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "Well, it's tractable and it's going to be useful for us. OK, any questions? Yeah? So the question is, how do we get to that equation? So the question is, where does this equation come from? So this one, the one above is just an equation that I'm just telling",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "you, I'm just giving you. And you can verify that it actually is generating the conditional probability path. You can prove it, but we're not doing it. So given that this part is just me telling you that this expression can be even further simplified if",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "the x that you're putting here is actually drawn from the conditional probability path. So as a reminder, the conditional probability path is given by a normal distribution of mean t x1 and 1 minus t squared I. So if you were to draw from such a distribution.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "It would be the same thing because you x1. It would be the same thing as sampling from just a standard normal Gaussian and writing xt as follows, because this is your variance, this is the mean. So this is the mean plus the variance times",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "something that is run from the normal distribution. And so what I'm telling you is if you were to plug in that expression in here, then a lot of simplifications occur. And you end up with a very simple expression of the conditional vector field at that point",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "being equal to just x1 minus x0, where x0 is basically this component of xt. And follow up question is, well, why are you telling me this? It's a very fair question. I'm going to tell you in 15 minutes. But does everyone agree with me so far?",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to take that as a yes. OK, so now that we looked at a very simple case of transporting our data distribution from this initial one to a single point, now our goal is going to figure out how we can map that back to our initial problem.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "So our initial problem is to map from the initial data distribution to the target data distribution. So an idea to obtain the target data distribution is to replicate this conditional path over all points of your target data distribution. So if we do that,",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "we consider, let's say, one point of your target data distribution, we have this conditional probability path. We consider a second point. And let's assume here that our target data distribution, our training set only has two points. Then what that means",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "is that at time t, we can consider what we call a marginal probability path. So marginal because we marginalize across the x1's. And we will end up with a mixture of Gaussians, where each Gaussian is interpolating between the normal one to the single point.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So let me tell you why I'm telling you all of this. So just remember that what we care about is to map our initial distribution to the target one. So there are many ways to go from one to the other. And what we say is that we can just propose this marginal",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "probability path, which I'm going to explain in a second. So what I'm telling you is let's fix x1. And just consider the conditional probability path. So p of x given x1 which is what we saw. Before Now let's consider all such conditional probability",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "path across all the x1's that are composing our target data distribution. And let's consider the following expression, which is a natural way of defining it. So we notice that p0 of x-- so p0 of x, given x1 is just the standard normal distribution, p0.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "So this is indeed the initial data distribution. So the standard Gaussian. And p1, what is p1? So we said that when t equals 1, p of x given x1 is the Dirac. So when t equal 1, this one is equal to Dirac of x1 at x. So this whole thing",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "simplifies to P data of x. So this marginal probability path is verifying p0, like t equals 0, is equal to your initial data distribution. And p1 is your target data distribution. So it is a valid path to go from 0 to 1. So now our goal-- because",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "just remember, what we want is to go from 0 to 1. And we want to learn the vector field that is getting us from 0 to 1. So the good thing here is we have a probability path that is getting us from 0 to 1. So now let's look at the vector field.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "Let's see if there is a way for us to aggregate the conditional vector fields such that it is going to enable us to go from 0 to 1. So here we consider the conditional vector field for each data point like conditional on each data point.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "So this one and this one. And what we want is to also have a marginal vector field, something that is able to generate the marginal probability path. And what I'm going to tell you is that the way we want to aggregate the vector field is going to actually",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "be quite intuitive. So I'm going to just write it down. So up until now, what we're doing is we're constructing things. We're constructing things, and then we're verifying that it's actually something that is what we want. So what I'm saying is we're going",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "to aggregate the conditional vector fields by considering the following aggregation. So I'm going to take my conditional vector fields. I'm going to aggregate it as follows. So I'm going to say it's equal to this. So the conditional probability",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "path times p data of x1 over the marginal probability path which we have derived a short while ago. And I'm going to say that this is my definition. This is my proposed definition of the marginal vector field. So this expression may seem scary to you,",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "but if you remember Bayes' rule, this one-- you recognize Bayes' rule here, a little bit? So it's as if-- so I'm going to put this in quotes. So it's as if it was the probability of x1 being where you're headed given x, which is where you are.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "So the way you're aggregating your conditional vector fields is OK, I'm at point x and I'm going to weight each conditional vector fields with a weight that is telling me the probability of this x1 being my destination given where I am.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "So you can think of this as the posterior mean. And this coefficient can be interpreted as OK, given where I am, how likely is it that this point is where I want to go? And now I'm going to tell you the biggest result. These marginal vector",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "field which we defined is actually generating the probability path, the marginal probability path. So this is a big deal. So what that means is there is a vector field that is generating the probability path that is actually something that",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "satisfies what we want, which is it's a path that goes from the initial to the target. So I'm looking at the time. I'm not going to derive it, but I'm going to derive something else instead. So in order for you to show that this vector field is generating",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "the probability path is by just plugging these quantities in the continuity equation. So I'm not going to do it. I'm just going to tell you how you would do it. So you just do that. So you take your marginal probability path. You derive it here,",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "and just recognize that it is indeed the minus the divergence of the marginal probability path and the marginal vector field. So what this is telling us is if we sample x0 from p0, which is the initial one, then if we follow the marginal vector field, then xt",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "is going to be following the probability path p of t. This is huge because if you take x0 and you take it all the way to t equal 1 with the vector field, then x1 will be actually following p1, which is what you care about. So this is huge. This can be proven",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "mathematically. We're not going to do it with respect to how much time we have. And so this leads us to our initial problem, which is us wanting to learn a vector field that will allow us to go from p0 to p1. So here, what I'm going to tell you",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "is that optimizing for the flow matching loss that I told you at the very beginning is equivalent to you optimizing for what we call the conditional flow matching loss, which is given by here. And I'm going to tell you more about this for the next five",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "minutes. So let me take this. So here, what we want is to have a tractable loss. And if you look at the flow matching loss, it is still a loss that is quite complex. So our goal is to really make our loss as tractable as possible. So as a result what",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "we're saying is that the loss of flow matching, which is given by this, so it's the expectation of the squared distance of your learned vector field minus the marginal vector field that you constructed. So what we're saying is optimizing for the loss above",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "is the same as optimizing for the conditional flow matching loss, which is this one. So if we aggregate over time steps t and x drawn from the probability path dt of this expression, what I'm saying is that optimizing for this loss is the same as optimizing",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "for the conditional flow matching loss, where the expectation is over t x1, and then x belonging to the conditional probability path. And back to your question. This whole expression that we had here was ut of xt given x1, which was x1 minus x0.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So this thing is super simple. It is just the thing that you want to learn minus x1 minus x0. Super simple. OK, so now why is it equivalent to optimize on the flow matching and the conditional flow matching loss? That's another question. So if you remember,",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "for score matching, we had a very similar question. So I'm going to give you the same trick. So let's assume you have distance squared of a minus B, which is basically what we have here. And what you want is to optimize these losses with respect",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "to the parameters of the model theta. So everything that you care here is only terms that are a function of theta. So a minus b that norm squared is equal to a squared minus 2 dot product of a and b plus b squared. So ut theta x squared,",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "this and this are the same. Perfect. So how about this term. The b term is actually not dependent on theta. So we actually don't care. So a is good. It's the same. b is not a function of theta. We don't care. The only thing that is different between these two",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "is the dot product of a and b. So this one and this one and this one and this one. So what we want to show is the expectation over t and x of this dot product is the same as the expectation over this. So t x1 and x over the conditional probability",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "part of this one and this one. We want to show that these two are the same. So I'm going to do this in two minutes. OK. So let's suppose-- so we're going to go from one side and end up with another. So what I'm going to do is start from the dot product",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "of the conditional flow matching loss and end up with the one from the flow matching one. So what I'm going to compute is the expectation. And here, I'm going to say t x1 and x of the dot product of ut theta of x and your conditional vector field.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "So ut of x given x1. So what I'm telling you is by definition of the expectation-- so this is just a bunch of integrals. So this is the integral over t over x1 and x of ut of theta of x dot product with the conditional vector field ut of x given x1.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "And this is over x1 and x so I'm going to say it's p data of x1. And then the conditional probability path x given x1 dx1, dx, dt. So far so good? So here what we notice is that if we put this quantity here, this quantity here, and if I divide by dt of x and I",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "do times dt of x, then what I'm going to recognize is the marginal vector field that we have constructed. So this is going to be equal to the integral over t integral. So this integral over x1 is also going to come here. So integral over t, integral",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "over x of ut theta of x. And this ut of x, which is the marginal vector field, times this marginal probability path dt of x, dx, dt. And this is nothing else than the expectation over t and x, which is run from the marginal probability path of the dot product",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "of ut theta of x and the marginal vector field, which is exactly what we want. So what I'm showing you here is that the marginal vector field, the way we constructed it, allows us to optimize on a loss, the conditional flow matching loss, which is much",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "more tractable, and leads us to the same gradients with respect to theta. And so long story short, we have this loss, which is called the conditional flow matching loss, which is the expectation over t x1, which is run over the pdata, and then x drawn over the",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "conditional probability path of a quantity that is extremely simple. So it's just the squared distance between the learned velocity, which is what you want to learn, and the conditional vector field, which we saw was nothing else than just x1 minus x0.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "So it's a very tractable loss, and it does exactly what you want. Any questions? So it's a lot. Are we all clear with this? OK, I'm going to say that it's OK if you feel like it's a lot. It is indeed a lot. So I'm going to recap the strategy.",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "So what we said at the very beginning was that we had two different views of how we want to go from one distribution to another distribution. What we said was that there was this quantity called the vector field, a.k.a. the velocity that",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "was linked to how we could move our particles, so with the ODE dx over dt equal vector field that one, but also the continuity equation that linked the vector field with the probability path. So what we want is to find the vector field that will",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "allow us to go from p0 to p1. So what you need to do is to find first a probability path that goes from p1 to-- sorry, from p0 to p1. First you need to find that. And then you need to construct a vector field that indeed allows you to go from p0 to p1.",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "So how do you do-- how do you do that? Well, you propose some quantities and you try to see if the continuity equation is indeed satisfied. So that's step number one. Once you your vector field of interest, your goal now is to learn it. Because if you learn",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "it, then what you can do is to integrate the ODE. Why do you want to integrate the ODE? It's because you want to go from x0 to x1. Therefore, you need to learn your vector field. And here what we did is, in order to learn the vector field, we first thought of",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "a very simple case of us wanting to go from the initial to a single point via the conditional probability path and the conditional vector field. So this is the simple case with the Dirac distribution being the target distribution. And then what we said was OK,",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "given this very simple case that is super tractable, let's try to match our initial distribution with the actual target one of interest, which is the whole data distribution, not just a single point, but the whole data distribution. And we proposed the",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "marginal probability path which satisfies t equals 0 equals p0 and t equal 1. It's equal to p data. So it was a valid probability path. And we also saw that the constructed vector field was actually generating that proposed marginal probability path.",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "It was generating it, why? Because it satisfies the continuity equation, which I said I don't have time to derive, but you just need to replace the quantities and see that the continuity equation is indeed satisfied. So given that we were finally",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "with the vector field, that was something that was adapted to our use case. But now what we wanted to do was to learn it with the tractable loss. So in this last part, what we did is show that the loss that we wanted to optimize was actually equivalent",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "to another loss that was extremely tractable, which is the conditional flow matching loss. And the way we showed that was by showing that the gradient of this losses with respect to theta were equal, which is what I did here. And then finally, we have",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "our final loss function, which is ut theta of x minus x1 minus x0 expectation of that. So it's incredibly simple. So everything I told you is actually-- so a lot of it is coming from this paper that's called Flow Matching for Generative Modeling. So I highly",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "recommend reading it. It may not be the simplest to read, but I hope what I just told you actually will allow you to understand the formulas in there a bit better. But I didn't want to give it to Shervine before telling you a bit more about why we're calling",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "this whole thing flow matching. Because core matching, it was called core matching because you tried to match the score. But here, we're not matching the flow, we're matching the velocity. So one natural question is, why is it not called velocity matching?",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "Why is it not called vector field matching? Why is it called flow matching? So these points are a bit more informal. It's just a personal take on why that is the case. So one potential reason is, historically, these models which are flow models,",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "meaning trying to map a point to another via this psi t of x minus 0, they had the term flow in their names, and in particular the method that I mentioned that try to learn the vector field with maximum likelihood estimation. That one was called",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "continuous normalizing flows. So one reason is maybe branding, but actually, I want to get back to my earlier Lipschitz continuity comment. It turns out that if the vector field that you learn here is Lipschitz continuous, then what happens",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "is that your trajectories, they're all unique. So you actually have a mapping between vector fields that you learn and the flow. So if you're matching the velocity, you're also matching the flow. Now you may be wondering, OK, how",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "do that the learned vector field is indeed Lipschitz continuous? Well, we have not seen that yet. We're going to see that in lecture 5. But the model that is behind this learned vector field is something that is composed of matrix multiplications",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "and some smooth activation functions. All of that is Lipschitz continuous. So what you will learn is actually Lipschitz continuous vector field with respect to x, which is going to give you a one-to-one mapping between velocity and flow.",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "And we have two minutes. So bear with me. In two minutes, I'm going to cover how we train and do inference. But it's going to be very easy. So let's see how we do training. So as I mentioned, the loss is extremely simple. And so what we do is",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "we sample the noise. So x0 from your standard Gaussian distribution, your clean image, so x1 from your training set, which is pdata, and you also sample your time step. And what you do is you construct xt, your noise image. And what I'm telling you is",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "thanks to the loss function that we derived, what we do is we use xt, the noise image and t to predict x1 minus x0, which is the conditional vector field via this model that is your vector field model. And you're going to compute the loss and backpropagate.",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "That's how you do training. Now, how do you do inference? Well, inference, you just sample from an easy data distribution. And here it's, again, standard, normal distribution. And what you're going to do is to numerically solve the ODE.",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "So what you do is you go time step to time step, and you use your learned vector fields, and you end up with your final estimated image x1. And that's how you do inference. And with that, I'm going to give it to Shervine. Thank you, Afshine.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "So now we're going to see in a more visual manner the training process and discuss some edge cases and how to solve them in practice. So you remember the training process that Afshine just mentioned. You sample x0 from the normal distribution,",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "you sample x1 from your training set. And what you do is that you draw a straight line between the two, and you try to fit the velocity to this x1 minus x0. Now I want you to imagine that we do that for a given pair. And now for another pair.",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "And suppose that these pairings intersect at a given point. And let's suppose that this intersection is for a same t. So in other words, we're trying to fit the loss at a same x, at a same T on two different vectors. So who knows what the resulting",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "learned velocity will be? So it cannot be two velocities right. We cannot have two vectors at a single point. It has to be one. So we have this MSE loss that will make it such that it will be an average of all the vectors that we tried to fit at",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "that given point points x and at given point t and you see that as being a problem or, so what does that mean? So here in practice, let's say you're at inference time and you want to go from, let's say, x0 to x1. And let's say you have learned",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "a vector fields of velocity that doesn't go to x1. That goes in an average direction. Are you going to be able to go to x1? No, right? So the thing that will occur is that you're going to have something averaged that might repel",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "the trajectories that you try to learn into different directions. But be reassured, we showed that these learned vector fields was such that if you sample a point in the normal distribution and follow the learned vector field, you land into a",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "distribution land, that will be your distribution pdata. So that part is fine. But still, you have this property that the learned trajectories are not going to be the same as the ones that you teach your model. And that is a source of what",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "I would call complexity, where you teach a model that doesn't follow what you said at test time. So that is inherently-- so your intuition could make you feel that this is not efficient. And the second thing that I want to say is that you could have",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "this phenomenon happening, even though the points of intersection are not at the exact same T, because in practice, you're going to learn this vector field with a neural network. And neural network are going to be a class of functions that are",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "going to be smoothing things in space. So you won't have a drastic change of velocity for neighboring t's. And so because one thing that you could have told me is, but Shervine, that is never going to happen. 01 is an interval with infinitely many numbers.",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "You're never going to draw the same t, and you would be right. And I'm just saying that it could be valid for neighboring t's. And more importantly, let's say you sample your point x0 out of your normal distribution. What is going to be your issue here?",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "Afshine mentioned that you want to integrate the ODE at inference time. And we had seen last time that you want to find methods that optimize that number of NFEs in such a way that you can find your target sample in a minimum amount of steps.",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "And when you have a path that is getting curved, so you don't have these straight lines at inference time, you're not going to be able to solve that in a single step. Because let's say you use Euler. Euler is estimating the velocity at the beginning points.",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "And if you try to do it in a single step, it will end up somewhere else. It will follow a straight path, whereas the curve isn't going to be taken into account. And you're going to tell me, but Shervine, you have tricks in your pockets. Last time you talked",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "about a DPM solver in a different setting that was able to reframe things in an exact way. Well, no. This time, the ODE that we want to integrate has no linear components. It's all non-linear because here we're directly learning that velocity field.",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "So no DPM solver here. You need to use traditional sampler techniques. So not quite happy. We're happy but not quite. So now I'm going to walk you through the intuition of a retraining or fine tuning procedure that is called reflow. And so first I'm going to",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "recap the training procedure that we have already. So you sample a point x0, you sample a point x1, you draw a path and then you fit a velocity on it. So it is called in that paper a one rectified flow model. And you obtain trajectories that",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "we saw we're going to be curved. And one idea that we have here, one temptation, is to locate these new pairings. So you started from point x0. You integrated the ODE. You ended up at somewhere in the distribution of pdata. You're tempted to use these",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "new pairs as your new pairings, because they will be, by construction, in such a way that the velocity field will carry the trajectory directly there. So the reflow procedure says, OK, let's take these new pairs as those that we use to retrain the model.",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "So this will be our new lines that we fit our new model. And so this is the reflow step. And you do that process again and again until your lines becomes straighter. And once that is the case, at inference time, you're able to use a limited",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "amount of inference steps in order to get your sample in the pdata space. So does this procedure make sense? Yep? So the comment is if you retrain, then the two points are going to be from the new distribution. So the magic in all of this--",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "so first, you're going to keep that Gaussian distribution at the beginning. That will not change. And at the end, we're going to see that there are some properties that makes it such that the resulting points that you get still preserve the",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "distribution p data. So there is some theoretical justification that it does follow pdata. But this is a great point. We're going to discuss that in more detail in two slides. Any other questions or comments? OK, so you're right to be skeptical.",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "So this works because of two things. So first, actually, one slide. So we need to show that this follows the distribution pdata. So I'm not going to give you the whole proof, just the gist of it. So you start by defining this random variable that starts at x0.",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "And you integrate the ODE to end up in the new space and define this velocity for the x random variable and the proof to show that the law that you get for the end distribution after a reflow procedure goes through, showing that these two",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "probability flows respect the same continuity equation. And with some uniqueness theorem and the presence of initial conditions at the fact that dt equals 0 is still the Gaussian distribution, you can show that it's valid for all t",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "and, in particular, t equals 1. So yeah, just hand-waving the proof here. So it's theoretically the case. But you are right to be skeptical, because once you integrate the ODE, you have errors that come in from two sources. So the first error is",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "the discretization error. So as we said, we're sampling these new points. So maybe you have some errors in the way you do these steps. So you don't necessarily end up in a theoretical location you should be at. And the second point is that you're operating off",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "of a learned vector field that is approximated by a neural network, and it is possible that you haven't learned it perfectly. I mean, of course it's sure that you haven't learned it perfectly. And the quality of your results will be a function of how well",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "you learn that vector field and of your discretization errors. And we're going to see very soon that this is one of the reasons why we don't perform this procedure too many times, because the degradation is going to be a trade off to balance here.",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "So this is the first point I wanted to justify. The second point I wanted to justify is we hand waved the fact that the flows like the trajectories were getting straighter, and there is a mathematical way of writing it down and proving it.",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "And this is also something that is being proven in case you're interested. And for the interest of time, I'm not going to be covering it, but that s quantity quantifies straightness and compares the actual velocity with the theoretical one. And we show that it",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "decays with a good speed. And this is why we're saying it's getting straighter. And exactly as we discussed, the reflow procedure is one that you wouldn't want to do too many times, but usually, one procedure is already great. And the goal is for us to use a",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "very simple sampling techniques, such as Euler, optimally in just a few steps, finding the right solution. And of course, it isn't a free lunch. It comes at a trade off. So you're trading off simplicity and potentially lower quality for faster inference",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "time speeds. OK, great. So this past three lectures, including this one, we've come across these concepts of diffusion, score matching, and now flows, flow matching. And I want to spend five minutes together to tie all of these frameworks",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "together in a way that will hopefully show links between them and the fact that we are solving the same category of problems but from different lenses. And in order to do that, I'm going to look at each of the processes that we defined",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "and then look at the difference with respect to each method. So the first one is the forward process. So it's a long time ago. Already two weeks ago, we talked about DPM and all this class of discrete time, diffusion. And then we saw in score-based",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "diffusion world that if you reframed these equations and converted it into continuous time, put some delta t to 0, you could get some SDE formulation that was equivalent to it, Where we saw at the DPM solver section that actually, in diffusion",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "space, you could approximate-- I mean, you could always assume that f of x and t was linear in x. And this is why. So it's something that we haven't seen so far but I'm telling you that you have a nice closed form expression with respect to f and g of xt.",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "And now we saw today that you can write down xt as an interpolation between x0 and x1 in flow matching. And now we're going to see that in all of these methods, you start from a clean sample. So in a diffusion space, we start the clean sample from t equals 0.",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "But in flow matching space, we saw that the notation was reversed. Clean sample is t equals 1. And on the other side of the spectrum, you have noise, which was in diffusion world t equals big t. And here it's t equals 0. So you're here drawing an",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "interpolation between the two in each of these cases. Now when we look at the loss functions, we saw that the diffusion view of writing things down was focusing on noise. The score matching view was linking scores, and you had a nice relationship",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "between noise and score. And in the flow matching world, you were directly fitting the velocity field such that you have the simplest ODE to integrate in the end. Now, when we look at the generation process, we saw in the diffusion world that you had all these",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "steps to go through with some stochasticity, which you also had in the score-based diffusion world, and you had for the first two, a deterministic counterpart. And you will notice that the flow matching one doesn't have such a balance because it's",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "deterministic to start with. And I'm just showing you some relationships between all these methods, but actually, there is a whole theory linking these concepts in a very nice way. And this is why I recommend if you're interested. So it's out of scope",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "for this class. And just if you're interested, to take a look at the paper called Stochastic Interpolants that writes down equations that links all of these together. And turns out that r of noise, score, and velocity, if you know two of them, you",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "can deduce the third one. And that paper designs a problem space that is bigger than what each of these frameworks detailed. And all of these frameworks can live in the same unified framework. And with that, I hope you have a great weekend.",
+      "start": 1584,
+      "duration": 6
+    }
+  ]
+}

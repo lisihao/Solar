@@ -1,0 +1,309 @@
+{
+  "videoId": "cWERZF1pLl4",
+  "title": "FAST '26 - DRBoost: Boosting Degraded Read Performance in MSR-Coded Storage Clusters",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 14534,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Shaonio from\nTsinghua University. Now it's my\npleasure to present our work Diaburst,\nan approach to significantly boosting\ndegraded read performance in MSR coded\nstorage systems.\nIn large-scale storage clusters,\nunavailability events are frequent\noccurrence rather than a rare exception.\nThese events generally fall into three\ncategories. First, storage devices such\nas HDDs and SSDs are subject to\npermanent errors like physical disk\ndamage of\nflash faults. Second, there are\ntransient failures which are often\ncaused by network partitioning or\nsoftware crashes.\nAnd third, planned offline such as\nsystem maintenance or rolling upgrades\nare ongoing activities in production\nenvironments.\nBecause these events happen so\nfrequently, ensuring efficient degraded\nreads is critical to avoid long-tail\nlatency and ensure the quality of\nservice.\nErasure coding is widely used to achieve\nhigh reliability modern storage\nclusters. This is because erasure coding\nachieves replica- replication level\nfault tolerance while significantly\nlowering the storage overhead.\nHowever, conventional schemes involve\ninherent trade-offs between reliability\nand efficiency.\nAs shown in the table, uh I'm sorry. RS\ncodes\nuh provide optimal fault tolerance but\nsuffer from poor repair efficiency.\nOn the other hand, locally recoverable\nrecoverable codes or LRCs introduce\nlocal parity chunks to improve repair\nefficiency, but they do so by\nsacrificing for tolerance.\nBenefited from advances in coding\ntheory, a brand new class of erasure\ncoding called MSR codes have has been\nintroduced. These codes have a very\npowerful property. They offer the\noptimal repair bandwidth among MDS\ncodes, which ensures the optimal fault\ntolerance at the same storage cost.\nThe key to this efficiency is a\nmechanism called subpacketization.\nMSR codes partitioning each chunk into\nmultiple subchunks that participate in\ncoding in coding collectively, forming a\nnew class called vector codes.\nAs shown in the diagram, when a failure\noccurs, a helper node no longer needs to\ntransfer all its subchunks. Instead, it\nonly needs to contribute a small\nfraction, it's specifically 1 over M of\nits subchunks, and M uh represents the\nnumber of parity chunks.\nHowever, despite these great theoretical\nproperties, MSR codes face a major\nchallenge in practice, their large chunk\nsizes. To understand why, remember that\na chunk size can be calculated by\nmultiplying the subpacketization level\nby the subchunk size. Unfortunately,\nboth of these factors contribute to a\nsignificant increase in the final chunk\nsize.\nFirst, the subpacketization\nlevel is strictly constrained by the\ncoding theory. It has been proven that\nthis level grows exponentially as the\nstripe width increases, assuming the\nnumber of parity chunks remains\nconstant.\nFor example, consider a 2060 one stripe.\nIn this case, the subpacketization\nlevel reaches 1024.\nEven with a small subchunk size of just\n4 kilobytes, this results in a minimal\nchunk size of 4 megabytes.\nSecondly, IO efficiency significantly\nlimits the minimum sub chunk size.\nSince the reconstruction process\ntriggers many fragmenting requests,\nthese accesses can drop down to the\nlevel of individual sub chunks in the\nworst case scenarios.\nAs a result, large sub chunk sizes are\nessential to saturate device bandwidth\nand keep the recovery process fast.\nFor modern hardware, this will be at\nleast tens of kilobytes for SSDs and\nhundreds of kilobytes for HDD\nrespectively.\nThis requirement for large chunks\ncreates a severe granu- granularity\nmismatch with the production workloads.\nAs shown in the graph, real-world\nworkloads are heavily dominated by small\nobjects.\nFor example, in Alibaba Cloud Object\nService,\n90% of objects are smaller than 400\nkilobytes. We observe similar trends in\ntraces from IBM and Facebook as well.\nOn the other hand, MSR codes demand\nlarge chunks to remain efficient.\nLooking at the table, for a typical\n20/60 configuration, the chunk size\nreaches a 16 megabytes for SSD and a 256\nmegabytes for HDDs. This means a single\nobject often cannot occupy an entire\nchunk.\nUnfortunately, existing works fail to\nhandle degraded reads efficiently since\nthey always treat the degraded reads as\nspecific form of partial chunk recovery,\noverlooking the importance of partial\nchunk reconstruction.\nAs shown in the figure, the degraded\nread performance rises by up to two\norders of mag- magnitude compared with\nnormal reads, significantly harming\nservice quality.\nTo solve this problem, we must first\naddress three key properties of of MSR\ncodes that make efficient degraded reads\nso challenging.\nFirst, unlike traditional scalar codes,\nMSR codes use an interleaved code\nlayout. Each sub chunk is spread across\nmultiple code words. This means we\ncannot simply use code word extraction\nfor partial reconstruction like we do\nfor for scalar codes.\nSecond, MSR codes exhibit exhibit\nasymmetric repair patterns. This means\nthe data required for helper nodes\nvaries depending on which chunk fails.\nSo, object layout struggles to provide\nconsistent benefits for all failure\ncases.\nAnd finally, they involve fragmented\naccess patterns. If these\nfragmented patterns are overlooked\nduring layout design, the overall IO\nefficiency will be severely compro-\ncompromised.\nTo overcome the challenges of MSR codes,\nwe propose Diabolo Diabolo's. The core\ndesign of Erasure\nis to decouple the coding and storage\nlayouts for object management.\nOn one hand, the coding layout provides\nthe flexibility we need to integrate MSR\nspecific optimization techniques. It is\nresponsible for performing linear\ntransformations\nwith the generator matrix, allowing us\nto theoretically minimize repair\nbandwidth during object reconstruction.\nOn the other hand, the storage layout\nmanages how data blocks physically\norganized and handles direct\ninteractions with storage devices. By\nisolating these hardware level\noperations, it ensures that complex\ncoding logic never degrades coding\nrelevant system performance.\nOur first technique is partial chunk\nreconstruction with data reuse. As we\nsee,\nMSR codes are composed of several sub\nchunks, each of which\npossesses independent fault tolerance.\nAs shown in the figure, if node D3\nsuffers a failure, its yellow sub-trunk\ncan be efficiently repaired using only\nthe other yellow sub-trunks from the\nsame substrate one without touching any\nunrelated data.\nTherefore, instead of a full trunk\nrecovery, Diabu's only reconstructs the\ndata via selected sub-trunks that\ncontain the required objects.\nUh to further reduce repair bandwidth,\nwe introduce two data reuse schemes.\nThis allows us to be very selective\nabout which sub-trunks we use for\nreconstruction.\nLet's first at uh look at this example.\nThe blue sub-blocks uh sub-trunks\nrepresent our target objects. If data\nnode three fails, we must trigger and\ndegraded read to recover the lost parts\nof that object.\nThe first scheme is sub-trunk reuse.\nThis allows multiple loss of sub-trunks\nto be reconstructed at the same time\nusing the same set of helper sub-trunks\nfrom the same uh sub-trunk. As shown in\nthe figure, the two yellow sub-trunks\ncan be repaired together by fetching\nonly the necessary sub-trunks from\nsub-trunk one.\nThe second scheme is request reuse. The\nidea is that the heresy portion of the\nrequested object can also serve as the\nhelper sub-trunk for reconstruction. In\nthis figure, notice the three heresy\ngreen sub-trunks inside the blue box.\nThey can play two roles at once. They\nare both the data being requested and\nthe helper data for construction.\nBy combining these two reuse schemes, we\ndesign a two-step, lightweight, and\nhighly efficient algorithm for partial\ntrunk reconstruction.\nNext, we introduce the second technique,\nthe reconstruction-friendly coding\nlayouts. Even though our partial trunk\nreconstruction algorithm provides clear\nbenefits, the gains are still limited if\nwe simply adopt traditional object\nlayout strategies, which are native to\nscalar codes.\nThis limitation stems from two main\nreasons.\nFirst, in MSR codes, substrips overlap\nwith with each other. If you look at the\nsubstrip indices on these substrips, you\ncan see that most of them are shared by\ntwo different substrips. This\noverlapping structure means that we\ncannot simply place objects into a\ndedicated substrip one by one.\nFurthermore, we must deal with the intra\nsubstrip heterogeneity. As you can see,\nsome nodes, like uh\nD1 and D3, contribute more substrips to\nour reconstruction, while others\ncontribute fewer.\nTo address this issue, it is essential\nto adopt a substrip layout specifically\ntailored for MSR codes.\nOur key idea is to identify the nodes\nthat contribute the most repair\nbandwidth within each substrip and\nextract them as a basic layout layout\nunits.\nAs shown in the figure,\nuh the unit offers three distinct\nadvantages. First, it naturally supports\nboth the substrip reuse and the request\nreuse properties that we defined\nearlier.\nSecond, it is sufficiently fine-grained.\nUh each unit is exactly the same size as\nthe strong size of scalar codes,\nassuming that the strong size equals to\nthe MSR sub strong size. And third, this\nbasic layout unit can cover the entire\nstrip completely with no with no\nduplication at all uh no omission.\nUh furthermore, since there is still a\nsize gap between the uh basic layout\nunit and the full strip, we propose a\ntiled layout structure. This allow us to\nbetter accommodate intermediate size\nobjects and the boost their performance.\nFirst, we introduce the balanced layout\nunit. Uh the goal is to ensure a uniform\ndistribution of sub chunks\nacross all nodes to maintain load\nbalance.\nUh second, we have the reuse optimal\nlayout unit. This is a highly efficient\ngroup that requires no extra header data\nfrom other nodes when constructing any\nuh lost chunks from any failed nodes\nwithin the\nunit. As shown in the diagram, this\nhierarchical approach bridges the gap\nbetween the small layout unit and the\nthe stripe size, ensuring that uh\nefficient repair efficiency for uh\nvarying size objects.\nUh while the first two techniques\nsignificantly reduce repair bandwidths,\nin theory, they could potentially harm\nnormal read performance. This is because\nthe coding layout can introduce\nfragmentation within each chunk,\nlimiting the physical performance of the\nstorage device. To address this, we we\nadopt a fragmentation-free storage\nlayout.\nFirst, we handle the intra-unit uh\nlayout. We arrange the sub chunks within\neach sub stripe to ensure they are\nplaced contiguously on a storage device.\nSecond, we optimize the inter- uh unit\nlayout. We arrange the basic layout\nunits to preserve their original\nallocation sequence. This ensures that\nsub chunks from the the\nadjacent sub stripes are also placed\nsequentially.\nAfter generating the storage layout, we\ntake additional steps to minimize the\nsystem overhead\nuh required to maintain the two uh\nseparate layouts.\nFirst, to ensure the metadata\nefficiency, we use deterministic mapping\ntables for bidirectional translation.\nBecause our mapping is independent of\nobject sizes or their arrival order, a\nsingle mapping table can be shared\nacross all stripes that use the same\nconfiguration.\nUh for example, in a typical 2060 clay\ncode configuration, the table requires\nonly 128\nof memory. We believe this is a a very\nacceptable overhead.\nSecond, we optimize the IO flow by\nallowing the system to locate objects\ndirectly using their uh storage layouts.\nNormal read operations can bypass the\naddress translation entirely.\nAs a result, Diablo's ensure that our\noptimization for the degraded read never\ncompromise the performance of normal\nreads.\nUh now, let's move on to the evaluation.\nWe implement our prototype system and\nintegrate it into Ceph. Further\nimplementation details can be found in\nour paper.\nUh we use a test bed on Alibaba Cloud.\nUh within the cluster, 30 nodes serve as\nstorage servers, and 10 nodes serve as\nclient servers.\nWe evaluate Diablos using uh real-world\ntraces from Alibaba, IBM, and Facebook.\nUh by default, we use a 2060 clay code\nconfiguration and compare the\nperformance of uh Ceph standard Ceph and\nuh against Ceph uh enhanced with\nDiablos.\nFor overall performance, Diablos achieve\nsignificant latency and IO reduction\nacross all traces.\nUh specifically, Diablos reduces the\ndegraded read latency by 2.45\nto 89.2 times. It also reduces the\namplification ratio by 24.6\nto 557 times.\nNext, looking at the individual\ncontributions of each technique,\ntechnique one, two, and three improve uh\ndegraded read read latency by uh 72.3\nuh 4.9 and the 9 uh and 1.2 times.\nUh regarding to normal read latency, our\nresults show that uh the separation of\ncoding and storage layout is essential.\nIt allows uh Diaburst to enhance the\ndegraded read performance without\nintroducing any adverse impact on normal\nread performance.\nFinally, we conduct a sensitivity\nanalysis to evaluate how Diaburst scales\nwith wider stripes.\nBy fixing the number of comparative\nchunks at four and increasing the data\nchunks from eight to 24, we found that\nDiaburst performance scans actually\nimprove as the stripe width increases.\nThis is because wider stripes lead to\nlarger chunk sizes, which allow Diaburst\nto exploit\ndata reuse more efficiently to reduce IO\namplification.\nUh finally, to conclude, MS MSR codes\nshow great potential for building\nefficient and reliable storage clusters.\nThey achieve uh optimal repair bandwidth\namong MDS codes while ensuring optimal\nfault tolerance at the same storage\nlower head.\nHowever, the large chunk size required\nby MMSC codes uh remains a key\nbottleneck. Constrained by both coding\ntheory and IO efficiency, uh the\nrequirement triggers massive IO\namplification when objects\nare degraded reads.\nTo address this,\nwe propose Diaburst by decoupling\nstorage and coding layouts. We are able\nto significantly improve repair\nbandwidth while completely avoiding any\nadverse effects on normal reads.\nWe integrate our prototype into Ceph,\nand our evaluation showed that speedups\nof one to two orders of magnitude in\ndegraded read performance.\nUm, thank you for your attention and\nthen I'm happy to take any questions.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Shaonio from Tsinghua University. Now it's my pleasure to present our work Diaburst, an approach to significantly boosting degraded read performance in MSR coded storage systems. In large-scale storage clusters,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "unavailability events are frequent occurrence rather than a rare exception. These events generally fall into three categories. First, storage devices such as HDDs and SSDs are subject to permanent errors like physical disk damage of",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "flash faults. Second, there are transient failures which are often caused by network partitioning or software crashes. And third, planned offline such as system maintenance or rolling upgrades are ongoing activities in production environments.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "Because these events happen so frequently, ensuring efficient degraded reads is critical to avoid long-tail latency and ensure the quality of service. Erasure coding is widely used to achieve high reliability modern storage",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "clusters. This is because erasure coding achieves replica- replication level fault tolerance while significantly lowering the storage overhead. However, conventional schemes involve inherent trade-offs between reliability and efficiency.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "As shown in the table, uh I'm sorry. RS codes uh provide optimal fault tolerance but suffer from poor repair efficiency. On the other hand, locally recoverable recoverable codes or LRCs introduce local parity chunks to improve repair",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "efficiency, but they do so by sacrificing for tolerance. Benefited from advances in coding theory, a brand new class of erasure coding called MSR codes have has been introduced. These codes have a very powerful property. They offer the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "optimal repair bandwidth among MDS codes, which ensures the optimal fault tolerance at the same storage cost. The key to this efficiency is a mechanism called subpacketization. MSR codes partitioning each chunk into multiple subchunks that participate in",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "coding in coding collectively, forming a new class called vector codes. As shown in the diagram, when a failure occurs, a helper node no longer needs to transfer all its subchunks. Instead, it only needs to contribute a small",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "fraction, it's specifically 1 over M of its subchunks, and M uh represents the number of parity chunks. However, despite these great theoretical properties, MSR codes face a major challenge in practice, their large chunk sizes. To understand why, remember that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "a chunk size can be calculated by multiplying the subpacketization level by the subchunk size. Unfortunately, both of these factors contribute to a significant increase in the final chunk size. First, the subpacketization level is strictly constrained by the",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "coding theory. It has been proven that this level grows exponentially as the stripe width increases, assuming the number of parity chunks remains constant. For example, consider a 2060 one stripe. In this case, the subpacketization level reaches 1024.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Even with a small subchunk size of just 4 kilobytes, this results in a minimal chunk size of 4 megabytes. Secondly, IO efficiency significantly limits the minimum sub chunk size. Since the reconstruction process triggers many fragmenting requests,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "these accesses can drop down to the level of individual sub chunks in the worst case scenarios. As a result, large sub chunk sizes are essential to saturate device bandwidth and keep the recovery process fast. For modern hardware, this will be at",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "least tens of kilobytes for SSDs and hundreds of kilobytes for HDD respectively. This requirement for large chunks creates a severe granu- granularity mismatch with the production workloads. As shown in the graph, real-world",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "workloads are heavily dominated by small objects. For example, in Alibaba Cloud Object Service, 90% of objects are smaller than 400 kilobytes. We observe similar trends in traces from IBM and Facebook as well. On the other hand, MSR codes demand",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "large chunks to remain efficient. Looking at the table, for a typical 20/60 configuration, the chunk size reaches a 16 megabytes for SSD and a 256 megabytes for HDDs. This means a single object often cannot occupy an entire chunk.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "Unfortunately, existing works fail to handle degraded reads efficiently since they always treat the degraded reads as specific form of partial chunk recovery, overlooking the importance of partial chunk reconstruction. As shown in the figure, the degraded",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "read performance rises by up to two orders of mag- magnitude compared with normal reads, significantly harming service quality. To solve this problem, we must first address three key properties of of MSR codes that make efficient degraded reads so challenging.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "First, unlike traditional scalar codes, MSR codes use an interleaved code layout. Each sub chunk is spread across multiple code words. This means we cannot simply use code word extraction for partial reconstruction like we do for for scalar codes.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Second, MSR codes exhibit exhibit asymmetric repair patterns. This means the data required for helper nodes varies depending on which chunk fails. So, object layout struggles to provide consistent benefits for all failure cases.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "And finally, they involve fragmented access patterns. If these fragmented patterns are overlooked during layout design, the overall IO efficiency will be severely compro- compromised. To overcome the challenges of MSR codes,",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "we propose Diabolo Diabolo's. The core design of Erasure is to decouple the coding and storage layouts for object management. On one hand, the coding layout provides the flexibility we need to integrate MSR specific optimization techniques. It is",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "responsible for performing linear transformations with the generator matrix, allowing us to theoretically minimize repair bandwidth during object reconstruction. On the other hand, the storage layout manages how data blocks physically",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "organized and handles direct interactions with storage devices. By isolating these hardware level operations, it ensures that complex coding logic never degrades coding relevant system performance. Our first technique is partial chunk",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "reconstruction with data reuse. As we see, MSR codes are composed of several sub chunks, each of which possesses independent fault tolerance. As shown in the figure, if node D3 suffers a failure, its yellow sub-trunk can be efficiently repaired using only",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "the other yellow sub-trunks from the same substrate one without touching any unrelated data. Therefore, instead of a full trunk recovery, Diabu's only reconstructs the data via selected sub-trunks that contain the required objects.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "Uh to further reduce repair bandwidth, we introduce two data reuse schemes. This allows us to be very selective about which sub-trunks we use for reconstruction. Let's first at uh look at this example. The blue sub-blocks uh sub-trunks",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "represent our target objects. If data node three fails, we must trigger and degraded read to recover the lost parts of that object. The first scheme is sub-trunk reuse. This allows multiple loss of sub-trunks to be reconstructed at the same time",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "using the same set of helper sub-trunks from the same uh sub-trunk. As shown in the figure, the two yellow sub-trunks can be repaired together by fetching only the necessary sub-trunks from sub-trunk one. The second scheme is request reuse. The",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "idea is that the heresy portion of the requested object can also serve as the helper sub-trunk for reconstruction. In this figure, notice the three heresy green sub-trunks inside the blue box. They can play two roles at once. They",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "are both the data being requested and the helper data for construction. By combining these two reuse schemes, we design a two-step, lightweight, and highly efficient algorithm for partial trunk reconstruction. Next, we introduce the second technique,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "the reconstruction-friendly coding layouts. Even though our partial trunk reconstruction algorithm provides clear benefits, the gains are still limited if we simply adopt traditional object layout strategies, which are native to scalar codes.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "This limitation stems from two main reasons. First, in MSR codes, substrips overlap with with each other. If you look at the substrip indices on these substrips, you can see that most of them are shared by two different substrips. This",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "overlapping structure means that we cannot simply place objects into a dedicated substrip one by one. Furthermore, we must deal with the intra substrip heterogeneity. As you can see, some nodes, like uh D1 and D3, contribute more substrips to",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "our reconstruction, while others contribute fewer. To address this issue, it is essential to adopt a substrip layout specifically tailored for MSR codes. Our key idea is to identify the nodes that contribute the most repair bandwidth within each substrip and",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "extract them as a basic layout layout units. As shown in the figure, uh the unit offers three distinct advantages. First, it naturally supports both the substrip reuse and the request reuse properties that we defined earlier.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "Second, it is sufficiently fine-grained. Uh each unit is exactly the same size as the strong size of scalar codes, assuming that the strong size equals to the MSR sub strong size. And third, this basic layout unit can cover the entire",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "strip completely with no with no duplication at all uh no omission. Uh furthermore, since there is still a size gap between the uh basic layout unit and the full strip, we propose a tiled layout structure. This allow us to better accommodate intermediate size",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "objects and the boost their performance. First, we introduce the balanced layout unit. Uh the goal is to ensure a uniform distribution of sub chunks across all nodes to maintain load balance. Uh second, we have the reuse optimal",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "layout unit. This is a highly efficient group that requires no extra header data from other nodes when constructing any uh lost chunks from any failed nodes within the unit. As shown in the diagram, this hierarchical approach bridges the gap",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "between the small layout unit and the the stripe size, ensuring that uh efficient repair efficiency for uh varying size objects. Uh while the first two techniques significantly reduce repair bandwidths, in theory, they could potentially harm",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "normal read performance. This is because the coding layout can introduce fragmentation within each chunk, limiting the physical performance of the storage device. To address this, we we adopt a fragmentation-free storage layout.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "First, we handle the intra-unit uh layout. We arrange the sub chunks within each sub stripe to ensure they are placed contiguously on a storage device. Second, we optimize the inter- uh unit layout. We arrange the basic layout units to preserve their original",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "allocation sequence. This ensures that sub chunks from the the adjacent sub stripes are also placed sequentially. After generating the storage layout, we take additional steps to minimize the system overhead uh required to maintain the two uh separate layouts.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "First, to ensure the metadata efficiency, we use deterministic mapping tables for bidirectional translation. Because our mapping is independent of object sizes or their arrival order, a single mapping table can be shared across all stripes that use the same",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "configuration. Uh for example, in a typical 2060 clay code configuration, the table requires only 128 of memory. We believe this is a a very acceptable overhead. Second, we optimize the IO flow by allowing the system to locate objects",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "directly using their uh storage layouts. Normal read operations can bypass the address translation entirely. As a result, Diablo's ensure that our optimization for the degraded read never compromise the performance of normal reads.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "Uh now, let's move on to the evaluation. We implement our prototype system and integrate it into Ceph. Further implementation details can be found in our paper. Uh we use a test bed on Alibaba Cloud. Uh within the cluster, 30 nodes serve as",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "storage servers, and 10 nodes serve as client servers. We evaluate Diablos using uh real-world traces from Alibaba, IBM, and Facebook. Uh by default, we use a 2060 clay code configuration and compare the performance of uh Ceph standard Ceph and",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "uh against Ceph uh enhanced with Diablos. For overall performance, Diablos achieve significant latency and IO reduction across all traces. Uh specifically, Diablos reduces the degraded read latency by 2.45 to 89.2 times. It also reduces the",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "amplification ratio by 24.6 to 557 times. Next, looking at the individual contributions of each technique, technique one, two, and three improve uh degraded read read latency by uh 72.3 uh 4.9 and the 9 uh and 1.2 times.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "Uh regarding to normal read latency, our results show that uh the separation of coding and storage layout is essential. It allows uh Diaburst to enhance the degraded read performance without introducing any adverse impact on normal read performance.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "Finally, we conduct a sensitivity analysis to evaluate how Diaburst scales with wider stripes. By fixing the number of comparative chunks at four and increasing the data chunks from eight to 24, we found that Diaburst performance scans actually",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "improve as the stripe width increases. This is because wider stripes lead to larger chunk sizes, which allow Diaburst to exploit data reuse more efficiently to reduce IO amplification. Uh finally, to conclude, MS MSR codes show great potential for building",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "efficient and reliable storage clusters. They achieve uh optimal repair bandwidth among MDS codes while ensuring optimal fault tolerance at the same storage lower head. However, the large chunk size required by MMSC codes uh remains a key",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "bottleneck. Constrained by both coding theory and IO efficiency, uh the requirement triggers massive IO amplification when objects are degraded reads. To address this, we propose Diaburst by decoupling storage and coding layouts. We are able",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "to significantly improve repair bandwidth while completely avoiding any adverse effects on normal reads. We integrate our prototype into Ceph, and our evaluation showed that speedups of one to two orders of magnitude in degraded read performance.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Um, thank you for your attention and then I'm happy to take any questions.",
+      "start": 348,
+      "duration": 6
+    }
+  ]
+}

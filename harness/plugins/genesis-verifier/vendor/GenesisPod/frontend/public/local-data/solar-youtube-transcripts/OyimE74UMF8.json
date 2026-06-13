@@ -1,0 +1,1424 @@
+{
+  "videoId": "OyimE74UMF8",
+  "title": "Stanford CS25: Transformers United V6 I On the Tradeoffs of State Space Models and Transformers",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 72744,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "All right, so now\nit's my pleasure\nto welcome our speaker\nfor today, Albert Gu.\nHe's an assistant professor in\nthe Machine Learning Department\nat Carnegie Mellon University\nand the chief scientist\nof Cartesian AI.\nAnd his research\nbroadly focuses on\ntheoretical and empirical\nfoundations of deep learning.\nAnd he is particularly\nknown for new approaches\nto deep sequence modeling and\nneural network architectures.\nAnd was recognized\non the Time AI 100\nlist of most influential\nresearchers in 2024.\nAnd previously, he completed\nhis PhD here at Stanford.\nSo, without further ado,\nlet's welcome Albert.\n[APPLAUSE]\nAll right, thank you, Steven.\nThis work?\nSo I'll just get started.\nIt's good to be back.\nI think I haven't been\nback on campus in a while,\neven though it's only been\ntwo years since I graduated.\nJust has a disclaimer,\nso the talk\nis called On the Trade\nOffs of State-Space Models\nand Transformers.\nI've given versions of this\ntalk over the last year or so.\nAnd I turned it into\na blog post as well.\nSo if you've seen those, this\ntalk won't be too different.\nThere is a little\nbit of new content,\nbut don't expect\nanything that new.\nAnd afterwards, the\nblog post will also\nbe a good supplement\nto this as well, if you\nwant to take a look at it.\nSo in the last two\nor three years,\nthere's been a big\nsurge of popularity\nof alternative architectures\nto transformers.\nParticularly models that\nare so-called subquadratic\nor linear in complexity.\nSome examples of these include\nthe original Mamba model,\nwhich came out just\nover two years ago\nand arguably popularized a lot\nof the subsequent line of work.\nThere have now been\nfollow-ups to Mamba, Mamba 2,\nand just a month ago,\nwe published Mamba 3.\nSo there's continually\nprogress being made here.\nOther models you may\nhave heard include\nxLSTM, which is a refinement\nof the original LSTM, which\nis in some ways the\noriginal most popular RNN.\nThat was the canonical sequence\nmodel used before transformers.\nOther models that\nare popular are\nDeltaNet and the\nfollow-up Gated DeltaNet,\nwhich combines\nDeltaNet with Mamba 2.\nThis is another very\npopular model that's been--\nis now pretty widely used.\nAnd also another paradigm\ncalled Test-Time Training,\nwhich views recurrence as\na form of test-time updates\nthat optimize an\noptimization function.\nSo these are a couple\numbrella families\nof models that are\nall quite popular now.\nAnd we're seeing them\nuse more and more\nin actual large-scale\nproduction quality models.\nAfter Mamba came out, it became\nused in a bunch of hybrid models\nthat combine these linear\nlayers with attention layers,\nincluding Jamba from\nAI21, Zamba from Zyphra,\nand Samba from Microsoft.\nMore recently, there\nare models that\ninclude Hunyuan from\nTencent, which was actually\nseveral hundred\nbillion parameters.\nThe latest Qwen models are\nnow based on Gated DeltaNet.\nKimi-Linear is\nanother hybrid model\nthat's based on some\nfollow-up data DeltaNet.\nI think very recently, AI2\nalso released a new Olmo model\nthat is hybrid, and it\nalso uses Gated DeltaNet\ncombined with attention.\nAnd somewhere here I forgot\nto list the Nemotron models\nfrom NVIDIA are also very new.\nI think the latest one is\nthe Nemontron 3 models, which\nhave been scaled to,\nagain, hundreds of billions\nof parameters.\nAnd that model uses Mamba 2.\nSo again, these models are\nactually very, very widely used\nnow.\nAnd so today, I'm\ngoing to be talking\nabout a lot of these models.\nAnd rather than focusing\non any particular one,\nI'm going to zoom out and talk\nabout general characteristics\nof these models, how do\nI think about them, how\ndo I think about transformers,\nand how these models relate\nto each other.\nThere's a lot of\ndifferent models\nhere, like these\nand many, many more.\nAnd there's a lot of names\nused to refer to them.\nSo in this talk, I'm\ngoing to call them\nstate-space models, which is\nwhat Mamba was considered to be.\nBut there are actually many\ndifferent lineages of work\nthat have appeared in parallel.\nAnd there are other\nnames for related models\nthat, for the most\npart, at least\nfor the purposes of this talk,\nare largely interchangeable.\nSo other things that\nyou can call these\ninclude linear attention.\nThey're all kind of\nrecurrent models.\nSo you can call them\njust recurrent models.\nSometimes called modern\nrecurrent models,\nas opposed to the older\nones like the LSTM.\nYou can call them linear RNNs.\nOr just broadly, linear models.\nSo usually these days when\npeople say any of these words,\nit kind of broadly refers to\nreally any of these models.\nAnd when we say\nhybrid models, we\nmean one of these combined\nwith quadratic attention.\nSo these, again, are actually\ngeneric architectures.\nAnd they can be used\npretty much anywhere.\nBut for the most\npart in this talk,\nwe will also focus on\nautoregressive modeling.\nSo this is something you're\nprobably all familiar with.\nParadigm, such as\nfor language models\nwhere you have a model that\nmodels next token probabilities\nof a sequence.\nAnd then it can act\nas a generative model\nwhere you can sample\nfrom the model\nby repeatedly sampling a\ntoken and feeding it back\nto the model.\nThe reason we focus on\nthis is for two reasons.\nFirst of all, it's, in some\nsense, the most important\nmodeling paradigm\nright now, especially\nfor language modeling.\nAnd second of all, for\nunderstanding the trade offs\nof these different\nsequence models,\nit's actually helpful to think\nabout autoregressive modeling.\nAnd so just to put us\nall on the same page,\nwe'll really quickly go over\nwhat does inference or sampling\nlook like for these models.\nSo I'm not going to redefine\nattention everything.\nBut from a zoomed-out\npoint of view,\nwhat attention does\nat inference time\nis that you give it a prompt,\nwhich is a set of tokens,\nand then the model tries to\npredict the next token or word\nby doing these\npairwise comparisons\nagainst every single previous\ntoken that it's seen.\nSo you do these comparisons,\nyou run some calculations,\nand then you can\npredict the next word.\nAnd then you can put this\nback into your prompt\nand then repeat this.\nSo what characterizes\nattention is this ability\nto look over every\nsingle past token\nthat you've seen in the context.\nSo even without defining\nexactly what attention is,\nthis, I think, is a very\nuseful characterization of it.\nBecause I think of transformers\nas the canonical model\nthat caches every past token.\nBecause it needs to cache\nevery token in order\nto do these comparisons.\nTo get a little\nbit more specific,\nthis is called the\nKV cache, which I\nthink everyone probably knows.\nA lot of the work\naround transformers\nbasically has to deal with the\nKV cache, ways of compressing\nit and so on and so forth.\nAnd again, it doesn't\nactually matter\nthat it's called the KV cache.\nThat's an artifact of the\nway transformers are defined.\nBut at an even higher level,\nbasically, transformer\nis just a model that\nstores this cache.\nAnd because it\nstores this cache,\nthis really defines its\ncomputational characteristics.\nIn particular, it's heavily\ndependent on the size\nof its context and the\nmemory and computation\nscales with the context.\nNow if you amortize this\nover inference, then instead\nof scaling linearly\nwith the context,\nthe model scales\nquadratically in compute.\nAnd so this is why attention\nis considered quadratic model.\nAnd at a high level,\nagain, what attention does\nis it does all\nthese comparisons.\nAnd what [INAUDIBLE]\nmodels do is\nthat, again, in inference time,\nas your token stream in, instead\nof storing all of them\nexplicitly, the model\nsquishes them all into\na state, basically,\nrepresented by this\nblue ball here.\nAnd then the individual tokens\nare kind of thrown away,\nand the model only interacts\nwith data through the state.\nAnd then it does this\nrepeatedly online.\nSo you can generate new token\nand put it back into your state.\nThe state is highly\ncompressed, which\nmeans that every single step of\ninference takes constant time.\nAnd then summing this over a\nsequence takes linear time.\nSo this is why we call\nthem linear models.\nAnd so this is really\njust a high-level way\nto think about it.\nAnd these are the ways\nthat really distinguish\nthese families of models.\nSo now let me talk a little\nbit about the actual definition\nof these models and what I\nthink are the most important\ningredients that go in.\nSo first of all,\nstate-space models\nare basically defined by\nthis equation down here.\nSo it is essentially a\nspecial type of recurrence\nwith a few key characteristics.\nWe think of this recurrence as a\nsequence mapping from an input,\nx, to an output, y.\nAnd when you unbind this\nalong the sequence length,\nyou can think of x as basically\na one-dimensional number\nor a scalar.\nIt gets blown up\nwith a vector B,\nand then summed into\nsome transformation\nof a hidden state.\nSo every step, just like\na normal occurrence,\nyou update the hidden state and\nthen you incorporate the input.\nAnd then there's this\nrecurrent hidden state\ndenoted by h that kind\ncharacterizes recurrent models.\nSome differences between SSMs\nand some of the older RNNs\nare that first of all,\nthis recurrence is linear.\nThere's no non-linearity that's\napplied after this equation\nlike they are in GRUs, LSTMs\nand some of the older RNNs.\nSecond of all, some\nof the big differences\ninclude these ingredients.\nSo the first kind\nof main one that\ndiffers a lot from\npast traditional RNNs\nis that the state\nsize is much larger.\nSo the way I define\nthis is that x here\nis a one-dimensional input.\nAnd for a one-dimensional\ninput, the hidden state becomes\nN-dimensional, where N is\nusually on the order of--\nit's like 64 or 128 or so.\nSo the state is 100 times\nbigger than the input.\nAnd so this is very different\nthan how LSTMs were defined.\nThe reason this is\nimportant is because\nyour autoregressive state here\nis a bottleneck of your context,\nbecause all the context got\ncompressed into the state.\nSo the larger your state is, the\nmore information your model can\nremember, which is really\nimportant on information\ndense modalities, such\nas for language modeling.\nThe second key ingredient is\nthat not only does the state\nhave to be large, but it\nhas to be expressive enough\nto remember exactly what\nthe model wants to remember.\nSo abstractly, you\ncan think of any RNN\nas a function that combines\nthe previous hidden state\nwith a new input.\nAnd so you have a\nblack box function,\nand different parameterizations\nof the function\ndefine different RNNs.\nAnd making this more\nexpressive allows the model\nto be more precise about the\ninformation it's modeling.\nSo one key difference with\nsome of the later SSMs,\nsuch as Mamba compared\nto older models,\nis that the parameters\nhere are defined to be\nfunctions of the input itself.\nAnd this is, again, different\nnot only from older SSMs\nbut also, again,\ndifferent from LSTMs.\nWe call this\nselectivity because it\nmeans that the model, by having\nits own parameters be functions\nof the input, the\nmodel can control,\nbased on the input, how to\ncontrol the recurrence, which\nlets the model be more\nprecise in selecting\nwhat information to remember.\nBecause for example, if A here\nis a function of the input\nand I don't want to\nremember the input,\nthen I can look at the\ninput and then decide\nthat I want A to be 0.\nOr sorry, I want A to\nbe 1 and B to be 0.\nOr if I really want\nto remember the input,\nmaybe throw away the previous\ncontext, I could set A to be 0.\nSo this selectivity makes the\nstate update function much more\nexpressive.\nAnd this was really\na key ingredient\nin getting these\nmodels to be effective.\nThe final ingredient is that\nboth the first two ingredients,\nthe state size and the\nmore expressive state\nupdate function, make the\nmodel much more expressive\nand have much more capacity.\nBut also makes the model\nmuch harder to compute.\nAnd so in particular,\nunlike a traditional RNN,\nit's actually\nbasically impossible\nto compute this by\ncomputing the recurrence.\nAnd so a lot of\nthe work involved\nin these family of models was\nto find clever ways of rewriting\nthe computation, to compute the\ntraining parts of this much,\nmuch faster.\nSome ideas here include\nassociative scan,\nwhich is what the\noriginal Mamba model used.\nBasically by exploiting the fact\nthat this recurrence is linear,\nyou can parallelize\nthe computation\nusing a specific algorithm.\nAnd later versions of\nthis, including Mamba 2\nand including many\nof the other variants\nlike the Gated\nDelta-Net, completely\nrewrite this in terms of this\nchunked matrix multiplication.\nSo really, I think\nthese are the three\nmost important ingredients.\nThere's a lot more\ndetails that are involved\nin how exactly do\nparametrize all of these,\nhow to initialize all\nof these, and so on.\nBut I think these are\nthe main reasons that\nmade these models effective.\nAnd all of these\ningredients actually\nexisted prior to this\nrecent line of work.\nFor example, linear attention\nfirst was published, I think,\nin 2020.\nAnd it basically used\nsomething similar to this that\nhad this state size expansion.\nClassical RNNs can be viewed\nas some form of selectivity\nor gating.\nAnd many models have\nalready used these ideas\nfor more efficient computation,\nincluding these older\nlinear RNNs.\nAll these ingredients\nwere used before,\nbut Mamba can be viewed as\nthe first model that actually\ncombined all three of these.\nAnd that was critical for it to\nbe actually really effective.\nAnd it was perhaps\nthe first model\nthat demonstrated that\nrecurrent models can actually\nbe competitive with transformers\non information-dense modalities\nlike language.\nWe now that this statement\nhas a bit of a caveat.\nThere is much more nuance to\nmodeling than just perplexity,\nfor example.\nBut this certainly\nshowed that from\na coarse-grained\nperspective like perplexity,\nthese completely different\narchitectures could actually\nbe competitive.\nSince then, there's been,\nagain, a lot of work.\nThis is a nice table\nfrom the DeltaNet paper.\nBut since then, there's\nbeen even more models.\nBut basically, there's a\nlot of different variations\nof these models that\nare really effective.\nBut I think all of them are kind\nof pretty similar to each other.\nThey're all variants that all\ninclude these three ingredients\nand tweak different\ndefinitions of them.\nSo many of these vary the\nstate update a little bit,\nsome of them change the\ncomputation a little bit,\nbut all care a lot\nabout efficiency.\nAnd to give a\noff-the-record kind\nof what I think are the most\neffective ones, probably right\nnow, the most tried and\ntrue variants of these\nare Mamba 2 and Gated DeltaNet.\nThose are also the ones\nthat are most popularly used\nin large-scale hybrid models.\nGated DeltaNet is a little more\npowerful, but a little slower\nversion of Mamba 2.\nSo depending on your needs,\nboth of these are pretty good,\nbut it depends on\nwhat exactly you want.\nMamba 3 just came out and it's a\nlittle bit less tested at scale,\nbut also will\nprobably be up there.\nBut more importantly, all\nof these models I think\nare actually much more\nsimilar to each other\nthan they are to attention.\nInstead of talking about the\nexact details between all\nof these, I think it's\nmore interesting to think\nabout the higher level\ntrade offs between these\nand attention.\nSo that's what the rest\nof the talk will be about.\nSo again, we're\ngoing to examine this\nthrough the nature of\nautoregressive modeling.\nAnd one of the\nkey points here is\nthat I claim that the trade\noffs of sequence models\ncan be understood\nthrough examining\ntheir autoregressive state.\nWhat is the\nautoregressive state?\nSo in some sense, every\nautoregressive model\ncan be viewed as carrying\nan implicit state.\nSo this can literally\nbe defined as if you're\nexamining an autoregressive\nmodel during generation time,\nlike in this\nanimation, the state\nis what the model stores in\nmemory in between each step\nof generation.\nSo for an SSM, the\nstate is just going\nto be its fixed size, kind\nof a matrix-valued state.\nFor attention, the state is\ngoing to be its KV cache.\nAnd the definitions\nof these states\nreally inform the trade\noffs of these models\nand their inductive biases.\nAgain, we talked about\nhow these models generate.\nSo transformers are\nquadratic by looking\nat every single past token.\nAnd SSMs are linear time\nbecause they compress everything\ninto a state.\nA simple analogy that I like\nis that I think of transformers\nlike a database.\nSo if you think about the\nnature of its state, which\nis the KV cache,\nwhat it's doing is\nit's storing a representation\nof every single token\nor every single element of a\nsequence that's seen before.\nAnd it's basically writing\nit down to its database.\nAnd as the sequence\nlength grows,\nit's kind of expanding\nits database.\nAnd it's able to attend or\nlook back very precisely\nonto any element\nof this database.\nOn the other hand, SSMs are\nmore like a brain in that it\nis a fixed-size method.\nAnd again, it kind of\ncompresses all the information\nit's seen into this\nfixed-size state.\nSo this has a completely\ndifferent characteristics\nthan a database.\nAnd many of the trade\noffs of these models\ncan be kind of intuited\nfrom this analogy.\nSo for example, some of\nthe weaknesses of SSMs\nare that they are not\nso good at retrieval.\nAnd this is exactly the way\nthat brains work as well.\nHumans are notoriously bad\nat remembering exact strings\nof numbers and so on.\nBut it also comes\nwith advantages.\nSo at a first pass, so talking\nabout the trade offs of SSMs,\nthey're the canonical,\nstateful and compressive model.\nStatefulness is really\npowerful because it's\nwhat allows these\nmodels to be really\nefficient in online settings.\nKind of, again, just\nlike brains are,\nit's always online, always\nable to consume information\nat a constant rate and interact\nwith the world in real time.\nThese are places that\nthese linear models\nare likely to be very good at.\nThe compressiveness of it also\nhas subtle benefits, which I'll\ntalk about later in the talk.\nAnd the downsides are that,\nbecause of the fixed-size state,\nthese lack fine-grained recall\nand retrieval abilities.\nSo there's many kind of\nsynthetic tasks like Haystack,\nassociative recall, these things\nthat involve asking a query\nand digging out a precise bit of\ninformation from your context.\nThese models are not so good\nat it, just like brains are.\nNow again, the analogy\nhas more implications.\nBecause for example, if you\nthink about human intelligence,\nit's actually not\njust the brain.\nHumans use a lot of\nexternal tools to assist,\nand that this really augments\nour ability to process,\nand it augments intelligence.\nSo if you think of\nhuman-like intelligence\nreally as the combination\nof our processing unit\nas well as external\nscratchpads, then this analogy\nalso predicts the\nbehavior of models.\nAnd so this is one high-level\ninspiration for hybrid models.\nStarting from the advent of\nthese state-space models,\nthey've been used in hybrid\nmodels for this reason.\nThere's a few references\nhere that refer\nto some of the older ones.\nBut again, there's now many,\nmany more versions some of which\nare very, very large scale.\nAnd one thing that's\nbeen pretty remarkable\nis that many different\ngroups independently\nverified the optimal\nratios of hybrid models.\nSo the simplest way\nto define a hybrid\nis just to interleave\nyour linear layer\nwith your quadratic\nattention layer.\nAnd then the question is,\nwhat ratio of these layers\nshould you include?\nMany of these older papers found\nsomething remarkably consistent\nthat it's something close to\na 10-to-1 ratio of SSM layers\nto attention layers\nseem optimal,\nat least from a\nperplexity standpoint.\nNowadays, this\nratio seems to have\nchanged a little bit as models\nhave been getting better.\nBut I think that it's still very\nconsistent that people typically\nuse something like, at minimum,\na 3-to-1 or 4-to-1 ratio\nof linear layers to\nquadratic layers.\nAnd so what's\ninteresting about this\nis that if you use\nthe analogy and you\nthink about human intelligence,\nyou might also predict this.\nBecause we tend to think of the\nbrain as the main processing\nunit and the external databases,\nscratchpads and so on,\nas a supplement that helps\nyou store information,\nbut is not actually the\nmain computational lifter.\nAnd so the fact that when you\nactually do these very careful\nablations and find that you\nwant more linear layers than\nquadratic-- and this is not\naccounting for computation,\nit's just what makes\nthe best performance--\nit's pretty interesting that\nkind of follows the analogy\nas well.\nAnd so a thought is that,\nwhile these linear models are\nsometimes viewed as\nhaving a critical drawback\nbecause the finite state means\nyou can't remember everything,\nit seems like this\ncompression is a weakness,\nit's actually not so clear.\nBecause even if we're just\nlooking at performance\nwithout looking at\nspeed, you actually do\nwant a lot of\nlinear layers here.\nAnd so I think a\ngeneral theme is about,\nis the compression\nactually fundamentally\nimportant to intelligence, and\nwhat role does it play there?\nAnd once again, there will be\na very interesting experiment\nI'll show later that hopefully\ntouches on this again.\nSo now we're going to switch and\ntalk about just transformers.\nSo although there's\na lot of work\nhere on transformer\nalternatives,\ntransformers are\nstill the to-go model\nfor many things,\nespecially language.\nAnd for good reason.\nThey're very, very powerful.\nAnd there's a prevailing\nmindset that they basically\nwork on everything.\nAnd they're really used\nin pretty much all fields,\nfrom language to\nvision to many more.\nAnd many people think that\nyou basically should just\nuse a transformer and just\nput your data into it,\nand it just works.\nAnd this is true, actually.\nBut there are nuances to it.\nSo the way I think about it\nis that attention is actually\nmost effective when your\ndata is at the right level\nof abstraction.\nWhat this means is\nthat in any pipeline\nyou actually see where\ntransformers are used,\nthere are pretty substantial\nencoder decoder layers\nthat transform the\ndata to a form that\nis suitable for a\ntransformative process.\nSo to give some examples.\nWhen you use these models\nin vision domains--\nfor example, this\nfigure is from I\nthink the original\nvision transformer\npaper for classification--\nwhat they do is\nthey take your image\nand divide it into these\npatches, which are basically\nvision tokens.\nAnd then encode it a\nlittle bit and then pass it\ninto the transformer.\nAnd so basically, it's kind of\nmaking your data much coarser\nand in a form that's more\nsuitable for the transformer.\nAnd I claim that this\nencoding step is actually\ncritical for the\ntransformer to work well.\nIn language, this encoder\nis called the tokenizer.\nSo if you have a\nstring of characters,\nlike if you're modeling\nEnglish, technically, you\ncould just put this into your\nmodel and it should work.\nBut we actually process it using\na tokenization step that splits\nit into these coarser chunks.\nAnd many people actually don't\nreally think about this step.\nWe kind of always just use\noff-the-shelf tokenization.\nBut again, I claim that\nthis step is actually\nreally critical for\ntransformers to work.\nNot just for efficiency\nreasons, but actually\nfrom a modeling\nperspective in terms\nof what features and\ntransformations the transformer\ncan capture.\nSo tokenization is low\nnotorious because it\nhas a lot of problems.\nSo we can ask what happens\nif you don't tokenize.\nThere's a number of outspoken\ncritics against tokenization.\nThis is a tweet taken\nfrom Andrej Karpathy where\nhe kind of enumerates a bunch\nof edge cases with tokenization.\nIt causes issues in spelling,\nIt has many edge cases.\nIf you ever kind of prompt\nyour model with out ending it\nin a space, or maybe it's ending\nit in a space, one of these two\nwill screw up your model.\nSo you have to be\nvery deliberate.\nAnd these are all edge\ncases and tokenization.\nHowever, most of these\nedge cases are understood.\nYou can engineer away a\nlot of these with good data\nor with other tricks.\nAnd so many people think that\nthis is not a real problem.\nBut if you could\nsolve tokenization,\nor if you can get rid of it,\nyou would solve these for free.\nAnd I think that even if the\nengineering solution just works,\nit's still a worthwhile\nproblem to address\nfor philosophical reasons.\nBecause AI has always been\nabout learning automatically\nfrom raw data.\nAnd models that are\nmore and more end-to-end\ngenerally tend to be better.\nThis also reflects\non the bitter lesson.\nIf you can find models\nthat are more generic\nand work with less\nfeature engineering,\nbut benefit more\nfrom scale, you'll\neventually get better models\nthat learn better features\nfrom data.\nSo what happens if you\nactually train models\nwithout tokenization?\nSo one simple\nthing you can do is\njust look at language\nmodeling but not\ntokenize your data before.\nSo basically, you can just\npass in raw characters\ninto your model.\nSo this is a plot from\na recent paper of ours.\nBut it was first done by this\npaper called MambaByte, which\nbasically just tried to compare\nMamba against transformers\non byte-level modeling.\nSo again, here,\nyou basically just\ndon't use your BPE\ntokenizer on the data.\nAnd these are some\ntraining curves\nfor models that\nare matched in size\nand just trained for longer.\nSo what you see here is that the\nSSM here is actually much, much\nbetter than the transformer.\nSo the purple line here is a\nsliding-window attention model.\nAnd the blue line is\njust the Mamba model.\nAnd these are isotropic\nmodels that are basically\nequivalent in every way.\nAnd you can see there's a\nvery, very large gap here.\nIf you draw the horizontal\nline to see the data efficiency\ndifference, it's\nbasically 2x or something.\nAnd even if you let the\nattention be global,\nand in this case because\nbyte sequences are so long,\nthis is really increasing the\ncomputation so that the global\nattention model in the dashed\nline here is doing 2x as much\ncompute as the Mamba model,\nit's actually still not as good.\nAnd so what this means\nis that there's actually\na fundamental difference here.\nAnd it's not just because\nof that attention is slower.\nThe comparison between\nthese two bottom lines\nare the same model size, same\ndata, same sequence length,\nand it's simply letting the\nattention do its quadratic thing\nand using much more compute.\nBut it's still a bit worse.\nSo this phenomenon occurs\nin other settings too.\nSo we can look at sequence-like\ndata that is not just\nlanguage or language with\nalternative vocabularies.\nThis is a figure from\nthe original Mamba paper\nthat we investigated the\nmodel on DNA modeling.\nSo again, you can basically\njust take DNA sequences\nand do autoregressive\nmodeling on them.\nAnd here, the comparison between\nthe orange and the red line\nis the Mamba versus transformer,\nwhere, once again, we\nsee that there's actually\na really big gap.\nAnd if you try to match for\ncompute or match for parameters,\nthe Mamba model is\nabout 3x more efficient.\nSo these are settings\nthat basically\ndon't have tokenization.\nAnd so what is going on here?\nSo when I think about\nwhat attention is good at,\nthere's a couple\nheuristics that I\nthink are really helpful for\nthinking about what it does\nand the types of settings\nthat it excels at.\nSo first of all,\nonce again, thinking\nabout the autoregressive state.\nSo we thought of the attention\nas storing a database\nof every token it's seen.\nThat means that it should\nmake sense to actually cache\nevery single token.\nYou can think of\nmany types of data\nwhere it actually doesn't make\nsense to cache every token.\nObvious examples include\nif your data is noisy\nand there's spurious\ntokens that you don't need.\nOr you can think, perhaps,\nin the language setting.\nWhen we read\nEnglish, we can often\nidentify words, even if you\ndrop out a lot of the tokens.\nAnd that's just a\nvery coarse analogy\nthat shows that you don't need\nto spend all of that memory, all\nthat computation, to cache a\nrepresentation for every token,\nbecause not every\ntoken is meaningful.\nAnother heuristic is\nthat, in some ways,\nsoftmax attention was\ndeveloped as a alternative\nto hard attention.\nWhat hard attention\nmeans is that--\nsoftmax attention,\nbasically, you\ntake a weighted combination of\nevery token in your context.\nHard attention\nmeans that imagine\nyou can only look at a\nsingle token at a time.\nSo this is also, I\nthink, a useful proxy\nfor what attention does.\nAnd once again, it's\nhelpful to think about this\nbecause attention\nexcels at data where\nhard attention makes sense.\nAnd so this is why, again,\nuse applying attention to,\nsay, character level data\nis much less effective,\nbecause if you can think\nabout the nature of the data\nand how we process\nit, you're never going\nto look at a single character.\nYou're kind of paying\nattention to the data\nat the semantic level of\nwords or even coarser,\nnot at the level of characters.\nAnd this kind of is a\nvery heuristic explanation\nfor the phenomenon\nthat we just saw.\nAnd so if we look at the\ndifferent types of data\nthat you can use\nthis really, I think\nis useful for thinking about\nwhere attention is useful.\nSo if you have things like\nwords or subwords, which\nis what we typically\napply transformers on,\nthey really excel because\nthese tokens are intrinsically\nsemantically meaningful.\nThey're modular and composable.\nIt makes sense to want\nto look at a single word\nor store a\nrepresentation of a word.\nWhen we start looking at other\nsettings, they make less sense.\nIf we're modeling characters\nor DNA base pairs,\nevery individual\ncharacter basically\ndoesn't have any meaning,\nevery individual DNA base\ndoesn't have any meaning.\nAnd so this is one explanation\nfor why attention does so much\nworse here than other models.\nAnd many other settings\nare not so clean.\nFor example, in vision, if you\nlook at a patch of an image,\nit's not really clear\nwhich camp you fall into.\nSome of the patches may\nhave a lot of information.\nSome of them may\nhave very little.\nYou might just get a\npatch of sky that's\nkind of useless to your model.\nAnd so the trade offs there\nare a little bit less clear.\nBut it goes to show\nwhy when we move away\nfrom pure tokenized\nlanguage, actually,\nthese alternative models\nbecome more and more popular.\nAnd I think it's because of\nbasically this reason that when\nyou don't have very\nwell defined tokenizers,\nthe power of\ntransformers goes down\nand the power of models that are\ndoing this implicit compression,\nwhich in some ways\ncan be viewed maybe\nas sharing a similar\nrole as tokenization,\nthese models get better.\nSo this is a graph taken pretty\nsoon after the Mamba paper came\nout about where it was most\npopularly used in applications.\nAnd even though the model was\nkind of pitched as a language\nmodel, actually language\nonly took up about 10%\nof the applications.\nAnd instead, it was viewed as\njust a generally useful sequence\nmodel for all sorts\nof modalities,\nfrom time series to audio\nto especially vision.\nSo now, while we're on\nthe topic of tokenizers,\na very recent application\nof these models has been,\nagain, in the domain of\ntokenizer-free models.\nSo very recently,\nmy group published\na paper called H-Net, which\nis maybe the latest model that\ntries to do actual\ntokenizer-free modeling\nof language.\nSo in a nutshell, the way I\nwould describe H-Net is that\nit's an end-to-end\nhierarchical network--\nand that's what it stands\nfor, hierarchical network--\nthat operates on raw\ndata and compresses it\nthrough a data-dependent\nchunking process.\nSo I'll unpack this\nin a little bit.\nBut basically you think\nof this as a model that\nis operating on raw\ndata and implicitly\ntrying to tokenize it by\nchunking it inside the model.\nThis work was largely led by my\nstudent [INAUDIBLE] Hwang here.\nAnd this is the\nname of the paper.\nThis is a really general\nneural network architecture\nthat's really about the\nidea of compression.\nWhere it's most obviously\nuseful is simply\non tokenizer-free\nlanguage modeling.\nSo to contrast, again, the way\nthat all of our language models\nwork is through an\nexplicit tokenization step.\nIf you're familiar with\nthis, the most common one\nis called BPE or\nbyte-pair encoding.\nAnd it's basically\nsome form of heuristics\nthat take your sentence\nof low-level data,\nlike characters, and then\nimplement some merge rules\nthat group them together\ninto bigger chunks.\nSo for example, this sentence\nmight be tokenized exactly\nlike this where characters got\nmerged together into these--\nI'm calling them chunks, but\nwe usually call them tokens.\nWhat the H-Net does\nis that instead\nof doing this as a\nseparate offline step\nand then passing\nthese into the model,\nthe H-Net only sees the\noriginal characters.\nSo, for example, the\nvocab size would be just,\nsay, like 256 if you're\nworking on bytes.\nAnd then the model, it's looking\nfor boundaries like this.\nBut this is all happening\ninside the model.\nAnd this is a visualization\nof what the model actually\nmight do during training.\nSo this depicts the\ntraining stage of the model.\nI think the animation started\npartway through for some reason.\nBut basically, the model\nis modeling just bytes.\nAnd the green denotes\nwhere the model\nis trying to put boundaries.\nAnd so this is at the\nbeginning of training,\nthe model is doing\na lot of exploring\nbecause it doesn't how.\nAnd then it eventually\nkind of stabilizes\non boundaries that are quite\naligned with where we would\nexpect a good tokenizer to do.\nIn particular on\nEnglish, it happens\nto coincide that\nyour tokens generally\nwant to be where spaces are.\nBut if you look closely, you can\nsee that the model is like here,\nfor example--\nOK, the animations started.\nBut you can see that\nthe model is actually\nfinding semantically\nmeaningful subwords as well.\nAnd if you compose\nthis, you'll find\nthat the model finds\nsemantically meaning\ngroups of words.\nSo this was a major step\ntowards actually doing\ntokenizer-free modeling without\nthe separate offline step.\nSo I won't go fully\ninto the details\nbecause the model is\npretty complicated,\nbut I'll try to give a high\nlevel of how this works.\nSo this, here on the left,\ndepicts the general structure\nof the model.\nAnd so we think of\nit as hierarchical\nbecause there are\ntwo main stages.\nThere's parts of the\nmodel that interface\nwith the fine-grained data.\nSo what happens is,\nlet's say, we're\noperating directly on\nbytes or characters here.\nThe sequence gets passed through\na lightweight encoder, which\nwill just be a generic sequence\nmodel or several layers\nof a sequence model.\nThen there is a special\nrouting mechanism\nthat for every single\ncharacter predicts,\ndo I want this character\nto be a boundary or not?\nOr do I want it to be\nthe end of a chunk?\nThen for the ones\nthat are decided\nto be chunks, which are\nhighlighted in the colors here,\nwe summarize each chunk\nand then compress them down\ninto one representation.\nAnd so you can think of the\nencoder and the chunking\nas playing the same role as\nthe standard BPE tokenizer.\nAnd then once that\nis compressed down,\nthen you have a much\nshorter sequence,\nthen you pass this into\nwhat we call the main model.\nAnd this model you can\njust think of as, again,\na generic sequence model\nthat is effective on chunks.\nAnd so here, for\nexample, by default,\nwe will just use a\ntransformer because they're\na tried and true model\nthat operate well\non words or chunks or tokens.\nAnd so this is the inner stage.\nThen after your main model, you\ntake your output representations\nand then you expand them back\nout to the original resolution\nand pass them through a decoder.\nAnd then do your autoregressive\nprediction there.\nSo at a very coarse level,\nit's kind of, honestly,\nsimilar to the existing pipeline\nwith a tokenizer and then\na transformer.\nExcept the tokenization\nhappens inside the model\nthrough an encoder and\nthen a routing mechanism\nto predict the boundaries.\nSo there's a lot\nof details here.\nBut the one thing I'll\nemphasize for this talk\nis that the outer stages\nof this model, which\nare the ones that interface with\nthe byte-level data, strongly\nbenefit from being SSMs.\nSo just like the\nprevious experiment\nI saw where if you run these\nmodels on character-level data,\nlike an SSM versus\na transformer,\nthe SSM is way better.\nSimilarly here, you'll find\nthat any part of the model that\ntouches byte-level data strongly\nbenefits from being an SSM.\nAnd then outside\nof this, there are\nlot of details in the\nexact chunking mechanism\nand other parts\nof the model that\nneeded to be optimized\nfor this to work.\nSo this is a pretty\nnon-trivial problem,\nbecause this is like a discrete\noptimization problem that's\nreally unstable and difficult.\nBut if you get all right,\nit actually works.\nAnd you actually\ncan train a model\nthat operates fully\non tokenized data\nand actually seems to\nscale pretty reasonably.\nAnd can actually outperform your\nstandard tokenized pipeline.\nSo these are some of\nthe results that we see.\nOn the left here is,\nagain, a training\nplots where we're\nfixing a model size\nand we're just showing how\nthe validation, perplexity\nor bits per byte decreases as\na function of the data seen.\nAnd one thing to also emphasize\nis that here in this diagram,\nthe main stage I said can just\nbe a generic sequence model.\nThat means that the main stage\nitself can be another H-Net.\nSo that means that\nyou can basically\ncompose this model to have\nmultiple stages of chunking.\nAnd so what H-Net that really\nmeans is that it's not, per se,\nabout tokenizer-free modeling.\nIt is about dynamic chunking.\nSo it's about the idea\nof taking any data\nand compressing it\ninto larger chunks that\nideally represent more higher\nlevel semantic meaning.\nAnd because it's done\ncompletely end to end,\nthis is the first\nmodel that can not only\nchunk things, but\nalso chunk things\nmultiple times to get more and\nmore levels of abstraction.\nAnd what we see on\nthe plot on the left\nis that the transformer\nbaseline here is the black line.\nAnd then if you train that\nH-Net with just a single stage\nof chunking, like in\nthe previous diagram,\nit starts off worse\nthan the transformer.\nBut after seeing enough\ndata, it crosses over\nand seems to be scaling better.\nAnd the reason for this is that\nbasically, feature engineering\ngenerally is a form\nof inductive bias\nthat can help your model in\ndata constrained regimes,\nbut usually benefits\nless from scaling.\nSo this is the common theme\nthat we see in deep learning.\nThis is the bitter lesson.\nAnd so we see this\nexactly in this plot.\nIf you apply a stage\nof chunking then\nit takes some amount of\ndata before the model learns\nhow to create good chunks,\nlike we saw in the animation.\nBut once it does, it\nshould theoretically\nbe able to create better chunks\nthan what your hard-coded BP\nalgorithm gave you.\nAnd then if you\ncompose the model\nby nesting it again and\ndoing two stages of chunking,\nthe model seems to\nscale even better.\nAlthough, there are\nother challenges that\noccur in this case, because\nyou have more parameters,\nit's harder to train and so on.\nBut at least these\nplots track what\nwe would intuitively expect.\nIt's not shown in\nthis plot, sorry.\nBut you could also\nask yourself, what\nhappens if you run the H-Net\ndirectly on BPE tokens?\nAnd then the behavior kind of,\nagain, tracks what you expect.\nSo compared to a H-Net on bytes,\nBPE gives you some free boost\nbecause you're getting\nthe chunk of the model\nbased on this kind of\nhard-coded features.\nBut if you just added another\nstage of chunking to the H-Net\nand operate on\nbytes, then the model\nlearns better features\nthan your BPE tokens.\nAnd this is what it looks like.\nAnd so if you look at these\ncomparisons, especially\nthese two circled\nin the red boxes,\nthe theme is that no matter\nwhat setting you're in,\nif you train a model\noperating on BPE tokens,\nit works pretty good.\nBut if you can manage\nto throw away the BPE\nand learn these\nchunks end to end,\nthen your model\nwill do even better.\nOne variation of this that\nis particularly interesting\nis that--\nso again, so each net is\njust a generic architecture.\nIt doesn't have to\nbe applied on bytes.\nThis plot shows what happens if\nyou apply it on the BPE data.\nAnd I think this one's\nreally interesting\nbecause it relates back to\nthis compression argument\nthat I talked about earlier.\nSo what we did here is that\nwe applied a single stage\nnet to BPE tokens, and we\nvaried the architecture\nin the encoder and decoder.\nSo this plot,\nbasically, if we just\nlook at this top\nline and bottom line,\nthis says that the encoder\nis only transformer layers.\nThe purple line and the red line\nis where the encoder and decoder\nonly layers.\nAnd in between, you can vary\nany combinations of these.\nAnd then what we see\nhere is that if you only\nhave pure transformer layers\nin the encoder and decoder,\nthere is the model\nis noticeably worse.\nAnd as soon as you start\nputting in Mamba layers\ninto the encoder decoder,\nmodel gets much better.\nAnd so what is really\ninteresting here\nis that, previously, we\nsaid that transformers\nare great when your data\nis already compressed,\nlike BPE tokens.\nAnd they're less good in\nyour data is not compressed.\nSo on characters, Mamba is\nmuch better than transformers.\nBut in this experiment,\nwe are entirely\noperating over BPE tokens,\neven in the outer stages.\nAnd so one might expect\nthat putting transformers\nin the outer layers is\ncompletely fine, maybe\neven better because they're\nonly seeing BPE tokens.\nThis plot is showing\nthat even when\nyour compute\nmatching everything,\nit's better to put Mamba\nin the outer stages.\nAnd so the lesson here to me is\nthat the benefit of these SSMs\nis not just about the resolution\nof the data they're seeing,\nbut also about this\nimplicit inductive\nbias toward compression.\nSo I guess if you\nlook at the diagram\nhere, the role of\nthe encoder layers\nis not just to interface with\nthe given resolution of data,\nbut it's also passing\nthese representations\ninto the chunking layer which is\ndeciding how to chunk the data.\nAnd so you can imagine\nthat the encoder\nlayers are playing some\nrole of compression as well.\nBecause literally,\nthe goal of it\nis to try to produce\na literal compression\nof the data in temporal sense.\nAnd so even when the data comes\nnot as characters but as BPE,\nit seems that applying\nlinear models--\nor you can call them\ncompressive models,\nbecause, again of the fixed-size\nstate, it's very critical.\nAnd so this is I think,\nthe best evidence\nI've seen so far that\nthe finite-size state\nof recurrent models is again,\nnot just for efficiency,\nbut actually has fundamentally\ndifferent inductive biases.\nAnd perhaps in a\nsetting like this,\nit's actually doing\nsomething like--\nI think of the\nH-Net, the goal of it\nis to create better\nabstractions.\nThat's the goal of chunking.\nYou want to take your\ncharacters and chunk them\ninto abstractions like words.\nYou might want to\nturn your words\ninto phrases that have meaning.\nAnd towards this\ngoal of creating\nabstractions, that's\nfundamentally related\nto compression.\nAnd somehow these models\nactually, empirically\nseem very important for that.\nA final result I'll\nshow on this topic\nis, again, you can apply these\nto different types of data.\nThis is, again, another\nvery recent paper\nthat was just put on\narchive a month ago,\nwhere we tried applying a\ncouple of different established\narchitectures to\nDNA modeling again.\nAnd once again,\nDNA is interesting\nbecause in language,\nmodeling characters is\na bit of an academic exercise.\nIt's a long-term direction\nbecause we do have tokenizers\nand most people are like, why\nnot just use the tokenizer?\nIn DNA, it's actually really\ndifficult to define tokenizers,\nat least in a semantically\nmeaningful way\nlike you can for English.\nAnd we see even bigger\ngaps, generally,\nfor these kind of\nalternative models.\nThis plot here shows instead\nof just fixing a model\nand running out\nthe training curve,\nthis is actually showing\nformal scaling laws.\nSo each point here is a\ndifferent flop budget.\nAnd then the model size\nto data amount was swept.\nSo these are standard\nscaling laws, but for DNA.\nAnd we found remarkably\nlinear trends here.\nAnd what's interesting, again,\nis that these trends actually\nare so different from language\nthat usually in language\nthese lines are just shifted\nand you get a constant magnitude\nof improvement.\nBut when it comes\nto DNA, the H-Net\nis actually discovering\npatterns that you can't really\nfind with off-the-shelf\ntokenizers,\nand it's actually scaling\nfundamentally better.\nSo hopefully, all of these\nhave painted the picture\nthat the different\ntypes of models\nreally are doing very\ndifferent things.\nThey have very different\ninductive biases.\nAnd this goes back to my\nmain thesis that I claimed,\nwhich is that transformers\nwork really, really well.\nBut they're particularly\neffective when the data has\nalready been encoded properly.\nAnd you often need\ndifferent types\nof models when your\ndata is not encoded\nor it's very\ndifficult to encode.\nAnd so I think the\nfuture of modeling\nwill require not\njust transformers,\nbut a lot of other ideas.\nSo far, most people\nhave viewed transformers\nas basically just like\na very powerful tool.\nWe don't really look\nat it or touch it,\nand we designed the\nwhole pipeline around it\ninstead through a lot\nof feature engineering,\nthrough the way we process\nthe data and so on.\nBut hopefully, I've kind of\nconveyed that there really\nis a lot of different\nalternatives out there.\nThere's really a lot of\nroom for improvement.\nI personally believe that\nthere's actually still\na lot of room for major\nimprovements in architecture\ndesign.\nSo just to come back now\nto the title of the talk\non the trade offs.\nJust to summarize.\nSSMs are largely thought of\nas a alternative model that\nis more efficient\nthan transformers,\nbut potentially more weak.\nSo just by the way\nthey're defined,\nthey're obviously\nmore efficient.\nBut it's often pointed out the\nspecific problems they have,\nespecially with\nretrieval-like abilities.\nBut I actually think\nthat the efficiency\nis a bit of a red herring.\nThese models are not\njust more efficient,\nbut they're actually doing\ndifferent form of modeling.\nSo again, I think of\nthem as being a stateful\nand a compressive model.\nAnd these lead to very\ndifferent types of benefits\nthat they have from things like\nstate tracking, which I didn't\ntalk about today, to things like\nbuilding abstractions, which\nwe saw through the H-Net.\nAnd both of these pros\nand cons are two sides\nof the same coin, which is the\nway it's autoregressive state is\ndefined in terms of\nthis brain-like state.\nSimilarly, attention,\nthe strengths\nare that it gets the\nability to pay attention\nto very specific\ndetails in its context.\nIt's exceptionally strong\nat recall and retrieval,\nwhich is where SSMs struggle.\nAnd usually people\nthink of the downside\nas the efficiency, the\nquadratic scaling of attention.\nBut once again, I think\nthat the efficiency\nis a bit of a red herring.\nAnd the way I really\nthink about attention\nis that the downside\nis that it is highly\ndependent on the resolution\nand the semantic meaning\nof the data.\nThrough the examples we saw,\nwhen you change the resolution,\neven in language modeling\nfrom BPE tokens to bytes,\nthe performance of attention\nchanges dramatically.\nAnd another way to put\nthis is that attention\nis beholden to the\ntokens it's given.\nBecause of the way it's kind of\ncaching every single token it\nmeans that it's very sensitive\nto the resolution of the tokens\nit's given.\nIt has no ability to change\nwhat a token means to it.\nAnd once again,\nthese pros and cons\nare both two sides of\nthe same coin, which\nis the way that it's\nautoregressive state is defined\nthrough this\ndatabase-like cache.\nAnd so I think that the\nefficiency arguments\nfor both of these\nmodels are, again,\na little bit of a distraction.\nBecause at the end\nof the day, we just\nwant the models to model\nthe things we want.\nAnd the exact efficiency\nthere actually-- it's\nnot the right thing to look at.\nBecause there may be tasks, for\nexample, where you really do\nneed the quadratic attention.\nThere may be tasks\nwhere you actually\nhave to cache and memorize every\nsingle thing in your context,\nand you can't get around that.\nAnd then so there's\nno point arguing\nthat the quadratic\nscaling is bad.\nAnd to give a\nfinal picture here.\nSo one way to think about\narchitecture design in general\nis that there's a\npicture where we\nthink of models\nas this black box,\nwhere during training, you\ngive it compute and data.\nAnd then you create\nan intelligent model\nthat has a wide range of\ncapabilities on the other side.\nAnd in this picture,\nyou basically\nthink of your model\ntraining as a vehicle\nthat converts compute or\nflops into intelligence\nor capabilities.\nAnd what you want is to find\nthe most efficient vehicle that\ndoes this conversion.\nAnd so the central\nquestion to ask is simply,\nis my model using every\nsingle flop it's given wisely?\nAnd so again, there are\nsettings where you actually\nneed to spend a lot\nof compute in order\nto do certain capabilities.\nBut there are also\nsettings where\nyour model is doing a lot of\ncompute that doesn't really\nmake sense.\nFor example, if your transformer\nis given character-level data,\nit doesn't need to be caching\nevery single character\ninto its KV cache.\nAnd so this is the central\nquestion of architecture design\nis designing better\nand better black boxes\nhere that perform\nthis conversion.\nAnd I think there's still a lot\nof room for improvement there.\nOK, that's the end of the talk.\nQuestions?\n[APPLAUSE]\nOK, awesome.\nThanks, Albert, for the\nvery insightful talk.\nWe're going to be soliciting\nsome questions now.\nWe're going to be balancing\nbetween in-person questions\nand those online.\nSo we can get started with\nsome in-person questions\nif anybody here has any.\nThank you.\nI really admire your work.\nI'm a PhD in Chris\nRay's lab as well.\nAnd we are constantly looking\nthrough all your old papers,\nso I really appreciate it.\nA lot of the current\nSSM inspiration\nis trying to trade off\nsome recurrent expressivity\nfor trainability under the\ncondition of using backprop\nor backprop through time.\nWhich you mentioned the\nbrain a bunch of times,\nthere's very little\nevidence that we're\nkeeping C copies of the brain,\nand doing backprop through time.\nIt would be very unrealistic\nthat we're doing that.\nSo there must exist\nsome other solver\nthat is happening inside\nyour brain right now.\nWhat are your thoughts on that?\nYeah, that's a great question.\nSo I'm actually a big fan\nof some of these works\nthat try to look at completely\ndifferent computation paradigms.\nI think a lot of what drives\nmy work is the idea that we are\nprobably in some of local\noptimum in the entire way\nthat all of our\ntraining is set up\nfrom the architecture, which is\nwhere a lot of this is focused.\nBut also even to bigger things\nlike backprop and so on.\nIt is also not clear\nto me that backprop\nis the best thing to do.\nThere's a lot of co-dependence\nbetween the model design\nand just the physical\nhardware we have\nand the realities\nof these things.\nI personally haven't thought\nthat much about backprop myself.\nBut I have thought about, it\ncould cause serious issues\nwith-- for example, one issue\nis it causes a physical memory\nconstraint on your\nlong-range dependencies.\nBecause if you're\nusing backprop,\nthen if you can't fit your\nentire sequence in memory,\nyou literally can't\nlearn dependencies.\nYou can cook up\npathological examples\nwhere you just literally\ncan never learn dependencies\nthat are long enough.\nSo it could be a problem.\nIt could be the case that for\nany realistic task that we care\nabout, we can engineer\nit to be good enough,\nwhich is the way\nthe world's going.\nBut I do think that there\nare probably other--\ngetting out of the local optimum\nand doing much bigger changes\nin these models.\nAnother example is\nthat, as I mentioned,\na lot of the work\nthat's been done here\nis on making these models\nefficient on current hardware,\nlike GPUs, you\nactually sacrifice\na bunch of expressivity\nthat you could gain back\nby adding true recurrence.\nAnd there has been another line\nof work on trying to do this,\nbut it really struggles because\nit's just so hard to compute.\nI actually think that that's\nanother line of work that's\nquite promising.\nAnd I have some of\nmy own ideas there.\nAgain, you might be able to\nget fundamentally better models\nby completely reimagining\nthe constraints\nthat we currently have.\nGreat.\nAny other in-person questions?\nThanks for the amazing talk.\nYeah, it was really\ninteresting to see your results\nwith H-net and the dynamic\nchunking mechanism.\nAnd yeah, it's really cool\nthat it gets better performance\non DNA sequence\nmodeling and stuff.\nI was curious if you\nfeel the chunking\nmechanism is elegant and\nwill play a substantial role\nin future models?\nYeah, so it's hard to say.\nSo we worked on this, which\ntook a long time because I\ndid fundamentally\nbelieve that chunking\nis a really critical primitive\nthat will lead to better\nmodels in the long term.\nThe version that we published\nis just the first step there.\nI think it was the first really\nend-to-end model that works.\nI don't think that is\nthe end game at all.\nThere are improvements\nthat you could probably\nmake to all parts\nof it, including\nthe chunking mechanism itself.\nAnd I think, so far,\nit has not really\nbeen validated at larger scales.\nThe way I think about it is\nthat, philosophically even,\nit just feels like it's\nso important to learn\nthese things from\nscratch that I do\nthink that coming up with better\nand better chunking mechanisms\ncould be really important\nfor future models.\nThank you.\nSo just one technical question.\nI'm curious, since you're\nsetting the separators\nat arbitrary points,\ntypically with a tokenizer\nyou have a set\ndictionary, so I'm\ncurious how you feed that\nsequence in when the sequence\nchunks can vary\nvery dynamically.\nBut I guess more generally,\nyou've drawn several comparisons\nto how the human brain works.\nAnd this is something I'm also\ninterested in, this aspect of\nare we doing some of dynamic\nlike analysis of incoming data?\nWhat data do we need to\nremember or compress or curate?\nAnd I've been interested\nin that towards improving\nthe amount of memory that\nmodels have access to.\nSo I'm curious what\nyour perspective would\nbe on using these types\nof state-based models\nperhaps to curate memories or\ncurate more efficient memory\nfor an attention-based\nor a lookup-based model\nto use down the line to\nextend the amount that we're\nable to actually memorize\nin a continuous interaction.\nAll right, so two\nquestions there.\nSo first, I think the\nfirst one was about\na little more mechanically\nhow the model works.\nSo this is actually one\nkey advantage of the model.\nSo I think the\nquestion is about--\nnormally when you use\nBPE you have a fixed\nvocabulary and each\nvocabulary, you'll\nlook up an embedding\nto pass to your model.\nOne of the challenges\nof tokenized-free models\nis that if you have an\ninfinite size vocabulary,\nyou can't have\ninfinite embeddings.\nSo what happens here\nis that we don't\nneed to think about\nthose embeddings at all.\nBecause everything is happening\ninside the model end to end,\nthere is no lookup\ntable at all once you\nget past the very\nfirst encoding stage.\nSo here, you think of this\nmodel as just operating\non a vocabulary of whatever\nfine-grained units you have,\nwhich might be, a size\nof 256 if it's a byte.\nYou get embeddings here.\nThen you pass this\ninto your model.\nAnd at every future\nstage, you're\njust working in embedding space.\nAnd so for example, the\nyou create this embedding,\nthe simplest way is just--\nso let's say this embedding\ncorresponds to this chunk here.\nThe simplest way is just to\nliterally just copy and paste,\nwhatever this embedding\nis on the other side just\ngets passed through and we\nignore all the ones in between.\nOr you can just pull\nover this chunk here.\nSo basically, at the end\nof the encoder stage,\nyou have embeddings\nin some latent space.\nAnd then you decide where\nyou want the chunks to be.\nAnd you're embedding that gets\npassed into the main stage\nis just, say, pooling\nover that chunk.\nThe second question\nis about, I think,\nthe analogy to brains and so on.\nTo be clear, these analogies\nare very, very coarse.\nI'm not a neuroscientist.\nThey might yell at me if\nthey heard these analogies.\nBut I think, a lot of\nthis is just inspiration.\nI use humans more as\na proof of concept\nof what things should be\npossible with intelligence,\nand what are some really\nhigh-level ways that these\nmight be achievable.\nI mean, I will say\nthat chunking, I\nthink is a concept that\nwas directly inspired\nby cognitive psychology.\nActually, one of the\nthings I do think\nit will be useful for is kind of\nas a more clever way of creating\nthese databases or caches.\nBecause one of the key\nchallenges of long context\nis knowing what things do\nyou store or not again.\nAnd I think that one of\nthe potential, for example,\nuse cases of things like H-Nets\nis exploring their potential\nfor long context modeling.\nBecause what you can\ndo is you can imagine\nif you can keep\niterating this, then you\ncan basically try to\ncompress your context\ninto higher and higher level\nabstractions or memories that\nare like core summaries\nof this thing.\nBut then allows an inner model\nto attend over much fewer things\nand in a much kind\nhigh-level way.\nSo I think that's\nreally directly\nan inspiration for this.\nI don't have a further progress\non that particular idea,\nbut I do think it's\nclearly related\nto the whole philosophy of\nwhy one might want to do this.\nI'll read a couple\nquestions from online.\nSomeone asked, do SSMs\noutperform transformers\nin data-constrained or small\nlanguage model settings,\nor vice versa, given their\ndifferent inductive biases?\nGood question.\nI don't the answer to that\noff the top of my head.\nYeah, I think for\nlanguage modeling,\na lot of people\ncare about scaling.\nI actually don't know.\nI will say, I found out a little\ntidbit of information yesterday,\nwhich is I think OpenAI recently\nreleased this parameter golf\nchallenge.\nIf you guys have seen it.\nBut people have been trying\nto train really small models.\nAnd I saw that\nsomebody was trying\nto train a Mamba 3\nbase model there,\nwhich was doing decently well.\nBut they had a lot of\nablations on their submission.\nAnd one thing they said is that,\neven though the model works\nwell, at least including\na little bit of attention\nwas actually pretty\ncritical when you\nhave these really tiny models.\nThat's actually something\nI didn't about before.\nSo I don't really\nknow the answer,\nbut that's as far as I know.\nOne last one.\nWith transformers, people\nlook at attention maps\nas a form of interpretability.\nIs there a similar work or proxy\nfor SSMs given the information\ncompression?\nI think this one is harder.\nI don't think I have\nthe slides for it,\nbut there is a correspondence\nbetween some flavors\nof SSMs and attention.\nSo I guess as I mentioned\nat the very beginning,\nthere's many names\nfor these models.\nAnd one of the names\nis linear attention.\nSo there's a much deeper\nconnection between SSMs\nand linear attention.\nAnd that's implicitly\nrelated to attention.\nBut at the end of the day,\nbasically one thing you can do\nis visualize an\nattention-like map.\nIt's not literally\nattention matrix,\nbut basically you can visualize\nthe dependence on every token\nwith every other token in\na similar way to attention.\nI mean, it's basically\nan attention map,\nand you can do the\nsame comparisons.\nAnd it's actually pretty\nrevealing of the type\nof behavior that it can do.\nSo for example, that\nvisualization, for example,\nshows that attention\nsometimes can really\nact like hard attention\nand only pay attention\nto specific tokens, while\nSSMs generally always\nkind of squish\neverything together\nand it can be pretty diffuse.\nThis is probably not the only\nvisualization that's relevant.\nBut yeah, I think a lot of\nthis is ongoing work, too,\ndo more mechanistic\ninterpretability\nof these models.\nOK, great.\nLet's give another round of\napplause for our speaker,\nAlbert.\n[APPLAUSE]\nAll right, so now, we have\nsome brief information\nfrom some of our sponsors,\nin particular MongoDB.\nThank you all so\nmuch for being here.\nI promise I'll be very quick,\nabout 10 minutes or so.\nBut hi, everyone.\nMy name is Anaiya Raisinghani.\nI'm a senior technical\nevangelist at MongoDB.\nAnd we are so excited to be\nsponsoring CS25 this quarter.\nAnd I'm here right now because\nthere's a genuinely interesting\nengineering problem that\nI think is worth about 10\nminutes of your time.\nAnd because MongoDB happens to\nbe a really great way of solving\nit.\nSo you're all in this\nroom because you're\nthinking about transformers,\nabout multimodal models,\nand about what comes next in AI.\nHere's what I want to help\nadd to that conversation.\nThe latest multimodal models\nhave gotten really good\nat understanding a document\nthe way a human being does.\nThe question now is whether\nyour data infrastructure\nis accurately keeping up.\nAnd today, I want\nto show you what\nit looks like when the\nmodel and the database\nare actually designed\nto work together.\nSo I'm going to start off\nwith a concrete scenario,\nwalk you through why the\nstandard approach breaks down.\nAnd then show you what a better\narchitecture actually looks\nlike end to end.\nSo let's get into it.\nSo first off, let's\nset the scene.\nWe're going to be talking\nabout an insurance company.\nNot the sexiest example,\nbut a really good example.\nSo let's say that your insurance\ncompany gets about 10,000 claims\na day.\nAnd each one of these\nclaims is a PDF.\nAnd these claims include\ndamage photos, tables of repair\nestimates, signatures.\nAnd the key here is that no\ntwo claims look the same.\nThis is actually\na real dashboard\nthat was built by MongoDB.\nAnd what you're\nseeing on the left\nis an active claim, which\nis a smashed windshield.\nOn the right, claims like this.\nFive similar claims are\npulled back instantly\nwith loss amounts, dates,\nand notes attached.\nAnd the adjuster simply asked,\n\"show me crashes like this one,\"\nand the system knew\nexactly what to return.\nSo the question is,\nhow do you build that?\nAnd how do you build\nthat with retrieving back\naccurate information?\nBecause the hard part, as\nmost of us probably know,\nisn't the search, it's\nwhat happens to those PDFs\nbefore retrieval even starts.\nAnd until recently, the standard\napproach looked a lot like this.\nYou would OCR the document and\nextract whatever text you could,\nchunk it into pieces, pass those\nchunks to an embedding model,\nstore the vectors, and\nthen retrieve a query.\nAnd this works completely fine\nfor very clean text documents.\nBut how many\ndocuments out there,\nespecially when you're dealing\nwith insurance claims, health\ncare, law, how many of those\nare truly, perfectly clean text?\nA lot of context can get lost\neven before you start searching.\nAnd the moment you\nOCR a damaged photo,\nthe tables in the documents,\nthe handwritten notes,\nso much important\ninformation, that\ncan completely alter the whole\ntrajectory of your claim.\nIt can be accently omitted.\nAnd in situations\nlike these, you\ndon't want any crucial\ninformation to be left out.\nSo Vision RAG makes\none fundamental change.\nInstead of parsing the\ndocument into text first,\nyou actually embed\nthe entire page itself\nas a single multimodal vector.\nSo let's chat about the\nnew pipeline a little bit.\nYou have text and image\ndocuments that come in.\nThey go straight to a\nmulti-modal embedding\nmodel with no OCR step.\nThe references and embeddings\ngo straight into MongoDB Atlas\nas your vector store.\nAnd then at query\ntime, the same model\nis able to embed the query and\nsearch, finds the closest pages.\nAnd a vision capable LM\nreads the actual images\nto help generate your answer.\nSo what makes this work?\nAnd have any of you in the\naudience heard of Voyage AI.\nI know Tengyu is a professor\nhere, so maybe some of you have.\nNo worries if not.\nYou can look him up after.\nSo how does this work?\nBut to ensure your\nimportant data\nisn't getting omitted\nin the process,\nit all really comes down\nto the embedding model.\nSo with earlier\nmultimodal models\nwhich were CLIP-based\narchitectures,\nthey ran separate encoders\nfor text and images.\nSo vision trunk on one\nside, text on the other.\nAnd then they were\njust routed together.\nThe problem is that those\noutputs are very independently\nbiased.\nYour text query and\nyour image query\naren't really in the\nsame vector space,\nwhich means cross-modal\nretrieval completely unreliable.\nThe Voyage multimodal 3.5 model\nuses a single encoder for both.\nSo text and visual inputs\ngo in together and come out\nin one unified vector space.\nThis is what really\ncloses that modality gap.\nSo a text query like \"smashed\nwindshield from rear impact,\"\nand an image of exactly\nthat damage are now directly\ncomparable one to one.\nIt also supports\ninterleaved text and images.\nSo for a PDF page where a table\nmight sit next to a paragraph,\nthey both get captured together.\nWhereas before, they might\nget routed separately.\nSo now let's go back to\nour insurance example\nusing an image example\nand the actual data flow.\nSo a claims adjuster\nuploads a photo.\nThe query image, which\nis a cracked windshield.\nThat image goes to the embedder,\nwhich produces a vector.\nAnd that vector goes\ninto MongoDB Atlas,\nwhere it's compared against\nyour entire vectorized claims\ncollection using vector search.\nAnd what comes back from that?\nThe top five most\nvisually similar\nclaims from your history.\nThis means that you're\nnot dependent on just\nkeyword matches, but\nactual visual similarity.\nAnd the system found these\nbecause of the damage patterns,\nthe angle, the type of impact.\nAll of these live\ninside of the embedding.\nAnd because MongoDB stores the\nvector in the same document\nas everything else, because\nwe are a vector database\nand it's storing that\nvector next to your claim\nID, the loss amount, the\nadjuster notes, the repair\nhistory, you get all of that\ncontext back in one query,\nnot in a separate system,\nbut the exact same record.\nSo let's zoom out a little bit\nand look at the architecture\nin question.\nOn the left side, we have what\nmost RAG stacks look like today.\nYou have your operational\ndatabase for your application\ndata, and a completely separate\nvector database for retrieval.\nYou have embedding models\nrunning in between.\nA reranker layer.\nSo many moving pieces.\nAnd now let's take a\nlook at the right side.\nMongoDB Atlas is\na single platform\nwith full text search, vector\nsearch, embedding models,\nrerankers, everything\nall in one.\nSo this means that your\nmultimodal data, your vectors\nare all in the same document.\nAnd for those 10,000\ninsurance claims,\nyour vectors actually live\nright next to your claim notes\nand your other source data,\nwhich means that there's nothing\nthat you need to sync\nor glue together.\nAnd this leaves us with a truly\ngenuine architectural shift.\nIt changes how you handle\nyour unstructured data, which\nwas the old pipeline\nthat started leaving out\nvery crucial information.\nIt starts to think\nabout, well, can\nchange how you think about the\nmodality gap in your retrieval.\nSo once again, you have one\nencoder, one vector space,\nand your text queries\nand your visual documents\nare directly comparable.\nAnd then it also changes how\nyou design the database layer\nbeneath your AI applications.\nSo when your operational\nstore and your vector store\nare the exact same system, you\neliminate an entire category\nof infrastructure complexity.\nAnd just to sum it all\nup, when your database\nthinks and documents\nthe same way\nthat your models\nthink in tokens,\nyou stop fighting\nyour infrastructure\nand you start to get results.\nFor a deeper dive into vision\nRAG and also video RAG,\nplease check out the\narticle that this talk\nis based from by my fantastic\ncoworker, Thibaut Gourdel, who's\na senior technical\nPM for MongoDB.\nAnd I've linked the\narticle right up here.\nAnd I'm going to quickly hand\nit over to my other coworker,\nPatrick, who's just going to\nsum up MongoDB for Startups\nfor you all.\nAnd then also talk a little bit\nabout the Frontier Lunch Club.\nBut thank you so\nmuch for having me.\n[APPLAUSE]\nHello.\nThank you so much, Anaiya.\nHi, everyone.\nI just wanted a quick\nsecond to introduce myself.\nMy name is Patrick Steyn.\nI'm on our ventures\nteam at MongoDB.\nJust want to quickly say\nthank you for having us\nhere today, getting\nto talk with everyone,\nand also introduce our\nMongoDB for Startups program.\nBeing at Stanford gives a really\nhigh signal that a lot of you\nare interested in\nbeing future founders.\nI feel like on Zoom and in this\nclass, we got some here today.\nSo I just wanted to offer all\nof you being able to sign up\nto our startup program.\nThis will allow you to\naccess Atlas credits,\nspecial one-on-one technical\nexpertise and advice, as well\nas some go-to-market\nopportunities.\nWe host a lot of\ndifferent events.\nI feel like being a founder,\nhaving a great product\nis half the battle.\nSo building relationships\nand getting to utilize that\nis something we would\nlove to help you with.\nSo yeah, feel free to\nhit me up on LinkedIn\nif you guys have any ideas or\nI can help connect you at all.\nAnd then secondly, I believe\nyou guys have seen this before.\nOur Frontier Lunch\nClub that we are\ngoing to be\nsponsoring this year,\nit's got some really\ngreat opportunities\npartnered with the AGI house.\nThis allows you to connect\ninto their recruiting pipeline,\nhelp you get a leg up\non future opportunities,\nyou're looking to connect\nwith different AI researchers\nand research institutions.\nAlso, we are going to be\nhosting a couple events.\nOne is going to be a\ndinner on the 30th.\nIf you'd like to\nscan the QR code,\nit just takes 30 seconds\nto access that WhatsApp.\nAnd then also in\nthe back, Alexa is\ngoing to be helping out\npassing out some pizza.\nShe's also a great\nconnection at the AGI house.\nThey have a ton of different\nevent opportunities\nas well as connections\nto pretty much everyone\nyou would need to know\nbe successful in the Bay.\nAnd then lastly, we're going\nto be hosting an event later\nin October where we're going to\nbe doing a project competition\nran on MongoDB, where you\ncould potentially win $1,000.\nSo yeah, just wanted to\nintroduce myself and tell you\na little bit about two things.\nBut thank you so\nmuch for having us.\nAnd yeah thanks again.\n[APPLAUSE]",
+  "segments": [
+    {
+      "text": "All right, so now it's my pleasure to welcome our speaker for today, Albert Gu. He's an assistant professor in the Machine Learning Department at Carnegie Mellon University and the chief scientist of Cartesian AI. And his research broadly focuses on",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "theoretical and empirical foundations of deep learning. And he is particularly known for new approaches to deep sequence modeling and neural network architectures. And was recognized on the Time AI 100 list of most influential researchers in 2024.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "And previously, he completed his PhD here at Stanford. So, without further ado, let's welcome Albert. [APPLAUSE] All right, thank you, Steven. This work? So I'll just get started. It's good to be back. I think I haven't been back on campus in a while,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "even though it's only been two years since I graduated. Just has a disclaimer, so the talk is called On the Trade Offs of State-Space Models and Transformers. I've given versions of this talk over the last year or so. And I turned it into a blog post as well.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "So if you've seen those, this talk won't be too different. There is a little bit of new content, but don't expect anything that new. And afterwards, the blog post will also be a good supplement to this as well, if you want to take a look at it.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So in the last two or three years, there's been a big surge of popularity of alternative architectures to transformers. Particularly models that are so-called subquadratic or linear in complexity. Some examples of these include the original Mamba model,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "which came out just over two years ago and arguably popularized a lot of the subsequent line of work. There have now been follow-ups to Mamba, Mamba 2, and just a month ago, we published Mamba 3. So there's continually progress being made here.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Other models you may have heard include xLSTM, which is a refinement of the original LSTM, which is in some ways the original most popular RNN. That was the canonical sequence model used before transformers. Other models that are popular are DeltaNet and the",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "follow-up Gated DeltaNet, which combines DeltaNet with Mamba 2. This is another very popular model that's been-- is now pretty widely used. And also another paradigm called Test-Time Training, which views recurrence as a form of test-time updates",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "that optimize an optimization function. So these are a couple umbrella families of models that are all quite popular now. And we're seeing them use more and more in actual large-scale production quality models. After Mamba came out, it became",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "used in a bunch of hybrid models that combine these linear layers with attention layers, including Jamba from AI21, Zamba from Zyphra, and Samba from Microsoft. More recently, there are models that include Hunyuan from Tencent, which was actually",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "several hundred billion parameters. The latest Qwen models are now based on Gated DeltaNet. Kimi-Linear is another hybrid model that's based on some follow-up data DeltaNet. I think very recently, AI2 also released a new Olmo model that is hybrid, and it",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "also uses Gated DeltaNet combined with attention. And somewhere here I forgot to list the Nemotron models from NVIDIA are also very new. I think the latest one is the Nemontron 3 models, which have been scaled to, again, hundreds of billions of parameters.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "And that model uses Mamba 2. So again, these models are actually very, very widely used now. And so today, I'm going to be talking about a lot of these models. And rather than focusing on any particular one, I'm going to zoom out and talk",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "about general characteristics of these models, how do I think about them, how do I think about transformers, and how these models relate to each other. There's a lot of different models here, like these and many, many more. And there's a lot of names",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "used to refer to them. So in this talk, I'm going to call them state-space models, which is what Mamba was considered to be. But there are actually many different lineages of work that have appeared in parallel. And there are other names for related models",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "that, for the most part, at least for the purposes of this talk, are largely interchangeable. So other things that you can call these include linear attention. They're all kind of recurrent models. So you can call them just recurrent models.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "Sometimes called modern recurrent models, as opposed to the older ones like the LSTM. You can call them linear RNNs. Or just broadly, linear models. So usually these days when people say any of these words, it kind of broadly refers to",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "really any of these models. And when we say hybrid models, we mean one of these combined with quadratic attention. So these, again, are actually generic architectures. And they can be used pretty much anywhere. But for the most part in this talk,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "we will also focus on autoregressive modeling. So this is something you're probably all familiar with. Paradigm, such as for language models where you have a model that models next token probabilities of a sequence. And then it can act as a generative model",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "where you can sample from the model by repeatedly sampling a token and feeding it back to the model. The reason we focus on this is for two reasons. First of all, it's, in some sense, the most important modeling paradigm right now, especially",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "for language modeling. And second of all, for understanding the trade offs of these different sequence models, it's actually helpful to think about autoregressive modeling. And so just to put us all on the same page, we'll really quickly go over",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "what does inference or sampling look like for these models. So I'm not going to redefine attention everything. But from a zoomed-out point of view, what attention does at inference time is that you give it a prompt, which is a set of tokens,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "and then the model tries to predict the next token or word by doing these pairwise comparisons against every single previous token that it's seen. So you do these comparisons, you run some calculations, and then you can predict the next word.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "And then you can put this back into your prompt and then repeat this. So what characterizes attention is this ability to look over every single past token that you've seen in the context. So even without defining exactly what attention is,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "this, I think, is a very useful characterization of it. Because I think of transformers as the canonical model that caches every past token. Because it needs to cache every token in order to do these comparisons. To get a little bit more specific,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "this is called the KV cache, which I think everyone probably knows. A lot of the work around transformers basically has to deal with the KV cache, ways of compressing it and so on and so forth. And again, it doesn't actually matter",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "that it's called the KV cache. That's an artifact of the way transformers are defined. But at an even higher level, basically, transformer is just a model that stores this cache. And because it stores this cache, this really defines its",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "computational characteristics. In particular, it's heavily dependent on the size of its context and the memory and computation scales with the context. Now if you amortize this over inference, then instead of scaling linearly with the context, the model scales",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "quadratically in compute. And so this is why attention is considered quadratic model. And at a high level, again, what attention does is it does all these comparisons. And what [INAUDIBLE] models do is that, again, in inference time,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "as your token stream in, instead of storing all of them explicitly, the model squishes them all into a state, basically, represented by this blue ball here. And then the individual tokens are kind of thrown away, and the model only interacts",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "with data through the state. And then it does this repeatedly online. So you can generate new token and put it back into your state. The state is highly compressed, which means that every single step of inference takes constant time.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "And then summing this over a sequence takes linear time. So this is why we call them linear models. And so this is really just a high-level way to think about it. And these are the ways that really distinguish these families of models.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "So now let me talk a little bit about the actual definition of these models and what I think are the most important ingredients that go in. So first of all, state-space models are basically defined by this equation down here. So it is essentially a",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "special type of recurrence with a few key characteristics. We think of this recurrence as a sequence mapping from an input, x, to an output, y. And when you unbind this along the sequence length, you can think of x as basically a one-dimensional number",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "or a scalar. It gets blown up with a vector B, and then summed into some transformation of a hidden state. So every step, just like a normal occurrence, you update the hidden state and then you incorporate the input. And then there's this",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "recurrent hidden state denoted by h that kind characterizes recurrent models. Some differences between SSMs and some of the older RNNs are that first of all, this recurrence is linear. There's no non-linearity that's applied after this equation",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "like they are in GRUs, LSTMs and some of the older RNNs. Second of all, some of the big differences include these ingredients. So the first kind of main one that differs a lot from past traditional RNNs is that the state size is much larger.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So the way I define this is that x here is a one-dimensional input. And for a one-dimensional input, the hidden state becomes N-dimensional, where N is usually on the order of-- it's like 64 or 128 or so. So the state is 100 times bigger than the input.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "And so this is very different than how LSTMs were defined. The reason this is important is because your autoregressive state here is a bottleneck of your context, because all the context got compressed into the state. So the larger your state is, the",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "more information your model can remember, which is really important on information dense modalities, such as for language modeling. The second key ingredient is that not only does the state have to be large, but it has to be expressive enough",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "to remember exactly what the model wants to remember. So abstractly, you can think of any RNN as a function that combines the previous hidden state with a new input. And so you have a black box function, and different parameterizations of the function",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "define different RNNs. And making this more expressive allows the model to be more precise about the information it's modeling. So one key difference with some of the later SSMs, such as Mamba compared to older models, is that the parameters",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "here are defined to be functions of the input itself. And this is, again, different not only from older SSMs but also, again, different from LSTMs. We call this selectivity because it means that the model, by having its own parameters be functions",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "of the input, the model can control, based on the input, how to control the recurrence, which lets the model be more precise in selecting what information to remember. Because for example, if A here is a function of the input and I don't want to",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "remember the input, then I can look at the input and then decide that I want A to be 0. Or sorry, I want A to be 1 and B to be 0. Or if I really want to remember the input, maybe throw away the previous context, I could set A to be 0.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "So this selectivity makes the state update function much more expressive. And this was really a key ingredient in getting these models to be effective. The final ingredient is that both the first two ingredients, the state size and the more expressive state",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "update function, make the model much more expressive and have much more capacity. But also makes the model much harder to compute. And so in particular, unlike a traditional RNN, it's actually basically impossible to compute this by computing the recurrence.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "And so a lot of the work involved in these family of models was to find clever ways of rewriting the computation, to compute the training parts of this much, much faster. Some ideas here include associative scan, which is what the original Mamba model used.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Basically by exploiting the fact that this recurrence is linear, you can parallelize the computation using a specific algorithm. And later versions of this, including Mamba 2 and including many of the other variants like the Gated Delta-Net, completely",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "rewrite this in terms of this chunked matrix multiplication. So really, I think these are the three most important ingredients. There's a lot more details that are involved in how exactly do parametrize all of these, how to initialize all of these, and so on.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "But I think these are the main reasons that made these models effective. And all of these ingredients actually existed prior to this recent line of work. For example, linear attention first was published, I think, in 2020. And it basically used",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "something similar to this that had this state size expansion. Classical RNNs can be viewed as some form of selectivity or gating. And many models have already used these ideas for more efficient computation, including these older linear RNNs.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "All these ingredients were used before, but Mamba can be viewed as the first model that actually combined all three of these. And that was critical for it to be actually really effective. And it was perhaps the first model that demonstrated that",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "recurrent models can actually be competitive with transformers on information-dense modalities like language. We now that this statement has a bit of a caveat. There is much more nuance to modeling than just perplexity, for example. But this certainly",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "showed that from a coarse-grained perspective like perplexity, these completely different architectures could actually be competitive. Since then, there's been, again, a lot of work. This is a nice table from the DeltaNet paper. But since then, there's",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "been even more models. But basically, there's a lot of different variations of these models that are really effective. But I think all of them are kind of pretty similar to each other. They're all variants that all include these three ingredients",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "and tweak different definitions of them. So many of these vary the state update a little bit, some of them change the computation a little bit, but all care a lot about efficiency. And to give a off-the-record kind of what I think are the most",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "effective ones, probably right now, the most tried and true variants of these are Mamba 2 and Gated DeltaNet. Those are also the ones that are most popularly used in large-scale hybrid models. Gated DeltaNet is a little more powerful, but a little slower",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "version of Mamba 2. So depending on your needs, both of these are pretty good, but it depends on what exactly you want. Mamba 3 just came out and it's a little bit less tested at scale, but also will probably be up there. But more importantly, all",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "of these models I think are actually much more similar to each other than they are to attention. Instead of talking about the exact details between all of these, I think it's more interesting to think about the higher level trade offs between these",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "and attention. So that's what the rest of the talk will be about. So again, we're going to examine this through the nature of autoregressive modeling. And one of the key points here is that I claim that the trade offs of sequence models can be understood",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "through examining their autoregressive state. What is the autoregressive state? So in some sense, every autoregressive model can be viewed as carrying an implicit state. So this can literally be defined as if you're examining an autoregressive",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "model during generation time, like in this animation, the state is what the model stores in memory in between each step of generation. So for an SSM, the state is just going to be its fixed size, kind of a matrix-valued state. For attention, the state is",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "going to be its KV cache. And the definitions of these states really inform the trade offs of these models and their inductive biases. Again, we talked about how these models generate. So transformers are quadratic by looking at every single past token.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "And SSMs are linear time because they compress everything into a state. A simple analogy that I like is that I think of transformers like a database. So if you think about the nature of its state, which is the KV cache, what it's doing is",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "it's storing a representation of every single token or every single element of a sequence that's seen before. And it's basically writing it down to its database. And as the sequence length grows, it's kind of expanding its database. And it's able to attend or",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "look back very precisely onto any element of this database. On the other hand, SSMs are more like a brain in that it is a fixed-size method. And again, it kind of compresses all the information it's seen into this fixed-size state. So this has a completely",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "different characteristics than a database. And many of the trade offs of these models can be kind of intuited from this analogy. So for example, some of the weaknesses of SSMs are that they are not so good at retrieval. And this is exactly the way",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "that brains work as well. Humans are notoriously bad at remembering exact strings of numbers and so on. But it also comes with advantages. So at a first pass, so talking about the trade offs of SSMs, they're the canonical, stateful and compressive model.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Statefulness is really powerful because it's what allows these models to be really efficient in online settings. Kind of, again, just like brains are, it's always online, always able to consume information at a constant rate and interact",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "with the world in real time. These are places that these linear models are likely to be very good at. The compressiveness of it also has subtle benefits, which I'll talk about later in the talk. And the downsides are that, because of the fixed-size state,",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "these lack fine-grained recall and retrieval abilities. So there's many kind of synthetic tasks like Haystack, associative recall, these things that involve asking a query and digging out a precise bit of information from your context.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "These models are not so good at it, just like brains are. Now again, the analogy has more implications. Because for example, if you think about human intelligence, it's actually not just the brain. Humans use a lot of external tools to assist,",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "and that this really augments our ability to process, and it augments intelligence. So if you think of human-like intelligence really as the combination of our processing unit as well as external scratchpads, then this analogy also predicts the",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "behavior of models. And so this is one high-level inspiration for hybrid models. Starting from the advent of these state-space models, they've been used in hybrid models for this reason. There's a few references here that refer to some of the older ones.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "But again, there's now many, many more versions some of which are very, very large scale. And one thing that's been pretty remarkable is that many different groups independently verified the optimal ratios of hybrid models. So the simplest way",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "to define a hybrid is just to interleave your linear layer with your quadratic attention layer. And then the question is, what ratio of these layers should you include? Many of these older papers found something remarkably consistent",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "that it's something close to a 10-to-1 ratio of SSM layers to attention layers seem optimal, at least from a perplexity standpoint. Nowadays, this ratio seems to have changed a little bit as models have been getting better. But I think that it's still very",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "consistent that people typically use something like, at minimum, a 3-to-1 or 4-to-1 ratio of linear layers to quadratic layers. And so what's interesting about this is that if you use the analogy and you think about human intelligence,",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "you might also predict this. Because we tend to think of the brain as the main processing unit and the external databases, scratchpads and so on, as a supplement that helps you store information, but is not actually the main computational lifter.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "And so the fact that when you actually do these very careful ablations and find that you want more linear layers than quadratic-- and this is not accounting for computation, it's just what makes the best performance-- it's pretty interesting that",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "kind of follows the analogy as well. And so a thought is that, while these linear models are sometimes viewed as having a critical drawback because the finite state means you can't remember everything, it seems like this compression is a weakness,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "it's actually not so clear. Because even if we're just looking at performance without looking at speed, you actually do want a lot of linear layers here. And so I think a general theme is about, is the compression actually fundamentally",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "important to intelligence, and what role does it play there? And once again, there will be a very interesting experiment I'll show later that hopefully touches on this again. So now we're going to switch and talk about just transformers. So although there's",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "a lot of work here on transformer alternatives, transformers are still the to-go model for many things, especially language. And for good reason. They're very, very powerful. And there's a prevailing mindset that they basically work on everything.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "And they're really used in pretty much all fields, from language to vision to many more. And many people think that you basically should just use a transformer and just put your data into it, and it just works. And this is true, actually.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "But there are nuances to it. So the way I think about it is that attention is actually most effective when your data is at the right level of abstraction. What this means is that in any pipeline you actually see where transformers are used,",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "there are pretty substantial encoder decoder layers that transform the data to a form that is suitable for a transformative process. So to give some examples. When you use these models in vision domains-- for example, this figure is from I think the original",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "vision transformer paper for classification-- what they do is they take your image and divide it into these patches, which are basically vision tokens. And then encode it a little bit and then pass it into the transformer. And so basically, it's kind of",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "making your data much coarser and in a form that's more suitable for the transformer. And I claim that this encoding step is actually critical for the transformer to work well. In language, this encoder is called the tokenizer. So if you have a",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "string of characters, like if you're modeling English, technically, you could just put this into your model and it should work. But we actually process it using a tokenization step that splits it into these coarser chunks. And many people actually don't",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "really think about this step. We kind of always just use off-the-shelf tokenization. But again, I claim that this step is actually really critical for transformers to work. Not just for efficiency reasons, but actually from a modeling perspective in terms",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "of what features and transformations the transformer can capture. So tokenization is low notorious because it has a lot of problems. So we can ask what happens if you don't tokenize. There's a number of outspoken critics against tokenization.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "This is a tweet taken from Andrej Karpathy where he kind of enumerates a bunch of edge cases with tokenization. It causes issues in spelling, It has many edge cases. If you ever kind of prompt your model with out ending it in a space, or maybe it's ending",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "it in a space, one of these two will screw up your model. So you have to be very deliberate. And these are all edge cases and tokenization. However, most of these edge cases are understood. You can engineer away a lot of these with good data",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "or with other tricks. And so many people think that this is not a real problem. But if you could solve tokenization, or if you can get rid of it, you would solve these for free. And I think that even if the engineering solution just works,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "it's still a worthwhile problem to address for philosophical reasons. Because AI has always been about learning automatically from raw data. And models that are more and more end-to-end generally tend to be better. This also reflects on the bitter lesson.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "If you can find models that are more generic and work with less feature engineering, but benefit more from scale, you'll eventually get better models that learn better features from data. So what happens if you actually train models without tokenization?",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "So one simple thing you can do is just look at language modeling but not tokenize your data before. So basically, you can just pass in raw characters into your model. So this is a plot from a recent paper of ours. But it was first done by this",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "paper called MambaByte, which basically just tried to compare Mamba against transformers on byte-level modeling. So again, here, you basically just don't use your BPE tokenizer on the data. And these are some training curves for models that are matched in size",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "and just trained for longer. So what you see here is that the SSM here is actually much, much better than the transformer. So the purple line here is a sliding-window attention model. And the blue line is just the Mamba model. And these are isotropic",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "models that are basically equivalent in every way. And you can see there's a very, very large gap here. If you draw the horizontal line to see the data efficiency difference, it's basically 2x or something. And even if you let the attention be global,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "and in this case because byte sequences are so long, this is really increasing the computation so that the global attention model in the dashed line here is doing 2x as much compute as the Mamba model, it's actually still not as good. And so what this means",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "is that there's actually a fundamental difference here. And it's not just because of that attention is slower. The comparison between these two bottom lines are the same model size, same data, same sequence length, and it's simply letting the",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "attention do its quadratic thing and using much more compute. But it's still a bit worse. So this phenomenon occurs in other settings too. So we can look at sequence-like data that is not just language or language with alternative vocabularies.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "This is a figure from the original Mamba paper that we investigated the model on DNA modeling. So again, you can basically just take DNA sequences and do autoregressive modeling on them. And here, the comparison between the orange and the red line",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "is the Mamba versus transformer, where, once again, we see that there's actually a really big gap. And if you try to match for compute or match for parameters, the Mamba model is about 3x more efficient. So these are settings that basically",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "don't have tokenization. And so what is going on here? So when I think about what attention is good at, there's a couple heuristics that I think are really helpful for thinking about what it does and the types of settings that it excels at. So first of all,",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "once again, thinking about the autoregressive state. So we thought of the attention as storing a database of every token it's seen. That means that it should make sense to actually cache every single token. You can think of many types of data",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "where it actually doesn't make sense to cache every token. Obvious examples include if your data is noisy and there's spurious tokens that you don't need. Or you can think, perhaps, in the language setting. When we read English, we can often",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "identify words, even if you drop out a lot of the tokens. And that's just a very coarse analogy that shows that you don't need to spend all of that memory, all that computation, to cache a representation for every token, because not every token is meaningful.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "Another heuristic is that, in some ways, softmax attention was developed as a alternative to hard attention. What hard attention means is that-- softmax attention, basically, you take a weighted combination of every token in your context. Hard attention",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "means that imagine you can only look at a single token at a time. So this is also, I think, a useful proxy for what attention does. And once again, it's helpful to think about this because attention excels at data where hard attention makes sense.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "And so this is why, again, use applying attention to, say, character level data is much less effective, because if you can think about the nature of the data and how we process it, you're never going to look at a single character. You're kind of paying",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "attention to the data at the semantic level of words or even coarser, not at the level of characters. And this kind of is a very heuristic explanation for the phenomenon that we just saw. And so if we look at the different types of data that you can use",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "this really, I think is useful for thinking about where attention is useful. So if you have things like words or subwords, which is what we typically apply transformers on, they really excel because these tokens are intrinsically semantically meaningful.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "They're modular and composable. It makes sense to want to look at a single word or store a representation of a word. When we start looking at other settings, they make less sense. If we're modeling characters or DNA base pairs, every individual",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "character basically doesn't have any meaning, every individual DNA base doesn't have any meaning. And so this is one explanation for why attention does so much worse here than other models. And many other settings are not so clean.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "For example, in vision, if you look at a patch of an image, it's not really clear which camp you fall into. Some of the patches may have a lot of information. Some of them may have very little. You might just get a patch of sky that's",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "kind of useless to your model. And so the trade offs there are a little bit less clear. But it goes to show why when we move away from pure tokenized language, actually, these alternative models become more and more popular. And I think it's because of",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "basically this reason that when you don't have very well defined tokenizers, the power of transformers goes down and the power of models that are doing this implicit compression, which in some ways can be viewed maybe as sharing a similar role as tokenization,",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "these models get better. So this is a graph taken pretty soon after the Mamba paper came out about where it was most popularly used in applications. And even though the model was kind of pitched as a language model, actually language only took up about 10%",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "of the applications. And instead, it was viewed as just a generally useful sequence model for all sorts of modalities, from time series to audio to especially vision. So now, while we're on the topic of tokenizers, a very recent application",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "of these models has been, again, in the domain of tokenizer-free models. So very recently, my group published a paper called H-Net, which is maybe the latest model that tries to do actual tokenizer-free modeling of language. So in a nutshell, the way I",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "would describe H-Net is that it's an end-to-end hierarchical network-- and that's what it stands for, hierarchical network-- that operates on raw data and compresses it through a data-dependent chunking process. So I'll unpack this in a little bit.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "But basically you think of this as a model that is operating on raw data and implicitly trying to tokenize it by chunking it inside the model. This work was largely led by my student [INAUDIBLE] Hwang here. And this is the name of the paper.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "This is a really general neural network architecture that's really about the idea of compression. Where it's most obviously useful is simply on tokenizer-free language modeling. So to contrast, again, the way that all of our language models work is through an",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "explicit tokenization step. If you're familiar with this, the most common one is called BPE or byte-pair encoding. And it's basically some form of heuristics that take your sentence of low-level data, like characters, and then implement some merge rules",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "that group them together into bigger chunks. So for example, this sentence might be tokenized exactly like this where characters got merged together into these-- I'm calling them chunks, but we usually call them tokens. What the H-Net does is that instead",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "of doing this as a separate offline step and then passing these into the model, the H-Net only sees the original characters. So, for example, the vocab size would be just, say, like 256 if you're working on bytes. And then the model, it's looking",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "for boundaries like this. But this is all happening inside the model. And this is a visualization of what the model actually might do during training. So this depicts the training stage of the model. I think the animation started",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "partway through for some reason. But basically, the model is modeling just bytes. And the green denotes where the model is trying to put boundaries. And so this is at the beginning of training, the model is doing a lot of exploring because it doesn't how.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "And then it eventually kind of stabilizes on boundaries that are quite aligned with where we would expect a good tokenizer to do. In particular on English, it happens to coincide that your tokens generally want to be where spaces are.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "But if you look closely, you can see that the model is like here, for example-- OK, the animations started. But you can see that the model is actually finding semantically meaningful subwords as well. And if you compose this, you'll find that the model finds",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "semantically meaning groups of words. So this was a major step towards actually doing tokenizer-free modeling without the separate offline step. So I won't go fully into the details because the model is pretty complicated, but I'll try to give a high",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "level of how this works. So this, here on the left, depicts the general structure of the model. And so we think of it as hierarchical because there are two main stages. There's parts of the model that interface with the fine-grained data. So what happens is,",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "let's say, we're operating directly on bytes or characters here. The sequence gets passed through a lightweight encoder, which will just be a generic sequence model or several layers of a sequence model. Then there is a special routing mechanism",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "that for every single character predicts, do I want this character to be a boundary or not? Or do I want it to be the end of a chunk? Then for the ones that are decided to be chunks, which are highlighted in the colors here, we summarize each chunk",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "and then compress them down into one representation. And so you can think of the encoder and the chunking as playing the same role as the standard BPE tokenizer. And then once that is compressed down, then you have a much shorter sequence,",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "then you pass this into what we call the main model. And this model you can just think of as, again, a generic sequence model that is effective on chunks. And so here, for example, by default, we will just use a transformer because they're",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "a tried and true model that operate well on words or chunks or tokens. And so this is the inner stage. Then after your main model, you take your output representations and then you expand them back out to the original resolution",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "and pass them through a decoder. And then do your autoregressive prediction there. So at a very coarse level, it's kind of, honestly, similar to the existing pipeline with a tokenizer and then a transformer. Except the tokenization happens inside the model",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "through an encoder and then a routing mechanism to predict the boundaries. So there's a lot of details here. But the one thing I'll emphasize for this talk is that the outer stages of this model, which are the ones that interface with",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "the byte-level data, strongly benefit from being SSMs. So just like the previous experiment I saw where if you run these models on character-level data, like an SSM versus a transformer, the SSM is way better. Similarly here, you'll find",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "that any part of the model that touches byte-level data strongly benefits from being an SSM. And then outside of this, there are lot of details in the exact chunking mechanism and other parts of the model that needed to be optimized for this to work.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "So this is a pretty non-trivial problem, because this is like a discrete optimization problem that's really unstable and difficult. But if you get all right, it actually works. And you actually can train a model that operates fully on tokenized data",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "and actually seems to scale pretty reasonably. And can actually outperform your standard tokenized pipeline. So these are some of the results that we see. On the left here is, again, a training plots where we're fixing a model size and we're just showing how",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "the validation, perplexity or bits per byte decreases as a function of the data seen. And one thing to also emphasize is that here in this diagram, the main stage I said can just be a generic sequence model. That means that the main stage",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "itself can be another H-Net. So that means that you can basically compose this model to have multiple stages of chunking. And so what H-Net that really means is that it's not, per se, about tokenizer-free modeling. It is about dynamic chunking.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "So it's about the idea of taking any data and compressing it into larger chunks that ideally represent more higher level semantic meaning. And because it's done completely end to end, this is the first model that can not only chunk things, but",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "also chunk things multiple times to get more and more levels of abstraction. And what we see on the plot on the left is that the transformer baseline here is the black line. And then if you train that H-Net with just a single stage of chunking, like in",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "the previous diagram, it starts off worse than the transformer. But after seeing enough data, it crosses over and seems to be scaling better. And the reason for this is that basically, feature engineering generally is a form of inductive bias",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "that can help your model in data constrained regimes, but usually benefits less from scaling. So this is the common theme that we see in deep learning. This is the bitter lesson. And so we see this exactly in this plot. If you apply a stage of chunking then",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "it takes some amount of data before the model learns how to create good chunks, like we saw in the animation. But once it does, it should theoretically be able to create better chunks than what your hard-coded BP algorithm gave you. And then if you",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "compose the model by nesting it again and doing two stages of chunking, the model seems to scale even better. Although, there are other challenges that occur in this case, because you have more parameters, it's harder to train and so on. But at least these",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "plots track what we would intuitively expect. It's not shown in this plot, sorry. But you could also ask yourself, what happens if you run the H-Net directly on BPE tokens? And then the behavior kind of, again, tracks what you expect.",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "So compared to a H-Net on bytes, BPE gives you some free boost because you're getting the chunk of the model based on this kind of hard-coded features. But if you just added another stage of chunking to the H-Net and operate on bytes, then the model",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "learns better features than your BPE tokens. And this is what it looks like. And so if you look at these comparisons, especially these two circled in the red boxes, the theme is that no matter what setting you're in, if you train a model",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "operating on BPE tokens, it works pretty good. But if you can manage to throw away the BPE and learn these chunks end to end, then your model will do even better. One variation of this that is particularly interesting is that-- so again, so each net is",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "just a generic architecture. It doesn't have to be applied on bytes. This plot shows what happens if you apply it on the BPE data. And I think this one's really interesting because it relates back to this compression argument that I talked about earlier.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "So what we did here is that we applied a single stage net to BPE tokens, and we varied the architecture in the encoder and decoder. So this plot, basically, if we just look at this top line and bottom line, this says that the encoder",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "is only transformer layers. The purple line and the red line is where the encoder and decoder only layers. And in between, you can vary any combinations of these. And then what we see here is that if you only have pure transformer layers",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "in the encoder and decoder, there is the model is noticeably worse. And as soon as you start putting in Mamba layers into the encoder decoder, model gets much better. And so what is really interesting here is that, previously, we said that transformers",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "are great when your data is already compressed, like BPE tokens. And they're less good in your data is not compressed. So on characters, Mamba is much better than transformers. But in this experiment, we are entirely operating over BPE tokens,",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "even in the outer stages. And so one might expect that putting transformers in the outer layers is completely fine, maybe even better because they're only seeing BPE tokens. This plot is showing that even when your compute matching everything,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "it's better to put Mamba in the outer stages. And so the lesson here to me is that the benefit of these SSMs is not just about the resolution of the data they're seeing, but also about this implicit inductive bias toward compression. So I guess if you",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "look at the diagram here, the role of the encoder layers is not just to interface with the given resolution of data, but it's also passing these representations into the chunking layer which is deciding how to chunk the data. And so you can imagine",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "that the encoder layers are playing some role of compression as well. Because literally, the goal of it is to try to produce a literal compression of the data in temporal sense. And so even when the data comes not as characters but as BPE,",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "it seems that applying linear models-- or you can call them compressive models, because, again of the fixed-size state, it's very critical. And so this is I think, the best evidence I've seen so far that the finite-size state of recurrent models is again,",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "not just for efficiency, but actually has fundamentally different inductive biases. And perhaps in a setting like this, it's actually doing something like-- I think of the H-Net, the goal of it is to create better abstractions. That's the goal of chunking.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "You want to take your characters and chunk them into abstractions like words. You might want to turn your words into phrases that have meaning. And towards this goal of creating abstractions, that's fundamentally related to compression.",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "And somehow these models actually, empirically seem very important for that. A final result I'll show on this topic is, again, you can apply these to different types of data. This is, again, another very recent paper that was just put on archive a month ago,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "where we tried applying a couple of different established architectures to DNA modeling again. And once again, DNA is interesting because in language, modeling characters is a bit of an academic exercise. It's a long-term direction",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "because we do have tokenizers and most people are like, why not just use the tokenizer? In DNA, it's actually really difficult to define tokenizers, at least in a semantically meaningful way like you can for English. And we see even bigger gaps, generally,",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "for these kind of alternative models. This plot here shows instead of just fixing a model and running out the training curve, this is actually showing formal scaling laws. So each point here is a different flop budget. And then the model size",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "to data amount was swept. So these are standard scaling laws, but for DNA. And we found remarkably linear trends here. And what's interesting, again, is that these trends actually are so different from language that usually in language",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "these lines are just shifted and you get a constant magnitude of improvement. But when it comes to DNA, the H-Net is actually discovering patterns that you can't really find with off-the-shelf tokenizers, and it's actually scaling fundamentally better.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "So hopefully, all of these have painted the picture that the different types of models really are doing very different things. They have very different inductive biases. And this goes back to my main thesis that I claimed, which is that transformers",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "work really, really well. But they're particularly effective when the data has already been encoded properly. And you often need different types of models when your data is not encoded or it's very difficult to encode. And so I think the future of modeling",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "will require not just transformers, but a lot of other ideas. So far, most people have viewed transformers as basically just like a very powerful tool. We don't really look at it or touch it, and we designed the whole pipeline around it instead through a lot",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "of feature engineering, through the way we process the data and so on. But hopefully, I've kind of conveyed that there really is a lot of different alternatives out there. There's really a lot of room for improvement. I personally believe that",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "there's actually still a lot of room for major improvements in architecture design. So just to come back now to the title of the talk on the trade offs. Just to summarize. SSMs are largely thought of as a alternative model that is more efficient",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "than transformers, but potentially more weak. So just by the way they're defined, they're obviously more efficient. But it's often pointed out the specific problems they have, especially with retrieval-like abilities. But I actually think that the efficiency",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "is a bit of a red herring. These models are not just more efficient, but they're actually doing different form of modeling. So again, I think of them as being a stateful and a compressive model. And these lead to very different types of benefits",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "that they have from things like state tracking, which I didn't talk about today, to things like building abstractions, which we saw through the H-Net. And both of these pros and cons are two sides of the same coin, which is the way it's autoregressive state is",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "defined in terms of this brain-like state. Similarly, attention, the strengths are that it gets the ability to pay attention to very specific details in its context. It's exceptionally strong at recall and retrieval, which is where SSMs struggle.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "And usually people think of the downside as the efficiency, the quadratic scaling of attention. But once again, I think that the efficiency is a bit of a red herring. And the way I really think about attention is that the downside is that it is highly",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "dependent on the resolution and the semantic meaning of the data. Through the examples we saw, when you change the resolution, even in language modeling from BPE tokens to bytes, the performance of attention changes dramatically. And another way to put",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "this is that attention is beholden to the tokens it's given. Because of the way it's kind of caching every single token it means that it's very sensitive to the resolution of the tokens it's given. It has no ability to change what a token means to it.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "And once again, these pros and cons are both two sides of the same coin, which is the way that it's autoregressive state is defined through this database-like cache. And so I think that the efficiency arguments for both of these models are, again,",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "a little bit of a distraction. Because at the end of the day, we just want the models to model the things we want. And the exact efficiency there actually-- it's not the right thing to look at. Because there may be tasks, for example, where you really do",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "need the quadratic attention. There may be tasks where you actually have to cache and memorize every single thing in your context, and you can't get around that. And then so there's no point arguing that the quadratic scaling is bad. And to give a",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "final picture here. So one way to think about architecture design in general is that there's a picture where we think of models as this black box, where during training, you give it compute and data. And then you create an intelligent model",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "that has a wide range of capabilities on the other side. And in this picture, you basically think of your model training as a vehicle that converts compute or flops into intelligence or capabilities. And what you want is to find the most efficient vehicle that",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "does this conversion. And so the central question to ask is simply, is my model using every single flop it's given wisely? And so again, there are settings where you actually need to spend a lot of compute in order to do certain capabilities.",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "But there are also settings where your model is doing a lot of compute that doesn't really make sense. For example, if your transformer is given character-level data, it doesn't need to be caching every single character into its KV cache.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "And so this is the central question of architecture design is designing better and better black boxes here that perform this conversion. And I think there's still a lot of room for improvement there. OK, that's the end of the talk. Questions? [APPLAUSE]",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "OK, awesome. Thanks, Albert, for the very insightful talk. We're going to be soliciting some questions now. We're going to be balancing between in-person questions and those online. So we can get started with some in-person questions if anybody here has any.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "Thank you. I really admire your work. I'm a PhD in Chris Ray's lab as well. And we are constantly looking through all your old papers, so I really appreciate it. A lot of the current SSM inspiration is trying to trade off some recurrent expressivity",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "for trainability under the condition of using backprop or backprop through time. Which you mentioned the brain a bunch of times, there's very little evidence that we're keeping C copies of the brain, and doing backprop through time.",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "It would be very unrealistic that we're doing that. So there must exist some other solver that is happening inside your brain right now. What are your thoughts on that? Yeah, that's a great question. So I'm actually a big fan of some of these works",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "that try to look at completely different computation paradigms. I think a lot of what drives my work is the idea that we are probably in some of local optimum in the entire way that all of our training is set up from the architecture, which is",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "where a lot of this is focused. But also even to bigger things like backprop and so on. It is also not clear to me that backprop is the best thing to do. There's a lot of co-dependence between the model design and just the physical hardware we have",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "and the realities of these things. I personally haven't thought that much about backprop myself. But I have thought about, it could cause serious issues with-- for example, one issue is it causes a physical memory constraint on your long-range dependencies.",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "Because if you're using backprop, then if you can't fit your entire sequence in memory, you literally can't learn dependencies. You can cook up pathological examples where you just literally can never learn dependencies that are long enough.",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "So it could be a problem. It could be the case that for any realistic task that we care about, we can engineer it to be good enough, which is the way the world's going. But I do think that there are probably other-- getting out of the local optimum",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "and doing much bigger changes in these models. Another example is that, as I mentioned, a lot of the work that's been done here is on making these models efficient on current hardware, like GPUs, you actually sacrifice a bunch of expressivity",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "that you could gain back by adding true recurrence. And there has been another line of work on trying to do this, but it really struggles because it's just so hard to compute. I actually think that that's another line of work that's quite promising.",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "And I have some of my own ideas there. Again, you might be able to get fundamentally better models by completely reimagining the constraints that we currently have. Great. Any other in-person questions? Thanks for the amazing talk. Yeah, it was really",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "interesting to see your results with H-net and the dynamic chunking mechanism. And yeah, it's really cool that it gets better performance on DNA sequence modeling and stuff. I was curious if you feel the chunking mechanism is elegant and",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "will play a substantial role in future models? Yeah, so it's hard to say. So we worked on this, which took a long time because I did fundamentally believe that chunking is a really critical primitive that will lead to better models in the long term.",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "The version that we published is just the first step there. I think it was the first really end-to-end model that works. I don't think that is the end game at all. There are improvements that you could probably make to all parts of it, including",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "the chunking mechanism itself. And I think, so far, it has not really been validated at larger scales. The way I think about it is that, philosophically even, it just feels like it's so important to learn these things from scratch that I do",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "think that coming up with better and better chunking mechanisms could be really important for future models. Thank you. So just one technical question. I'm curious, since you're setting the separators at arbitrary points, typically with a tokenizer",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "you have a set dictionary, so I'm curious how you feed that sequence in when the sequence chunks can vary very dynamically. But I guess more generally, you've drawn several comparisons to how the human brain works. And this is something I'm also",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "interested in, this aspect of are we doing some of dynamic like analysis of incoming data? What data do we need to remember or compress or curate? And I've been interested in that towards improving the amount of memory that models have access to.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "So I'm curious what your perspective would be on using these types of state-based models perhaps to curate memories or curate more efficient memory for an attention-based or a lookup-based model to use down the line to extend the amount that we're",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "able to actually memorize in a continuous interaction. All right, so two questions there. So first, I think the first one was about a little more mechanically how the model works. So this is actually one key advantage of the model. So I think the",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "question is about-- normally when you use BPE you have a fixed vocabulary and each vocabulary, you'll look up an embedding to pass to your model. One of the challenges of tokenized-free models is that if you have an infinite size vocabulary, you can't have",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "infinite embeddings. So what happens here is that we don't need to think about those embeddings at all. Because everything is happening inside the model end to end, there is no lookup table at all once you get past the very first encoding stage.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "So here, you think of this model as just operating on a vocabulary of whatever fine-grained units you have, which might be, a size of 256 if it's a byte. You get embeddings here. Then you pass this into your model. And at every future stage, you're",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "just working in embedding space. And so for example, the you create this embedding, the simplest way is just-- so let's say this embedding corresponds to this chunk here. The simplest way is just to literally just copy and paste, whatever this embedding",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "is on the other side just gets passed through and we ignore all the ones in between. Or you can just pull over this chunk here. So basically, at the end of the encoder stage, you have embeddings in some latent space. And then you decide where",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "you want the chunks to be. And you're embedding that gets passed into the main stage is just, say, pooling over that chunk. The second question is about, I think, the analogy to brains and so on. To be clear, these analogies are very, very coarse.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "I'm not a neuroscientist. They might yell at me if they heard these analogies. But I think, a lot of this is just inspiration. I use humans more as a proof of concept of what things should be possible with intelligence, and what are some really",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "high-level ways that these might be achievable. I mean, I will say that chunking, I think is a concept that was directly inspired by cognitive psychology. Actually, one of the things I do think it will be useful for is kind of as a more clever way of creating",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "these databases or caches. Because one of the key challenges of long context is knowing what things do you store or not again. And I think that one of the potential, for example, use cases of things like H-Nets is exploring their potential",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "for long context modeling. Because what you can do is you can imagine if you can keep iterating this, then you can basically try to compress your context into higher and higher level abstractions or memories that are like core summaries of this thing.",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "But then allows an inner model to attend over much fewer things and in a much kind high-level way. So I think that's really directly an inspiration for this. I don't have a further progress on that particular idea, but I do think it's clearly related",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "to the whole philosophy of why one might want to do this. I'll read a couple questions from online. Someone asked, do SSMs outperform transformers in data-constrained or small language model settings, or vice versa, given their different inductive biases?",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "Good question. I don't the answer to that off the top of my head. Yeah, I think for language modeling, a lot of people care about scaling. I actually don't know. I will say, I found out a little tidbit of information yesterday, which is I think OpenAI recently",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "released this parameter golf challenge. If you guys have seen it. But people have been trying to train really small models. And I saw that somebody was trying to train a Mamba 3 base model there, which was doing decently well. But they had a lot of",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "ablations on their submission. And one thing they said is that, even though the model works well, at least including a little bit of attention was actually pretty critical when you have these really tiny models. That's actually something I didn't about before.",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "So I don't really know the answer, but that's as far as I know. One last one. With transformers, people look at attention maps as a form of interpretability. Is there a similar work or proxy for SSMs given the information compression?",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "I think this one is harder. I don't think I have the slides for it, but there is a correspondence between some flavors of SSMs and attention. So I guess as I mentioned at the very beginning, there's many names for these models. And one of the names",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "is linear attention. So there's a much deeper connection between SSMs and linear attention. And that's implicitly related to attention. But at the end of the day, basically one thing you can do is visualize an attention-like map. It's not literally",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "attention matrix, but basically you can visualize the dependence on every token with every other token in a similar way to attention. I mean, it's basically an attention map, and you can do the same comparisons. And it's actually pretty revealing of the type",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "of behavior that it can do. So for example, that visualization, for example, shows that attention sometimes can really act like hard attention and only pay attention to specific tokens, while SSMs generally always kind of squish everything together",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "and it can be pretty diffuse. This is probably not the only visualization that's relevant. But yeah, I think a lot of this is ongoing work, too, do more mechanistic interpretability of these models. OK, great. Let's give another round of",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "applause for our speaker, Albert. [APPLAUSE] All right, so now, we have some brief information from some of our sponsors, in particular MongoDB. Thank you all so much for being here. I promise I'll be very quick, about 10 minutes or so. But hi, everyone.",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "My name is Anaiya Raisinghani. I'm a senior technical evangelist at MongoDB. And we are so excited to be sponsoring CS25 this quarter. And I'm here right now because there's a genuinely interesting engineering problem that I think is worth about 10",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "minutes of your time. And because MongoDB happens to be a really great way of solving it. So you're all in this room because you're thinking about transformers, about multimodal models, and about what comes next in AI. Here's what I want to help",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "add to that conversation. The latest multimodal models have gotten really good at understanding a document the way a human being does. The question now is whether your data infrastructure is accurately keeping up. And today, I want to show you what",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "it looks like when the model and the database are actually designed to work together. So I'm going to start off with a concrete scenario, walk you through why the standard approach breaks down. And then show you what a better architecture actually looks",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "like end to end. So let's get into it. So first off, let's set the scene. We're going to be talking about an insurance company. Not the sexiest example, but a really good example. So let's say that your insurance company gets about 10,000 claims a day.",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "And each one of these claims is a PDF. And these claims include damage photos, tables of repair estimates, signatures. And the key here is that no two claims look the same. This is actually a real dashboard that was built by MongoDB. And what you're",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "seeing on the left is an active claim, which is a smashed windshield. On the right, claims like this. Five similar claims are pulled back instantly with loss amounts, dates, and notes attached. And the adjuster simply asked, \"show me crashes like this one,\"",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "and the system knew exactly what to return. So the question is, how do you build that? And how do you build that with retrieving back accurate information? Because the hard part, as most of us probably know, isn't the search, it's what happens to those PDFs",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "before retrieval even starts. And until recently, the standard approach looked a lot like this. You would OCR the document and extract whatever text you could, chunk it into pieces, pass those chunks to an embedding model, store the vectors, and",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "then retrieve a query. And this works completely fine for very clean text documents. But how many documents out there, especially when you're dealing with insurance claims, health care, law, how many of those are truly, perfectly clean text?",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "A lot of context can get lost even before you start searching. And the moment you OCR a damaged photo, the tables in the documents, the handwritten notes, so much important information, that can completely alter the whole trajectory of your claim.",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "It can be accently omitted. And in situations like these, you don't want any crucial information to be left out. So Vision RAG makes one fundamental change. Instead of parsing the document into text first, you actually embed the entire page itself",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "as a single multimodal vector. So let's chat about the new pipeline a little bit. You have text and image documents that come in. They go straight to a multi-modal embedding model with no OCR step. The references and embeddings go straight into MongoDB Atlas",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "as your vector store. And then at query time, the same model is able to embed the query and search, finds the closest pages. And a vision capable LM reads the actual images to help generate your answer. So what makes this work? And have any of you in the",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "audience heard of Voyage AI. I know Tengyu is a professor here, so maybe some of you have. No worries if not. You can look him up after. So how does this work? But to ensure your important data isn't getting omitted in the process, it all really comes down",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "to the embedding model. So with earlier multimodal models which were CLIP-based architectures, they ran separate encoders for text and images. So vision trunk on one side, text on the other. And then they were just routed together. The problem is that those",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "outputs are very independently biased. Your text query and your image query aren't really in the same vector space, which means cross-modal retrieval completely unreliable. The Voyage multimodal 3.5 model uses a single encoder for both.",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "So text and visual inputs go in together and come out in one unified vector space. This is what really closes that modality gap. So a text query like \"smashed windshield from rear impact,\" and an image of exactly that damage are now directly",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "comparable one to one. It also supports interleaved text and images. So for a PDF page where a table might sit next to a paragraph, they both get captured together. Whereas before, they might get routed separately. So now let's go back to our insurance example",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "using an image example and the actual data flow. So a claims adjuster uploads a photo. The query image, which is a cracked windshield. That image goes to the embedder, which produces a vector. And that vector goes into MongoDB Atlas,",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "where it's compared against your entire vectorized claims collection using vector search. And what comes back from that? The top five most visually similar claims from your history. This means that you're not dependent on just keyword matches, but",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "actual visual similarity. And the system found these because of the damage patterns, the angle, the type of impact. All of these live inside of the embedding. And because MongoDB stores the vector in the same document as everything else, because",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "we are a vector database and it's storing that vector next to your claim ID, the loss amount, the adjuster notes, the repair history, you get all of that context back in one query, not in a separate system, but the exact same record.",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "So let's zoom out a little bit and look at the architecture in question. On the left side, we have what most RAG stacks look like today. You have your operational database for your application data, and a completely separate vector database for retrieval.",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "You have embedding models running in between. A reranker layer. So many moving pieces. And now let's take a look at the right side. MongoDB Atlas is a single platform with full text search, vector search, embedding models, rerankers, everything all in one.",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "So this means that your multimodal data, your vectors are all in the same document. And for those 10,000 insurance claims, your vectors actually live right next to your claim notes and your other source data, which means that there's nothing",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "that you need to sync or glue together. And this leaves us with a truly genuine architectural shift. It changes how you handle your unstructured data, which was the old pipeline that started leaving out very crucial information. It starts to think",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "about, well, can change how you think about the modality gap in your retrieval. So once again, you have one encoder, one vector space, and your text queries and your visual documents are directly comparable. And then it also changes how",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "you design the database layer beneath your AI applications. So when your operational store and your vector store are the exact same system, you eliminate an entire category of infrastructure complexity. And just to sum it all up, when your database",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "thinks and documents the same way that your models think in tokens, you stop fighting your infrastructure and you start to get results. For a deeper dive into vision RAG and also video RAG, please check out the article that this talk",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "is based from by my fantastic coworker, Thibaut Gourdel, who's a senior technical PM for MongoDB. And I've linked the article right up here. And I'm going to quickly hand it over to my other coworker, Patrick, who's just going to sum up MongoDB for Startups",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "for you all. And then also talk a little bit about the Frontier Lunch Club. But thank you so much for having me. [APPLAUSE] Hello. Thank you so much, Anaiya. Hi, everyone. I just wanted a quick second to introduce myself. My name is Patrick Steyn.",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "I'm on our ventures team at MongoDB. Just want to quickly say thank you for having us here today, getting to talk with everyone, and also introduce our MongoDB for Startups program. Being at Stanford gives a really high signal that a lot of you",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "are interested in being future founders. I feel like on Zoom and in this class, we got some here today. So I just wanted to offer all of you being able to sign up to our startup program. This will allow you to access Atlas credits, special one-on-one technical",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "expertise and advice, as well as some go-to-market opportunities. We host a lot of different events. I feel like being a founder, having a great product is half the battle. So building relationships and getting to utilize that is something we would",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "love to help you with. So yeah, feel free to hit me up on LinkedIn if you guys have any ideas or I can help connect you at all. And then secondly, I believe you guys have seen this before. Our Frontier Lunch Club that we are going to be sponsoring this year,",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "it's got some really great opportunities partnered with the AGI house. This allows you to connect into their recruiting pipeline, help you get a leg up on future opportunities, you're looking to connect with different AI researchers and research institutions.",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "Also, we are going to be hosting a couple events. One is going to be a dinner on the 30th. If you'd like to scan the QR code, it just takes 30 seconds to access that WhatsApp. And then also in the back, Alexa is going to be helping out passing out some pizza.",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "She's also a great connection at the AGI house. They have a ton of different event opportunities as well as connections to pretty much everyone you would need to know be successful in the Bay. And then lastly, we're going to be hosting an event later",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "in October where we're going to be doing a project competition ran on MongoDB, where you could potentially win $1,000. So yeah, just wanted to introduce myself and tell you a little bit about two things. But thank you so much for having us.",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "And yeah thanks again. [APPLAUSE]",
+      "start": 1686,
+      "duration": 6
+    }
+  ]
+}

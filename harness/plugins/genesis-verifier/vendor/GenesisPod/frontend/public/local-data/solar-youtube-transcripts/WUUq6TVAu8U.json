@@ -1,0 +1,1344 @@
+{
+  "videoId": "WUUq6TVAu8U",
+  "title": "Stanford CME296 Diffusion & Large Vision Models | Spring 2026 | Lecture 4 - Latent Space & Guidance",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 68800,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello, everyone.\nAnd welcome to\nlecture 4 of CME 296.\nSo before we start, I just want\nto say that those first three\nlectures were really\nthe most technical\nand mathematically challenging.\nSo in that sense, I'm\nstill glad you're here.\nAnd I really hope that those\nthree lectures gave you\nthe intuition as to why we were\ngoing to use this generation\nparadigm.\nBecause there are going\nto be used as building\nblocks for everything that\nwe're going to see from now on.\nIn particular, during\nthe first three lectures,\nwe focused on\nunconditional generation.\nAnd now, what we're\ngoing to see is\nhow we can generate images\nwith a condition which\ncan be a user prompt, like\ninput text, or an input image.\nAnd so in that sense, the\ntitle of today's lecture\nis multi-modal\nguided generation.\nWith that, we're going to start.\nAnd as usual, I'm\ngoing to just recap\nwhat we did the previous times.\nSo as I mentioned, the\nfirst three lectures\nwere mathematically\nchallenging, and they\nwere about seeing\nhow we could generate\nimages, what were the\nparadigms that we could use.\nSo the first lecture was focused\non the diffusion paradigm\nwith DDPM, where we saw that\nwe were taking clean images,\nthat we were noising\nin a discrete way.\nAnd so here, we\nhad this formula,\nwhich was a combination of a\nclean image and Gaussian noise\nthat we weighted with\nthose coefficients.\nAnd what we saw\nwith a bunch of math\nwas that we could\nderive an expression\nthat we could optimize\nin order to reconstruct\nthose clean images\nthat we've noised.\nAnd we ended up with a very\nnice expression, an L2 loss\non the noise that was added.\nAnd in particular, if\nwe wanted to denoise,\nwe had the following\nformula that allowed you\nto go from a step t to step\nt minus 1 using this model e\ntheta, which was the predicted\nnoise that was added.\nAnd so in that sense, it was\nparameterized with respect\nto the noise epsilon.\nThen in lecture\n2, what we did was\nthat we derived the continuous\nversion of what we derived\nin a discrete way in lecture 1.\nAnd we also saw a\nsecond paradigm,\na second way of seeing things,\nwhich was score matching.\nAnd we saw that when\nwe looked at these two\nways of doing things, if we were\nto take the increment of time\nfrom t to t plus 1\nand tend it to 0,\nwe had a general\nexpression of the increment\nin x, which would be\nas a function of dt,\nthe increment in\ntime, and dw, which\nis the continuous\nversion of adding noise.\nAnd in particular, you\nhad these two terms.\nSo on the left side, the drift\nterm, and then on the right side\nwas the diffusion term.\nAnd we saw that in order\nto reverse the noise that\nwas added, so a.k.a.\nreverse process,\nwe could use a\nresult from theories\non stochastic\ndifferential equations,\nwhere we saw that we could\nderive the reverse process if we\nknew the score, which is\nwhy this formulation was\nparameterized as a\nfunction of the score.\nSo here it's noted S of theta.\nAnd in lecture three,\nwe saw that actually, we\ncould think of this whole\nthing as a completely--\nin a completely different way.\nAnd we can think of it as\ntransporting a probability\nmass from an\ninitial distribution\nup to a target distribution.\nAnd in that sense, we\ncould express a noisy image\nas a combination\nof noise and sample\nfrom the target distribution.\nAnd all of what we had\nto do was to just predict\nthe vector field, a.k.a.\nThe velocity, which\nwas noted u of theta.\nBut one thing that\nwe kept silent\nwas how we could\nactually represent\nall of these quantities,\nin particular xt,\nthe representation of the image\nwhen it's noised at a given\nlevel, the noise itself.\nAll of these, we just\nassumed that there\nwas some way of\nrepresenting these in some n\nor d dimensional space.\nSo one thing that\nwe will do today\nis to see what\nspace could actually\nbe more appropriate\nfor this kind of work.\nAnd then the second\nthing is, as you can see,\nthe models that we need to\nestimate-- so epsilon theta, s\nof theta, you have theta.\nThere are only a function of\ndenoised image and the time,\nbut they're not a function of\nany condition, any user input.\nSo this is also something that\nwe're going to see, a.k.a.\nHow can we incorporate\na condition\nthat could guide the generation\ntowards what we want.\nSo this is the menu for today.\nSo to recap, we're going\nto see three things.\nThe first one is how can we\nrepresent those noisy images.\nThe second thing that\nwe're going to see\nis how to represent\nthe conditions\nthat we want as inputs.\nSo for instance,\nthe input text here,\na Teddy bear reading a book that\nwe want to generate an image for\nor an input image that\nyou want to condition\nyour generation for.\nAnd then the third thing is\nhow we can guide the generation\nprocess using that as an input.\nSo we're going to\nstart with number one,\nhow to represent\nthese noisy images.\nAnd I'm going to start with\nthe most natural approach\nthat you could have when\nyou see those images.\nWe, as humans, we are very\naccustomed to seeing things\nin the pixel space.\nSo here, if you take\nthis image as an example,\nthis image has a certain\nheight H, certain width, W.\nSo what you can do is\nto represent each pixel\nas a function of the intensity\nof the color that composes it.\nAnd in particular, a very\ncommon representation\nis using R, so red,\ngreen, and blue.\nSo in other words,\nyou would have\neach pixel that would\nhave three values, which\nwould make up the color.\nAnd you would have these values\ncover all pixels of the image.\nSo you would have\na dimension n that\nwould be equal to 3 times the\nsize, the number of pixels,\nwhich is h times w.\nAnd so you could\nrepresent your image\nas a tensor along the axis,\nthe height, the width,\nand the number of\nchannels here, which\nare three, which\nrepresents R, G, and B.\nSo this could be one way.\nBut the big problem with that is\nthat it's very high dimension.\nSo if we take the example of a,\nquote, unquote, \"regular image,\"\nso 1,024 times 1,024 pixels,\nthen we would end up with\na number of dimensions,\nwhich would be on the order\nof a million.\nSo 10 to the power of 6.\nAnd if you think\nabout it, this is just\na lot of dimensions to consider\nin our training generation\nparadigm algorithms,\nwhich are, of course,\na function of the dimension\nin which you operate.\nSo that's one very big drawback.\nThe second drawback is if\nyou look at your image,\nyou actually see that you\nhave a lot of redundancies.\nSo if you see, for instance, in\na given neighborhood of pixels,\nyou have a lot of\nvery similar values.\nSo in a sense, you can consider\nthis as a waste of dimensions.\nSo it's not very compact.\nAnd then the third\nthing is if you\nremember our whole\nfirst three lectures\nwere about taking the\nimage, and adding noise,\nand then just moving it\nin the space with respect\nto added noise.\nWell, here, if\nyou take an image,\nand you were to move it\nslightly in that space\nby adding some noise,\nyou would actually\nobtain an image, a noisy\nimage that would actually not\nbe very meaningful.\nIt would not mean anything.\nSo in particular, so\nI'm not sure if you\nrecall this nice\ngraphs or charts, where\nyou would see the areas of\nhigh density of your target\ndesired distribution.\nSo here, what we want is\nclusters of observations\nthat are likely to occur.\nBut what we get is\nactually the thing\non the right, which is a space\nwith very spiky regions, where\neach spike represents\nan actual valid image.\nAnd that's not good.\nSo for all these\nreasons, we're going\nto just come up with\na wish list of a space\nthat we would like to have.\nSo I'm going to go\nthrough that step by step.\nSo the first one is the high\ndimensionality observation\nthat I made.\nSo here, what we want is a\ndimension that's more, quote,\nunquote, \"tractable.\"\nSo that's number one.\nNumber two of our wish list is\nto have a representation that\ndoes not have a lot of\nredundancies, that has\nsome way of compacting things.\nSo number 2 is compact\nrepresentation.\nNumber 3, regarding\nthe representation\nnot being meaningful,\nso here, we\nwant a representation\nthat is meaningful.\nAnd you can think of this when\nI say what meaningful means.\nIt's when you look at\nthe space, and you're\nable to have clusters of regions\nwhere valid images happen.\nThat's what I mean\nby meaningful space.\nSo this is our wish list.\nSo before we move ahead,\nI want to take the time\nto introduce two\nterminologies that are widely\nused in those papers.\nSo I prefer to define\nthem now and clearly\nso that you what they refer to.\nSo you will see\nthat there is a lot\ntalk about semantic similarity.\nSo what does semantic\nsimilarity mean?\nSo semantic\nsimilarity of an image\nis something that refers\nto its global geometry\nto its overall structure.\nAnd in particular,\nwhat that means\nis if two images are\nsemantically similar,\nwhat that means is\nthat they roughly\nrepresent the same thing.\nSo here on the slide,\nyou have on the left\na Teddy bear that\nis reading a book.\nOn the right, you\nhave also a Teddy bear\nthat is reading a book.\nThey're not exactly\naligned pixel wise,\nbut they're\nsemantically similar.\nSo that's for\nsemantic similarity.\nNow, you have another notation,\nwhich is perceptual similarity.\nSo this one refers to more of\nthe local details of an image.\nMore to the lower level\ntexture of an image.\nAnd when you say that two images\nare perceptually similar, what\nthat means is that to the\nhuman eye, they look the same.\nSo for instance,\nyou have, again,\ntwo pictures of a Teddy bear.\nSo I'm not sure if you\nsee the one on the right\nhas some little glasses.\nBut it's perceptually\nvery similar.\nDoes that make sense,\nthat distinction?\nYeah.\nThe reason why I say\nthat is I'm going\nto use that terminology\ngoing forward,\nso I just want to make\nsure we all what these are.\nSo what are we doing?\nWhat we want is to come\nup with a space that\nfulfills our wish list\nthat we established before.\nSo here is our first attempt.\nSo how about we take an\nimage in the pixel space,\nand what we try to do\nis find a representation\nthat's meaningful using\nthe following architecture.\nSo let's assume we\ntake that image,\nand we put it into some model.\nLet's call it an encoder\nthat encodes the image\nand produces an output\nthat is of lower\ndimensionality as the input.\nSo here, we go from an\nimage of size HW and number\nof channels, which,\nas you know, is\nequal to 3 in the pixel\nspace because in the RGB\nrepresentation.\nAnd here, we end up with\na latent representation\nof size lowercase h,\nlowercase w, and little c.\nAnd then what we do is we\nput that representation back\nto the decoder.\nSo if we were to do\nthat, our objective\nis to recover the\noriginal image.\nSo we don't want to\nlose any information\nby encoding our image into\na lower dimensional space.\nSo here, such a setup is\ncalled an autoencoder.\nSo the only job\nof an autoencoder\nis to find a lower dimension\nrepresentation that's called\nthe latent representation.\nAnd what it does\nus is take an image\nin the pixel space as input,\ncompress it, and then decode it.\nAnd here, the task is making\nsure that what you get as output\nis the same as what\nyou get as input.\nSo you may think, OK, it's\na very useless model, which\nI agree, unless you're\ninterested in the latent\nspace, which we are.\nThis is what we're\ninterested in.\nSo does this setup make sense?\nCool.\nAnd then terminology wise, the\nlatent space, like that part,\nis called the bottleneck just\nbecause we're forcing the model\nto rely on fewer\ndimensions, and we\nwant the model to still preserve\nthe richness of the details that\nare present in the image.\nSo let's see how we do that.\nBut before we go, I want to\nintroduce another notation\nthat you also see a\nlot in papers, which\nis called the spatial\ncompression ratio, which\nis defined by the amount\nby which you go from Big H\nto little h.\nSo it's just the\nratio between the two.\nAnd that ratio is typically\non the order of 8.\nSo that's the order of magnitude\nthat you should have in mind.\nCool.\nSo let's see now based\non what I told you\nhow each component works.\nSo in terms of what is input in\nthe encoder, as we mentioned,\nwe have our input image.\nLet's note it x that we put in\nour encoder, that we note E phi.\nAnd we get a latent\nrepresentation z\nthat is equal to E phi of x.\nAnd so the way we\nwould do that would\nbe to use a network that\ncontains some downsampling\noperations.\nSo what that means is it\nallows us to go from a bigger\ndimension to a lower dimension.\nWe're not going to go\ninto too much details\ninto what that network is\nbecause we're going to talk more\nabout this in the next lecture.\nBut I just want to tell you\nroughly the two main operations\nthat you can expect,\nwhich you may have seen.\nSo the first one\nis convolutions.\nSo who has heard of\nconvolutions before?\nYeah, everyone.\nSo I can go fast.\nConvolutions is just a way to\nscan your image using a filter.\nSo the image is in red,\nthe filter is in blue.\nAnd what you get is what we call\nan activation map or a feature\nmap that is in purple.\nAnd then the second\noperation that you\nsee in these kinds of\nnetworks is pooling.\nSo pooling is a\ndownsampling operator\nthat allows you to either take\nthe maximum of a given square,\nor the average, or either max\npooling or average pooling.\nAnd it allows you to introduce\nsome spatial invariance\njust because you can aggregate\nthe pixels to a higher\ngranularity.\nWe're not going to go\ninto too much detail,\nbut these are just\nfor reference.\nSo when it comes to the\ndecoder, what you would do\nis take the latent\nrepresentation\nz into the decoder d theta.\nAnd you would get your\nreconstructed output x hat.\nSo here, you would use\nupsampling operations,\nfor instance reverse\nconvolutions.\nAnd the goal of this model\nis as much as possible,\nfor your reconstructed\noutput to be as close as\npossible to your input.\nSo the loss function\nof such a model\nwould be something along the\nlines of just an L2 regression\nbetween the input x and the\nreconstructed input x hat.\nSo I have a question for you.\nDo you think this\nmodel is a good model?\nSo this is what we're\ngoing to see now.\nSo let's go through\nour checklist.\nFirst one is, OK., is the\ndimension more tractable?\nYes, more tractable.\nIs the representation\nmore compact?\nYes, it's more compact.\nIs the representation\nmeaningful?\nMeaning do you have a nice\nshape in your latent space\nin the way we represent it?\nYes, exactly.\nNot necessarily.\nWell, the reason for\nthat is we have not\nconstrained our latent\nspace to be structured\nin any particular way.\nSo the model is just\nonly incentivized\nto reconstruct the\ninput as best as it can.\nAnd it really doesn't care\nwhat shape the latent space is.\nSo you actually still\nend up with this kind\nof space, which is not good.\nThis is not good because\nyour flow matching model,\nyour diffusion model is just\nnot able to learn very well\nin those spaces\nbecause, first of all,\nthe representations\nare all over the place.\nAnd if you remember,\none common thing\nwith all of these\ngeneration paradigms\nis that you start from\na normal distribution,\nlike a standard\nnormal distribution.\nSo you need a way for\nyou to not get lost.\nSo if everything is far\napart, it just doesn't work.\nSo that's not good.\nSo let's go back to\nthe drawing board,\nand let's see what\nwe can change.\nSo we take our image,\nwe compress it,\nand then we decompress it.\nEverything's perfect.\nWell, let's see what we\ncan do in the latent space.\nOur goal here would be to,\nquote, unquote, \"enforce\"\nthe latent space to\nhave some structure.\nSo this is our goal.\nAnd we're going to see\nhow we can do that.\nOK, let's go back\nto where we were.\nWe take our input image x.\nBut instead of just letting it\nthrough a standard encoder, what\nwe will do is to actually\nnot try to predict\nor generate the latent\nrepresentation directly.\nWe will actually predict\ntwo things, the mean\nand the standard deviation\nof the distribution\nthat it can be drawn from.\nSo in other words, what we're\ngoing to see to say is instead\nof saying that one x corresponds\nto one latent representation,\nwe're going to say that 1x\nactually is mapped to some\nprobability distribution, which\nsounds kind of weird, right?\nIt's not very natural.\nBut we're going to see why\nthat mitigates the problem.\nSo here, as a reminder, so\nthe output of the encoder\nwill not be just\na latent vector.\nIt will be-- so the mean mu phi.\nAnd the variance\nsigma squared phi.\nSo these are the two\noutputs of the encoder.\nAnd what we will say is that\nthe latent representation\nof this distribution,\nthis latent representation\nis actually drawn from\nthis distribution.\nThat's what we're going to say.\nAnd we're going to\nsay something else.\nSo in a bit of an\ninformal way, we're\ngoing to say that this\ndistribution is going\nto be roughly forced to\nfollow or to approximate\nanother distribution.\nSo it's not very\nmathematically rigorous.\nWe were going to see exactly\nhow we can express that.\nBut in your mind,\nI want you to know\nthat this is a condition for\nus to structure the latent\nspace in a way where\nwe say the latent\nrepresentation of an\ninput x will be roughly\nin a given region of the space.\nWe're going to\nforce that, or we're\ngoing to incentivize\nthe model to learn that.\nSo that's the idea.\nCool.\nAnd yeah, this distribution is--\nOK, you may have guessed it.\nAgain, standard normal\ndistribution just because it's.\nIt's a nice distribution\nwith great properties.\nAnd by the way,\nthis distribution,\nwe're going to call it\nthe prior distribution.\nSo let's see how\nthe decoder works.\nSo let's assume we have put our\ninput image into the encoder.\nWe have predicted the mean.\nWe have predicted the\nstandard deviation.\nWe have drawn a\nlatent representation\nfrom the distribution.\nSo now, the decoding\nstage will be\naround taking that\nrepresentation\nand passing it through the\ndecoder which again will output\ntwo things, the mean new theta\nof this latent representation\nz and standard deviation.\nAnd what we're going\nto say is, again,\nthat the reconstructed\nimage is going\nto be drawn from a probability\ndistribution of these two\nparameters.\nWell, one thing that I\nwant to say is actually,\nwe're going to\nsimplify this part\nof the problem a little bit.\nWe're actually going to say that\nthe variance is not something\nwe're going to predict.\nWe're just going to fix it to\nbe constant just because there\nis less impact in you\nmaking sure to introduce\nsome variation in the output.\nBecause in the pixel\nspace, even if you\nadd a little bit\nof noise, it's not\ngoing to change the\nimage a whole lot.\nSo that's why people\njust say, OK, we're\ngoing to take some variants\nthat's constant fixed,\nand we're not going\nto predict that.\nWe're only going to\npredict the mean.\nWe can draw from\nthis distribution.\nBut sometimes, people also just\ntake the mean as the output.\nSo this part is\nmore of a detail.\nYeah.\nSo the question here is\nthat whether the latency\nis drawn from the Gaussian\nor is drawn from the q--\nthe encoder here\nq phi z given x.\nSo it's a great question.\nSo this model, which we're\ngoing to see what the name is,\nis both a model that we can\nuse to learn the latent space,\nAnd so have a\nreconstruction task.\nBut it's also something\nthat can be interpreted\nas a generative model.\nSo if your goal is to\nreconstruct the input,\nthen your input here is\ngoing to be the z that you\ndrew from that distribution.\nSo it's going to be the\nlatent representation of x.\nBut if your goal is to\ngenerate just a new image,\nthen you would\nactually draw that z\nfrom the prior distribution.\nSo the question is the encoder\ngives you a mean and a variance.\nIt does not give you something\ndeterministic exactly.\nIt gives you a mean\nand a variance.\nAnd what you're doing is\njust drawing from that.\nSo you-- yes, you\ndraw from that.\nSo great question.\nSo the question is, well, if you\nhave a generative model here,\nwhy would you bother.\nAnd just use diffusion, use flow\nmatching, use all these things?\nIt's a great question.\nYou have a number of\ndifferences between the two\nwhich makes diffusion flow\nmatching and score actually\nperform better than VAE.\nOne of the differences is\nhere, you only go from latent\nto pixel in just one step,\nwhereas the other ones,\nyou have several steps\nthat just allows you\nto put more compute in there.\nThat's one reason.\nBut there are some\nothers that I hope we\ncan get to if we get some time.\nBut we're going to see the\nrelationship between the two.\nAnother question?\nYeah.\nThe question is,\ndoes the latent space\nlook like a normal distribution?\nSo there is something that makes\nit be \"regularized,\" quote,\nunquote, to be a\nnormal distribution.\nIt depends on a\nterm that you can\ntweak with respect\nto a coefficient\nthat we're going to see.\nAnd depending on the\nvalue of that coefficient,\nit may look more or less\nthan a normal distribution.\nBut we're going to see that.\nCool.\nSo the first time I saw\nthis model, I was confused.\nYou may be confused\nnow, and I hope\nwhat we're going to see will\nmake you a bit less confused.\nSo here, one thing\nthat I want to say\nis in the autoencoder case, the\nloss function was pretty clear.\nYou would just try to estimate\nthe reconstructed output\nin such a way that it's as\nclose as possible to your input.\nBut here, you have a bunch\nof distributions everywhere.\nThere's not like an obvious\nway of expressing that\nwithout doing some math.\nSo what I propose is that\nwe derive the loss function\nfor this model, which I'm not\nsure if I can tell it now,\nbut I'm going to tell it.\nIt's called the\nvariational autoencoder.\nAnd we're going to see\nwhat makes it variational.\nSo if you remember,\nin a lot of cases,\nthe way you derive\na loss function\nis by doing maximum\nlikelihood estimation.\nSo what does that mean?\nThat means that you have some\nmodel of parameters theta.\nAnd what you want is to find\nthe parameters theta that\nmaximize the probability of\nyour model seeing the data.\nThat's what ML is.\nAnd that's what\nwe're going to use\nto see how we can derive\na loss function that\ncan help us learn theta.\nSo in particular, what\nwe want is to maximize\nthe log of p theta of x.\nSo I'm going to write it down.\nSo what we want is to express\nlog p theta of x with respect\nto something that\nwe can compute.\nBecause this, we cannot\nreally compute something just\nby looking at it.\nSo let's see how we can do that.\nSo I'm going to just start\nwith expressing p theta of x\nas a function of something.\nSo this model can be seen\nas a generative model that\nstarts from a latent variable\nthat you draw from what\nwe call a prior distribution.\nSo one idea of\nexpressing p theta\nof x, if you remember\nlecture 1, we can consider\nthe joint probability\ndistribution of p theta\nof z, a latent, and x, and\nsum across all latent z\nthat led to x.\nWe can do that, right?\nSo what we say is\nthat p theta of x\nis equal to this\njoint probability\ndistribution of x, your image in\npixel space, and z, your latent.\nAnd you're just going\nto integrate over\nall possible latent\nrepresentations.\nSo this quantity is\nnothing else than you're\ndrawing from a prior, so p of\nz, and then using your decoder\nto estimate x given z.\nSo this quantity is the\nintegral of your prior times\np theta of x given z, dz.\nP of z.\nYeah, exactly.\nSo the Gaussian.\np theta x given z.\nWell, it's your model, your\nmodel that you want to find.\nThe problem is that\nyou need to compute\nthis for all possible latent z.\nAnd z is still\nhigh dimensional--\nhigh dimensional vector.\nSo this, if you were to compute\nthis quantity for all z,\nit's actually not\nsomething that you can do.\nBecause you would have to\ncompute a lot of such quantities\nwith given zs in order\nto get a good estimate.\nAnd it's just not\nsomething that you can do.\nSo do you remember a similar\nsetting we had in lecture 1,\nwhich is the reason\nwhy we're going\nto see how we can find\na convenient bound that\ncould be maybe more tractable?\nBecause so far, I\nhave not used the fact\nthat we also have a way to\nencode the input in order\nto get latents that are\nmore likely to be the ones\nthat I want to consider here.\nSo what I'm going to\ndo now is to find--\nso what I want to do first\nis to maximize this quantity.\nSo I want to find theta that\nmaximizes this quantity.\nSo we saw just now that this\nquantity is not something\nthat I can actually compute.\nSo what we're going\nto do is to find\na lower bound that\ncould be something\nthat you could compute.\nAnd what we want to do is\nto maximize that lower bound\nin the hope that it will\nalso maximize this in order\nto find our parameters theta.\nSo let's do it.\nSo you would have the following.\nSo I'm going to just come here.\nI would just say that p of x\nis equal to the integral of p\nof z times p theta of x given\nz, which is just at that point,\nI'm going to use the\nsame trick that we\ndid in lecture 1,\nwhich is to involve\nthe output of the encoder.\nAnd here, it is q phi of z given\nx times q phi of z given x.\nSo what does this represent?\nSo this represents the\nprobability distribution\nof the zs that are likely\nto occur for this given x.\nBecause here, in the original\nform, what you were doing\nwas to just sum across all\npossible latent representations\nout there, but there\nare many of them.\nSo it's like,\nyou're in the ocean,\nand someone tells you, OK, just\nlook through the whole ocean.\nBut the thing is, only\na small subset of the zs\nare actually the\nones that you want.\nThey're actually only\na subset of the zs that\nare the ones that are\nresponsible for your x\nto appear, which is the reason\nwhy we're letting these q\nphi of z given x pop up.\nAnd this expression, so\nthis is equal to this.\nAnd this gets equal to just\nthe expectation of p of z times\np theta of x given\nz over q phi of z\ngiven x, where your z is\ndrawn from q phi of z given x.\nSo why am I doing\nthis whole thing?\nBecause what I want\nto do is to take\nthe log of this whole thing.\nI want to take the log\nof this whole thing\nand do the same trick as\nwe did for the DPM, which\nis the Jensen's inequality.\nAnd I'm going to say\nthat it's the expectation\nof the log of this whole thing.\nSo I'm taking the log of this\nquantity, which I expressed\nas a function of the output\ngiven by the encoder for which I\ncan find a lower bound.\nAnd now, we're going to see that\nthis lower bound is actually\nsomething that is tractable.\nWe're going to see it now.\nSo what I'm going to do is to\njust rewrite this expression.\nSo we have-- so the expectation\nof the log of the whole thing,\nwhich is equal to the\nexpectation of the log of p\ntheta of x given z plus\nthe expectation of--\nso I'm going to be\na little bit smart.\nI will say minus the expectation\nof the log of q phi of z\ngiven x over your\nprior distribution.\nSo here, what I\njust did was I take\nthe log of pz times p theta of x\ngiven z over q phi of z given x.\nAnd what I did is I just--\nI used the property\nof the log, which\nis logarithm of the\nproduct, is the sum\nof the logarithm of the terms.\nSo I had this one pop up.\nAnd this one, I just rearranged.\nI put the denominator\nin the numerator,\nand I added the minus.\nAnd given that it's an\nexpectation for both\nof these that are over z drawn\nfrom your encoder output, which\nis q phi of z given x,\nthis term is actually\nthe KL divergence of q phi\nof z given x and your prior.\nSo what does this all mean?\nWhat this all means\nis in order to find\nthe theta that\nmaximizes this quantity,\nwe derived a lower bound.\nThat is something that\nwill see is tractable.\nSo it's this expression, which\nwe have divided into two terms.\nSo the first one is\nexpectation of the logarithm\nof p theta of x given z.\nAnd the other one\nis a KL divergence.\nSo we're going to see that\nthese two terms are actually\nquite interpretable.\nThe first one is actually\na reconstruction term.\nBecause if you remember,\np theta of x given z\nis a normal distribution\nwith fixed variance.\nSo we know the probability\ndensity analytically.\nSo if you take the\nlog of the probability\ndensity of a Gaussian,\nyou actually end up\nwith something super simple,\nwhich is the norm of x.\nSo the input and the\nreconstructed outputs.\nAnd then the second\nterm is actually a term.\nSo back to your question.\nIt is a term that penalizes\nthe distribution coming\nfrom your encoder being far from\nthis fixed prior distribution.\nSo loss functions usually\nhave a coefficient\nin front of this\nterm to penalize\nmore or less the fact\nof being far or close\nfrom this prior distribution.\nAnd depending on the\ncoefficient there,\nyou're going to have\neither something that\nwill look like a normal\ndistribution or not.\nSo that is the part of your loss\nthat will allow you to do that.\nI'm looking at the time.\nI'm not super in\nadvance, but I'm\ngoing to just pause\nfor one minute\nif you have any questions.\nSo the question is we're pushing\nthe distribution of the encoder\nto be more of the\nnormal distribution.\nSo we want to do that to\nnormalize the latent space,\nbut we don't want\nto do that too much.\nOtherwise, so the prior\ndistribution is p of z.\nIt doesn't care what x is.\nAnd in other words, if you push\nit too much towards something\nthat is just static,\nit will just not\nconsider the input at all.\nIt will collapse.\nYeah, so it's called\nposterior collapse.\nSo just one other question,\nand then I'll move on.\nYeah.\nSo the question is--\nso we had this image\nwith the little\nspikiness and that\nwas the autoencoder, the\nstandard autoencoder part.\nThis one is actually structured\nin the latent space in a way\nthat makes it more smooth, more\nwell put together, and yes.\nSo I'm going to speed\nup a little bit.\nLet's go through our checklist.\nTractable dimension, yes.\nCompact representation, yes.\nMeaningful representation, yes.\nOops, truthful representation.\nNo.\nWait.\nWhy is that?\nSo these models, they actually\nend up reconstructing the image\nin an imperfect way.\nAnd what we actually obtain\nare more blurry images.\nAnd so I'm hoping that\nin the next nine minutes,\nwe're going to see\nwhy that is the case\nand how we can solve it.\nSo first of all,\nlet's look at the loss\nfunction that we\nhave derived, which\nis composed of a reconstruction\nloss and a regularization loss.\nSo the reconstruction loss.\nWhat is it?\nWe have not derived it here.\nBut I am telling you\nthat if you derive it,\nit is the pixel wise\nL2 between the input\nand the reconstructed output,\nthe reconstructed input, sorry.\nAnd so what that means is if the\ngeneration is a little bit off\nby a few pixels, it will\nactually get very penalized.\nBecause the distance\nis pixel wise.\nSo what ends up\nhappening is the model\ntends to produce values\nthat are more averaged,\nwhich produces this blurriness\nsensation that you're seeing.\nBut then you will tell me, well,\nAfshin, the standard autoencoder\nalso had that loss.\nSo why didn't it happen there?\nWell, the fact is, it\nalso happened there,\nbut it's even more\npronounced here\nbecause of the structure of\nthe model that we have defined,\nwhich is that the latent\nrepresentation is not\na one to one mapping with\nthe input x, it is not.\nInstead, what we have\nsaid is a given input x\nmaps to a probability\ndistribution,\nlike a set of\nprobable points that\ncould be actually latent\nrepresentations of this x.\nSo the model will\nintroduce this uncertainty\neven more in the reconstruction\nthat it will output.\nAnd here, what we want\nto do is to combat\nthat blurriness sensation.\nBecause here, if we were to\nperform diffusion in the latent\nspace, and if we were to decode\nthe final output in the latent\nspace, the last\nthing that we want\nis for our output to be blurry.\nWe do not want that.\nSo now, we're going to\nsee a couple of strategies\nthat will allow us to combat\nthat blurriness artifact\nthat we're seeing.\nAnd the first one is going to\nbe about a kind of loss that's\ncalled the perceptual loss.\nI'm going to say\nexactly what that means.\nSo let's imagine you\nhave your image x.\nThe intuition here is we don't\nwant the reconstructed output\nto be compared with\nthe input pixel\nto pixel because it does not\nallow for little shifting\nhere and there.\nSo what we want instead is to\nbe able to compare the input\nand the reconstruction\nmore in terms\nof similarity, that something\nthat looks similar to you\nas a human,\nperceptually similar.\nSo how can you do that?\nWell, there are some\nmodels out there\nthat there are convolutional\nbased, for instance,\nthat actually extract\nfeatures from these images\nin their layers.\nAnd here, we refer\nthem as feature maps.\nAnd one good thing-- one good\nthing about these feature maps\nis that they represent\nthings from this image that\nhave more of a\nspatial invariance\ncompared to the original image.\nSo what does that mean?\nThat means that if you have\ntwo images that are slightly\nshifted, slightly\ndifferent, then\ntheir feature maps will\nactually not be that different.\nSo the idea here is instead\nof comparing the pixel based\nimages one to the\nother, we're going\nto compare their representation,\ntheir feature maps\none to another.\nAnd I'm not sure if\nyou've heard that loss,\nbut there is a loss\nthat's called LPIPS, so\nLearn Perceptual Image\nPatch Similarity.\nSo it is a loss or it is\na metric I should say,\nthat is composed of the\ndifference between the feature\nmaps of two images, and that are\nweighted by a coefficient, which\nis here WL.\nThere are coefficients\nthat are tuned\nby the authors of\nthis paper in order\nto match what humans consider\nas being perceptually similar.\nSo long story short-- so by\nthe way, the formula is scary,\nbut it's not that big of a deal.\nWe don't care about\nthe whole thing.\nWhat we care about is\nthat we're not comparing\nimages in the pixel space.\nWe're comparing images\nbetween their feature maps.\nAnd what we're saying here\nis that the feature maps\nof two images better reflect\ntheir structure, their details,\nand are less sensitive\nto spatial differences.\nSo that is one strategy.\nSo one thing to note is that\nwe would weight this loss\nby some coefficients.\nYou could think, OK, this loss\nis answering all our needs.\nLet's have the weight for this\npart of the loss be super high.\nWell, if you do\nthat, actually, there\nare some bad things\nthat also happen.\nSo we have what we call\ncheckerboard artifacts, which\nas you can tell is like\na grid like artifact\nin the image that is\nsimilar to this one.\nSo you don't want to have\ntoo big of a weight either.\nSo that's one.\nAnd then a second strategy\nto combat blurriness\nis what we're going to see now.\nSo the problem that we have\nis that the decoder of the VA\nis outputting an\nimage that is blurry.\nSo one idea could be\nto ask another model\nto tell you whether\nthe input image, so\nin this case, the blurry\nimage is a real image or not?\nAnd based on that,\nwhat we would do\nis incentivize this\nother network called\nthe discriminator, to\ndistinguish outputs coming\nfrom the decoder compared to\nreal images, which would then\nflag blurry images\nas being fake.\nAnd we would\npenalize the decoder\nfor generating images\nthat would be flagged\nas fake by the discriminator.\nSo have you heard\nof GANs before?\nSo we don't have time to\ntalk about them in detail,\nbut I think this slide is\nsumming up what is happening.\nSo you have two models that\nare competing with one another.\nThe decoder that wants\nto produce images that\nthe discriminator cannot\ndistinguish from being fake,\nand the discriminator that wants\nto distinguish the output from\nthe decoder compared to\nimages from real life.\nAnd what this will\ndo is incentivize\nthe decoder to produce\nmore realistic images.\nAnd in doing so, it will help\nwith removing that blurriness.\nSo that is called\nadversarial loss.\nSo what we saw was that the\noriginal loss of the VA,\nwhich we derived here, led to\noutputs that were too blurry.\nIt was fulfilling all the\nwish list that we had,\nbut it was not leading to a\ntruthful reconstruction, which\nis the reason why we saw\ntwo different strategies\nto add to our loss,\nto counterbalance\nthe tendency for the model\nto produce blurry outputs.\nSo these are the perceptual\nloss and the adversarial loss.\nSo before giving\nit to Sherwin, I\ncould not let you\nwithout telling you\nhow this fits together\nwith the diffusion models.\nSo in particular, the reason\nwhy we did this whole thing\nis for us to use our\ndiffusion flow matching\nmodel not in the pixel space,\nbut in the latent space.\nBecause computationally\nit's just cheaper\nand it's able to scale.\nSo now, we're going to see\nwhat our strategy for training\nand inference is.\nSo for training, what\nwe do is we first train\nthe VA exactly like we saw.\nAnd then what we're going to do\nis to train our image generation\nmodel, like using for\ninstance flow matching,\nin the latent space of the VA.\nAnd we're going to\nsee how we do that.\nSo let's suppose we have an\nimage from our target data\ndistribution.\nWe pass it through the encoder.\nOur encoder gives\nus two quantities.\nSo the mean and the\nstandard deviation.\nAnd what we do is we sample\nfrom that distribution\nto get our latent\nrepresentation.\nAnd then what happens\nis in our latent space,\nso we hopefully have a\nsmoother latent space.\nWe have our z1, which\ncorresponds to the clean image.\nWe sample from the\nnoisy data distribution.\nAnd here, I'm just illustrating\nthe case of flow matching,\nwe have zt, which is a weighted\ncombination of the two.\nAnd what we do is we\noptimize for, let's say,\nour velocity like the l2 loss.\nWe'll do that.\nThis is for training.\nSo how about inference?\nWell, let's assume that you\nhave trained your model.\nThen now, what you want to\ndo is to generate new images.\nSo what you're going to\ndo is to first sample\nfrom an easy distribution\nin the latent space.\nSo for instance, Gaussian noise.\nAnd you're going to\nuse, for instance flow\nmatching, the velocity\nthat you have learned\nto solve it numerically and\narrive, at let's say a point\nz1, which is the latent\nrepresentation of your end\ntrajectory.\nAnd what we're going\nto do is to use\nthe VAE decoder to decode that\noutput back to pixel space.\nSo let's see how it looks like.\nSo this is your latent\nspace that you have learned.\nYou sample from the\nnoisy distribution\nin that latent space.\nYou solve numerically the ODE\nusing the learned vector fields\nthat we've trained right before.\nYou obtain z1.\nThe problem is, z1 to us,\nit doesn't mean anything\nbecause it's not\nin a pixel space.\nSo what you do is\nyou take that z1,\nyou pass it through the\ndecoder, and you obtain\nthe image in pixel space.\nSo to conclude, what\nwe've seen is a way\nto find a latent space that\nis of lower dimension, that\nis smoother, and that\nis also able to preserve\nthe details of your image.\nAnd so in particular,\nwe say that the encoder\nacts as a low pass filter.\nBecause what it does represents\nthose images mostly based\non their semantic similarity.\nSo this is actually\nsomething we have not seen.\nBut for a diffusion model\nto find all the details\nin its exploration\nis much harder\nthan finding something\nthat is semantically\nwhat it wants to generate.\nSo this is the reason why\nwe're giving the decoder\nthe task of conveying all\nthe low level details, all\nthe perceptual elements.\nAnd the role of the decoder\nis to take that latent\nrepresentation and to\nmake it an output that\nis full of details,\nthat is realistic,\nand that is matching\nwhat we want.\nAnd for that reason,\nyou have the encoder\nand the decoder, which you\nwould think is symmetric.\nBut in practice, the VAEs\nthat are used in conjunction\nwith diffusion models are such\nthat the decoder is actually\nbigger than the encoder.\nDoes that make sense?\nSo we don't have a lot of time.\nSo one thing that\nI put down there\nis a longer form\nversion of everything\nI mentioned in some very\ninteresting articles, which\nI recommend reading,\nbut not mandatory\nas part of this class, which is\nsome results from flux 2, which\nis a text to image model,\nand the LDM paper, the Latent\nDiffusion Model paper that is\nat the bottom of the slide.\nYeah.\nSo the question\nis, what should we\nthink of the role of the\nencoder and the decoder?\nSo at the end of\nthe day, what you\nwant is to have an easy\ntime generating images,\nat the end of the day.\nAnd what you want is\nto not have too high\nof a computational burden for\nyour diffusion model to operate.\nSo what you want\nis a latent space\nthat is low in dimensionality,\nand that is easy for you\nto learn.\nSo what does easy for\nyou to learn mean?\nIt means having a space\nthat is not super spiky,\nbut that is more smooth.\nAnd in particular, in order\nfor you to obtain such a space,\nit is actually something\nthat in practice, something\nthat you can obtain if you\nfocus on the semantic meaning\nof these images, as opposed\nto capturing all the low level\ndetails.\nSo in other words,\nwhat I'm saying\nis, even if two images are\nperceptually not very similar,\nbut if they represent\nthe same thing,\nwhat we want for these images\nis to be located not too\nfar from one another\nin the latent space.\nSo we want the encoder to mostly\ncapture the semantic meaning.\nSo the encoder, what we want is\nto make the job of the diffusion\nmodel easy.\nAnd so this is the learnability.\nYou will see in those\npaper, learnability.\nSo once you have images that\nare semantically similar,\nthat are close to one another,\nyou do your diffusion process.\nYou obtain, let's say\na point that you say,\nOK, this is the\nlatent representation\nthat I want to have\nin the pixel space.\nSo now, the job\nof your decoder is\nto make sure that all the\ndetails that you want to have\nin this final image are there.\nSo in that sense, in\ncontrast to the encoder,\nthe decoders job is to make sure\nall the perceptual details are\npresent in the final decoded\nimage in the pixel space.\nSo in that sense, you have\nthese two different roles\nof the encoder and the decoder.\nSo you want your diffusion model\nto have an easy time learning\nthis thing, and you\nwant a space that\nhas some semantic\ninformation, which is what\nI mentioned the encoder can do.\nBut what you want, at\nthe end of the day,\nis to have an image that\ncontains the details that you\nwant, and that part\nis mostly something\nthat decoder can help with\nin the decoding stage.\nOK, I'm 10 minutes over\ntime, but with that, I'll\ngive it to Sherwin.\nThank you, Afshin.\nSo now, we're going\nto see together\nhow to represent the\nconditions that we\nhave at the input of\nthis generation models.\nSo the first kind of\ncondition that we can have\nis the text one.\nSo the text world, when it\ncomes to representing embeddings\nhas a long history.\nAnd I'm not going to go through\nthe whole history of how\nwe represent embeddings.\nI'm just going to focus\non how people do it today.\nAnd the way they do it is with\ntransformer-based architectures.\nSo let's first see how we can\ndecompose the input sentence.\nSo we have this concept\ncalled tokenization,\nwhich is the practice of\ndecomposing any piece of text\ninto atomic components.\nSo you can have\nsomething that operates\nat an arbitrary level,\nword level, subword level\nor character level.\nAnd a software level\nis usually algorithms\nthat learn how to best decompose\nthe tokens with respect\nto the data by\nfocusing a vocabulary\nbudget on those tokens\nthat most frequently occur.\nAnd the tokenization technique\nthat's most used these days\nis subword.\nBut for simplicity,\nthe one that you're\ngoing to see in the slides\nis more towards arbitrary,\nbut it's just for\nrepresentation purposes.\nSo who knows about transformers?\nOK, so most of you.\nSo there is a sister\ncourse that talks\nabout transformers at length.\nI'm not going to talk about\ntransformers at length,\nbut just give the main\npieces of information\nthat you should know.\nSo it is an encoder,\ndecoder architecture\nthat is centered on the\nconcept of extension.\nAnd it came out in 2017.\nAnd most of the language\nmodels that you see today\nare based off of it.\nEven vision models,\nyou have many of them\nthat are based on\nthe transformer.\nAnd the good thing about\nit that made it work well\nis that it's\ninductive biases are\nbased on the concept\nof attention that\nproved to be generalizable.\nAnd let's focus now on\nthis concept of attention.\nSo if we had to summarize in\na single sentence what it is,\nit is the practice\nof representing\na given piece of input as a\nfunction of all the others.\nAnd here, with the\nexample, a cute Teddy bear\nis reading, if we\nwant to represent\nin the space of\nattention the token Teddy\nbear, what we do is that we have\nembeddings for all these tokens.\nYou have learnable matrices\nthat will turn them\ninto the space of queries,\nq, keys, k, and values, v.\nAnd what you're going to learn\nis a distribution of keys--\nof this key over keys.\nAnd the weights\nthat you obtain are\ngoing to be those that you place\non the corresponding values.\nSo in summary, you're able to\nrepresent the embedding of Teddy\nbear with respect to the others\nin this sentence in that way.\nAnd you can write this\ndown in matrix form, which\nis this softmax term that\nrepresents this probability\ndistribution.\nSo the square root of\nDK is just a normalizing\nconstant that prevents the\nsum from becoming too large.\nSo the dimension of\nthese queries and keys.\nAnd multiplied by the\nvalue, which carries\nthe embedding of the values.\nSo you can find\nthis attention layer\nat three different locations.\nSo two of them are\nself-attention layers.\nSo in the encoder\nand another one\nmasked self-attention,\nwhich conveys the fact\nthat tokens can\nattend only on those\nthat were predicted before.\nAnd then you have another\nlayer, where attention occurs,\nwhich is called cross\nattention, which\nwill make these queries\nattend on other encoded keys\nand values.\nSo this is the high level.\nAnd in just a few words,\nthe main components\nis that your input tokens\nare converted into embeddings\nwith a learnable layer.\nYou add some\ninformation regarding\nthe position of your tokens.\nThen you make it through or\ngo through an encoder that\nwill apply this\nconcept of attention\nand also add on top of it\nsome learnable mechanism\nto add some complexity for each\ntokens representation, which\nis those feedforward network.\nAnd then the decoder level,\nwhen you want to generate,\nlet's say a sentence, you start\nwith some placeholder token\nthat you--\nfor which you add position\nembeddings as well,\nthat you self-attention\nand then perform\ncross-attention with respect\nto your encoders tokens.\nAnd then you also\nhave feedforward there\nto finally obtain your output.\nSo I'm telling you\nall that to mention\nthat there are locations where\nembeddings can be extracted out\nof all of these.\nSo if you use the encoder\npart of the network,\nyou can find the ends of the\nencoders, a location where\nyou have an encoded meaning\nof your inputs tokens.\nAnd this is typically\none of those locations,\nwhere you could say these are\nthe embeddings of my input.\nOK, great.\nSo now, doing the\nsame for images.\nLet's say you have a condition\nthat is based on images.\nOne thing that is pretty\nnice is that everything\nthat we mentioned just now\ncan be reproduced with images.\nSo all these token\nrepresentations\nare just numbers.\nAnd you could well\nrepresent these numbers.\nYou can associate them\nwith patches of images.\nAnd this is what the ViT vision\ntransformer paper does, which\nfollows the same principle.\nBut instead of learning\nembeddings on tokens,\nyou learn embeddings of\non patches of images.\nSo everything stays the same.\nAnd you can perform tasks, such\nas image classification with it.\nAnd something that I haven't\ndone in the tech space\nthat we can do here together\nin this image world,\nis to see how these\npieces come together\nin this example of a\nTeddy bear reading a book.\nSo here, you decompose your\nimage into these patches\nthat we mentioned.\nEach of these patches,\nyou have a learnable layer\nthat gives you an initial\nrepresentation of what\nthey mean.\nSo in the case of\ntext, you would\nhave a dictionary of tokens\nthat are mapped to embeddings.\nBut here, you have something\nthat is more continuous.\nSo you can have a linear layer.\nYou can have a\nconvolutional layer.\nYou can have\neverything you want.\nSo you have something\nat that stage\nthat gives a representation\nof these patches.\nAnd then in a classification\nsetting, you have a token.\nSo for example here, CLS\nthat will carry information\nregarding the class of your\nimage that you want to predict.\nSo each of these can be\nrepresented by embeddings.\nAnd we mentioned that we have\nposition information encoded\nin them.\nAnd next class, we're going to\nsee more about position encoding\nand all of this.\nSo I'm not going\nto expand too much.\nSo you have a\nrepresentation for each\nof these patches of your input\nthat you then feed your VIT.\nAnd exactly, as we mentioned,\nat the output of the encoder,\nyou can locate one\nspecific embedding\nthat carries the semantic\ninformation of your input image.\nSo here, it would be the output\ncorresponding to the CLS token\nthat here, you project\nto learn a classification\ntask for example.\nBut let's say you are\nat a representation\nstage of your workflow.\nYou would just\ntake the embedding\nthat you see in orange at the\ntop as your representation\nof the image.\nOK, great.\nSo something that I didn't\ntell you is that for texts,\ndoing that process\nis cheap in data\nbecause the task that we\nuse to learn these models\nis self-supervised by nature.\nWe anchor on next token\nprediction in the world of text,\nand you have a bunch of\ntext in the internet.\nIt's easy to have such data,\nand it's easy to learn.\nBut in the image\nworld, if you want\nto handcraft a similar task\nthat is as meaningful as what\nwe have in the text world,\nwe have a bit more trouble.\nOne of these candidates\nthat I just shown\nis the classification task,\nfor example, for which you\nneed to gather labels.\nSo it's quite expensive.\nAnd I just want to say\nthat one follow up work\nthat works on embedding\nof images that we're not\ngoing to see in details today\nis Dino self-distillation\nwith no Labels for\nwhich the concept is\nto have a teacher and a\nstudent model that receive\nthe different kinds of inputs.\nAnd they aim at learning\nsimilar probability distribution\nin the output that\nare prototypes.\nSo I think it's a\nvery interesting paper\nto see how we can\nbuild representations\nout of no labels, just out\nof the images themselves.\nSo OK.\nGreat.\nSo now, we went through how we\ncan represent text and images.\nSo did everything\nmake sense so far?\nSo we went slightly\nfast, but I just\nwant to make sure we\ngot the gist out of it.\nYeah, the comment is\nin the image world.\nDo these images\nbecome tokenized?\nSo you can think\nof them that way.\nThe only difference\nis that we don't\nhave a dictionary of tokens,\nbut rather we look at them\nin a continuous manner.\nBecause in the text world,\nyou would just have a lookup.\nBut here, a learnable.\nSo that's exactly right.\nYeah.\nSo the comment is depending\non how you cut your image,\nyou can have errors.\nYeah, totally right.\nAnd this is why it's\na hyperparameter.\nThis ViT model comes with\ndifferent batch sizes,\nand this is one\nof the trade offs.\nYeah, so I mean, absolutely.\nOK, awesome.\nSo now that we have seen how\nto represent text and images\nseparately, you might\nwonder, OK, hey,\nI want to generate a new\nimage with conditioning.\nThat depends on\nboth, let's say, were\nI want to condition\non either, but I\ndon't want to have to\ndeal with two spaces.\nSo how would you\nbring them together?\nSo what we want is to learn\na relationship between text\nand image that has this nice\nproperty of when you look\nat the embedding space,\nyou want similar concepts,\neither image text to\nbe grouped together,\nand dissimilar ones\nto be pushed away\nfrom each other with\nrespect to some metric.\nSo let's take the\nexample of our Teddy bear\nand something totally unrelated.\nLet's say a water polo ball.\nSo the Teddy bear with the text\ntoken, Teddy bear is similar.\nSame with the water polo ball\nimage and the water polo ball\ntoken.\nBut the opposite pairs are nuts.\nAnd we want a way to\nquantify each situation\nand learn it automatically.\nSo how can we do that?\nSo let's build a\nmatrix of these two.\nSo this is just phrasing\nin a different way What.\nI've just said.\nAnd what we want is Teddy\nbear and the image of Teddy\nbear to be of high similarity.\nSo what we're going to do\nis project these embeddings\nthat we talked about\nin the same space.\nSo we're going to build these\nvectors with the representations\nthat we just saw before.\nSo what we're doing\nhere is the same.\nSo we have our patches of\nimages alongside the CLS token\nthat you pass through\nthe VIT architecture.\nAnd then once you get the\nlast embedding representation,\nwhat we're going to do is\nto project it in a space\nthat we're going to have it\nshared with the tech space.\nSo the property of that\nprojection layer that we built\nis that it's going to output\na vector of same dimension\nby construction as\nthe one for text.\nSo we do that here.\nAnd then we do the same\nfor the text world.\nSo by the way, I\nmentioned to you\nthat we would look at embeddings\nat the end of the encoder layer.\nAnd here, I'm showing\nanother procedure\nto get embeddings of text, which\nis to pass all of these tokens\nto the decoder and decode\nthe one corresponding\nto the last token.\nAnd by construction of\nthe attention mechanism\nand the transformer,\nthese embedding\ncoming out of the\nlast token is going\nto represent the whole sentence.\nSo it's another\nequivalent way of showing\nthe representation of tokens.\nAnd we're going to take that\nrepresentation and project it,\nas we said, in that\nsame shared space.\nAnd by construction, these\nu and v are now comparable.\nYou can do dot products.\nYou can compute similarities.\nAnd we define these\nsimilarity S variable\nthat is the scaled dot product.\nAnd one thing that\nwe can do now is\nto transform this\nnotion of similarity\ninto some score that can be seen\nas a probability distribution\nthrough the softmax operator.\nSo if you compute the\nexponential of the similarity\nbetween image Teddy\nbear and Teddy\nbear over the sum of the\nexponentials of this image Teddy\nbear and all the\nother text tokens,\nyou find the\nprobability distribution\nthat this image corresponds\nto that piece of text.\nSo you can do that from a fixed\nimage to the set of texts.\nAnd you can do that\non the other hand,\nwith a fixed piece of text\ntoken to all the images.\nSo you can have both ways.\nAnd what we do is that we\ncan define two losses that\nlook symmetric, that represents\nrespectively, how similar,\nlike the penalization of any\nerror of a fixed image based\non all pieces of\ntext and similarity\nerror of a piece of text with\nrespect to all the images.\nSo it's symmetric cross entropy.\nAnd then when we sum\nthese two losses,\nwe can obtain a final\nformulation that\nrepresents what we care about.\nSo that is the key\nof the CLIP model\nthat trains the representations\nof both image and text worlds\ninto, like with this\nway of training things.\nSo what we do is that we\nscrape a bunch of images\nand captions off\nof the internet.\nAnd then for a\ngiven batch, we say\nthat a given image\nhas its associated\ncaption as the true\nlabel, and then\nall the other captions in\nthat batch are negatives.\nSo it's called in\nbatch negatives.\nAnd you do the same thing\nof captions with respect\nto all the images.\nAnd you obtain that way final\nembeddings in the text and image\nencoders here that will generate\nthe representation that you're\nlooking for.\nSo here, just to give\nsome order of magnitude,\nthe paper talked about\n400M pairs of data.\nAnd it's great\nreach great accuracy\neven unsupervised tasks.\nBut the issue here\nis this softmax.\nSo every time you have\na huge batch of data,\nyou need to build a similarity\nmatrix of a fixed image\nwith respect to all the\ncaptions and symmetrically.\nAnd this is not a\ngreat computationally.\nAnd also, from a\nmining standpoint,\nwhat you're truly\nsaying in your loss is\nthat you want to maximize the\nsimilarity of your true image\ncaption pair, but you don't\nit's truly enforce the fact\nthat all the other similarities\nshould be each very small.\nSo some follow up work reframes\nthis problem into a sigmoid loss\none.\nSo instead of saying I want this\none image to have a probability\ndistribution that matches\nthat of the true caption,\nwe take one caption and\none image separately,\nand we ask ourselves the\nquestion, do they match or not?\nAnd by doing so you don't have\nall this similarity matrix\ncomplexities.\nAnd also, you have a stronger\nstatement at your loss level\nthat's pushes the positives\ntogether and the negatives\nfurther apart.\nOK, so any questions on this\ncontrastive learning part?\nYep?\nThe question is, do you start\nfrom a pre-trained encoder,\nand what weights do you change?\nSo I think in the paper,\nthey start from scratch.\nAnd they train both\nencoders from scratch.\nYou could very well\nfreeze or start\nwith some pre-trained encoder.\nFreeze all the layers.\nLet the last layer.\nI think typically, you\nwould just train everything.\nAnd in real life, I think you\njust wouldn't train anything.\nYou would just pick something\nout of Hugging Face.\nBut yeah, in\npractice, since it's\neasy to get all this\ndata-- so typically,\nyou would scrape the internet.\nLook at images, and look\nat all tags in HTML.\nSo you can get all these pairs.\nSo I think you're\nin such a setup,\nwhere doing it from\nscratch makes sense,\nbut what you suggested\nmakes sense as well.\nYeah.\nSo I think it depends\non what works best.\nYeah.\nSo the question is the\ntransformer architecture\na prerequisite for this task.\nNot at all.\nSo you can do it\nwith any encoders.\nAnd the reason why I\ntalked about transformers\nis to ground the way of encoding\ninto what people do in practice.\nBut you don't have to have this\narchitecture as a prerequisite.\nYeah.\nOK, awesome.\nSo now, we're going to\nreach the most exciting part\nof the class, which is finally,\nhow do you guide our generation\nmodel with the condition.\nAnd we're going to go back to\nthinking about what we discussed\nthese past lectures.\nSo we had this\ndiffusion mechanism,\nwhere you are at a given\nstep here, xt plus 1.\nAnd you want to find the less\nnoisy version of the image xt.\nAnd the thing that\nwe want to do now\nis to do that with a\ncondition that I called y,\nbut that you might see\ncalled c in papers.\nSo you want to guide the\ngeneration towards generating\na sample that follows y.\nSo a first idea that\nyou might have is OK,\nit's a classification.\nThere is a concept\nof classification.\nI can come up with a\nclassifier of weights phi\nand try to make it work.\nSo how could you make it work?\nYou start from this\nprobability distribution\nthat you want to sample from.\nAnd then by applying\nBayes' rule,\nlike the conditional version\nwith the right arguments\nfor A, B, and C, you obtain\nthis product of two probability\ndistributions that you\ncan see on the left\nrepresents the one step\ngeneration process that we know.\nAnd on the right side, you have\nthe probability distribution\nof y given xt, which\nwould typically be what\nthe classifier would give you.\nSo now, let's see how we\ncould sample from this.\nSo taking a look at the\nprobability distribution\non the left.\nSo if we recall\nthe first lecture,\nlet's say in the DDPM world,\nyou know that this probability\ndistribution follows a\nnormal distribution of a mean\nthat we learn and\nof variance that\nis following a noise schedule.\nSo we don't learn it.\nIt's something that we have.\nSo we know the\nexpression of this.\nIf you look at the probability\ndistribution of this,\nit's something that we know.\nSo we have that on one hand.\nAnd on the other, we look at\nour probability distribution\nat the end of the classifier.\nSo here, why are we\nnot happy with that--\nI mean, we have the data of\nthe probability distribution.\nYou just have to put the noisy\nimage to your classifier,\nand then you have it.\nYou have a probability\ndistribution.\nWhy are we not happy with that?\nIt's because we cannot plug it\ninto that product equation that\nwe saw and then\neasily sample from it.\nWe want to reframe\nit in a way that we\ncan have this nice Gaussian\ndistribution that we\nhad, for example, at the\nunconditioned generation step.\nSo what we do is that\nwe have a trick that\nexpands this probability\ndistribution with a Taylor\nexpansion.\nAnd then you come\nup with a first term\nthat is a function of xt.\nAnd when you plug\nthe probability,\nI mean the log of p phi that we\njust found into this product,\nyou see that the\nprobability distribution\nthat you want to learn is simply\nthe same one that you had,\nbut with a shifted mean.\nSo I just want to take\na pause for a second.\nSo we went through\na process that where\nwe tried to find\nan easy probability\ndistribution to sample from.\nSo we went through a\nseries of equations.\nBut all I want you to\nknow from all of that\nis that we tried to get\nto this state, where\nwe can sample from\nan easy distribution,\nand that's what we reached.\nSo in some way, we're happy.\nAnd then here,\nwhat's good about it\nis that you don't\nneed to retrain\nyour unconditioned model.\nSo your theta and your\nsigma t are things that.\nAnd there is a downside to it.\nNow, I mentioned classifiers.\nYou need to learn a classifier\nthat operates on noisy images.\nAnd the process here\nis that you need\nto have that classifier that\npredicts some probability\ndistribution, and then you\nneed to take the backward pass\non the network in order\nto find the gradient.\nDid that make sense so far?\nOK, great.\nSo when we sample\nfrom the distribution\nthat I mentioned in practice,\none thing that people see\nis that it doesn't\nproduce samples that\nfollow the y condition enough.\nSo this is why you see that\nW factor being introduced\nthat can be tuned to\nforce the generation\nprocess to follow the\nclassifier's gradients more.\nAnd this is what we\ncall the guidance part.\nSo we saw that we\ndon't have to retrain\nthe unconditioned model\nin order to sample\nfrom this distribution.\nBut on the other hand, you\nneed to have a classifier that\noperates on top of a domain that\ncan be composed of noisy images.\nAnd the bad thing about\nit is that you typically\ndon't have that out of the box.\nSo it's typically\nsomething that you\nhave to train as part of\nyour training process,\nwhich is a downside.\nAnd also, the fact that you need\nto compute the backwards pass\nof your classifier\nis quite expensive,\nwhich is also not great.\nAnd something else\nthat I will mention\nis that you not only need to\nhave that extra classifier\nand spend all these budgets\nto compute the gradients,\nbut you need to make sure that\nthe signal of your gradients\nscales well with the coefficient\nw that you introduce.\nSo you need some\nhyperparameter tuning\nto make sure that the operation\nthat you're doing is meaningful.\nSo one question that\nyou might ask yourself,\nis it possible to do this guided\ngeneration without the needs\nof a classifier?\nAnd the answer is yes.\nSo if you use\nBayes' formula, you\ncan see that you can define\nan implicit classifier,\nso called p of y given x\nbased on the generation,\nlike the unconditioned\ngeneration of your image\nand the conditioned\ngeneration of your image,\nso conditioned on y.\nWhich means that if\nyou have a network that\ncan generate an image\nwithout any conditions\nand that can generate an\nimage with a given condition,\nthen you can solve this problem\nby plugging this equation\nback into what we had,\nwhich is what we do here.\nSo the equation that\nI showed regarding\nthe distribution of\nthe next sampling step\ncan be written in epsilon space.\nSo I mentioned this Gaussian\ndistribution of shifted mean.\nYou can rewrite\nthe noise that you\nwant to predict into one\nthat takes into account\nthat classifier signal.\nAnd what the\nauthors of the paper\nof the classifier free\nguidance paper did\nis that they plugged\nin the P phi.\nExpression with the\nimplicit classifier,\nthe expression that I\njust mentioned before.\nAnd they obtained this\nvery nice expression\nthat is a function\nof the noise that we\nwant to remove based on a model\nthat isn't fed any condition,\nand one for which a\ncondition is provided.\nAnd what you can\nsee is that there\nis this w term in\nthe middle that\nhas about the same\ninterpretation as the one\nthat we saw before that\nwill tweak the generation\nto be more or less towards\nthe condition that you bring.\nSo there's that.\nAnd then now, we are\nhappy because we no longer\nhave to train separate\nclassifier phi.\nWe can just rely on the\ngeneration network's weights.\nSo how does that look\nlike in practice?\nSo with a certain\nprobability called\nthe unconditional\nprobability, what\nyou can do is sample an image\nfrom your training set, and time\nstep, and noise, and try to\npredict the noise from it,\nwhich is what we\nsaw in the past.\nAnd with probability 1 minus p\nunconditional, what you can do\nis do the same.\nBut then use the embeddings\nthat we saw in the parts\njust before to feed that network\nwith this additional information\nand predict the\nquantity of noise\nto remove with the condition y.\nSo you do that 1 minus\np and conditional times.\nAnd what you get is\nsomething interesting,\nwhich is if you look at how\nyour predictions look like,\nso let's say the noise\nthat you want to remove\nis the points top left,\nand then the noise that you\nwant to remove when\nyou have a condition\nis the one in the middle.\nThen the guidance\nhyperparameter w\nwill push the\nprediction of the noise\nmore towards the noise\nof the condition sample.\nAnd the reason why we\ndo that is that because\nin practice, if you don't have\nthis hyperparameter, you tend.\nAnd if you just use the\ncondition sample noise\nas the one that you use to\ndenoise your noisy latents,\nyou might obtain images that\ndo not follow your prompts very\nclosely.\nAnd this is why we have\nsuch a hyperparameter\nin the first place.\nIn terms of numbers, the\nguidance parameter is typically\nset to just a few,\nI think three.\nIn the paper, so\ntypically more than one.\nAnd I just want to\nput a disclaimer here\nthat the equations that I showed\nwith the classifier guidance\nhyperparameter might\nhave several definitions.\nSo you might see formulas\nwith w in there, w plus 1.\nSo all these values\nof w that you take\nare dependent on the equation\nthat you operate from.\nSo this is 1.\nAnd then the other thing\nis that in practice\nat training time, the\nproportion of time for which you\nshow unconditioned generation\nis typically 10%, 20% of time.\nAnd this time, you\ndo not need to have\nan additional classifier\nat hand and to do\nan expensive backward pass.\nBut you still need to\ndo two inference steps.\nBecause we saw that the\nequation has this epsilon\ntheta of xt and no condition,\nand the one with the condition\nwhich is 2 forward passes.\nSo you still have\nsome extra cost,\nalthough it's better\nthan the other technique.\nAnd this technique, CFG is the\none that's most used today.\nOK.\nSo any questions?\nOK, great.\nWith that, I hope you\nhave a great weekend.\n[APPLAUSE]",
+  "segments": [
+    {
+      "text": "Hello, everyone. And welcome to lecture 4 of CME 296. So before we start, I just want to say that those first three lectures were really the most technical and mathematically challenging. So in that sense, I'm still glad you're here.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "And I really hope that those three lectures gave you the intuition as to why we were going to use this generation paradigm. Because there are going to be used as building blocks for everything that we're going to see from now on. In particular, during",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the first three lectures, we focused on unconditional generation. And now, what we're going to see is how we can generate images with a condition which can be a user prompt, like input text, or an input image. And so in that sense, the title of today's lecture",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "is multi-modal guided generation. With that, we're going to start. And as usual, I'm going to just recap what we did the previous times. So as I mentioned, the first three lectures were mathematically challenging, and they were about seeing",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "how we could generate images, what were the paradigms that we could use. So the first lecture was focused on the diffusion paradigm with DDPM, where we saw that we were taking clean images, that we were noising in a discrete way. And so here, we",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "had this formula, which was a combination of a clean image and Gaussian noise that we weighted with those coefficients. And what we saw with a bunch of math was that we could derive an expression that we could optimize in order to reconstruct",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "those clean images that we've noised. And we ended up with a very nice expression, an L2 loss on the noise that was added. And in particular, if we wanted to denoise, we had the following formula that allowed you to go from a step t to step",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "t minus 1 using this model e theta, which was the predicted noise that was added. And so in that sense, it was parameterized with respect to the noise epsilon. Then in lecture 2, what we did was that we derived the continuous version of what we derived",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "in a discrete way in lecture 1. And we also saw a second paradigm, a second way of seeing things, which was score matching. And we saw that when we looked at these two ways of doing things, if we were to take the increment of time from t to t plus 1",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and tend it to 0, we had a general expression of the increment in x, which would be as a function of dt, the increment in time, and dw, which is the continuous version of adding noise. And in particular, you had these two terms. So on the left side, the drift",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "term, and then on the right side was the diffusion term. And we saw that in order to reverse the noise that was added, so a.k.a. reverse process, we could use a result from theories on stochastic differential equations, where we saw that we could",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "derive the reverse process if we knew the score, which is why this formulation was parameterized as a function of the score. So here it's noted S of theta. And in lecture three, we saw that actually, we could think of this whole thing as a completely--",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "in a completely different way. And we can think of it as transporting a probability mass from an initial distribution up to a target distribution. And in that sense, we could express a noisy image as a combination of noise and sample",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "from the target distribution. And all of what we had to do was to just predict the vector field, a.k.a. The velocity, which was noted u of theta. But one thing that we kept silent was how we could actually represent all of these quantities, in particular xt,",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the representation of the image when it's noised at a given level, the noise itself. All of these, we just assumed that there was some way of representing these in some n or d dimensional space. So one thing that we will do today is to see what",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "space could actually be more appropriate for this kind of work. And then the second thing is, as you can see, the models that we need to estimate-- so epsilon theta, s of theta, you have theta. There are only a function of denoised image and the time,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "but they're not a function of any condition, any user input. So this is also something that we're going to see, a.k.a. How can we incorporate a condition that could guide the generation towards what we want. So this is the menu for today.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "So to recap, we're going to see three things. The first one is how can we represent those noisy images. The second thing that we're going to see is how to represent the conditions that we want as inputs. So for instance, the input text here,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "a Teddy bear reading a book that we want to generate an image for or an input image that you want to condition your generation for. And then the third thing is how we can guide the generation process using that as an input. So we're going to",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "start with number one, how to represent these noisy images. And I'm going to start with the most natural approach that you could have when you see those images. We, as humans, we are very accustomed to seeing things in the pixel space. So here, if you take",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "this image as an example, this image has a certain height H, certain width, W. So what you can do is to represent each pixel as a function of the intensity of the color that composes it. And in particular, a very common representation is using R, so red,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "green, and blue. So in other words, you would have each pixel that would have three values, which would make up the color. And you would have these values cover all pixels of the image. So you would have a dimension n that would be equal to 3 times the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "size, the number of pixels, which is h times w. And so you could represent your image as a tensor along the axis, the height, the width, and the number of channels here, which are three, which represents R, G, and B. So this could be one way.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "But the big problem with that is that it's very high dimension. So if we take the example of a, quote, unquote, \"regular image,\" so 1,024 times 1,024 pixels, then we would end up with a number of dimensions, which would be on the order of a million.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "So 10 to the power of 6. And if you think about it, this is just a lot of dimensions to consider in our training generation paradigm algorithms, which are, of course, a function of the dimension in which you operate. So that's one very big drawback.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "The second drawback is if you look at your image, you actually see that you have a lot of redundancies. So if you see, for instance, in a given neighborhood of pixels, you have a lot of very similar values. So in a sense, you can consider",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "this as a waste of dimensions. So it's not very compact. And then the third thing is if you remember our whole first three lectures were about taking the image, and adding noise, and then just moving it in the space with respect to added noise. Well, here, if",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "you take an image, and you were to move it slightly in that space by adding some noise, you would actually obtain an image, a noisy image that would actually not be very meaningful. It would not mean anything. So in particular, so I'm not sure if you",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "recall this nice graphs or charts, where you would see the areas of high density of your target desired distribution. So here, what we want is clusters of observations that are likely to occur. But what we get is actually the thing",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "on the right, which is a space with very spiky regions, where each spike represents an actual valid image. And that's not good. So for all these reasons, we're going to just come up with a wish list of a space that we would like to have. So I'm going to go",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "through that step by step. So the first one is the high dimensionality observation that I made. So here, what we want is a dimension that's more, quote, unquote, \"tractable.\" So that's number one. Number two of our wish list is to have a representation that",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "does not have a lot of redundancies, that has some way of compacting things. So number 2 is compact representation. Number 3, regarding the representation not being meaningful, so here, we want a representation that is meaningful.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "And you can think of this when I say what meaningful means. It's when you look at the space, and you're able to have clusters of regions where valid images happen. That's what I mean by meaningful space. So this is our wish list. So before we move ahead,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "I want to take the time to introduce two terminologies that are widely used in those papers. So I prefer to define them now and clearly so that you what they refer to. So you will see that there is a lot talk about semantic similarity. So what does semantic",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "similarity mean? So semantic similarity of an image is something that refers to its global geometry to its overall structure. And in particular, what that means is if two images are semantically similar, what that means is that they roughly",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "represent the same thing. So here on the slide, you have on the left a Teddy bear that is reading a book. On the right, you have also a Teddy bear that is reading a book. They're not exactly aligned pixel wise, but they're semantically similar. So that's for",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "semantic similarity. Now, you have another notation, which is perceptual similarity. So this one refers to more of the local details of an image. More to the lower level texture of an image. And when you say that two images are perceptually similar, what",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "that means is that to the human eye, they look the same. So for instance, you have, again, two pictures of a Teddy bear. So I'm not sure if you see the one on the right has some little glasses. But it's perceptually very similar. Does that make sense,",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "that distinction? Yeah. The reason why I say that is I'm going to use that terminology going forward, so I just want to make sure we all what these are. So what are we doing? What we want is to come up with a space that fulfills our wish list",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "that we established before. So here is our first attempt. So how about we take an image in the pixel space, and what we try to do is find a representation that's meaningful using the following architecture. So let's assume we take that image,",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and we put it into some model. Let's call it an encoder that encodes the image and produces an output that is of lower dimensionality as the input. So here, we go from an image of size HW and number of channels, which, as you know, is equal to 3 in the pixel",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "space because in the RGB representation. And here, we end up with a latent representation of size lowercase h, lowercase w, and little c. And then what we do is we put that representation back to the decoder. So if we were to do that, our objective",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "is to recover the original image. So we don't want to lose any information by encoding our image into a lower dimensional space. So here, such a setup is called an autoencoder. So the only job of an autoencoder is to find a lower dimension",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "representation that's called the latent representation. And what it does us is take an image in the pixel space as input, compress it, and then decode it. And here, the task is making sure that what you get as output is the same as what you get as input.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So you may think, OK, it's a very useless model, which I agree, unless you're interested in the latent space, which we are. This is what we're interested in. So does this setup make sense? Cool. And then terminology wise, the latent space, like that part,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "is called the bottleneck just because we're forcing the model to rely on fewer dimensions, and we want the model to still preserve the richness of the details that are present in the image. So let's see how we do that. But before we go, I want to",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "introduce another notation that you also see a lot in papers, which is called the spatial compression ratio, which is defined by the amount by which you go from Big H to little h. So it's just the ratio between the two. And that ratio is typically",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "on the order of 8. So that's the order of magnitude that you should have in mind. Cool. So let's see now based on what I told you how each component works. So in terms of what is input in the encoder, as we mentioned, we have our input image.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "Let's note it x that we put in our encoder, that we note E phi. And we get a latent representation z that is equal to E phi of x. And so the way we would do that would be to use a network that contains some downsampling operations. So what that means is it",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "allows us to go from a bigger dimension to a lower dimension. We're not going to go into too much details into what that network is because we're going to talk more about this in the next lecture. But I just want to tell you roughly the two main operations",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "that you can expect, which you may have seen. So the first one is convolutions. So who has heard of convolutions before? Yeah, everyone. So I can go fast. Convolutions is just a way to scan your image using a filter. So the image is in red,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "the filter is in blue. And what you get is what we call an activation map or a feature map that is in purple. And then the second operation that you see in these kinds of networks is pooling. So pooling is a downsampling operator that allows you to either take",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "the maximum of a given square, or the average, or either max pooling or average pooling. And it allows you to introduce some spatial invariance just because you can aggregate the pixels to a higher granularity. We're not going to go into too much detail,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "but these are just for reference. So when it comes to the decoder, what you would do is take the latent representation z into the decoder d theta. And you would get your reconstructed output x hat. So here, you would use upsampling operations,",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "for instance reverse convolutions. And the goal of this model is as much as possible, for your reconstructed output to be as close as possible to your input. So the loss function of such a model would be something along the lines of just an L2 regression",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "between the input x and the reconstructed input x hat. So I have a question for you. Do you think this model is a good model? So this is what we're going to see now. So let's go through our checklist. First one is, OK., is the dimension more tractable?",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Yes, more tractable. Is the representation more compact? Yes, it's more compact. Is the representation meaningful? Meaning do you have a nice shape in your latent space in the way we represent it? Yes, exactly. Not necessarily. Well, the reason for",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "that is we have not constrained our latent space to be structured in any particular way. So the model is just only incentivized to reconstruct the input as best as it can. And it really doesn't care what shape the latent space is. So you actually still",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "end up with this kind of space, which is not good. This is not good because your flow matching model, your diffusion model is just not able to learn very well in those spaces because, first of all, the representations are all over the place.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "And if you remember, one common thing with all of these generation paradigms is that you start from a normal distribution, like a standard normal distribution. So you need a way for you to not get lost. So if everything is far apart, it just doesn't work.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "So that's not good. So let's go back to the drawing board, and let's see what we can change. So we take our image, we compress it, and then we decompress it. Everything's perfect. Well, let's see what we can do in the latent space. Our goal here would be to,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "quote, unquote, \"enforce\" the latent space to have some structure. So this is our goal. And we're going to see how we can do that. OK, let's go back to where we were. We take our input image x. But instead of just letting it through a standard encoder, what",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "we will do is to actually not try to predict or generate the latent representation directly. We will actually predict two things, the mean and the standard deviation of the distribution that it can be drawn from. So in other words, what we're",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "going to see to say is instead of saying that one x corresponds to one latent representation, we're going to say that 1x actually is mapped to some probability distribution, which sounds kind of weird, right? It's not very natural. But we're going to see why",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "that mitigates the problem. So here, as a reminder, so the output of the encoder will not be just a latent vector. It will be-- so the mean mu phi. And the variance sigma squared phi. So these are the two outputs of the encoder. And what we will say is that",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "the latent representation of this distribution, this latent representation is actually drawn from this distribution. That's what we're going to say. And we're going to say something else. So in a bit of an informal way, we're going to say that this",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "distribution is going to be roughly forced to follow or to approximate another distribution. So it's not very mathematically rigorous. We were going to see exactly how we can express that. But in your mind, I want you to know that this is a condition for",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "us to structure the latent space in a way where we say the latent representation of an input x will be roughly in a given region of the space. We're going to force that, or we're going to incentivize the model to learn that. So that's the idea. Cool.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "And yeah, this distribution is-- OK, you may have guessed it. Again, standard normal distribution just because it's. It's a nice distribution with great properties. And by the way, this distribution, we're going to call it the prior distribution.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "So let's see how the decoder works. So let's assume we have put our input image into the encoder. We have predicted the mean. We have predicted the standard deviation. We have drawn a latent representation from the distribution. So now, the decoding",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "stage will be around taking that representation and passing it through the decoder which again will output two things, the mean new theta of this latent representation z and standard deviation. And what we're going to say is, again, that the reconstructed",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "image is going to be drawn from a probability distribution of these two parameters. Well, one thing that I want to say is actually, we're going to simplify this part of the problem a little bit. We're actually going to say that the variance is not something",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "we're going to predict. We're just going to fix it to be constant just because there is less impact in you making sure to introduce some variation in the output. Because in the pixel space, even if you add a little bit of noise, it's not going to change the",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "image a whole lot. So that's why people just say, OK, we're going to take some variants that's constant fixed, and we're not going to predict that. We're only going to predict the mean. We can draw from this distribution. But sometimes, people also just",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "take the mean as the output. So this part is more of a detail. Yeah. So the question here is that whether the latency is drawn from the Gaussian or is drawn from the q-- the encoder here q phi z given x. So it's a great question. So this model, which we're",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "going to see what the name is, is both a model that we can use to learn the latent space, And so have a reconstruction task. But it's also something that can be interpreted as a generative model. So if your goal is to reconstruct the input,",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "then your input here is going to be the z that you drew from that distribution. So it's going to be the latent representation of x. But if your goal is to generate just a new image, then you would actually draw that z from the prior distribution.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So the question is the encoder gives you a mean and a variance. It does not give you something deterministic exactly. It gives you a mean and a variance. And what you're doing is just drawing from that. So you-- yes, you draw from that. So great question.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, well, if you have a generative model here, why would you bother. And just use diffusion, use flow matching, use all these things? It's a great question. You have a number of differences between the two which makes diffusion flow",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "matching and score actually perform better than VAE. One of the differences is here, you only go from latent to pixel in just one step, whereas the other ones, you have several steps that just allows you to put more compute in there. That's one reason.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "But there are some others that I hope we can get to if we get some time. But we're going to see the relationship between the two. Another question? Yeah. The question is, does the latent space look like a normal distribution? So there is something that makes",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "it be \"regularized,\" quote, unquote, to be a normal distribution. It depends on a term that you can tweak with respect to a coefficient that we're going to see. And depending on the value of that coefficient, it may look more or less",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "than a normal distribution. But we're going to see that. Cool. So the first time I saw this model, I was confused. You may be confused now, and I hope what we're going to see will make you a bit less confused. So here, one thing that I want to say",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "is in the autoencoder case, the loss function was pretty clear. You would just try to estimate the reconstructed output in such a way that it's as close as possible to your input. But here, you have a bunch of distributions everywhere.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "There's not like an obvious way of expressing that without doing some math. So what I propose is that we derive the loss function for this model, which I'm not sure if I can tell it now, but I'm going to tell it. It's called the variational autoencoder.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "And we're going to see what makes it variational. So if you remember, in a lot of cases, the way you derive a loss function is by doing maximum likelihood estimation. So what does that mean? That means that you have some model of parameters theta.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "And what you want is to find the parameters theta that maximize the probability of your model seeing the data. That's what ML is. And that's what we're going to use to see how we can derive a loss function that can help us learn theta. So in particular, what",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "we want is to maximize the log of p theta of x. So I'm going to write it down. So what we want is to express log p theta of x with respect to something that we can compute. Because this, we cannot really compute something just by looking at it.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "So let's see how we can do that. So I'm going to just start with expressing p theta of x as a function of something. So this model can be seen as a generative model that starts from a latent variable that you draw from what we call a prior distribution.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "So one idea of expressing p theta of x, if you remember lecture 1, we can consider the joint probability distribution of p theta of z, a latent, and x, and sum across all latent z that led to x. We can do that, right? So what we say is that p theta of x",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "is equal to this joint probability distribution of x, your image in pixel space, and z, your latent. And you're just going to integrate over all possible latent representations. So this quantity is nothing else than you're drawing from a prior, so p of",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "z, and then using your decoder to estimate x given z. So this quantity is the integral of your prior times p theta of x given z, dz. P of z. Yeah, exactly. So the Gaussian. p theta x given z. Well, it's your model, your model that you want to find.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "The problem is that you need to compute this for all possible latent z. And z is still high dimensional-- high dimensional vector. So this, if you were to compute this quantity for all z, it's actually not something that you can do. Because you would have to",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "compute a lot of such quantities with given zs in order to get a good estimate. And it's just not something that you can do. So do you remember a similar setting we had in lecture 1, which is the reason why we're going to see how we can find",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "a convenient bound that could be maybe more tractable? Because so far, I have not used the fact that we also have a way to encode the input in order to get latents that are more likely to be the ones that I want to consider here. So what I'm going to",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "do now is to find-- so what I want to do first is to maximize this quantity. So I want to find theta that maximizes this quantity. So we saw just now that this quantity is not something that I can actually compute. So what we're going to do is to find",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "a lower bound that could be something that you could compute. And what we want to do is to maximize that lower bound in the hope that it will also maximize this in order to find our parameters theta. So let's do it. So you would have the following.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to just come here. I would just say that p of x is equal to the integral of p of z times p theta of x given z, which is just at that point, I'm going to use the same trick that we did in lecture 1, which is to involve the output of the encoder.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "And here, it is q phi of z given x times q phi of z given x. So what does this represent? So this represents the probability distribution of the zs that are likely to occur for this given x. Because here, in the original form, what you were doing",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "was to just sum across all possible latent representations out there, but there are many of them. So it's like, you're in the ocean, and someone tells you, OK, just look through the whole ocean. But the thing is, only a small subset of the zs are actually the",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "ones that you want. They're actually only a subset of the zs that are the ones that are responsible for your x to appear, which is the reason why we're letting these q phi of z given x pop up. And this expression, so this is equal to this.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "And this gets equal to just the expectation of p of z times p theta of x given z over q phi of z given x, where your z is drawn from q phi of z given x. So why am I doing this whole thing? Because what I want to do is to take the log of this whole thing.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "I want to take the log of this whole thing and do the same trick as we did for the DPM, which is the Jensen's inequality. And I'm going to say that it's the expectation of the log of this whole thing. So I'm taking the log of this quantity, which I expressed",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "as a function of the output given by the encoder for which I can find a lower bound. And now, we're going to see that this lower bound is actually something that is tractable. We're going to see it now. So what I'm going to do is to",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "just rewrite this expression. So we have-- so the expectation of the log of the whole thing, which is equal to the expectation of the log of p theta of x given z plus the expectation of-- so I'm going to be a little bit smart. I will say minus the expectation",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "of the log of q phi of z given x over your prior distribution. So here, what I just did was I take the log of pz times p theta of x given z over q phi of z given x. And what I did is I just-- I used the property of the log, which is logarithm of the",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "product, is the sum of the logarithm of the terms. So I had this one pop up. And this one, I just rearranged. I put the denominator in the numerator, and I added the minus. And given that it's an expectation for both of these that are over z drawn",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "from your encoder output, which is q phi of z given x, this term is actually the KL divergence of q phi of z given x and your prior. So what does this all mean? What this all means is in order to find the theta that maximizes this quantity,",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "we derived a lower bound. That is something that will see is tractable. So it's this expression, which we have divided into two terms. So the first one is expectation of the logarithm of p theta of x given z. And the other one is a KL divergence.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "So we're going to see that these two terms are actually quite interpretable. The first one is actually a reconstruction term. Because if you remember, p theta of x given z is a normal distribution with fixed variance. So we know the probability",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "density analytically. So if you take the log of the probability density of a Gaussian, you actually end up with something super simple, which is the norm of x. So the input and the reconstructed outputs. And then the second term is actually a term.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "So back to your question. It is a term that penalizes the distribution coming from your encoder being far from this fixed prior distribution. So loss functions usually have a coefficient in front of this term to penalize more or less the fact",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "of being far or close from this prior distribution. And depending on the coefficient there, you're going to have either something that will look like a normal distribution or not. So that is the part of your loss that will allow you to do that.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "I'm looking at the time. I'm not super in advance, but I'm going to just pause for one minute if you have any questions. So the question is we're pushing the distribution of the encoder to be more of the normal distribution. So we want to do that to",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "normalize the latent space, but we don't want to do that too much. Otherwise, so the prior distribution is p of z. It doesn't care what x is. And in other words, if you push it too much towards something that is just static, it will just not",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "consider the input at all. It will collapse. Yeah, so it's called posterior collapse. So just one other question, and then I'll move on. Yeah. So the question is-- so we had this image with the little spikiness and that was the autoencoder, the",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "standard autoencoder part. This one is actually structured in the latent space in a way that makes it more smooth, more well put together, and yes. So I'm going to speed up a little bit. Let's go through our checklist. Tractable dimension, yes.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "Compact representation, yes. Meaningful representation, yes. Oops, truthful representation. No. Wait. Why is that? So these models, they actually end up reconstructing the image in an imperfect way. And what we actually obtain are more blurry images.",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "And so I'm hoping that in the next nine minutes, we're going to see why that is the case and how we can solve it. So first of all, let's look at the loss function that we have derived, which is composed of a reconstruction loss and a regularization loss.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "So the reconstruction loss. What is it? We have not derived it here. But I am telling you that if you derive it, it is the pixel wise L2 between the input and the reconstructed output, the reconstructed input, sorry. And so what that means is if the",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "generation is a little bit off by a few pixels, it will actually get very penalized. Because the distance is pixel wise. So what ends up happening is the model tends to produce values that are more averaged, which produces this blurriness",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "sensation that you're seeing. But then you will tell me, well, Afshin, the standard autoencoder also had that loss. So why didn't it happen there? Well, the fact is, it also happened there, but it's even more pronounced here because of the structure of",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "the model that we have defined, which is that the latent representation is not a one to one mapping with the input x, it is not. Instead, what we have said is a given input x maps to a probability distribution, like a set of probable points that",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "could be actually latent representations of this x. So the model will introduce this uncertainty even more in the reconstruction that it will output. And here, what we want to do is to combat that blurriness sensation. Because here, if we were to",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "perform diffusion in the latent space, and if we were to decode the final output in the latent space, the last thing that we want is for our output to be blurry. We do not want that. So now, we're going to see a couple of strategies",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "that will allow us to combat that blurriness artifact that we're seeing. And the first one is going to be about a kind of loss that's called the perceptual loss. I'm going to say exactly what that means. So let's imagine you have your image x.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "The intuition here is we don't want the reconstructed output to be compared with the input pixel to pixel because it does not allow for little shifting here and there. So what we want instead is to be able to compare the input and the reconstruction",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "more in terms of similarity, that something that looks similar to you as a human, perceptually similar. So how can you do that? Well, there are some models out there that there are convolutional based, for instance, that actually extract",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "features from these images in their layers. And here, we refer them as feature maps. And one good thing-- one good thing about these feature maps is that they represent things from this image that have more of a spatial invariance",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "compared to the original image. So what does that mean? That means that if you have two images that are slightly shifted, slightly different, then their feature maps will actually not be that different. So the idea here is instead of comparing the pixel based",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "images one to the other, we're going to compare their representation, their feature maps one to another. And I'm not sure if you've heard that loss, but there is a loss that's called LPIPS, so Learn Perceptual Image Patch Similarity. So it is a loss or it is",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "a metric I should say, that is composed of the difference between the feature maps of two images, and that are weighted by a coefficient, which is here WL. There are coefficients that are tuned by the authors of this paper in order",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "to match what humans consider as being perceptually similar. So long story short-- so by the way, the formula is scary, but it's not that big of a deal. We don't care about the whole thing. What we care about is that we're not comparing",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "images in the pixel space. We're comparing images between their feature maps. And what we're saying here is that the feature maps of two images better reflect their structure, their details, and are less sensitive to spatial differences.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "So that is one strategy. So one thing to note is that we would weight this loss by some coefficients. You could think, OK, this loss is answering all our needs. Let's have the weight for this part of the loss be super high. Well, if you do",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "that, actually, there are some bad things that also happen. So we have what we call checkerboard artifacts, which as you can tell is like a grid like artifact in the image that is similar to this one. So you don't want to have too big of a weight either.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "So that's one. And then a second strategy to combat blurriness is what we're going to see now. So the problem that we have is that the decoder of the VA is outputting an image that is blurry. So one idea could be to ask another model to tell you whether",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "the input image, so in this case, the blurry image is a real image or not? And based on that, what we would do is incentivize this other network called the discriminator, to distinguish outputs coming from the decoder compared to real images, which would then",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "flag blurry images as being fake. And we would penalize the decoder for generating images that would be flagged as fake by the discriminator. So have you heard of GANs before? So we don't have time to talk about them in detail, but I think this slide is",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "summing up what is happening. So you have two models that are competing with one another. The decoder that wants to produce images that the discriminator cannot distinguish from being fake, and the discriminator that wants to distinguish the output from",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "the decoder compared to images from real life. And what this will do is incentivize the decoder to produce more realistic images. And in doing so, it will help with removing that blurriness. So that is called adversarial loss. So what we saw was that the",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "original loss of the VA, which we derived here, led to outputs that were too blurry. It was fulfilling all the wish list that we had, but it was not leading to a truthful reconstruction, which is the reason why we saw two different strategies",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "to add to our loss, to counterbalance the tendency for the model to produce blurry outputs. So these are the perceptual loss and the adversarial loss. So before giving it to Sherwin, I could not let you without telling you how this fits together",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "with the diffusion models. So in particular, the reason why we did this whole thing is for us to use our diffusion flow matching model not in the pixel space, but in the latent space. Because computationally it's just cheaper and it's able to scale.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "So now, we're going to see what our strategy for training and inference is. So for training, what we do is we first train the VA exactly like we saw. And then what we're going to do is to train our image generation model, like using for instance flow matching,",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "in the latent space of the VA. And we're going to see how we do that. So let's suppose we have an image from our target data distribution. We pass it through the encoder. Our encoder gives us two quantities. So the mean and the standard deviation.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "And what we do is we sample from that distribution to get our latent representation. And then what happens is in our latent space, so we hopefully have a smoother latent space. We have our z1, which corresponds to the clean image. We sample from the",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "noisy data distribution. And here, I'm just illustrating the case of flow matching, we have zt, which is a weighted combination of the two. And what we do is we optimize for, let's say, our velocity like the l2 loss. We'll do that. This is for training.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So how about inference? Well, let's assume that you have trained your model. Then now, what you want to do is to generate new images. So what you're going to do is to first sample from an easy distribution in the latent space. So for instance, Gaussian noise.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "And you're going to use, for instance flow matching, the velocity that you have learned to solve it numerically and arrive, at let's say a point z1, which is the latent representation of your end trajectory. And what we're going to do is to use",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "the VAE decoder to decode that output back to pixel space. So let's see how it looks like. So this is your latent space that you have learned. You sample from the noisy distribution in that latent space. You solve numerically the ODE",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "using the learned vector fields that we've trained right before. You obtain z1. The problem is, z1 to us, it doesn't mean anything because it's not in a pixel space. So what you do is you take that z1, you pass it through the decoder, and you obtain",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "the image in pixel space. So to conclude, what we've seen is a way to find a latent space that is of lower dimension, that is smoother, and that is also able to preserve the details of your image. And so in particular, we say that the encoder",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "acts as a low pass filter. Because what it does represents those images mostly based on their semantic similarity. So this is actually something we have not seen. But for a diffusion model to find all the details in its exploration is much harder",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "than finding something that is semantically what it wants to generate. So this is the reason why we're giving the decoder the task of conveying all the low level details, all the perceptual elements. And the role of the decoder is to take that latent",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "representation and to make it an output that is full of details, that is realistic, and that is matching what we want. And for that reason, you have the encoder and the decoder, which you would think is symmetric. But in practice, the VAEs",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "that are used in conjunction with diffusion models are such that the decoder is actually bigger than the encoder. Does that make sense? So we don't have a lot of time. So one thing that I put down there is a longer form version of everything",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "I mentioned in some very interesting articles, which I recommend reading, but not mandatory as part of this class, which is some results from flux 2, which is a text to image model, and the LDM paper, the Latent Diffusion Model paper that is",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "at the bottom of the slide. Yeah. So the question is, what should we think of the role of the encoder and the decoder? So at the end of the day, what you want is to have an easy time generating images, at the end of the day. And what you want is",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "to not have too high of a computational burden for your diffusion model to operate. So what you want is a latent space that is low in dimensionality, and that is easy for you to learn. So what does easy for you to learn mean? It means having a space",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "that is not super spiky, but that is more smooth. And in particular, in order for you to obtain such a space, it is actually something that in practice, something that you can obtain if you focus on the semantic meaning of these images, as opposed",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "to capturing all the low level details. So in other words, what I'm saying is, even if two images are perceptually not very similar, but if they represent the same thing, what we want for these images is to be located not too far from one another",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "in the latent space. So we want the encoder to mostly capture the semantic meaning. So the encoder, what we want is to make the job of the diffusion model easy. And so this is the learnability. You will see in those paper, learnability.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "So once you have images that are semantically similar, that are close to one another, you do your diffusion process. You obtain, let's say a point that you say, OK, this is the latent representation that I want to have in the pixel space. So now, the job",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "of your decoder is to make sure that all the details that you want to have in this final image are there. So in that sense, in contrast to the encoder, the decoders job is to make sure all the perceptual details are present in the final decoded",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "image in the pixel space. So in that sense, you have these two different roles of the encoder and the decoder. So you want your diffusion model to have an easy time learning this thing, and you want a space that has some semantic information, which is what",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "I mentioned the encoder can do. But what you want, at the end of the day, is to have an image that contains the details that you want, and that part is mostly something that decoder can help with in the decoding stage. OK, I'm 10 minutes over",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "time, but with that, I'll give it to Sherwin. Thank you, Afshin. So now, we're going to see together how to represent the conditions that we have at the input of this generation models. So the first kind of condition that we can have is the text one.",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "So the text world, when it comes to representing embeddings has a long history. And I'm not going to go through the whole history of how we represent embeddings. I'm just going to focus on how people do it today. And the way they do it is with",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "transformer-based architectures. So let's first see how we can decompose the input sentence. So we have this concept called tokenization, which is the practice of decomposing any piece of text into atomic components. So you can have something that operates",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "at an arbitrary level, word level, subword level or character level. And a software level is usually algorithms that learn how to best decompose the tokens with respect to the data by focusing a vocabulary budget on those tokens that most frequently occur.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "And the tokenization technique that's most used these days is subword. But for simplicity, the one that you're going to see in the slides is more towards arbitrary, but it's just for representation purposes. So who knows about transformers? OK, so most of you.",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "So there is a sister course that talks about transformers at length. I'm not going to talk about transformers at length, but just give the main pieces of information that you should know. So it is an encoder, decoder architecture that is centered on the",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "concept of extension. And it came out in 2017. And most of the language models that you see today are based off of it. Even vision models, you have many of them that are based on the transformer. And the good thing about it that made it work well is that it's",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "inductive biases are based on the concept of attention that proved to be generalizable. And let's focus now on this concept of attention. So if we had to summarize in a single sentence what it is, it is the practice of representing a given piece of input as a",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "function of all the others. And here, with the example, a cute Teddy bear is reading, if we want to represent in the space of attention the token Teddy bear, what we do is that we have embeddings for all these tokens. You have learnable matrices",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "that will turn them into the space of queries, q, keys, k, and values, v. And what you're going to learn is a distribution of keys-- of this key over keys. And the weights that you obtain are going to be those that you place on the corresponding values.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So in summary, you're able to represent the embedding of Teddy bear with respect to the others in this sentence in that way. And you can write this down in matrix form, which is this softmax term that represents this probability distribution.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "So the square root of DK is just a normalizing constant that prevents the sum from becoming too large. So the dimension of these queries and keys. And multiplied by the value, which carries the embedding of the values. So you can find this attention layer",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "at three different locations. So two of them are self-attention layers. So in the encoder and another one masked self-attention, which conveys the fact that tokens can attend only on those that were predicted before. And then you have another",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "layer, where attention occurs, which is called cross attention, which will make these queries attend on other encoded keys and values. So this is the high level. And in just a few words, the main components is that your input tokens",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "are converted into embeddings with a learnable layer. You add some information regarding the position of your tokens. Then you make it through or go through an encoder that will apply this concept of attention and also add on top of it some learnable mechanism",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "to add some complexity for each tokens representation, which is those feedforward network. And then the decoder level, when you want to generate, let's say a sentence, you start with some placeholder token that you-- for which you add position",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "embeddings as well, that you self-attention and then perform cross-attention with respect to your encoders tokens. And then you also have feedforward there to finally obtain your output. So I'm telling you all that to mention that there are locations where",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "embeddings can be extracted out of all of these. So if you use the encoder part of the network, you can find the ends of the encoders, a location where you have an encoded meaning of your inputs tokens. And this is typically one of those locations,",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "where you could say these are the embeddings of my input. OK, great. So now, doing the same for images. Let's say you have a condition that is based on images. One thing that is pretty nice is that everything that we mentioned just now",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "can be reproduced with images. So all these token representations are just numbers. And you could well represent these numbers. You can associate them with patches of images. And this is what the ViT vision transformer paper does, which",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "follows the same principle. But instead of learning embeddings on tokens, you learn embeddings of on patches of images. So everything stays the same. And you can perform tasks, such as image classification with it. And something that I haven't",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "done in the tech space that we can do here together in this image world, is to see how these pieces come together in this example of a Teddy bear reading a book. So here, you decompose your image into these patches that we mentioned. Each of these patches,",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "you have a learnable layer that gives you an initial representation of what they mean. So in the case of text, you would have a dictionary of tokens that are mapped to embeddings. But here, you have something that is more continuous.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "So you can have a linear layer. You can have a convolutional layer. You can have everything you want. So you have something at that stage that gives a representation of these patches. And then in a classification setting, you have a token.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "So for example here, CLS that will carry information regarding the class of your image that you want to predict. So each of these can be represented by embeddings. And we mentioned that we have position information encoded in them.",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "And next class, we're going to see more about position encoding and all of this. So I'm not going to expand too much. So you have a representation for each of these patches of your input that you then feed your VIT. And exactly, as we mentioned,",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "at the output of the encoder, you can locate one specific embedding that carries the semantic information of your input image. So here, it would be the output corresponding to the CLS token that here, you project to learn a classification task for example.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "But let's say you are at a representation stage of your workflow. You would just take the embedding that you see in orange at the top as your representation of the image. OK, great. So something that I didn't tell you is that for texts, doing that process",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "is cheap in data because the task that we use to learn these models is self-supervised by nature. We anchor on next token prediction in the world of text, and you have a bunch of text in the internet. It's easy to have such data, and it's easy to learn.",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "But in the image world, if you want to handcraft a similar task that is as meaningful as what we have in the text world, we have a bit more trouble. One of these candidates that I just shown is the classification task, for example, for which you",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "need to gather labels. So it's quite expensive. And I just want to say that one follow up work that works on embedding of images that we're not going to see in details today is Dino self-distillation with no Labels for which the concept is",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "to have a teacher and a student model that receive the different kinds of inputs. And they aim at learning similar probability distribution in the output that are prototypes. So I think it's a very interesting paper to see how we can build representations",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "out of no labels, just out of the images themselves. So OK. Great. So now, we went through how we can represent text and images. So did everything make sense so far? So we went slightly fast, but I just want to make sure we got the gist out of it.",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, the comment is in the image world. Do these images become tokenized? So you can think of them that way. The only difference is that we don't have a dictionary of tokens, but rather we look at them in a continuous manner. Because in the text world,",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "you would just have a lookup. But here, a learnable. So that's exactly right. Yeah. So the comment is depending on how you cut your image, you can have errors. Yeah, totally right. And this is why it's a hyperparameter. This ViT model comes with",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "different batch sizes, and this is one of the trade offs. Yeah, so I mean, absolutely. OK, awesome. So now that we have seen how to represent text and images separately, you might wonder, OK, hey, I want to generate a new image with conditioning.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "That depends on both, let's say, were I want to condition on either, but I don't want to have to deal with two spaces. So how would you bring them together? So what we want is to learn a relationship between text and image that has this nice",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "property of when you look at the embedding space, you want similar concepts, either image text to be grouped together, and dissimilar ones to be pushed away from each other with respect to some metric. So let's take the example of our Teddy bear",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "and something totally unrelated. Let's say a water polo ball. So the Teddy bear with the text token, Teddy bear is similar. Same with the water polo ball image and the water polo ball token. But the opposite pairs are nuts. And we want a way to",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "quantify each situation and learn it automatically. So how can we do that? So let's build a matrix of these two. So this is just phrasing in a different way What. I've just said. And what we want is Teddy bear and the image of Teddy",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "bear to be of high similarity. So what we're going to do is project these embeddings that we talked about in the same space. So we're going to build these vectors with the representations that we just saw before. So what we're doing here is the same.",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "So we have our patches of images alongside the CLS token that you pass through the VIT architecture. And then once you get the last embedding representation, what we're going to do is to project it in a space that we're going to have it",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "shared with the tech space. So the property of that projection layer that we built is that it's going to output a vector of same dimension by construction as the one for text. So we do that here. And then we do the same for the text world. So by the way, I",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "mentioned to you that we would look at embeddings at the end of the encoder layer. And here, I'm showing another procedure to get embeddings of text, which is to pass all of these tokens to the decoder and decode the one corresponding to the last token.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "And by construction of the attention mechanism and the transformer, these embedding coming out of the last token is going to represent the whole sentence. So it's another equivalent way of showing the representation of tokens. And we're going to take that",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "representation and project it, as we said, in that same shared space. And by construction, these u and v are now comparable. You can do dot products. You can compute similarities. And we define these similarity S variable that is the scaled dot product.",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "And one thing that we can do now is to transform this notion of similarity into some score that can be seen as a probability distribution through the softmax operator. So if you compute the exponential of the similarity between image Teddy bear and Teddy",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "bear over the sum of the exponentials of this image Teddy bear and all the other text tokens, you find the probability distribution that this image corresponds to that piece of text. So you can do that from a fixed image to the set of texts.",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "And you can do that on the other hand, with a fixed piece of text token to all the images. So you can have both ways. And what we do is that we can define two losses that look symmetric, that represents respectively, how similar, like the penalization of any",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "error of a fixed image based on all pieces of text and similarity error of a piece of text with respect to all the images. So it's symmetric cross entropy. And then when we sum these two losses, we can obtain a final formulation that",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "represents what we care about. So that is the key of the CLIP model that trains the representations of both image and text worlds into, like with this way of training things. So what we do is that we scrape a bunch of images and captions off of the internet.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "And then for a given batch, we say that a given image has its associated caption as the true label, and then all the other captions in that batch are negatives. So it's called in batch negatives. And you do the same thing of captions with respect",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "to all the images. And you obtain that way final embeddings in the text and image encoders here that will generate the representation that you're looking for. So here, just to give some order of magnitude, the paper talked about 400M pairs of data.",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "And it's great reach great accuracy even unsupervised tasks. But the issue here is this softmax. So every time you have a huge batch of data, you need to build a similarity matrix of a fixed image with respect to all the captions and symmetrically.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "And this is not a great computationally. And also, from a mining standpoint, what you're truly saying in your loss is that you want to maximize the similarity of your true image caption pair, but you don't it's truly enforce the fact",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "that all the other similarities should be each very small. So some follow up work reframes this problem into a sigmoid loss one. So instead of saying I want this one image to have a probability distribution that matches that of the true caption,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "we take one caption and one image separately, and we ask ourselves the question, do they match or not? And by doing so you don't have all this similarity matrix complexities. And also, you have a stronger statement at your loss level",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "that's pushes the positives together and the negatives further apart. OK, so any questions on this contrastive learning part? Yep? The question is, do you start from a pre-trained encoder, and what weights do you change? So I think in the paper,",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "they start from scratch. And they train both encoders from scratch. You could very well freeze or start with some pre-trained encoder. Freeze all the layers. Let the last layer. I think typically, you would just train everything. And in real life, I think you",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "just wouldn't train anything. You would just pick something out of Hugging Face. But yeah, in practice, since it's easy to get all this data-- so typically, you would scrape the internet. Look at images, and look at all tags in HTML.",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "So you can get all these pairs. So I think you're in such a setup, where doing it from scratch makes sense, but what you suggested makes sense as well. Yeah. So I think it depends on what works best. Yeah. So the question is the transformer architecture",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "a prerequisite for this task. Not at all. So you can do it with any encoders. And the reason why I talked about transformers is to ground the way of encoding into what people do in practice. But you don't have to have this architecture as a prerequisite. Yeah.",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "OK, awesome. So now, we're going to reach the most exciting part of the class, which is finally, how do you guide our generation model with the condition. And we're going to go back to thinking about what we discussed these past lectures. So we had this",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "diffusion mechanism, where you are at a given step here, xt plus 1. And you want to find the less noisy version of the image xt. And the thing that we want to do now is to do that with a condition that I called y, but that you might see called c in papers.",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "So you want to guide the generation towards generating a sample that follows y. So a first idea that you might have is OK, it's a classification. There is a concept of classification. I can come up with a classifier of weights phi and try to make it work.",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "So how could you make it work? You start from this probability distribution that you want to sample from. And then by applying Bayes' rule, like the conditional version with the right arguments for A, B, and C, you obtain this product of two probability",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "distributions that you can see on the left represents the one step generation process that we know. And on the right side, you have the probability distribution of y given xt, which would typically be what the classifier would give you.",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "So now, let's see how we could sample from this. So taking a look at the probability distribution on the left. So if we recall the first lecture, let's say in the DDPM world, you know that this probability distribution follows a normal distribution of a mean",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "that we learn and of variance that is following a noise schedule. So we don't learn it. It's something that we have. So we know the expression of this. If you look at the probability distribution of this, it's something that we know.",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "So we have that on one hand. And on the other, we look at our probability distribution at the end of the classifier. So here, why are we not happy with that-- I mean, we have the data of the probability distribution. You just have to put the noisy",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "image to your classifier, and then you have it. You have a probability distribution. Why are we not happy with that? It's because we cannot plug it into that product equation that we saw and then easily sample from it. We want to reframe it in a way that we",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "can have this nice Gaussian distribution that we had, for example, at the unconditioned generation step. So what we do is that we have a trick that expands this probability distribution with a Taylor expansion. And then you come up with a first term",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "that is a function of xt. And when you plug the probability, I mean the log of p phi that we just found into this product, you see that the probability distribution that you want to learn is simply the same one that you had, but with a shifted mean.",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "So I just want to take a pause for a second. So we went through a process that where we tried to find an easy probability distribution to sample from. So we went through a series of equations. But all I want you to know from all of that is that we tried to get",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "to this state, where we can sample from an easy distribution, and that's what we reached. So in some way, we're happy. And then here, what's good about it is that you don't need to retrain your unconditioned model. So your theta and your",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "sigma t are things that. And there is a downside to it. Now, I mentioned classifiers. You need to learn a classifier that operates on noisy images. And the process here is that you need to have that classifier that predicts some probability",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "distribution, and then you need to take the backward pass on the network in order to find the gradient. Did that make sense so far? OK, great. So when we sample from the distribution that I mentioned in practice, one thing that people see is that it doesn't",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "produce samples that follow the y condition enough. So this is why you see that W factor being introduced that can be tuned to force the generation process to follow the classifier's gradients more. And this is what we call the guidance part. So we saw that we",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "don't have to retrain the unconditioned model in order to sample from this distribution. But on the other hand, you need to have a classifier that operates on top of a domain that can be composed of noisy images. And the bad thing about",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "it is that you typically don't have that out of the box. So it's typically something that you have to train as part of your training process, which is a downside. And also, the fact that you need to compute the backwards pass of your classifier",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "is quite expensive, which is also not great. And something else that I will mention is that you not only need to have that extra classifier and spend all these budgets to compute the gradients, but you need to make sure that the signal of your gradients",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "scales well with the coefficient w that you introduce. So you need some hyperparameter tuning to make sure that the operation that you're doing is meaningful. So one question that you might ask yourself, is it possible to do this guided",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "generation without the needs of a classifier? And the answer is yes. So if you use Bayes' formula, you can see that you can define an implicit classifier, so called p of y given x based on the generation, like the unconditioned generation of your image",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "and the conditioned generation of your image, so conditioned on y. Which means that if you have a network that can generate an image without any conditions and that can generate an image with a given condition, then you can solve this problem",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "by plugging this equation back into what we had, which is what we do here. So the equation that I showed regarding the distribution of the next sampling step can be written in epsilon space. So I mentioned this Gaussian distribution of shifted mean.",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "You can rewrite the noise that you want to predict into one that takes into account that classifier signal. And what the authors of the paper of the classifier free guidance paper did is that they plugged in the P phi. Expression with the implicit classifier,",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "the expression that I just mentioned before. And they obtained this very nice expression that is a function of the noise that we want to remove based on a model that isn't fed any condition, and one for which a condition is provided. And what you can",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "see is that there is this w term in the middle that has about the same interpretation as the one that we saw before that will tweak the generation to be more or less towards the condition that you bring. So there's that. And then now, we are",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "happy because we no longer have to train separate classifier phi. We can just rely on the generation network's weights. So how does that look like in practice? So with a certain probability called the unconditional probability, what",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "you can do is sample an image from your training set, and time step, and noise, and try to predict the noise from it, which is what we saw in the past. And with probability 1 minus p unconditional, what you can do is do the same. But then use the embeddings",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "that we saw in the parts just before to feed that network with this additional information and predict the quantity of noise to remove with the condition y. So you do that 1 minus p and conditional times. And what you get is something interesting,",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "which is if you look at how your predictions look like, so let's say the noise that you want to remove is the points top left, and then the noise that you want to remove when you have a condition is the one in the middle. Then the guidance hyperparameter w",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "will push the prediction of the noise more towards the noise of the condition sample. And the reason why we do that is that because in practice, if you don't have this hyperparameter, you tend. And if you just use the condition sample noise",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "as the one that you use to denoise your noisy latents, you might obtain images that do not follow your prompts very closely. And this is why we have such a hyperparameter in the first place. In terms of numbers, the guidance parameter is typically",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "set to just a few, I think three. In the paper, so typically more than one. And I just want to put a disclaimer here that the equations that I showed with the classifier guidance hyperparameter might have several definitions. So you might see formulas",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "with w in there, w plus 1. So all these values of w that you take are dependent on the equation that you operate from. So this is 1. And then the other thing is that in practice at training time, the proportion of time for which you",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "show unconditioned generation is typically 10%, 20% of time. And this time, you do not need to have an additional classifier at hand and to do an expensive backward pass. But you still need to do two inference steps. Because we saw that the",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "equation has this epsilon theta of xt and no condition, and the one with the condition which is 2 forward passes. So you still have some extra cost, although it's better than the other technique. And this technique, CFG is the one that's most used today. OK.",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "So any questions? OK, great. With that, I hope you have a great weekend. [APPLAUSE]",
+      "start": 1590,
+      "duration": 6
+    }
+  ]
+}

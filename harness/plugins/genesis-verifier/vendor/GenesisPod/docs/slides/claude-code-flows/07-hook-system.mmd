@@ -1,0 +1,67 @@
+sequenceDiagram
+  participant MODEL as Claude Model
+  participant EXEC as toolExecution.ts
+  participant PRE as PreToolUse Hooks
+  participant TOOL as Tool.call()
+  participant POST as PostToolUse Hooks
+  participant FAIL as PostToolUseFailure Hooks
+
+  MODEL->>EXEC: tool_use { name, input }
+
+  Note over EXEC: Phase 1: Pre-Tool Hooks
+
+  EXEC->>PRE: runPreToolUseHooks()
+  Note over PRE: 4 hook types:<br/>command | prompt | http | agent
+
+  alt Hook returns updatedInput
+    PRE-->>EXEC: { updatedInput: { ... } }
+    Note over EXEC: Replace original input
+  end
+
+  alt Hook blocks execution
+    PRE-->>EXEC: { continue: false, stopReason }
+    EXEC-->>MODEL: tool_result (blocked by hook)
+  end
+
+  alt Hook runs async
+    PRE-->>EXEC: { async: true }
+    Note over PRE: Continues in background
+    Note over EXEC: Does NOT wait
+  end
+
+  PRE-->>EXEC: { continue: true }
+
+  Note over EXEC: Phase 2: Tool Execution
+
+  EXEC->>TOOL: tool.call(input, context, canUseTool)
+  Note over TOOL: Progress streamed via onProgress callback
+
+  alt Success
+    TOOL-->>EXEC: ToolResult { output, contextModifier? }
+
+    Note over EXEC: Phase 3: Post-Tool Hooks
+
+    EXEC->>POST: runPostToolUseHooks(toolName, input, output)
+
+    alt Hook injects context
+      POST-->>EXEC: { additionalContext: "..." }
+      Note over EXEC: Appended as system message
+    end
+
+    alt Hook modifies MCP output
+      POST-->>EXEC: { updatedMCPToolOutput: {...} }
+      Note over EXEC: Replace original output
+    end
+
+    POST-->>EXEC: done
+    EXEC-->>MODEL: tool_result + context
+  end
+
+  alt Failure
+    TOOL-->>EXEC: Error thrown
+
+    EXEC->>FAIL: runPostToolUseFailureHooks()
+    FAIL-->>EXEC: { handled? }
+
+    EXEC-->>MODEL: tool_result (is_error: true)
+  end

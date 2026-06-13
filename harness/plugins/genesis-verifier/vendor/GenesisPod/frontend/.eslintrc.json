@@ -1,0 +1,195 @@
+{
+  "ignorePatterns": ["next.config.js", "scripts/**/*.js"],
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:@typescript-eslint/recommended-requiring-type-checking",
+    "plugin:react-hooks/recommended",
+    "prettier"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "project": "./tsconfig.json",
+    "ecmaVersion": 2021,
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "rules": {
+    // React规则
+    "react/no-unescaped-entities": "off",
+    "react/jsx-no-target-blank": "error",
+    "react/jsx-key": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+
+    // Next.js规则
+    "@next/next/no-page-custom-font": "off",
+    "@next/next/no-html-link-for-pages": "error",
+
+    // TypeScript规则
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "destructuredArrayIgnorePattern": "^_"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "error", // Now enforced - any types must be justified with eslint-disable
+    "@typescript-eslint/no-non-null-assertion": "warn",
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    // Promise handling - temporarily relaxed for legacy code
+    "@typescript-eslint/no-floating-promises": "warn",
+    "@typescript-eslint/no-misused-promises": "warn",
+
+    // Unsafe type rules - temporarily relaxed for legacy code
+    "@typescript-eslint/no-unsafe-assignment": "warn",
+    "@typescript-eslint/no-unsafe-argument": "warn",
+    "@typescript-eslint/no-unsafe-member-access": "warn",
+    "@typescript-eslint/no-unsafe-call": "warn",
+    "@typescript-eslint/no-unsafe-return": "warn",
+    "@typescript-eslint/no-unnecessary-type-assertion": "warn",
+    "@typescript-eslint/no-unsafe-enum-comparison": "warn",
+    "@typescript-eslint/require-await": "warn",
+    "@typescript-eslint/await-thenable": "warn",
+    "@typescript-eslint/no-redundant-type-constituents": "warn",
+    "@typescript-eslint/restrict-template-expressions": "warn",
+
+    // 代码质量
+    "no-console": [
+      "warn",
+      {
+        "allow": ["warn", "error"]
+      }
+    ],
+    "no-debugger": "error",
+    "no-alert": "warn", // window.prompt 仍允许（重命名/原因输入）；alert/confirm 见下方硬禁
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "alert",
+        "message": "禁用原生 alert()；用 toast（@/stores）：toast.error/info(title, msg)"
+      },
+      {
+        "name": "confirm",
+        "message": "禁用原生 confirm()；用全局 confirm（@/stores）：await confirm({ title, type })"
+      }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "window",
+        "property": "alert",
+        "message": "禁用 window.alert()；用 toast（@/stores）"
+      },
+      {
+        "object": "window",
+        "property": "confirm",
+        "message": "禁用 window.confirm()；用全局 confirm（@/stores）"
+      }
+    ],
+    "prefer-const": "error",
+    "no-var": "error",
+
+    // ★ B5-2 (2026-05-26 thinning plan §B5-2 / §3.4 single-track truth) + B4-4a 升级
+    //
+    // 精细化策略：禁止 truth-function 命名导入，但 type-only 导入仍允许
+    // （type 没有 runtime 行为；component 仅引用 DerivedView/MissionState 等 type
+    // 时不构成 truth derivation）。等 B4-4 component prop cutover 完成后再把这条
+    // 规则升级为"完全禁止任何 import"。
+    //
+    // 使用 @typescript-eslint/no-restricted-imports 因为它支持 allowTypeImports。
+    "no-restricted-imports": "off",
+    "@typescript-eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "*/agent-playground/derive",
+              "*/agent-playground/todo-ledger",
+              "*/agent-playground/synthesize-artifact",
+              "*/agent-playground/drawer-derive"
+            ],
+            "message": "W7 cutover: derive.ts / todo-ledger.ts / synthesize-artifact.ts 已删除；drawer-derive 须走 *-shapes 代理。类型走 mission-presentation.types.ts / mission-todo.types.ts；truth 走 useMissionDetailView / GET /missions/:id/view（canonical view）。"
+          }
+        ]
+      }
+    ],
+
+    // ★ Hydration 安全规则：禁止 locale-dependent 方法（SSR/CSR 结果不一致）
+    // - toLocaleDateString/toLocaleTimeString: 使用 <ClientDate> 组件
+    // - toLocaleString: 直接显示数字或使用 Intl.NumberFormat 在客户端格式化
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "CallExpression[callee.property.name='toLocaleDateString']",
+        "message": "Avoid toLocaleDateString() - causes hydration errors. Use <ClientDate> component or formatDateSafe() from '@/lib/utils/date'."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='toLocaleTimeString']",
+        "message": "Avoid toLocaleTimeString() - causes hydration errors. Use <ClientDate> component or formatDateSafe() from '@/lib/utils/date'."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='toLocaleString']",
+        "message": "Avoid toLocaleString() in JSX - causes hydration errors. For numbers, display directly or format in useEffect/event handlers."
+      },
+      {
+        "selector": "TSAsExpression[typeAnnotation.type='TSArrayType'][typeAnnotation.elementType.type='TSStringKeyword']",
+        "message": "禁止 `(x as string[])` lying assertion — backend 实际可能 emit object[]，导致 `.slice/.map` 运行时崩溃。改用 `(x as unknown[]).map(item => typeof item === 'string' ? item : String(item))` 或走 zod schema parse。"
+      },
+      {
+        "selector": "TSAsExpression[typeAnnotation.type='TSArrayType'][typeAnnotation.elementType.type='TSNumberKeyword']",
+        "message": "禁止 `(x as number[])` lying assertion — 同上，请用运行时 type-check 或 zod parse。"
+      },
+      {
+        "selector": "TSAsExpression[typeAnnotation.type='TSArrayType'][typeAnnotation.elementType.type='TSBooleanKeyword']",
+        "message": "禁止 `(x as boolean[])` lying assertion — 同上，请用运行时 type-check 或 zod parse。"
+      },
+      {
+        "selector": "CallExpression[callee.name=/^useApi(Get|Post|Put|Delete|Mutation)$/] > Literal[value=/^\\/api\\/(?!test)/]",
+        "message": "useApi* path 禁带 /api/ 前缀 — apiClient.baseUrl 已含 /api/v1，双前缀拼出 /api/v1/api/... → backend 必 404。写 '/notifications/...' 不是 '/api/notifications/...'（spec mock /api/test 例外）。"
+      },
+      {
+        "selector": "CallExpression[callee.object.name='apiClient'] > Literal[value=/^\\/api\\/(?!test)/]",
+        "message": "apiClient.X(path) path 禁带 /api/ 前缀 — buildUrl 拼到 baseUrl=/api/v1 上变双前缀必 404。"
+      },
+      {
+        "selector": "TemplateLiteral > TemplateElement.quasis[0][value.raw=/^\\/api\\/(?!test)/]",
+        "message": "模板字符串 path 禁带 /api/ 前缀 — apiClient.baseUrl 已含 /api/v1，双前缀拼出 /api/v1/api/... → backend 必 404。写 `/radar/...` 不是 `/api/v1/radar/...`。"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["components/common/ClientDate.tsx"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*.{ts,tsx}"],
+      "rules": {
+        "@typescript-eslint/unbound-method": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unsafe-assignment": "off",
+        "@typescript-eslint/no-unsafe-member-access": "off",
+        "@typescript-eslint/no-unsafe-call": "off",
+        "@typescript-eslint/no-unnecessary-type-assertion": "off",
+        "@typescript-eslint/no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "lib/features/agent-playground/drawer-derive.ts",
+        "lib/features/agent-playground/mission-presentation.types.ts",
+        "lib/features/agent-playground/mission-todo.types.ts",
+        "lib/features/agent-playground/drawer-derive-shapes.ts"
+      ],
+      "rules": {
+        "@typescript-eslint/no-restricted-imports": "off"
+      }
+    }
+  ]
+}

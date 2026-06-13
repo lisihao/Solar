@@ -1,0 +1,277 @@
+# AI Insights — Comprehensive Test Scenarios
+# Covers: boundary conditions, edge cases, performance, regression tests
+
+# ============================================================
+# 1. Report Rendering Regression Tests
+# (Prevents recurrence of formula/truncation bugs)
+# ============================================================
+report_rendering_regression:
+  # ─── LaTeX Formula Regression ───
+  latex_formula_rendering:
+    id: INS-LAT-001
+    tier: critical
+    description: "Inline $...$ formula with nested \\text{} renders correctly"
+    input: "$C_{\\text{task}} \\approx \\frac{E[\\text{步数}]}{P(\\text{完成})}$"
+    expected:
+      - ".katex element present"
+      - "No raw \\text{} visible"
+      - "No .katex-error"
+    regression_for: "repairLatexCommands Fix 3 — destroyed nested braces"
+
+  latex_text_in_subscript:
+    id: INS-LAT-002
+    tier: critical
+    description: "\\text{} inside subscript C_{\\text{x}} not broken"
+    verify: "C_{\\text{task}} renders with correct subscript"
+    regression_for: "repairLatexCommands stripped }} from C_{\\text{task}}"
+
+  latex_text_in_frac:
+    id: INS-LAT-003
+    tier: critical
+    description: "\\text{} inside \\frac{}{} not broken"
+    verify: "\\frac{\\text{num}}{\\text{den}} renders correctly"
+    regression_for: "repairLatexCommands stripped } from \\frac{\\text{}}"
+
+  latex_cjk_boundary:
+    id: INS-LAT-004
+    tier: critical
+    description: "CJK text in \\text{} does not fragment formula"
+    input: "$C_{\\text{task}} \\approx \\frac{E[\\text{步数}] \\times C_{\\text{step}}}{P(\\text{完成})}$"
+    expected:
+      - "Formula not split into multiple $...$ fragments"
+      - "\\times not separately wrapped as $\\times$"
+    regression_for: "wrapInlineLatex CJK boundary penetrated $...$ delimiters"
+
+  latex_currency_vs_delimiter:
+    id: INS-LAT-005
+    tier: important
+    description: "Currency $147B not confused with LaTeX delimiter"
+    input: "Market valued at $147B in 2026"
+    expected: "147B displayed as text, not parsed as math"
+
+  latex_display_math:
+    id: INS-LAT-006
+    tier: important
+    description: "Display math $$...$$ renders as block equation"
+    input: "$$\\sum_{i=1}^{n} x_i = S$$"
+    expected: "Centered block equation"
+
+  # ─── Report Completeness Regression ───
+  fullreport_not_truncated:
+    id: INS-RPT-001
+    tier: critical
+    description: "fullReport contains all dimensions, not truncated"
+    verify:
+      - "Count ## N. headings in continuous view"
+      - "Compare with dimension count from API"
+      - "Must match"
+    regression_for: "mergeAdjacentMathBlocks cascading regex failure"
+
+  fullreport_references_present:
+    id: INS-RPT-002
+    tier: critical
+    description: "References section present at end of report"
+    verify: "Text '参考文献' or 'References' visible at bottom"
+
+  no_placeholder_leak:
+    id: INS-RPT-003
+    tier: critical
+    description: "No chart/figure placeholders leaked to UI"
+    verify: "No text matching '<!-- chart:' or '<!-- figure:' or 'LATEX\\d+'"
+
+# ============================================================
+# 2. View Mode Scenarios
+# ============================================================
+view_modes:
+  continuous_view_complete:
+    id: INS-VIEW-001
+    tier: critical
+    description: "Continuous view renders complete report"
+    steps:
+      - "Navigate to report tab"
+      - "Switch to continuous view"
+      - "Scroll to bottom"
+    verify:
+      - "All dimension sections present"
+      - "No truncation at end"
+      - "References visible after last dimension"
+
+  chapter_view_navigation:
+    id: INS-VIEW-002
+    tier: critical
+    description: "Chapter view navigation works for all chapters"
+    steps:
+      - "Switch to chapter view"
+      - "Click each chapter in navigation"
+    verify:
+      - "Each chapter shows detailedContent (not just summary)"
+      - "Word count updates per chapter"
+      - "← → buttons cycle through all chapters"
+
+  view_mode_switch:
+    id: INS-VIEW-003
+    tier: important
+    description: "Switching between continuous and chapter views preserves content"
+    steps:
+      - "View in continuous mode"
+      - "Switch to chapter mode"
+      - "Switch back to continuous mode"
+    verify: "Content identical before and after switch"
+
+# ============================================================
+# 3. Export Scenarios
+# ============================================================
+export:
+  export_pdf:
+    id: INS-EXP-001
+    tier: critical
+    description: "Export report as PDF"
+    steps:
+      - "Click export button"
+      - "Select PDF format"
+      - "Click export/download"
+    verify: "PDF download starts or export job completes"
+
+  export_docx:
+    id: INS-EXP-002
+    tier: important
+    description: "Export report as DOCX"
+    steps:
+      - "Click export button"
+      - "Select DOCX format"
+      - "Click export/download"
+    verify: "DOCX download starts"
+
+  export_wysiwyg_fallback:
+    id: INS-EXP-003
+    tier: important
+    description: "WYSIWYG fallback shows toast when large body fails"
+    precondition: "Network throttled or proxy blocks large requests"
+    verify: "Toast warning appears about export mode degradation"
+
+# ============================================================
+# 4. Research Control Scenarios
+# ============================================================
+research_controls:
+  start_research:
+    id: INS-CTL-001
+    tier: critical
+    description: "Start research from topic detail page"
+    precondition: "Topic in ACTIVE state"
+    steps:
+      - "Click Start/Refresh button"
+    verify:
+      - "Research begins"
+      - "Progress bar starts updating"
+      - "Team topology shows agents active"
+
+  cancel_research:
+    id: INS-CTL-002
+    tier: important
+    description: "Cancel running research"
+    precondition: "Research in progress"
+    steps:
+      - "Click Cancel button"
+      - "Confirm cancellation"
+    verify: "Research stops, status updates to cancelled"
+
+  leader_instruction:
+    id: INS-CTL-003
+    tier: important
+    description: "Send instruction to research leader"
+    steps:
+      - "Type instruction in input box"
+      - "Press Enter or click Send"
+    verify: "Leader processes instruction, response appears"
+
+# ============================================================
+# 5. Collaboration & Todo Scenarios
+# ============================================================
+collaboration:
+  todo_list_updates:
+    id: INS-COL-001
+    tier: important
+    description: "Todo list reflects research task status"
+    verify:
+      - "Tasks show correct status (PENDING/IN_PROGRESS/COMPLETED)"
+      - "Task count matches expected"
+
+  agent_activity_timeline:
+    id: INS-COL-002
+    tier: important
+    description: "Agent activities show in collaboration tab"
+    verify: "Timeline entries visible with agent names and actions"
+
+  websocket_realtime:
+    id: INS-COL-003
+    tier: important
+    description: "WebSocket events update UI in real-time"
+    verify:
+      - "Progress bar updates without refresh"
+      - "New todo items appear automatically"
+      - "Agent status changes reflect in team topology"
+
+# ============================================================
+# 6. Edge Cases & Boundary Conditions
+# ============================================================
+edge_cases:
+  empty_report:
+    id: INS-EDGE-001
+    tier: important
+    description: "Topic with no report shows friendly empty state"
+    verify: "Empty state message, not blank or error"
+
+  single_dimension:
+    id: INS-EDGE-002
+    tier: important
+    description: "Report with 1 dimension renders correctly"
+    verify: "Single chapter view works, no navigation arrows needed"
+
+  large_report:
+    id: INS-EDGE-003
+    tier: important
+    description: "Report with 8+ dimensions and 160K+ chars renders"
+    verify: "No crash, scrolling works, all dimensions present"
+
+  report_with_many_references:
+    id: INS-EDGE-004
+    tier: standard
+    description: "Report with 300+ references loads without lag"
+    verify: "References tab loads, scrolling smooth"
+
+  topic_with_failed_research:
+    id: INS-EDGE-005
+    tier: important
+    description: "Topic where research failed shows error state"
+    verify: "Error message visible, retry button available"
+
+# ============================================================
+# 7. Performance Benchmarks
+# ============================================================
+performance:
+  report_tab_load:
+    id: INS-PERF-001
+    tier: critical
+    description: "Report tab initial render"
+    threshold: "< 3 seconds"
+    measurement: "Time from tab click to content visible"
+
+  chapter_switch:
+    id: INS-PERF-002
+    tier: important
+    description: "Chapter navigation switch"
+    threshold: "< 500ms"
+    measurement: "Time from click to new chapter visible"
+
+  view_mode_toggle:
+    id: INS-PERF-003
+    tier: important
+    description: "Toggle between continuous and chapter view"
+    threshold: "< 1 second"
+
+  latex_render_time:
+    id: INS-PERF-004
+    tier: important
+    description: "LaTeX formulas complete rendering"
+    threshold: "< 2 seconds after content load"
+    verify: "No visible flash of raw LaTeX before rendered math"

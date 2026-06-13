@@ -1,0 +1,138 @@
+# Cross-Module Integration Scenarios
+# Covers: INT-LIB-ASK-001~003, INT-EXP-LIB-001~003, INT-RES-LIB-001~003,
+#          INT-TMS-RES-001~002, AUT-TKN-001~002, E2E-001~010 from comprehensive-test-suite-2026-02-17.md
+
+# Knowledge Base -> Ask Integration
+- id: int-kb-create-then-ask
+  test_plan_ids: [INT-LIB-ASK-001]
+  route: /library
+  auth: demo
+  description: "Create knowledge base, then use it in Ask"
+  assertions:
+    - text_not_contains: "[object Object]"
+    - text_not_contains: "Error"
+
+- id: int-kb-multi-doc-ask
+  test_plan_ids: [INT-LIB-ASK-002]
+  description: "Upload 5+ documents to knowledge base, cross-document query in Ask"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: int-kb-update-sync
+  test_plan_ids: [INT-LIB-ASK-003]
+  description: "Add new doc to knowledge base, Ask immediately picks it up"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: int-kb-delete-graceful
+  test_plan_ids: [INT-RAG-ASK-001]
+  description: "Delete knowledge base, Ask shows friendly message"
+  expected: "No crash, friendly 'knowledge base not found' message"
+
+- id: int-kb-empty-ask
+  test_plan_ids: [INT-RAG-ASK-002]
+  description: "Empty knowledge base, Ask falls back to general response"
+  expected: "Graceful degradation to general AI response"
+
+# Explore -> Library Integration
+- id: int-explore-to-library
+  test_plan_ids: [INT-EXP-LIB-001]
+  route: /explore
+  auth: demo
+  description: "Collect resources in Explore, import to Library"
+  assertions:
+    - text_not_contains: "[object Object]"
+
+- id: int-youtube-to-library
+  test_plan_ids: [INT-EXP-LIB-002]
+  route: /explore/youtube
+  auth: demo
+  description: "YouTube video subtitle import to Library"
+  assertions:
+    - text_not_contains: "Error"
+
+# Research -> Library/Ask Integration
+- id: int-research-to-library
+  test_plan_ids: [INT-RES-LIB-001]
+  description: "Export research report to Library knowledge base"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: int-kb-as-research-source
+  test_plan_ids: [INT-RES-LIB-002]
+  description: "Use knowledge base as data source for research"
+  assertions:
+    - text_not_contains: "Error"
+
+# Teams x Research x Writing
+- id: int-teams-to-research-to-writing
+  test_plan_ids: [INT-TMS-RES-001]
+  description: "Team discussion output feeds into research, then writing"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: int-research-to-teams-review
+  test_plan_ids: [INT-TMS-RES-002]
+  description: "Research results reviewed by team discussion"
+  assertions:
+    - text_not_contains: "Error"
+
+# Auth Chain Integration
+- id: int-auth-no-token
+  test_plan_ids: [AUT-TKN-001]
+  description: "All APIs reject unauthenticated requests"
+  method: api
+  auth: none
+  endpoints:
+    - "/api/ai-ask/conversations"
+    - "/api/ai-research/topics"
+    - "/api/ai-teams/topics"
+    - "/api/ai-writing/projects"
+    - "/api/resources/libraries"
+  expected: "All return 401"
+
+- id: int-auth-expired-token
+  test_plan_ids: [AUT-TKN-002]
+  description: "All APIs reject expired JWT tokens"
+  method: api
+  auth: expired
+  expected: "All return 401"
+
+- id: int-credits-zero
+  test_plan_ids: [BND-PRM-001]
+  description: "AI calls rejected when credits = 0"
+  method: api
+  auth: demo
+  credits: 0
+  expected: "Friendly 'insufficient credits' message"
+
+# End-to-End Scenarios
+- id: e2e-full-research
+  test_plan_ids: [E2E-001]
+  description: "Full research workflow: Ask pre-research -> Research plan -> Execute -> Report -> PDF"
+  expected: "Complete report with citations"
+
+- id: e2e-kb-workflow
+  test_plan_ids: [E2E-002]
+  description: "Knowledge base workflow: Explore -> Collect -> Library -> Ask"
+  expected: "Accurate Q&A from collected resources"
+
+- id: e2e-team-decision
+  test_plan_ids: [E2E-003]
+  description: "Team decision: Create team -> Add agents -> Discuss -> Vote -> Report"
+  expected: "Complete conclusion report"
+
+- id: e2e-writing-workflow
+  test_plan_ids: [E2E-004]
+  description: "Writing workflow: New -> Outline -> Expand -> Consistency check -> Export"
+  expected: "Coherent long-form content"
+
+- id: e2e-ppt-workflow
+  test_plan_ids: [E2E-005]
+  description: "PPT workflow: Create -> Plan -> Generate -> Edit -> Export"
+  expected: "Usable PPT file"
+
+- id: e2e-mixture-comparison
+  test_plan_ids: [E2E-006]
+  description: "Multi-model comparison: Mixture ask -> Compare -> Choose best -> Deep follow-up"
+  expected: "Distinct responses from each model"
