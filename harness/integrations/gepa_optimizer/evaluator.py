@@ -49,7 +49,7 @@ import resource
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Collection, Sequence
+from typing import Any, Collection, Literal, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +140,10 @@ class EvaluatorResult:
     stderr_snippet:
         Up to 2 KiB of sanitised stderr; intended for local debugging only
         and not forwarded outside the harness boundary.
+    asi_payload:
+        Structured ASI payload when ``return_mode="structured"`` and the
+        subprocess returned ``asi_payload`` in its JSON output.
+        ``None`` when ``return_mode="scalar"`` or on any failure path.
     """
 
     ok: bool
@@ -149,15 +153,18 @@ class EvaluatorResult:
     exit_code: int | None = None
     timed_out: bool = False
     stderr_snippet: str = ""
+    asi_payload: Optional[Any] = None
 
     @classmethod
     def success(
         cls,
         score: float,
         metadata: dict[str, Any] | None = None,
+        asi_payload: Any | None = None,
     ) -> "EvaluatorResult":
         """Construct a successful result."""
-        return cls(ok=True, score=score, metadata=metadata or {})
+        return cls(ok=True, score=score, metadata=metadata or {},
+                   asi_payload=asi_payload)
 
     @classmethod
     def failure(
@@ -167,6 +174,7 @@ class EvaluatorResult:
         exit_code: int | None = None,
         timed_out: bool = False,
         stderr_snippet: str = "",
+        asi_payload: Any | None = None,
     ) -> "EvaluatorResult":
         """Construct a failure result with a sanitised diagnostic."""
         return cls(
@@ -177,6 +185,7 @@ class EvaluatorResult:
             exit_code=exit_code,
             timed_out=timed_out,
             stderr_snippet=stderr_snippet,
+            asi_payload=asi_payload,
         )
 
 
@@ -329,6 +338,7 @@ class SubprocessEvaluator:
         cpu_limit_s: int | None = None,
         python_executable: str | None = None,
         extra_args: Sequence[str] = (),
+        return_mode: Literal["scalar", "structured"] = "scalar",
     ) -> None:
         resolved = Path(script).resolve()
         if not resolved.is_file():
@@ -355,6 +365,7 @@ class SubprocessEvaluator:
         self._cpu_limit_s: int | None = cpu_limit_s
         self._python: str = python_executable or sys.executable
         self._extra_args: tuple[str, ...] = tuple(extra_args)
+        self._return_mode: Literal["scalar", "structured"] = return_mode
 
     # ------------------------------------------------------------------
     # Callable interface
@@ -458,7 +469,7 @@ class SubprocessEvaluator:
                 stderr_snippet=stderr_snippet,
             )
 
-        return _parse_stdout(stdout_bytes, stderr_snippet)
+        return _parse_stdout(stdout_bytes, stderr_snippet, self._return_mode)
 
     # ------------------------------------------------------------------
     # Properties
@@ -490,7 +501,11 @@ class SubprocessEvaluator:
 # stdout parser (module-level to keep SubprocessEvaluator.__call__ readable)
 # ---------------------------------------------------------------------------
 
-def _parse_stdout(stdout_bytes: bytes, stderr_snippet: str) -> EvaluatorResult:
+def _parse_stdout(
+    stdout_bytes: bytes,
+    stderr_snippet: str,
+    return_mode: Literal["scalar", "structured"] = "scalar",
+) -> EvaluatorResult:
     """Parse subprocess stdout bytes into an :class:`EvaluatorResult`."""
     raw = stdout_bytes.decode(errors="replace").strip()
     if not raw:
@@ -541,5 +556,10 @@ def _parse_stdout(stdout_bytes: bytes, stderr_snippet: str) -> EvaluatorResult:
             stderr_snippet=stderr_snippet,
         )
 
-    metadata = {k: v for k, v in data.items() if k != "score"}
-    return EvaluatorResult.success(score, metadata)
+    # Extract asi_payload for structured mode
+    asi_payload: Any = None
+    if return_mode == "structured":
+        asi_payload = data.get("asi_payload")
+
+    metadata = {k: v for k, v in data.items() if k not in ("score", "asi_payload")}
+    return EvaluatorResult.success(score, metadata, asi_payload=asi_payload)

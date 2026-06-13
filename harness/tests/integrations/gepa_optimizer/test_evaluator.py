@@ -126,3 +126,129 @@ def test_application_level_error_in_json(tmp_path):
     result = ev("anything")
     assert result.ok is False
     assert "bad candidate format" in (result.error or "")
+
+
+# ---------------------------------------------------------------------------
+# B5: return_mode='structured' tests
+# ---------------------------------------------------------------------------
+
+
+def test_structured_mode_returns_asi_payload(tmp_path):
+    """structured mode: subprocess returns {score, asi_payload} → result.asi_payload populated."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import json, sys
+            data = json.load(sys.stdin)
+            print(json.dumps({
+                "score": 0.85,
+                "asi_payload": {
+                    "verifier_decision": "pass",
+                    "evidence_completeness": 0.73,
+                },
+            }))
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=10.0, return_mode="structured")
+    result = ev("test candidate")
+    assert result.ok is True
+    assert result.score == pytest.approx(0.85)
+    assert result.asi_payload is not None
+    assert result.asi_payload["verifier_decision"] == "pass"
+    assert result.asi_payload["evidence_completeness"] == pytest.approx(0.73)
+
+
+def test_scalar_mode_asi_payload_is_none(tmp_path):
+    """scalar mode (default): asi_payload is always None even if subprocess sends it."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import json, sys
+            json.load(sys.stdin)
+            print(json.dumps({"score": 0.9, "asi_payload": {"x": 1}}))
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=10.0)
+    result = ev("test candidate")
+    assert result.ok is True
+    assert result.asi_payload is None
+
+
+def test_structured_mode_no_asi_payload_in_output(tmp_path):
+    """structured mode: subprocess omits asi_payload → result.asi_payload is None."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import json, sys
+            json.load(sys.stdin)
+            print(json.dumps({"score": 0.5}))
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=10.0, return_mode="structured")
+    result = ev("test candidate")
+    assert result.ok is True
+    assert result.score == pytest.approx(0.5)
+    assert result.asi_payload is None
+
+
+def test_structured_mode_crash_returns_ok_false_asi_payload_none(tmp_path):
+    """structured mode: subprocess crashes → ok=False, asi_payload=None."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import sys, json
+            json.load(sys.stdin)
+            raise RuntimeError("intentional crash")
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=10.0, return_mode="structured")
+    result = ev("test candidate")
+    assert result.ok is False
+    assert result.asi_payload is None
+    assert result.exit_code is not None and result.exit_code != 0
+
+
+def test_structured_mode_timeout_returns_ok_false_asi_payload_none(tmp_path):
+    """structured mode: subprocess times out → ok=False, asi_payload=None."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import time, sys, json
+            json.load(sys.stdin)
+            time.sleep(5)
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=0.5, return_mode="structured")
+    result = ev("test candidate")
+    assert result.ok is False
+    assert result.asi_payload is None
+    assert result.timed_out is True
+
+
+def test_structured_mode_application_error_returns_ok_false(tmp_path):
+    """structured mode: subprocess returns {error} → ok=False, asi_payload=None."""
+    script = _write_script(
+        tmp_path,
+        textwrap.dedent(
+            """
+            import sys, json
+            json.load(sys.stdin)
+            print(json.dumps({"error": "evaluation failed"}))
+            """
+        ),
+    )
+    ev = SubprocessEvaluator(script, timeout=10.0, return_mode="structured")
+    result = ev("test candidate")
+    assert result.ok is False
+    assert result.asi_payload is None
+    assert "evaluation failed" in (result.error or "")
