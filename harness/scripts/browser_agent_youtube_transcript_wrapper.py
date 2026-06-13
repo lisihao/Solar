@@ -904,8 +904,22 @@ async def _run(youtube_url: str) -> int:
             # -----------------------------------------------------------------
             # Stage 5: Wait for transcript panel
             # -----------------------------------------------------------------
-            panel_ready = await _wait_for_transcript_panel(playwright_page, timeout_s=30)
+            panel_timeout_s = int(
+                os.environ.get("BROWSER_AGENT_YT_PANEL_TIMEOUT")
+                or max(90, min(timeout_s, 180))
+            )
+            panel_ready = await _wait_for_transcript_panel(playwright_page, timeout_s=panel_timeout_s)
             if not panel_ready:
+                transcript_data = await _scroll_and_extract_transcript(playwright_page)
+                if str(transcript_data.get("full_text") or "").strip():
+                    await _save_outputs(
+                        playwright_page,
+                        request_dir=request_dir,
+                        video_id=video_id,
+                        youtube_url=youtube_url,
+                        transcript_data=transcript_data,
+                    )
+                    return 0
                 caption_track_data = await _extract_via_caption_tracks(playwright_page)
                 if caption_track_data.get("full_text"):
                     await _save_outputs(

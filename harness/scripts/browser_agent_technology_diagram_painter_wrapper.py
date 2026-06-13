@@ -517,21 +517,36 @@ async def _wait_and_download_image(page, request_dir: Path, timeout_s: int = 120
     print(f"[TechDiagram] Waiting for image generation (timeout {timeout_s}s)...", flush=True)
     deadline = time.time() + timeout_s
 
-    # Track existing images to detect the new one
-    existing_images_count = await page.evaluate("document.querySelectorAll('img').length")
+    async def safe_evaluate(script: str, default):
+        for _ in range(3):
+            try:
+                return await page.evaluate(script)
+            except Exception as exc:
+                sample = str(exc).lower()
+                if "execution context was destroyed" not in sample and "navigation" not in sample:
+                    raise
+                print("[TechDiagram] Page navigated during generation wait; retrying DOM probe...", flush=True)
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    await page.wait_for_timeout(2000)
+        return default
+
+    # Track existing images to detect the new one.
+    await safe_evaluate("document.querySelectorAll('img').length", 0)
 
     last_generation_status = ""
     while time.time() < deadline:
         # Check if generation is still happening (stop button is visible)
-        is_generating = await page.evaluate("""
+        is_generating = await safe_evaluate("""
             (() => {
                 const stopBtn = document.querySelector('button[aria-label="Stop generating"], button[data-testid="stop-button"]');
                 return !!stopBtn;
             })()
-        """)
+        """, False)
 
         # Check for new images in the chat
-        img_src = await page.evaluate("""
+        img_src = await safe_evaluate("""
             (() => {
                 const messages = document.querySelectorAll('div[data-message-author-role="assistant"]');
                 if (messages.length === 0) return null;
@@ -544,7 +559,7 @@ async def _wait_and_download_image(page, request_dir: Path, timeout_s: int = 120
                 }
                 return null;
             })()
-        """)
+        """, None)
 
         if img_src and not is_generating:
             print("[TechDiagram] Image generation detected! Downloading...", flush=True)
@@ -572,12 +587,12 @@ async def _wait_and_download_image(page, request_dir: Path, timeout_s: int = 120
                 print(f"[TechDiagram] Screenshot fallback failed: {e}", flush=True)
 
         # Determine if we hit an error (e.g. usage limit)
-        error_msg = await page.evaluate("""
+        error_msg = await safe_evaluate("""
             (() => {
                 const el = document.querySelector('.text-red-500, div[role="alert"]');
                 return el ? el.innerText : null;
             })()
-        """)
+        """, None)
         if error_msg:
             if _is_nonfatal_chatgpt_toast(error_msg):
                 _write_json(
@@ -600,7 +615,7 @@ async def _wait_and_download_image(page, request_dir: Path, timeout_s: int = 120
         await page.content(),
         encoding="utf-8",
     )
-    generated_visible = await page.evaluate("""
+    generated_visible = await safe_evaluate("""
         (() => {
             const text = document.body ? document.body.innerText || '' : '';
             const hasGeneratedCard =
@@ -611,7 +626,7 @@ async def _wait_and_download_image(page, request_dir: Path, timeout_s: int = 120
             const visualCount = document.querySelectorAll('img, canvas, svg').length;
             return hasGeneratedCard && visualCount > 0;
         })()
-    """)
+    """, False)
     if generated_visible:
         downloaded = await _try_download_generated_card(page, request_dir)
         if downloaded:

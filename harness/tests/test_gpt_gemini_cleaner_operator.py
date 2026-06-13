@@ -53,6 +53,7 @@ def test_dry_run_writes_plan_without_wrapper(tmp_path: Path):
             "SOLAR_OPERATOR_ENVELOPE_JSON": str(envelope_path),
             "BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED": "true",
             "BROWSER_AGENT_QUEUE_BYPASS": "1",
+            "GPT_GEMINI_CLEANER_ALLOW_DEPRECATED": "1",
         }
     )
     proc = subprocess.run(
@@ -144,6 +145,7 @@ print(json.dumps({{"ok": True, "backend": "gemini", "status": "succeeded", "targ
             "BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED": "true",
             "BROWSER_AGENT_GEMINI_PROFILE_POLICY_DISABLED": "true",
             "BROWSER_AGENT_QUEUE_BYPASS": "1",
+            "GPT_GEMINI_CLEANER_ALLOW_DEPRECATED": "1",
         }
     )
     proc = subprocess.run(
@@ -177,9 +179,45 @@ print(json.dumps({{"ok": True, "backend": "gemini", "status": "succeeded", "targ
     assert gemini_env["prompt_has_week"] is True
 
 
-def test_run_script_enqueues_before_operator_execution():
+def test_operator_defaults_to_deprecated_without_browser_work(tmp_path: Path):
+    envelope = {
+        "date": "2026-06-03",
+        "backends": ["gemini"],
+    }
+    envelope_path = tmp_path / "envelope.json"
+    envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "TASK_DIR": str(tmp_path / "task"),
+            "SOLAR_OPERATOR_ENVELOPE_JSON": str(envelope_path),
+            "BROWSER_AGENT_QUEUE_BYPASS": "1",
+        }
+    )
+    env.pop("GPT_GEMINI_CLEANER_ALLOW_DEPRECATED", None)
+
+    proc = subprocess.run(
+        [sys.executable, str(OPERATOR)],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    result = json.loads(proc.stdout)
+
+    assert result["ok"] is False
+    assert result["status"] == "deprecated"
+    assert result["deprecated"] is True
+    assert result["skipped_count"] == 1
+    assert "retired" in result["reason"]
+    saved = json.loads((tmp_path / "task" / "gpt-gemini-cleaner-result.json").read_text(encoding="utf-8"))
+    assert saved["status"] == "deprecated"
+
+
+def test_run_script_records_deprecated_without_queue_or_operator_execution():
     script = ROOT / "scripts" / "run_gpt_gemini_cleaner.sh"
     text = script.read_text(encoding="utf-8")
-    assert "source \"$HARNESS_DIR/scripts/lib/browser_agent_queue.sh\"" in text
-    assert "solar_browser_agent_enqueue_or_continue \"gpt-gemini-cleaner\"" in text
-    assert text.index("solar_browser_agent_enqueue_or_continue") < text.index("gpt_gemini_cleaner_operator.py")
+    assert '"status": "deprecated"' in text
+    assert "queue_enqueued: false" in text
+    assert "browser_started: false" in text
+    assert text.index("exit 0") < text.index("solar_browser_agent_enqueue_or_continue")

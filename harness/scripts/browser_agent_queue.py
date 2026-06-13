@@ -20,6 +20,7 @@ import uuid
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_QUEUE_DIR = Path.home() / ".solar" / "harness" / "state" / "browser-agent-queue"
@@ -31,13 +32,20 @@ ENV_ALLOW_EXACT = {
     "HARNESS_DIR",
     "HOME",
     "LOCAL_TZ",
+    "OVERRIDE_DATE",
     "PATH",
     "PYTHON",
     "PYTHONIOENCODING",
     "PYTHONPATH",
     "SOLAR_HOME",
     "SOLAR_KNOWLEDGE_DIR",
+    "SOLAR_OPERATOR_ENVELOPE_JSON",
     "SOLAR_REPO",
+    "SOLAR_TASK_ID",
+    "SOLAR_DISPATCH_ID",
+    "TASK_DIR",
+    "TASK_ID",
+    "DISPATCH_ID",
 }
 ENV_ALLOW_PREFIXES = (
     "AI_INFLUENCE_",
@@ -55,6 +63,28 @@ ENV_ALLOW_PREFIXES = (
 
 def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _local_time(iso_value: str | None) -> str | None:
+    if not iso_value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+        local_tz = ZoneInfo(os.environ.get("LOCAL_TZ") or "America/Toronto")
+        return parsed.astimezone(local_tz).isoformat(timespec="seconds")
+    except Exception:
+        return None
+
+
+def _with_local_times(row: dict[str, Any] | None, fields: tuple[str, ...]) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    out = dict(row)
+    for field in fields:
+        local = _local_time(str(out.get(field) or ""))
+        if local:
+            out[f"{field}_local"] = local
+    return out
 
 
 def _json_line(payload: dict[str, Any]) -> str:
@@ -368,8 +398,14 @@ def status(args: argparse.Namespace) -> int:
         "ok": True,
         "queue_dir": str(queue_dir),
         "pending_count": len(pending),
-        "pending": [{"id": row.get("id"), "name": row.get("name"), "created_at": row.get("created_at")} for row in pending[:20]],
-        "running": running,
+        "pending": [
+            _with_local_times(
+                {"id": row.get("id"), "name": row.get("name"), "created_at": row.get("created_at")},
+                ("created_at",),
+            )
+            for row in pending[:20]
+        ],
+        "running": _with_local_times(running, ("started_at", "finished_at")),
         "done_count": done_count,
         "failed_count": failed_count,
     }

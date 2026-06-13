@@ -87,6 +87,12 @@ GPT_GEMINI_CLEANER_PROMPT_TEMPLATE = """# GPTGeminiCleaner 会话整理协议
 """
 
 
+DEPRECATION_REASON = (
+    "GPTGeminiCleaner is retired because ChatGPT/Gemini session organization is "
+    "high-side-effect and Gemini no longer exposes a stable folder/project move control."
+)
+
+
 def _task_dir() -> Path:
     raw = str(os.environ.get("TASK_DIR") or "").strip()
     path = Path(raw).expanduser() if raw else Path.cwd()
@@ -139,6 +145,59 @@ def _bool_value(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _deprecated_execution_allowed(envelope: dict[str, Any] | None = None) -> bool:
+    envelope = envelope or {}
+    return _bool_value(
+        envelope.get("allow_deprecated_execution")
+        if "allow_deprecated_execution" in envelope
+        else os.environ.get("GPT_GEMINI_CLEANER_ALLOW_DEPRECATED"),
+        default=False,
+    )
+
+
+def write_deprecated_result(envelope: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
+    run_date_obj = _parse_run_date(envelope.get("date") or envelope.get("run_date"))
+    target_week = str(envelope.get("target_week") or "").strip() or week_label_for_date(run_date_obj.isoformat())
+    result = {
+        "ok": False,
+        "operator_type": "GPTGeminiCleaner",
+        "status": "deprecated",
+        "deprecated": True,
+        "reason": DEPRECATION_REASON,
+        "target_week": target_week,
+        "run_date": run_date_obj.isoformat(),
+        "backends": _backend_list(envelope),
+        "results": [],
+        "failed_count": 0,
+        "raw_failed_count": 0,
+        "nonfatal_count": 0,
+        "skipped_count": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "gpt-gemini-cleaner-result.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (task_dir / "gpt-gemini-cleaner.md").write_text(
+        "\n".join(
+            [
+                "# GPTGeminiCleaner Deprecated",
+                "",
+                f"- status: {result['status']}",
+                f"- target_week: {target_week}",
+                f"- run_date: {run_date_obj.isoformat()}",
+                f"- reason: {DEPRECATION_REASON}",
+                "",
+                "This operator is intentionally skipped and did not open any browser session.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return result
 
 
 def _chatgpt_project_archive_enabled(envelope: dict[str, Any]) -> bool:
@@ -492,6 +551,10 @@ def main() -> int:
             return 0
         task_dir = _task_dir()
         envelope = _load_envelope()
+        if not _deprecated_execution_allowed(envelope):
+            result = write_deprecated_result(envelope, task_dir=task_dir)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         queued_rc = enqueue_current_process_if_needed(
             job_name=str(envelope.get("operator_id") or DEFAULT_OPERATOR_ID),
             repo_root=ROOT,

@@ -1560,7 +1560,6 @@ def test_browser_agent_launch_scripts_enter_fifo():
     scripts = [
         ROOT / "harness" / "scripts" / "run_ai_influence_digest.sh",
         ROOT / "harness" / "scripts" / "run_github_trend_report_daily.sh",
-        ROOT / "harness" / "scripts" / "run_gpt_gemini_cleaner.sh",
         ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh",
         ROOT / "harness" / "scripts" / "run_youtube_daily_ai_influence_report.sh",
         ROOT / "harness" / "scripts" / "run_youtube_daily_previous_day_collect.sh",

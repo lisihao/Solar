@@ -21,6 +21,33 @@ cat > "$ENVELOPE" <<JSON
 }
 JSON
 
+cat > "$TASK_DIR/gpt-gemini-cleaner-result.json" <<JSON
+{
+  "ok": false,
+  "operator_type": "GPTGeminiCleaner",
+  "status": "deprecated",
+  "deprecated": true,
+  "reason": "GPTGeminiCleaner is retired; automatic browser session organization is disabled.",
+  "run_date": "$RUN_DATE",
+  "results": [],
+  "skipped_count": 1
+}
+JSON
+
+cat > "$TASK_DIR/gpt-gemini-cleaner.md" <<MD
+# GPTGeminiCleaner Deprecated
+
+- status: deprecated
+- run_date: $RUN_DATE
+- browser_started: false
+- queue_enqueued: false
+
+GPTGeminiCleaner is retired; this scheduled script records an explicit skipped result and exits without opening browser-agent.
+MD
+
+cat "$TASK_DIR/gpt-gemini-cleaner-result.json"
+exit 0
+
 export HARNESS_DIR
 export TASK_DIR
 export SOLAR_OPERATOR_ENVELOPE_JSON="$ENVELOPE"
