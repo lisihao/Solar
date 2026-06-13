@@ -43,6 +43,8 @@ def test_ai_influence_payload_discovers_all_report_kinds(tmp_path, monkeypatch):
     (unified_run / "report.html").write_text("<html>unified</html>", encoding="utf-8")
     (unified_run / "unified-overview.md").write_text("# unified\n", encoding="utf-8")
     (unified_run / "youtube-transcripts-2026-05-26.txt").write_text("tx", encoding="utf-8")
+    (unified_run / "youtube-transcripts-extra-2026-05-26.txt").write_text("tx2", encoding="utf-8")
+    (unified_run / "transcripts.jsonl").write_text('{"id":"v1"}\n', encoding="utf-8")
 
     (phase_run / "report.html").write_text("<html>phase</html>", encoding="utf-8")
     (phase_run / "phase-report.md").write_text("# phase\n", encoding="utf-8")
@@ -63,6 +65,9 @@ def test_ai_influence_payload_discovers_all_report_kinds(tmp_path, monkeypatch):
     assert "raw_dir" not in payload
     assert "legacy_raw_dir" not in payload
     assert all("report_dir" not in item for item in payload["items"])
+    unified = next(item for item in payload["items"] if item.get("kind") == "unified_daily")
+    resource_artifacts = [str(item.get("artifact") or "") for item in unified.get("resources") or []]
+    assert resource_artifacts.count("transcripts.jsonl") == 1
 
 
 def test_sanitize_ai_influence_report_html_polishes_runtime_wording():

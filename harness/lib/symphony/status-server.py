@@ -71,6 +71,7 @@ KNOWLEDGE_PROBE_HEALTH = HARNESS_DIR / "state" / "knowledge-probe-health.json"
 KNOWLEDGE_DIR = Path(os.environ.get("OBSIDIAN_VAULT_PATH", str(Path.home() / "Knowledge")))
 AI_INFLUENCE_RAW_DIR = Path(os.environ.get("AI_INFLUENCE_RAW_DIR", str(KNOWLEDGE_DIR / "_raw" / "ai-influence-daily-digest")))
 HUGGINGFACE_PAPERS_RAW_DIR = KNOWLEDGE_DIR / "_raw" / "huggingface-papers-trending"
+HUGGINGFACE_PAPERS_DAILY_BASELINE_DIR = KNOWLEDGE_DIR / "_raw" / "huggingface-papers-daily-baseline"
 YOUTUBE_DIGEST_CONFIG = HARNESS_DIR / "config" / "youtube-influence-digest.yaml"
 AI_INFLUENCE_ACCOUNTS = HARNESS_DIR / "ai-influence-digest" / "references" / "accounts_extended.txt"
 GITHUB_TRENDS_CONFIG = HARNESS_DIR / "config" / "github-trends.yaml"
@@ -775,7 +776,52 @@ def _mail_status_badge(mail_result: dict | None) -> str:
     if not isinstance(mail_result, dict):
         return "未发送"
     status = str(mail_result.get("status") or "N/A")
-    return {"sent": "已发送", "skipped": "未发送", "unsent": "未发送", "warn": "告警", "failed": "失败"}.get(status, status)
+    return {"sent": "已发送", "skipped": "未发送", "unsent": "未发送", "warn": "告警", "failed": "失败", "error": "失败"}.get(status, status)
+
+
+def _ai_influence_mail_time(mail_result: dict | None, mail_path: Path | None = None) -> str:
+    if isinstance(mail_result, dict):
+        for key in ("sent_at", "sent_time", "created_at", "updated_at"):
+            raw = str(mail_result.get(key) or "").strip()
+            if not raw:
+                continue
+            try:
+                parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+                return parsed.astimezone(_ai_influence_display_timezone()).strftime("%Y-%m-%d %H:%M %Z")
+            except Exception:
+                return raw
+    if mail_path and mail_path.exists():
+        return _ai_influence_file_time(mail_path) or "N/A"
+    return "N/A"
+
+
+def _ai_influence_mail_result(mail_result: dict | None, mail_path: Path | None = None) -> dict:
+    out = dict(mail_result) if isinstance(mail_result, dict) else {}
+    status = str(out.get("status") or ("unsent" if not (mail_path and mail_path.exists()) else "warn")).strip().lower()
+    out["status"] = status
+    recipients_raw = out.get("to") or out.get("recipients") or []
+    if isinstance(recipients_raw, str):
+        recipients = [addr.strip() for addr in re.split(r"[,;]", recipients_raw) if addr.strip()]
+    elif isinstance(recipients_raw, list):
+        recipients = [str(addr).strip() for addr in recipients_raw if str(addr).strip()]
+    else:
+        recipients = []
+    attachments_raw = out.get("attachments") or []
+    attachments = attachments_raw if isinstance(attachments_raw, list) else []
+    out["status_label"] = _mail_status_badge(out)
+    out["recipient_count"] = len(recipients)
+    out["to"] = recipients
+    out["to_preview"] = "、".join(recipients[:3]) + (f" 等 {len(recipients)} 人" if len(recipients) > 3 else "")
+    out["from"] = str(out.get("from") or "N/A")
+    out["sent_at_display"] = _ai_influence_mail_time(out, mail_path)
+    out["message_id"] = str(out.get("message_id") or "N/A")
+    out["attachment_count"] = len(attachments)
+    out["result_path"] = str(mail_path) if mail_path and mail_path.exists() else ""
+    if status in {"warn", "failed", "error", "skipped", "unsent"} and not out.get("reason"):
+        out["reason"] = "mail-result.json missing" if not (mail_path and mail_path.exists()) else "N/A"
+    return out
 
 
 def _ai_influence_mail_status(mail_obj: dict | None) -> str:
@@ -869,6 +915,46 @@ def _build_report_subject(item: dict) -> str:
     return f"{module_label}：{title}{suffix}"
 
 
+def _ai_influence_display_timezone():
+    tz_name = os.environ.get("SOLAR_STATUS_TIMEZONE") or os.environ.get("AI_INFLUENCE_REPORT_TIMEZONE") or "America/Toronto"
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("America/Toronto")
+
+
+def _ai_influence_file_time(path: Path | None) -> str:
+    if not path or not path.exists():
+        return ""
+    try:
+        generated_at = datetime.datetime.fromtimestamp(path.stat().st_mtime, datetime.timezone.utc)
+        return generated_at.astimezone(_ai_influence_display_timezone()).strftime("%Y-%m-%d %H:%M %Z")
+    except Exception:
+        return ""
+
+
+def _ai_influence_generated_at(*paths: Path) -> str:
+    existing = [path for path in paths if path and path.exists()]
+    if not existing:
+        return "N/A"
+    latest = max(existing, key=lambda path: path.stat().st_mtime)
+    return _ai_influence_file_time(latest) or "N/A"
+
+
+def _ai_influence_date_window(values: list[str], fallback: str = "") -> str:
+    dates = sorted({value[:10] for value in values if re.match(r"^\d{4}-\d{2}-\d{2}", str(value or ""))})
+    if not dates:
+        return fallback or "N/A"
+    if dates[0] == dates[-1]:
+        return dates[0]
+    return f"{dates[0]} 至 {dates[-1]}"
+
+
+def _ai_influence_data_used(parts: list[str]) -> str:
+    clean = [str(part).strip() for part in parts if str(part or "").strip()]
+    return "；".join(clean) if clean else "N/A"
+
+
 def _planned_report_item(report_dir: Path) -> dict:
     report_id = _ai_influence_report_id("planned_report", report_dir)
     result_path = report_dir / "report-result.json"
@@ -881,15 +967,24 @@ def _planned_report_item(report_dir: Path) -> dict:
     videos = evidence.get("videos") if isinstance(evidence.get("videos"), list) else []
     channels = _unique_preserve([str(video.get("channel") or "") for video in videos if isinstance(video, dict)])
     tags = _unique_preserve([str(tag) for video in videos if isinstance(video, dict) for tag in (video.get("topic_tags") or [])])
+    date_str = _ai_influence_date_from_path(report_dir)
+    video_dates = [str(video.get("published_at") or video.get("date") or "") for video in videos if isinstance(video, dict)]
     return {
         "kind": "planned_report",
         "id": report_id,
         "module_key": "planned",
         "module_label": "大咖访谈及大展洞察报告",
         "module_title": "AI Influence 大咖访谈及大展洞察报告",
-        "date": _ai_influence_date_from_path(report_dir),
+        "date": date_str,
         "title": str(result.get("headline") or report_dir.name).strip(),
         "subtitle": str(result.get("subheadline") or "").strip(),
+        "data_period": _ai_influence_date_window(video_dates, date_str),
+        "generated_at": _ai_influence_generated_at(html_path, md_path, result_path, evidence_path),
+        "data_used": _ai_influence_data_used([
+            f"{len(videos)} 个 YouTube 视频素材",
+            f"{len(channels)} 个频道" if channels else "",
+            "evidence-pack.json / transcripts",
+        ]),
         "status": "ok" if html_path.exists() else "warn",
         "primary": _ai_influence_public_artifact("report_html", html_path, report_id),
         "artifacts": [
@@ -898,7 +993,7 @@ def _planned_report_item(report_dir: Path) -> dict:
             _ai_influence_public_artifact("report_result_json", result_path, report_id),
             _ai_influence_public_artifact("evidence_pack_json", evidence_path, report_id),
         ],
-        "mail": _read_json_file(mail_path) if mail_path.exists() else {"status": "skipped"},
+        "mail": _ai_influence_mail_result(_read_json_file(mail_path) if mail_path.exists() else {"status": "unsent"}, mail_path),
         "metrics": {
             "素材": len(videos),
             "模型": str(result.get("_model") or result.get("model") or "N/A"),
@@ -915,6 +1010,7 @@ def _planned_report_item(report_dir: Path) -> dict:
             "evidence-pack.json",
             "report.md",
             "writer-prompt.md",
+            "mail-result.json",
         ], report_id),
         "_report_dir": str(report_dir),
         "mtime": max((p.stat().st_mtime for p in [html_path, md_path, result_path, evidence_path] if p.exists()), default=report_dir.stat().st_mtime),
@@ -940,6 +1036,7 @@ def _digest_report_item(run_dir: Path) -> dict:
     preview_link = _ai_influence_public_artifact("digest_preview_html", preview_path, report_id)
     primary = html_link if html_link["exists"] else preview_link
     date_str = str(data.get("date") or _ai_influence_date_from_path(run_dir) or run_dir.name)
+    generated_at = str(data.get("generated_at") or data.get("created_at") or "").strip() or _ai_influence_generated_at(digest_html_path, digest_md_path, digest_json_path, preview_path)
     return {
         "kind": "daily_digest",
         "id": report_id,
@@ -949,6 +1046,14 @@ def _digest_report_item(run_dir: Path) -> dict:
         "date": date_str,
         "title": f"AI Influence Digest — {date_str}",
         "subtitle": "社交趋势摘要",
+        "data_period": date_str,
+        "generated_at": generated_at,
+        "data_used": _ai_influence_data_used([
+            f"{len(items) if isinstance(items, list) else 0} 条账号动态",
+            f"{len(core_trends) if isinstance(core_trends, list) else 0} 个趋势",
+            f"{int(stats.get('top_scored', 0) or 0)} 个候选",
+            "digest.json",
+        ]),
         "status": "ok" if primary.get("exists") else "warn",
         "primary": primary,
         "artifacts": [
@@ -957,7 +1062,7 @@ def _digest_report_item(run_dir: Path) -> dict:
             _ai_influence_public_artifact("digest_md", digest_md_path, report_id),
             _ai_influence_public_artifact("digest_json", digest_json_path, report_id),
         ],
-        "mail": data.get("gmail", {}) if isinstance(data.get("gmail"), dict) else {"status": "skipped"},
+        "mail": _ai_influence_mail_result(data.get("gmail", {}) if isinstance(data.get("gmail"), dict) else {"status": "unsent"}, None),
         "metrics": {
             "条目": len(items) if isinstance(items, list) else 0,
             "趋势": len(core_trends) if isinstance(core_trends, list) else 0,
@@ -1008,6 +1113,9 @@ def _unified_daily_report_item(run_dir: Path) -> dict:
         if p.name not in resource_files:
             resource_files.append(p.name)
     resource_files.append("transcripts.jsonl")
+    resource_files.append("mail-result.json")
+    date_str = _ai_influence_date_from_path(run_dir) or run_dir.name
+    transcript_count = len(list(run_dir.glob("youtube-transcripts*.txt")))
 
     return {
         "kind": "unified_daily",
@@ -1015,16 +1123,23 @@ def _unified_daily_report_item(run_dir: Path) -> dict:
         "module_key": "unified_daily",
         "module_label": "统一日报",
         "module_title": "Tech Hotspot Radar 日报",
-        "date": _ai_influence_date_from_path(run_dir) or run_dir.name,
-        "title": f"AI Influence 综合日报 — {_ai_influence_date_from_path(run_dir) or run_dir.name}",
+        "date": date_str,
+        "title": f"AI Influence 综合日报 — {date_str}",
         "subtitle": "YouTube / Social / GitHub 合并版",
+        "data_period": date_str,
+        "generated_at": _ai_influence_generated_at(html_path, md_path, mail_path),
+        "data_used": _ai_influence_data_used([
+            "YouTube / Social / GitHub 合并日报",
+            f"{transcript_count} 个 transcript 附件",
+            "alerts.json" if alerts_path.exists() else "",
+        ]),
         "status": "ok" if html_path.exists() else "warn",
         "primary": _ai_influence_public_artifact("report_html", html_path, report_id),
         "artifacts": [
             _ai_influence_public_artifact("report_html", html_path, report_id),
             _ai_influence_public_artifact("unified_overview_md", md_path, report_id),
         ],
-        "mail": _read_json_file(mail_path) if mail_path.exists() else {"status": "skipped"},
+        "mail": _ai_influence_mail_result(_read_json_file(mail_path) if mail_path.exists() else {"status": "unsent"}, mail_path),
         "metrics": {
             "附件": len(list(run_dir.glob("youtube-transcripts*.txt"))),
             "告警": 1 if (run_dir / "alerts.json").exists() else 0,
@@ -1050,15 +1165,23 @@ def _phase_report_item(run_dir: Path, phase_name: str) -> dict:
     payload = _read_json_file(phase_json_path)
     phase_label = phase_name.replace("-", " ").title()
     title = str(payload.get("headline") or f"{phase_label} — {run_dir.name}").strip()
+    date_str = _ai_influence_date_from_path(run_dir) or run_dir.name
     return {
         "kind": "phase_report",
         "id": report_id,
         "module_key": phase_name,
         "module_label": phase_label,
         "module_title": f"{phase_label} 历史洞察",
-        "date": _ai_influence_date_from_path(run_dir) or run_dir.name,
+        "date": date_str,
         "title": title,
         "subtitle": str(payload.get("subheadline") or "").strip(),
+        "data_period": str(payload.get("_data_period") or payload.get("data_period") or date_str),
+        "generated_at": _ai_influence_generated_at(html_path, md_path, phase_json_path, mail_path),
+        "data_used": _ai_influence_data_used([
+            f"{int(payload.get('_input_video_count', 0) or 0)} 个视频素材",
+            f"{len(list(run_dir.glob('youtube-transcripts*.txt')))} 个 transcript 附件",
+            "phase-report.json",
+        ]),
         "status": "ok" if html_path.exists() else "warn",
         "primary": _ai_influence_public_artifact("report_html", html_path, report_id),
         "artifacts": [
@@ -1066,7 +1189,7 @@ def _phase_report_item(run_dir: Path, phase_name: str) -> dict:
             _ai_influence_public_artifact("phase_report_md", md_path, report_id),
             _ai_influence_public_artifact("phase_report_json", phase_json_path, report_id),
         ],
-        "mail": _read_json_file(mail_path) if mail_path.exists() else {"status": "skipped"},
+        "mail": _ai_influence_mail_result(_read_json_file(mail_path) if mail_path.exists() else {"status": "unsent"}, mail_path),
         "metrics": {
             "素材": int(payload.get("_input_video_count", 0) or 0),
             "附件": len(list(run_dir.glob("youtube-transcripts*.txt"))),
@@ -1082,6 +1205,7 @@ def _phase_report_item(run_dir: Path, phase_name: str) -> dict:
             "phase-report.json",
             "phase-evidence-pack.json",
             "youtube-transcripts-phase-2-2026-05-24.txt",
+            "mail-result.json",
         ], report_id),
         "_report_dir": str(run_dir),
         "mtime": max((p.stat().st_mtime for p in [html_path, md_path, phase_json_path, mail_path] if p.exists()), default=run_dir.stat().st_mtime),
@@ -1144,8 +1268,14 @@ def _github_trend_report_item(run_dir: Path) -> dict:
     result = _read_json_file(report_json_path)
     pack = _read_json_file(pack_path)
     date_str = _ai_influence_date_from_path(run_dir) or run_dir.name
-    card_count = len(pack.get("cards") or []) if isinstance(pack, dict) else 0
+    if isinstance(pack, dict) and isinstance(pack.get("cards"), list):
+        card_count = len(pack.get("cards") or [])
+    elif isinstance(pack, dict):
+        card_count = len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or [])
+    else:
+        card_count = 0
     model = str(result.get("model") or "N/A") if isinstance(result, dict) else "N/A"
+    hf_signal_count = len(pack.get("hf_trending_papers") or []) if isinstance(pack, dict) else 0
     return {
         "kind": "github_trend_report",
         "id": report_id,
@@ -1155,6 +1285,14 @@ def _github_trend_report_item(run_dir: Path) -> dict:
         "date": date_str,
         "title": f"AI Influence GitHub 开源趋势洞察 — {date_str}",
         "subtitle": "结合项目热度、论文侧信号和开源生态变化的趋势判断",
+        "data_period": date_str,
+        "generated_at": _ai_influence_generated_at(html_path, md_path, report_json_path, pack_path, mail_path),
+        "data_used": _ai_influence_data_used([
+            f"{int(pack.get('repo_count') or 0) if isinstance(pack, dict) else 0} 个 GitHub watchlist 项目",
+            f"{card_count} 个项目情报卡",
+            f"{hf_signal_count} 条 HF 论文侧信号" if hf_signal_count else "",
+            "github-trend-pack.json",
+        ]),
         "status": "ok" if html_path.exists() and md_path.exists() else "warn",
         "primary": _ai_influence_public_artifact("report_html", html_path, report_id) if html_path.exists() else _ai_influence_public_artifact("report_md", md_path, report_id),
         "artifacts": [
@@ -1163,7 +1301,7 @@ def _github_trend_report_item(run_dir: Path) -> dict:
             _ai_influence_public_artifact("report_result_json", report_json_path, report_id),
             _ai_influence_public_artifact("evidence_pack_json", pack_path, report_id),
         ],
-        "mail": _read_json_file(mail_path) if mail_path.exists() else {"status": "skipped"},
+        "mail": _ai_influence_mail_result(_read_json_file(mail_path) if mail_path.exists() else {"status": "unsent"}, mail_path),
         "metrics": {
             "项目卡": card_count,
             "模型": model,
@@ -1179,6 +1317,7 @@ def _github_trend_report_item(run_dir: Path) -> dict:
             "github-trend-report.json",
             "github-trend-pack.json",
             "wiki-dispatch.md",
+            "mail-result.json",
         ], report_id),
         "_report_dir": str(run_dir),
         "mtime": max((p.stat().st_mtime for p in [html_path, md_path, report_json_path, pack_path, mail_path] if p.exists()), default=run_dir.stat().st_mtime if run_dir.exists() else 0),
@@ -1222,6 +1361,13 @@ def _legacy_huggingface_papers_count(json_path: Path) -> int:
     return 0
 
 
+def _huggingface_jsonl_count(jsonl_path: Path) -> int:
+    try:
+        return sum(1 for line in jsonl_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
+    except Exception:
+        return 0
+
+
 def _huggingface_display_period(report_context: dict, fallback: str) -> str:
     cadence = str(report_context.get("cadence") or "").strip().lower()
     week_id = str(report_context.get("week_id") or "").strip()
@@ -1237,10 +1383,15 @@ def _huggingface_papers_item(run_dir: Path) -> dict:
     pack_path = run_dir / "hf-paper-insight-pack.json"
     legacy_json_path = run_dir / "trending-papers.json"
     legacy_md_path = run_dir / "trending-papers.md"
+    baseline_jsonl_path = run_dir / "daily-papers-baseline.jsonl"
+    baseline_md_path = run_dir / "daily-papers-baseline.md"
+    mail_path = run_dir / "mail-result.json"
     date_str = _ai_influence_date_from_path(run_dir) or run_dir.name
-    report_md = report_md_path if report_md_path.exists() else legacy_md_path
-    pack_json = pack_path if pack_path.exists() else legacy_json_path
-    papers_count = len(_huggingface_pack_papers(pack_path)) if pack_path.exists() else _legacy_huggingface_papers_count(legacy_json_path)
+    report_md = report_md_path
+    pack_json = pack_path if pack_path.exists() else (legacy_json_path if legacy_json_path.exists() else baseline_jsonl_path)
+    papers_count = len(_huggingface_pack_papers(pack_path)) if pack_path.exists() else (
+        _legacy_huggingface_papers_count(legacy_json_path) if legacy_json_path.exists() else _huggingface_jsonl_count(baseline_jsonl_path)
+    )
     pack_meta = _huggingface_pack_meta(pack_path) if pack_path.exists() else {}
     report_context = pack_meta.get("report_context") if isinstance(pack_meta.get("report_context"), dict) else {}
     collection_summary = pack_meta.get("collection_summary") if isinstance(pack_meta.get("collection_summary"), dict) else {}
@@ -1256,11 +1407,14 @@ def _huggingface_papers_item(run_dir: Path) -> dict:
     report_variant = str(pack_meta.get("report_variant") or ("premium_insight_report" if report_md_path.exists() and papers_count else "fallback_report"))
     premium_count = int(pack_meta.get("premium_insight_count") or 0)
     fallback_count = int(pack_meta.get("fallback_count") or max(0, papers_count - premium_count))
-    primary_label = "report_html" if report_html_path.exists() else ("report_md" if report_md_path.exists() else "trending_papers_md")
+    primary_label = "report_html" if report_html_path.exists() else "report_md"
     item_status = "ok" if report_md.exists() and report_variant == "premium_insight_report" else ("warn" if report_md.exists() else "warn")
     report_label = _ai_influence_display_value(report_variant)
     title = f"Hugging Face 论文周报 — {display_period}" if cadence == "weekly" else f"Hugging Face 论文热点 — {date_str}"
     subtitle = "论文热点周报" if cadence == "weekly" else ("论文热点深度洞察" if report_variant == "premium_insight_report" else "论文热点基础快报")
+    data_period = str(report_context.get("window_label") or display_period or date_str).strip() or date_str
+    daily_rows = collection_summary.get("daily_rows") if isinstance(collection_summary, dict) else None
+    daily_unique = collection_summary.get("daily_unique_papers") if isinstance(collection_summary, dict) else None
     metrics = {
         "收录论文": papers_count,
         "报告形态": report_label,
@@ -1299,6 +1453,12 @@ def _huggingface_papers_item(run_dir: Path) -> dict:
             "url": _ai_influence_artifact_view_url(report_id, "evidence_pack_json"),
         },
     ])
+    if mail_path.exists():
+        resources.append({
+            "label": "mail-result.json",
+            "artifact": "mail-result.json",
+            "url": _ai_influence_artifact_view_url(report_id, "mail-result.json"),
+        })
 
     return {
         "kind": "huggingface_papers",
@@ -1307,11 +1467,22 @@ def _huggingface_papers_item(run_dir: Path) -> dict:
         "module_label": "HF Papers",
         "module_title": "Hugging Face 论文热点",
         "date": date_str,
+        "cadence": cadence,
         "title": title,
         "subtitle": subtitle,
+        "data_period": data_period,
+        "generated_at": _ai_influence_generated_at(report_html_path, report_md_path, pack_path, legacy_md_path, legacy_json_path, baseline_jsonl_path, baseline_md_path, mail_path),
+        "data_used": _ai_influence_data_used([
+            f"{papers_count} 篇 HF Papers",
+            f"{daily_unique} 篇窗口去重论文" if daily_unique is not None else "",
+            f"{daily_rows} 条日度候选" if daily_rows is not None else "",
+            report_variant,
+            pack_json.name if pack_json.exists() else "",
+        ]),
         "status": item_status,
         "primary": _ai_influence_public_artifact(primary_label, report_html_path if report_html_path.exists() else report_md, report_id),
         "artifacts": artifacts,
+        "mail": _ai_influence_mail_result(_read_json_file(mail_path) if mail_path.exists() else {"status": "unsent"}, mail_path),
         "metrics": metrics,
         "filters": {
             "themes": ["Hugging Face Papers"],
@@ -1321,8 +1492,18 @@ def _huggingface_papers_item(run_dir: Path) -> dict:
         "resources": resources,
         "_report_dir": str(run_dir),
         "_report_variant": report_variant,
-        "mtime": max((p.stat().st_mtime for p in [report_html_path, report_md_path, pack_path, legacy_md_path, legacy_json_path] if p.exists()), default=run_dir.stat().st_mtime if run_dir.exists() else 0),
+        "mtime": max((p.stat().st_mtime for p in [report_html_path, report_md_path, pack_path, legacy_md_path, legacy_json_path, mail_path] if p.exists()), default=run_dir.stat().st_mtime if run_dir.exists() else 0),
     }
+
+
+def _huggingface_papers_is_publishable(item: dict) -> bool:
+    if str(item.get("_report_variant") or "") != "premium_insight_report":
+        return False
+    report_dir = Path(str(item.get("_report_dir") or ""))
+    if not (report_dir / "hf-paper-report.html").exists():
+        return False
+    pack_meta = _huggingface_pack_meta(report_dir / "hf-paper-insight-pack.json")
+    return bool(pack_meta.get("grouped_report_ok") is True and pack_meta.get("grouped_report_sections"))
 
 
 def _ai_influence_group_summary(key: str, items: list[dict]) -> dict:
@@ -1651,7 +1832,7 @@ def _ai_influence_period_note(item: dict) -> str:
     metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
     report_period = str(metrics.get("报告周期") or "").strip()
     generation_cycle = "日报"
-    data_period = f"{date_str} ~ {date_str}" if date_str else "N/A"
+    data_period = str(item.get("data_period") or "").strip() or (f"{date_str} ~ {date_str}" if date_str else "N/A")
 
     if kind == "huggingface_papers" or module_key == "huggingface_papers":
         generation_cycle = report_period or "日报"
@@ -1705,7 +1886,9 @@ def _ai_influence_payload_internal(
         for child in tech_hotspot_raw_dir.iterdir():
             if child.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", child.name):
                 if (child / "hf-paper-report.md").exists() or (child / "hf-paper-insight-pack.json").exists():
-                    items.append(_huggingface_papers_item(child))
+                    hf_item = _huggingface_papers_item(child)
+                    if _huggingface_papers_is_publishable(hf_item):
+                        items.append(hf_item)
                 if (child / "unified-overview.md").exists():
                     items.append(_unified_daily_report_item(child))
     github_report_root = tech_hotspot_raw_dir / "github-trend-report"
@@ -1714,17 +1897,8 @@ def _ai_influence_payload_internal(
             if child.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", child.name) and ((child / "github-trend-report.html").exists() or (child / "github-trend-report.md").exists()):
                 items.append(_github_trend_report_item(child))
 
-    if HUGGINGFACE_PAPERS_RAW_DIR.exists():
-        seen_dates = {
-            str(item.get("date") or "")
-            for item in items
-            if str(item.get("kind") or "") == "huggingface_papers"
-        }
-        for child in HUGGINGFACE_PAPERS_RAW_DIR.iterdir():
-            if child.name in seen_dates:
-                continue
-            if child.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", child.name) and (child / "trending-papers.md").exists():
-                items.append(_huggingface_papers_item(child))
+    # Raw HF trending/baseline files are source material, not final reports.
+    # Do not surface them as AI Influence report cards when the model report is absent.
     deleted_ids = _ai_influence_deleted_report_ids()
     if deleted_ids:
         items = [item for item in items if str(item.get("id") or "") not in deleted_ids]
@@ -1742,7 +1916,7 @@ def _ai_influence_payload_internal(
     filter_themes = _unique_preserve([value for item in items for value in ((item.get("filters") or {}).get("themes") or [])])
     filter_technologies = _unique_preserve([value for item in items for value in ((item.get("filters") or {}).get("technologies") or [])])
     filter_channels = _unique_preserve([value for item in items for value in ((item.get("filters") or {}).get("channels") or [])])
-    filter_modules = _unique_preserve([str(item.get("module_label") or "") for item in items if str(item.get("module_label") or "")])
+    filter_modules = _unique_preserve([str(item.get("module_label") or item.get("module_key") or "other") for item in items if str(item.get("module_label") or item.get("module_key") or "")])
     filter_months = sorted(
         {str(item.get("month") or "") for item in items if str(item.get("month") or "") and str(item.get("month") or "").lower() != "unknown"},
         reverse=True,
@@ -1760,7 +1934,7 @@ def _ai_influence_payload_internal(
         )
     ]
     filtered = _ai_influence_sort_items(filtered, sort_mode)
-    limited = filtered[:limit]
+    limited = filtered[:limit] if limit and limit > 0 else filtered
     groups: dict[str, dict] = {}
     for item in limited:
         key = str(item.get("module_key") or "other")
@@ -1934,10 +2108,8 @@ def _resolve_ai_influence_artifact(report_id: str, artifact_label: str) -> Path 
     if str(item.get("kind") or "") == "huggingface_papers":
         allowed.update({
             "report_html": report_dir / "hf-paper-report.html",
-            "report_md": report_dir / "hf-paper-report.md" if (report_dir / "hf-paper-report.md").exists() else report_dir / "trending-papers.md",
-            "trending_papers_md": report_dir / "hf-paper-report.md" if (report_dir / "hf-paper-report.md").exists() else report_dir / "trending-papers.md",
+            "report_md": report_dir / "hf-paper-report.md",
             "evidence_pack_json": report_dir / "hf-paper-insight-pack.json" if (report_dir / "hf-paper-insight-pack.json").exists() else report_dir / "trending-papers.json",
-            "trending_papers_json": report_dir / "hf-paper-insight-pack.json" if (report_dir / "hf-paper-insight-pack.json").exists() else report_dir / "trending-papers.json",
         })
     for resource in item.get("resources") or []:
         if not isinstance(resource, dict):
@@ -2005,6 +2177,7 @@ def _ai_influence_send_report(data: dict) -> dict:
     result["subject"] = subject
     result["report_path"] = str(target)
     result["mail_body_mode"] = "full_report_html_with_html_attachment"
+    result.setdefault("sent_at", datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"))
     result["to"] = result.get("to") or [addr.strip() for addr in re.split(r"[,;]", to_value) if addr.strip()]
     if str(result.get("status") or "").lower() == "sent":
         (report_dir / "mail-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3598,15 +3771,22 @@ def _ai_influence_html(
     group_channel: bool = False,
     sort_mode: str = "date_desc",
 ) -> str:
+    filtered_count = None
+    if any([theme, technology, channel, module, month, unsent]):
+        filtered_count = _ai_influence_payload(
+            limit=0,
+            period=period,
+            theme=theme,
+            technology=technology,
+            channel=channel,
+            module=module,
+            month=month,
+            unsent=unsent,
+            sort_mode=sort_mode,
+        ).get("count")
     payload = _ai_influence_payload(
-        limit=200,
+        limit=0,
         period=period,
-        theme=theme,
-        technology=technology,
-        channel=channel,
-        module=module,
-        month=month,
-        unsent=unsent,
         sort_mode=sort_mode,
     )
     mail_cfg = payload.get("mail_config") if isinstance(payload.get("mail_config"), dict) else {}
@@ -3657,6 +3837,16 @@ def _ai_influence_html(
             card_title = _ai_influence_public_text(item.get("title") or "AI Influence 报告")
             card_subtitle = _ai_influence_public_text(item.get("subtitle") or "")
             card_period_note = _ai_influence_period_note(item)
+            data_period = str(item.get("data_period") or "N/A")
+            item_generated_at = str(item.get("generated_at") or "N/A")
+            data_used = str(item.get("data_used") or "N/A")
+            mail_obj = _ai_influence_mail_result(item.get("mail"))
+            mail_status = str(mail_obj.get("status") or "unsent").strip().lower()
+            mail_level = "ok" if mail_status in {"sent", "ok"} else ("error" if mail_status in {"failed", "error"} else ("warn" if mail_status == "warn" else "pending"))
+            mail_reason = str(mail_obj.get("reason") or "").strip()
+            mail_reason_html = f'<div class="mail-line mail-reason">原因：{html.escape(mail_reason)}</div>' if mail_reason and mail_reason != "N/A" else ""
+            mail_message = str(mail_obj.get("message_id") or "N/A")
+            mail_message_html = f'<div class="mail-line">Message-ID：<code>{html.escape(mail_message)}</code></div>' if mail_message and mail_message != "N/A" else ""
             report_cards.append(f"""
             <article class="report-card">
               <div class="main"
@@ -3669,13 +3859,29 @@ def _ai_influence_html(
                    data-primary-channel="{html.escape(primary_channel)}"
                    data-mail-status="{html.escape(mail_status)}"
                    data-month="{html.escape(month_label)}"
+                   data-data-period="{html.escape(data_period)}"
+                   data-generated-at="{html.escape(item_generated_at)}"
+                   data-data-used="{html.escape(data_used)}"
                    data-title="{html.escape(card_title)}"
                    data-mail-payload="{mail_payload_attr}">
                 <div class="date">{html.escape(str(item.get("date") or "N/A"))}</div>
                 <h3>{html.escape(card_title)}</h3>
                 <p class="period-note">{html.escape(card_period_note)}</p>
                 <p class="meta">{html.escape(card_subtitle)}</p>
-                <p class="meta">模块：{html.escape(module_label)} · 邮件：{html.escape(_mail_status_badge(item.get("mail")))}</p>
+                <p class="meta">模块：{html.escape(module_label)}</p>
+                <div class="mail-state {html.escape(mail_level)}">
+                  <div class="mail-state-head">
+                    <span class="status-pill {html.escape(mail_level)}">邮件：{html.escape(str(mail_obj.get("status_label") or _mail_status_badge(mail_obj)))}</span>
+                    <span>{html.escape(str(mail_obj.get("backend") or "N/A"))}</span>
+                  </div>
+                  <div class="mail-line">收件人：{html.escape(str(mail_obj.get("to_preview") or "N/A"))} · 共 {int(mail_obj.get("recipient_count") or 0)} 人</div>
+                  <div class="mail-line">发件人：{html.escape(str(mail_obj.get("from") or "N/A"))} · 记录时间：{html.escape(str(mail_obj.get("sent_at_display") or "N/A"))}</div>
+                  <div class="mail-line">附件：{int(mail_obj.get("attachment_count") or 0)} 个</div>
+                  {mail_message_html}
+                  {mail_reason_html}
+                </div>
+                <p class="meta">数据周期：{html.escape(data_period)} · 生成时间：{html.escape(item_generated_at)}</p>
+                <p class="meta">使用数据：{html.escape(data_used)}</p>
                 <div class="artifact-row">{''.join(artifact_links)}</div>
               </div>
               <div class="metrics">{''.join(metric_bits) or '<span><b>N/A</b><small>指标</small></span>'}</div>
@@ -3700,6 +3906,8 @@ def _ai_influence_html(
               <td>{html.escape(str(item.get("date") or "N/A"))}</td>
               <td>{html.escape(_ai_influence_public_text(item.get("title") or "N/A"))}</td>
               <td>{html.escape(str(item.get("module_label") or "N/A"))}</td>
+              <td>{html.escape(data_period)}</td>
+              <td>{html.escape(item_generated_at)}</td>
               <td>{''.join(resource_link_bits) or 'N/A'}</td>
             </tr>
             """)
@@ -3720,10 +3928,10 @@ def _ai_influence_html(
           <div class="resource-table-wrap">
             <table class="resource-table">
               <thead>
-                <tr><th>日期</th><th>报告</th><th>模块</th><th>素材 / 下载</th></tr>
+                <tr><th>日期</th><th>报告</th><th>模块</th><th>数据周期</th><th>生成时间</th><th>素材 / 下载</th></tr>
               </thead>
               <tbody>
-                {''.join(resource_rows) if resource_rows else "<tr><td colspan='4'>N/A</td></tr>"}
+                {''.join(resource_rows) if resource_rows else "<tr><td colspan='6'>N/A</td></tr>"}
               </tbody>
             </table>
           </div>
@@ -3733,10 +3941,13 @@ def _ai_influence_html(
         f"<span class='pill'>{html.escape(str(name))}（{int(count)} 份报告）</span>"
         for name, count in (payload.get("module_counts") or {}).items()
     )
-    period_links = "".join(
-        f"<a class='pill period {'active' if current_period == key else ''}' href='/ai-influence?period={key}'>{label}</a>"
-        for key, label in (("7d", "近 7 天"), ("30d", "近 30 天"), ("90d", "近 90 天"), ("all", "全部"))
-    )
+    period_link_bits = []
+    for key, label in (("7d", "近 7 天"), ("30d", "近 30 天"), ("90d", "近 90 天"), ("all", "全部")):
+        query = {"period": key}
+        if module:
+            query["module"] = module
+        period_link_bits.append(f"<a class='pill period {'active' if current_period == key else ''}' href='/ai-influence?{html.escape(urllib.parse.urlencode(query))}'>{label}</a>")
+    period_links = "".join(period_link_bits)
     filter_options = payload.get("filter_options") if isinstance(payload.get("filter_options"), dict) else {}
     def _option(value: str, current: str) -> str:
         selected = " selected" if value == current else ""
@@ -3755,8 +3966,8 @@ def _ai_influence_html(
         module_labels.append(module)
     module_options = "".join(_option(value, module) for value in module_labels)
     quick_module_buttons = "".join(
-        f"<button class='quick-btn module-tab-btn' data-module='{html.escape(str(group.get('label') or ''))}' onclick=\"setQuickModule('{html.escape(str(group.get('label') or ''))}', this)\">{html.escape(str(group.get('label') or ''))}</button>"
-        for group in (payload.get("groups") or [])
+        f"<button class='quick-btn module-tab-btn {'active' if str(m) == module else ''}' data-module='{html.escape(str(m), quote=True)}' onclick=\"setQuickModule({html.escape(json.dumps(str(m), ensure_ascii=False), quote=True)}, this)\">{html.escape(str(m))}</button>"
+        for m in (payload.get("filter_options", {}).get("modules") or [])
     )
     preset_buttons = "".join([
         "<a class='quick-btn preset-link' href='/ai-influence?period=7d'>最近 7 天</a>",
@@ -3865,6 +4076,15 @@ def _ai_influence_html(
     h3 {{ margin:4px 0 6px; font-size:20px; color:var(--green); }}
     .period-note {{ margin:-2px 0 8px; color:#7c6d58; font-size:12px; letter-spacing:.02em; line-height:1.45; }}
     .meta {{ margin:4px 0; color:var(--muted); font-size:13px; }}
+    .mail-state {{ margin:10px 0 8px; padding:10px 12px; border-radius:16px; border:1px solid #ded8cc; background:#f7f4ee; color:#536057; font-size:12px; line-height:1.55; }}
+    .mail-state.ok {{ border-color:#acd8be; background:#edf8f1; color:#1f5d3f; }}
+    .mail-state.warn {{ border-color:#ecd19e; background:#fff7e8; color:#7a560d; }}
+    .mail-state.error {{ border-color:#e5aaa3; background:#fff0ef; color:#8f2b23; }}
+    .mail-state.pending {{ border-color:#d8dce5; background:#f6f7fa; color:#596272; }}
+    .mail-state-head {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:5px; font-weight:800; }}
+    .mail-line {{ overflow-wrap:anywhere; word-break:break-word; }}
+    .mail-reason {{ color:#9f2e24; font-weight:700; }}
+    .mail-state code {{ font-size:11px; background:rgba(255,255,255,.72); padding:1px 5px; border-radius:7px; }}
     .artifact-row {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }}
     .metrics {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; min-width:0; }}
     .metrics span {{ border:1px solid #eadfcd; border-radius:16px; background:#fbf7ef; padding:10px; text-align:center; color:var(--muted); min-width:0; overflow-wrap:anywhere; word-break:break-word; }}
@@ -3893,8 +4113,9 @@ def _ai_influence_html(
     <div class="toolbar">
       <span class="pill">状态：{html.escape(str(payload.get("status") or "N/A"))}</span>
       <span class="pill">总报告：{int(payload.get("total_before_filter", payload.get("count", 0)) or 0)}</span>
-      <span class="pill">筛选后：{int(payload.get("count", 0) or 0)}</span>
+      <span class="pill">筛选后：{int(filtered_count if filtered_count is not None else payload.get("count", 0) or 0)}</span>
       <span class="pill">周期：{html.escape(current_period)}</span>
+      <span class="pill">模块筛选：{html.escape(module or '全部')}</span>
       <span class="pill">收件人：{html.escape(current_to or 'N/A')}</span>
       {module_pills}
       {period_links}
@@ -3972,7 +4193,7 @@ def _ai_influence_html(
       </div>
       <div class="quick-filters">
         <div class="module-tabs">
-          <button class="quick-btn module-tab-btn active" data-module="" onclick="setQuickModule('', this)">全部报告</button>
+          <button class="quick-btn module-tab-btn {'active' if not module else ''}" data-module="" onclick="setQuickModule('', this)">全部报告</button>
           {quick_module_buttons}
         </div>
         {preset_buttons}
