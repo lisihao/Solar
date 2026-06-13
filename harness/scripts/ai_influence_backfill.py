@@ -8,13 +8,31 @@ then organizes the JSON output by Week/Day/Handle.
 import os
 import sys
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
+
+def expand_runtime_path(value: str | Path) -> Path:
+    raw = str(value)
+    defaults = {
+        "${CLAUDE_HOME}": str(Path.home() / ".claude"),
+        "${SOLAR_KNOWLEDGE_DIR}": str(Path.home() / "Knowledge"),
+        "${SOLAR_REPO}": str(Path.home() / "Solar"),
+    }
+    for token, replacement in defaults.items():
+        env_name = token.replace("${", "").replace("}", "")
+        if token in raw and env_name not in os.environ:
+            raw = raw.replace(token, replacement)
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
 def run_backfill(handles: list[str], output_dir: str, days: int = 30):
     scraper_path = str(Path(__file__).resolve().parent.parent / "tools" / "playwright_twitter_scraper.py")
-    python_bin = "${CLAUDE_HOME}/mcp-servers/browser-use/.venv/bin/python"
+    configured_python = os.environ.get("AI_INFLUENCE_DOM_PYTHON") or "${CLAUDE_HOME}/mcp-servers/browser-use/.venv/bin/python"
+    python_path = expand_runtime_path(configured_python)
+    python_bin = str(python_path if python_path.exists() else (shutil.which("python3") or sys.executable))
 
     now = datetime.now(timezone.utc)
     cutoff_date = now - timedelta(days=days)

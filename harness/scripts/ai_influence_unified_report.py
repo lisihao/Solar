@@ -423,8 +423,30 @@ def render_report(date_str: str, ai_digest: dict[str, Any], github_digest: dict[
 
 def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[str, Any]:
     ai_daily = load_ai_daily_module()
-    gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("AI_INFLUENCE_GMAIL_USER") or DEFAULT_GMAIL_USER
-    gmail_to = os.environ.get("GMAIL_TO") or os.environ.get("MAIL_TO") or os.environ.get("AI_INFLUENCE_MAIL_TO") or DEFAULT_MAIL_TO
+    mail_config_path = Path(
+        os.environ.get("AI_INFLUENCE_MAIL_CONFIG")
+        or str(Path.home() / ".solar" / "harness" / "state" / "ai-influence-mail-config.json")
+    ).expanduser()
+    mail_config = {}
+    if mail_config_path.exists():
+        try:
+            loaded = json.loads(mail_config_path.read_text(encoding="utf-8"))
+            mail_config = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            mail_config = {}
+    gmail_user = (
+        os.environ.get("GMAIL_USER")
+        or os.environ.get("AI_INFLUENCE_GMAIL_USER")
+        or str(mail_config.get("from") or "")
+        or DEFAULT_GMAIL_USER
+    )
+    gmail_to = (
+        os.environ.get("GMAIL_TO")
+        or os.environ.get("MAIL_TO")
+        or os.environ.get("AI_INFLUENCE_MAIL_TO")
+        or str(mail_config.get("to") or "")
+        or DEFAULT_MAIL_TO
+    )
     recipients = [addr.strip() for addr in re.split(r"[,;]", gmail_to) if addr.strip()]
     if not recipients:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing recipients"}
@@ -460,6 +482,7 @@ def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[
     return {
         "status": "sent",
         "backend": "gmail_smtp",
+        "sent_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "from": gmail_user,
         "to": recipients,
         "message_id": message_id,
