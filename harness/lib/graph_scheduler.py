@@ -1086,6 +1086,31 @@ def _completion_gate_blocking_status(result: dict[str, Any]) -> str:
     return "result_submitted"
 
 
+def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) -> dict[str, Any]:
+    results = _node_results(graph)
+    children = [
+        {"node_id": node_id, "result": results.get(node_id) if isinstance(results.get(node_id), dict) else {}}
+        for node_id in node_ids
+    ]
+    policy = graph.get("sprint_policy") if isinstance(graph.get("sprint_policy"), dict) else {}
+    allow_break_glass = bool(policy.get("allow_break_glass_parent_close"))
+    try:
+        from gate_controller import validate_parent_child_completion  # noqa: WPS433
+
+        return validate_parent_child_completion(children, allow_break_glass=allow_break_glass)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "checked_nodes": [],
+            "missing_child_verifiers": node_ids,
+            "stale_child_verifiers": [],
+            "break_glass_nodes": [],
+            "artifact_hash_mismatches": [],
+            "allow_break_glass": allow_break_glass,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def _assert_pass_mark_allowed(graph: dict[str, Any], node_id: str, status: str) -> None:
     normalized = str(status or "").lower()
     if normalized != "passed":
@@ -2256,7 +2281,11 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     requested_status = str(status or "").lower()
     completion_run: dict[str, Any] | None = None
     effective_status = status
-    if requested_status in COMPLETION_OUTCOME_STATUSES and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1":
+    if (
+        requested_status in COMPLETION_OUTCOME_STATUSES
+        and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1"
+        and _node_has_handoff(graph, node_id)
+    ):
         completion_run = _completion_result_for_node(graph, node_id, status=requested_status, note=note)
         effective_status = "passed" if completion_run.get("status") == "completed" else "blocked_by_verifier"
 
@@ -2268,14 +2297,17 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     if completion_run is not None:
         completion_result = completion_run.get("result") if isinstance(completion_run.get("result"), dict) else {}
         completion_verdict = completion_run.get("verdict") if isinstance(completion_run.get("verdict"), dict) else {}
+        completion_payload = completion_run.get("completion") if isinstance(completion_run.get("completion"), dict) else {}
         graph["node_results"][node_id].update(
             {
                 "completion_gate_required": True,
                 "requested_status": requested_status,
                 "result_id": completion_result.get("result_id"),
                 "attempt_id": completion_result.get("attempt_id"),
+                "completion_source": completion_payload.get("completion_source", "solar_gate_controller"),
                 "completion_gate": {
                     "status": completion_run.get("status"),
+                    "completion_source": completion_payload.get("completion_source", "solar_gate_controller"),
                     "verdict_id": completion_verdict.get("verdict_id"),
                     "covered_result_id": completion_verdict.get("covered_result_id"),
                     "covered_attempt_id": completion_verdict.get("covered_attempt_id"),
@@ -2617,6 +2649,7 @@ def enrich_backlog(sprints_dir: str | Path, dry_run: bool = False,
 def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
     _ensure_required_gate_node_mapping(graph)
     ids = _node_map(graph)
+    node_ids = list(ids.keys())
     open_nodes = [
         node_id for node_id in ids
         if node_status(graph, node_id) not in (PASS_STATUSES | CLOSED_NON_PASS_STATUSES)
@@ -2647,7 +2680,10 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(gate_results.get(gate), dict) or gate_results[gate].get("status") != "passed"
     ]
 
-    ready = not open_nodes and not failed_nodes and not missing_gates and bool(ids)
+    child_completion_gate = _parent_child_completion_gate(graph, node_ids)
+    child_gate_passed = child_completion_gate.get("status") == "passed"
+
+    ready = not open_nodes and not failed_nodes and not missing_gates and child_gate_passed and bool(ids)
     return {
         "ok": True,
         "sprint_id": graph.get("sprint_id"),
@@ -2657,6 +2693,11 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
         "failed_nodes": failed_nodes,
         "required_gates": required_gates,
         "missing_gates": missing_gates,
+        "child_completion_gate": child_completion_gate,
+        "missing_child_verifiers": child_completion_gate.get("missing_child_verifiers", []),
+        "stale_child_verifiers": child_completion_gate.get("stale_child_verifiers", []),
+        "break_glass_nodes": child_completion_gate.get("break_glass_nodes", []),
+        "artifact_hash_mismatches": child_completion_gate.get("artifact_hash_mismatches", []),
     }
 
 

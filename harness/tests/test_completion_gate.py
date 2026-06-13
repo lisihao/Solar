@@ -105,3 +105,76 @@ def test_graph_mark_passed_requires_completion_gate(tmp_path, monkeypatch):
     node_result = graph["node_results"]["N1"]
     assert node_result["completion_gate_required"] is True
     assert node_result["completion_gate"]["verdict"]["status"] == "passed"
+
+
+def _parent_gate_result(node_id="N1", result_id="r1", attempt_id="a1", source="solar_gate_controller", artifacts=None):
+    return {
+        "status": "passed",
+        "completion_gate_required": True,
+        "result_id": result_id,
+        "attempt_id": attempt_id,
+        "completion_source": source,
+        "completion_gate": {
+            "status": "completed",
+            "completion_source": source,
+            "verdict_id": f"v-{node_id}",
+            "covered_result_id": result_id,
+            "covered_attempt_id": attempt_id,
+            "verdict": {
+                "verdict_id": f"v-{node_id}",
+                "trigger": "post_result",
+                "status": "passed",
+                "covered_result_id": result_id,
+                "covered_attempt_id": attempt_id,
+                "covered_artifacts": artifacts or [],
+            },
+        },
+    }
+
+
+def test_parent_ready_requires_child_verifier_gate():
+    graph_scheduler = load_graph_scheduler()
+    graph = {
+        "sprint_id": "parent-gate",
+        "nodes": [{"id": "N1", "status": "passed"}],
+        "node_results": {"N1": _parent_gate_result()},
+    }
+
+    result = graph_scheduler.parent_ready_check(graph)
+
+    assert result["ready"] is True
+    assert result["child_completion_gate"]["status"] == "passed"
+
+
+def test_parent_ready_blocks_break_glass_child_by_default():
+    graph_scheduler = load_graph_scheduler()
+    graph = {
+        "sprint_id": "parent-gate",
+        "nodes": [{"id": "N1", "status": "passed"}],
+        "node_results": {"N1": _parent_gate_result(source="break_glass")},
+    }
+
+    result = graph_scheduler.parent_ready_check(graph)
+
+    assert result["ready"] is False
+    assert result["break_glass_nodes"] == ["N1"]
+
+
+def test_parent_ready_blocks_child_artifact_hash_drift(tmp_path):
+    graph_scheduler = load_graph_scheduler()
+    artifact = tmp_path / "handoff.md"
+    artifact.write_text("changed\n", encoding="utf-8")
+    graph = {
+        "sprint_id": "parent-gate",
+        "nodes": [{"id": "N1", "status": "passed"}],
+        "node_results": {
+            "N1": _parent_gate_result(
+                artifacts=[{"path": str(artifact), "sha256": "0" * 64}],
+            )
+        },
+    }
+
+    result = graph_scheduler.parent_ready_check(graph)
+
+    assert result["ready"] is False
+    assert result["artifact_hash_mismatches"][0]["node_id"] == "N1"
