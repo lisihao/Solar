@@ -168,6 +168,7 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
     selection = str(policy.get("selection") or "hash").strip().lower()
     profile_strategy = str(policy.get("profile_strategy") or "persistent").strip().lower()
     user_data_dir = str(policy.get("user_data_dir") or "").strip()
+    scrub_client_state = policy.get("scrub_client_state")
     explicit_profile = str(env.get("BROWSER_AGENT_PROFILE_DIRECTORY") or "").strip()
     explicit_account = str(
         env.get("BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL")
@@ -210,6 +211,10 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         env["BROWSER_AGENT_CHATGPT_PROFILE_STRATEGY"] = profile_strategy
     if user_data_dir and not env.get("BROWSER_AGENT_USER_DATA_DIR"):
         env["BROWSER_AGENT_USER_DATA_DIR"] = user_data_dir
+    if scrub_client_state is not None:
+        scrub_value = "true" if bool(scrub_client_state) else "false"
+        env["BROWSER_AGENT_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
+        env["TECH_HOTSPOT_BROWSER_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
     allow_headless = policy.get("allow_headless")
     force_headed = bool(
         policy.get("force_headed")
@@ -234,6 +239,7 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         "selection": selection,
         "profile_strategy": profile_strategy,
         "user_data_dir_set": bool(env.get("BROWSER_AGENT_USER_DATA_DIR")),
+        "scrub_client_state": bool(scrub_client_state) if scrub_client_state is not None else None,
         "headless_forced": force_headed,
     }
 
@@ -354,10 +360,10 @@ def main() -> int:
         return queued_rc
 
     action = (os.environ.get("CHATGPT_REPORT_ACTION") or "run").strip().lower()
-    if action not in {"run", "submit", "poll", "collect"}:
+    if action not in {"run", "submit", "poll", "collect", "login_hold"}:
         print(f"chatgpt_report_operator: invalid CHATGPT_REPORT_ACTION={action}", file=sys.stderr)
         return 2
-    if not user_prompt.strip() and action not in {"poll", "collect"}:
+    if not user_prompt.strip() and action not in {"poll", "collect", "login_hold"}:
         print("chatgpt_report_operator: stdin prompt is empty", file=sys.stderr)
         return 2
     expected = (os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()

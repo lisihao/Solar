@@ -145,3 +145,39 @@ def test_enqueue_wait_replays_stdout_and_passes_stdin(tmp_path: Path):
             worker.communicate()
 
     assert proc.stdout.strip() == "hello queue:1"
+
+
+def test_enqueue_wait_timeout_with_replay_logs_does_not_read_cwd(tmp_path: Path):
+    queue_dir = tmp_path / "queue"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(QUEUE),
+            "--queue-dir",
+            str(queue_dir),
+            "enqueue",
+            "--name",
+            "timeout",
+            "--cwd",
+            str(tmp_path),
+            "--wait",
+            "--timeout-seconds",
+            "1",
+            "--poll-seconds",
+            "0.2",
+            "--replay-logs",
+            "--",
+            sys.executable,
+            "-c",
+            "print('not run')",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+
+    assert proc.returncode == 124
+    assert "IsADirectoryError" not in proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["result"]["error"] == "browser_agent_queue_wait_timeout"

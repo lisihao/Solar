@@ -4,7 +4,7 @@
 Pipeline:
 1. Connect via browser-use profile session (CDP).
 2. Navigate to https://chatgpt.com/.
-3. Verify logged in as target account (browser-agent@example.com).
+3. Verify logged in as target account (haogege1977@gmail.com).
 4. Click "...更多" (More) on the left navigation bar, and select "图片" (Image).
 5. Select model "gpt5.5" and "thinking high" from the model selector.
 6. Enter text + drawing prompt into the textarea and submit.
@@ -32,7 +32,7 @@ from browser import runtime_control as brtc
 
 DEFAULT_URL = "https://chatgpt.com/"
 DEFAULT_USER_DATA_DIR = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-DEFAULT_PROFILE_DIRECTORY = "Profile 1"
+DEFAULT_PROFILE_DIRECTORY = "Default"
 DEFAULT_ALLOWED_DOMAINS = [
     "chatgpt.com",
     "openai.com",
@@ -42,7 +42,7 @@ DEFAULT_ALLOWED_DOMAINS = [
     "google.com",
     "accounts.google.com",
 ]
-TARGET_ACCOUNT_EMAIL = os.environ.get("BROWSER_AGENT_TARGET_EMAIL", "browser-agent@example.com")
+TARGET_ACCOUNT_EMAIL = os.environ.get("BROWSER_AGENT_TARGET_EMAIL", "haogege1977@gmail.com")
 
 COMPOSER_SELECTOR = (
     "#prompt-textarea:visible, "
@@ -1019,7 +1019,7 @@ async def _run(input_data: dict) -> int:
         profile_directory=profile_directory,
         user_data_dir=str(user_data_dir),
         staged_user_data_dir=str(staged_dir),
-        account_identifier=TARGET_ACCOUNT_EMAIL if TARGET_ACCOUNT_EMAIL != "browser-agent@example.com" else None,
+        account_identifier=TARGET_ACCOUNT_EMAIL or None,
         explicit_profile_id=str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None,
         task_id=str(os.environ.get("TASK_ID") or request_dir.name),
         control_modes={

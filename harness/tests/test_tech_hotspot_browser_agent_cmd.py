@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import pytest
 import sqlite3
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1509,10 +1512,11 @@ def test_call_github_trend_report_chapter_writer_forces_no_project(monkeypatch):
     ns["call_browser_agent_chatgpt_markdown"] = fake_markdown
     result = ns["call_github_trend_report_chapter_writer"](
         {"date": "2026-06-05", "cards": [{"repo": "org/repo"}], "repo_count": 1},
-        {"youtube": {"phase_report_reasoner": {"model": "chatgpt-5.5"}}},
+        {"youtube": {"phase_report_reasoner": {"model": "chatgpt-5.5", "max_prompt_chars": 180000}}},
     )
     assert captured["open_project_first"] is False
     assert captured["require_project"] is False
+    assert captured["requested_max_prompt_chars"] == 180000
     assert result["ok"] is True
 
 
@@ -1984,16 +1988,12 @@ def test_refine_ai_influence_public_report_polishes_multi_material_placeholder_p
     assert "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关" not in refined
 
 
-def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tmp_path):
+def test_ai_influence_validation_accepts_hardened_report_without_project_archive(tmp_path):
     ns = _load_namespace()
     report_dir = tmp_path / "report"
     request_dir = tmp_path / "browser-request"
     report_dir.mkdir()
     request_dir.mkdir()
-    (request_dir / "project-archive-result.json").write_text(
-        '{"status":"ok","project_name":"1234"}\n',
-        encoding="utf-8",
-    )
     complete_md = """# 测试报告
 
 ## 一页结论
@@ -2034,11 +2034,13 @@ def test_ai_influence_validation_accepts_hardened_report_with_project_archive(tm
     (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
     result = ns["validate_ai_influence_planned_report_dir"](
         report_dir,
-        expected_chatgpt_project="1234",
-        require_project_archive=True,
+        expected_chatgpt_project=None,
+        require_project_archive=False,
     )
     assert result["status"] == "ok"
     assert result["errors"] == []
+    assert result["warnings"] == []
+    assert result["chatgpt_project_archive_policy"] == "disabled"
 
 
 def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_path):
@@ -2047,10 +2049,6 @@ def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_pat
     request_dir = tmp_path / "browser-request"
     report_dir.mkdir()
     request_dir.mkdir()
-    (request_dir / "project-archive-result.json").write_text(
-        '{"status":"ok","project_name":"1234"}\n',
-        encoding="utf-8",
-    )
     complete_md = """# 测试报告
 
 ## 一页结论
@@ -2093,8 +2091,8 @@ def test_ai_influence_validation_rejects_bad_transcript_in_evidence_pack(tmp_pat
     (report_dir / "transcripts-cleaned.txt").write_text("clean\n", encoding="utf-8")
     result = ns["validate_ai_influence_planned_report_dir"](
         report_dir,
-        expected_chatgpt_project="1234",
-        require_project_archive=True,
+        expected_chatgpt_project=None,
+        require_project_archive=False,
     )
     assert result["status"] == "error"
     assert any("bad_transcript_in_evidence_pack" in err for err in result["errors"])

@@ -12863,6 +12863,7 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
     prompt = build_github_trend_prompt(pack, model)
     max_prompt_chars = int(
         os.environ.get("GITHUB_TREND_REPORT_MAX_PROMPT_CHARS")
+        or cfg.get("max_prompt_chars")
         or 60000
     )
     started = time.time()

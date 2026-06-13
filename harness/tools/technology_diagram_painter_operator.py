@@ -21,6 +21,7 @@ if str(ROOT / "lib") not in sys.path:
     sys.path.insert(0, str(ROOT / "lib"))
 
 import operator_flow_control as ofc  # noqa: E402
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
 
 DEFAULT_OPERATOR_ID = "technology-diagram-painter"
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_technology_diagram_painter_wrapper.py"
@@ -526,6 +527,9 @@ def main() -> int:
         return 1
 
     task_dir = _task_dir()
+    queued_rc = enqueue_current_process_if_needed(job_name=_operator_id(envelope), repo_root=ROOT, cwd=task_dir)
+    if queued_rc is not None:
+        return queued_rc
     ofc.clear_task_control(task_dir)
     request = build_request(envelope, task_dir=task_dir)
     rate_control = _rate_control_settings(envelope)

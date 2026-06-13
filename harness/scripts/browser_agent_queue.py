@@ -243,11 +243,13 @@ def _wait_for_result(queue_dir: Path, job_id: str, *, timeout_seconds: int, poll
 
 
 def _replay_result_logs(result: dict[str, Any]) -> None:
-    stdout_path = Path(str(result.get("stdout") or "")).expanduser()
-    stderr_path = Path(str(result.get("stderr") or "")).expanduser()
-    if stdout_path.exists():
+    stdout = str(result.get("stdout") or "").strip()
+    stderr = str(result.get("stderr") or "").strip()
+    stdout_path = Path(stdout).expanduser() if stdout else None
+    stderr_path = Path(stderr).expanduser() if stderr else None
+    if stdout_path is not None and stdout_path.is_file():
         sys.stdout.write(stdout_path.read_text(encoding="utf-8", errors="replace"))
-    if stderr_path.exists():
+    if stderr_path is not None and stderr_path.is_file():
         sys.stderr.write(stderr_path.read_text(encoding="utf-8", errors="replace"))
 
 

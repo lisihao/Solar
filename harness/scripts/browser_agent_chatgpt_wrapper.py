@@ -220,12 +220,18 @@ CAPTURE_JS = r"""() => {
     "使用 google 账户继续",
     "使用 apple 账户继续"
   ].some((cue) => lowered.includes(cue));
+  const actionLabels = Array.from(document.querySelectorAll("button,a,[role='button'],[role='menuitem'],[role='menuitemradio']"))
+    .map((el) => clean(el.getAttribute("aria-label") || el.textContent || ""))
+    .filter(Boolean);
+  const loginActionVisible = actionLabels.some((label) =>
+    /^(log in|sign in|login|sign up|登录|免费注册|注册)$/i.test(label)
+  );
   const stopButton = Array.from(document.querySelectorAll("button")).find((btn) => {
     const label = clean(btn.getAttribute("aria-label") || btn.textContent || "");
     return /(stop|停止|停止生成|中止|cancel)/i.test(label);
   });
   const conversationMatch = location.pathname.match(/\/c\/([^/?#]+)/);
-  const loginWall = loginWallCue && !composer && messages.length === 0 && !conversationMatch;
+  const loginWall = loginWallCue && messages.length === 0 && !conversationMatch && (!composer || loginActionVisible);
   return JSON.stringify({
     title: document.title || "",
     url: location.href,
@@ -356,6 +362,56 @@ CLEAR_PROMPT_JS = r"""() => {
   composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
   composer.dispatchEvent(new Event("change", { bubbles: true }));
   return JSON.stringify({ ok: true, tag: composer.tagName, id: composer.id || "" });
+}"""
+
+DISMISS_BLOCKING_MODALS_JS = r"""() => {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const modalSelector = [
+    "dialog[open]",
+    "[role='dialog']",
+    "[aria-modal='true']",
+    "[data-testid*='cookie' i]",
+    "[id*='cookie' i]",
+    "[class*='cookie' i]",
+  ].join(",");
+  const modals = Array.from(document.querySelectorAll(modalSelector)).filter(visible);
+  const consentLike = (text) =>
+    /(cookie|consent|privacy|cookies|tracking|偏好|隐私|同意|接受|使用 Cookie|使用 cookie|使用条款|条款)/i.test(text);
+  const actionLike = (text) =>
+    /^(accept all|accept|agree|allow|ok|okay|got it|continue|dismiss|close|同意|接受|全部接受|允许|好的|知道了|我知道了|继续|关闭)$/i.test(text);
+  const clickNode = (node) => {
+    node.scrollIntoView({ block: "center", inline: "center" });
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    }
+    node.click();
+  };
+  const clicked = [];
+  for (const modal of modals) {
+    const modalText = clean(modal.innerText || modal.textContent || "");
+    const modalId = clean(`${modal.id || ""} ${modal.getAttribute("data-testid") || ""} ${modal.className || ""}`);
+    if (!consentLike(`${modalText} ${modalId}`)) continue;
+    const actions = Array.from(modal.querySelectorAll("button,[role='button'],a"))
+      .filter(visible)
+      .map((node) => ({
+        node,
+        text: clean(node.innerText || node.textContent || ""),
+        aria: clean(node.getAttribute("aria-label") || ""),
+        title: clean(node.getAttribute("title") || ""),
+      }));
+    const action = actions.find((item) => actionLike(clean(`${item.text} ${item.aria} ${item.title}`)))
+      || actions.find((item) => /(accept|agree|allow|同意|接受|允许|ok|close|关闭)/i.test(`${item.text} ${item.aria} ${item.title}`));
+    if (!action) continue;
+    clickNode(action.node);
+    clicked.push({ text: action.text, aria: action.aria, modal: modalId || modalText.slice(0, 80) });
+  }
+  return JSON.stringify({ ok: true, dismissed_count: clicked.length, clicked });
 }"""
 
 SUBMIT_JS = r"""() => {
@@ -593,6 +649,7 @@ CONFIGURE_CHATGPT_UI_JS = r"""(settings) => new Promise(async (resolve) => {
       if (!isActionNode(el) || rejectChromeNoise(text, aria)) return false;
       if ((text + " " + aria).length > 180) return false;
       if (/个人资料|profile|Li Sihao Pro/i.test(text + " " + aria)) return false;
+      if (/\b(log in|sign in)\b|登录|免费注册|注册/i.test(text + " " + aria)) return false;
       return modelMatches(text, aria, el);
     });
     steps.push({ step: "select_model_mode", mode: modelMode || "thinking", ok: !!selected, clicked: selected });
@@ -612,6 +669,7 @@ CONFIGURE_CHATGPT_UI_JS = r"""(settings) => new Promise(async (resolve) => {
         if ((text + " " + aria).length > 180) return false;
         if (el.tagName === "A" && /\/c\//.test(String(el.getAttribute("href") || ""))) return false;
         const joined = `${text} ${aria}`;
+        if (/\b(log in|sign in)\b|登录|免费注册|注册/i.test(joined)) return false;
         return /(High|Think longer|思考时间更长|思考深度|深度思考|深入思考|更长时间思考|高强度|进阶专业|Pro\s*思考)/i.test(joined);
       });
       steps.push({ step: "select_high_reasoning", ok: !!high, clicked: high });
@@ -819,7 +877,7 @@ def _kill_browser_profile_processes(profile_dir: Path | None) -> None:
 def _prompt_from_stdin() -> str:
     prompt = sys.stdin.read()
     action = str(os.environ.get("BROWSER_AGENT_CHATGPT_ACTION") or "run").strip().lower()
-    if not prompt.strip() and action not in {"poll", "collect"}:
+    if not prompt.strip() and action not in {"poll", "collect", "login_hold"}:
         raise SystemExit("stdin prompt is empty")
     return prompt
 
@@ -832,6 +890,9 @@ async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
     refresh_count = 0
     challenge_since: float | None = None
     while time.time() < deadline:
+        dismiss_note = await _dismiss_blocking_modals(page)
+        if int(dismiss_note.get("dismissed_count") or 0) > 0:
+            await asyncio.sleep(0.8)
         data = json.loads(await page.evaluate(CAPTURE_JS))
         last_data = data
         if data.get("login_wall"):
@@ -873,6 +934,34 @@ async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
             ensure_ascii=False,
         )
     )
+
+
+async def _dismiss_blocking_modals(page) -> dict:
+    try:
+        return json.loads(await page.evaluate(DISMISS_BLOCKING_MODALS_JS))
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "dismissed_count": 0}
+
+
+async def _hold_for_login(page, request_dir: Path, *, timeout_s: int) -> dict:
+    deadline = time.time() + max(30, timeout_s)
+    last_state: dict = {}
+    while time.time() < deadline:
+        try:
+            await _dismiss_blocking_modals(page)
+            state = json.loads(await page.evaluate(CAPTURE_JS))
+        except Exception as exc:
+            state = {"error": f"{type(exc).__name__}: {exc}"}
+        last_state = state
+        _write_json(request_dir / "login-hold-state.json", {
+            "ok": bool(state.get("composer_ready")) and not bool(state.get("login_wall")) and not bool(state.get("challenge_wall")),
+            "checked_at": bjrt._now(),
+            "state": state,
+        })
+        if state.get("composer_ready") and not state.get("login_wall") and not state.get("challenge_wall"):
+            return {"ok": True, "status": "logged_in", "state": state}
+        await asyncio.sleep(3.0)
+    return {"ok": False, "status": "timeout", "state": last_state}
 
 
 async def _capture_isolation_state(page) -> dict:
@@ -1001,6 +1090,7 @@ async def _wait_for_prompt_submission(page, baseline_message_count: int, *, time
 
 
 async def _submit_prompt(page, prompt: str) -> dict:
+    await _dismiss_blocking_modals(page)
     baseline = json.loads(await page.evaluate(CAPTURE_JS))
     baseline_message_count = int(baseline.get("message_count") or 0)
     if len(prompt) > 1000 or "\n" in prompt:
@@ -1168,6 +1258,7 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
     except Exception:
         old_clip = ""
     try:
+        await _dismiss_blocking_modals(page)
         baseline = json.loads(await page.evaluate(CAPTURE_JS))
         baseline_message_count = int(baseline.get("message_count") or 0)
         subprocess.run(["pbcopy"], input=prompt, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
@@ -1671,6 +1762,22 @@ async def _run(prompt: str) -> int:
             await asyncio.wait_for(page.goto(target_url), timeout=30)
         except Exception:
             await asyncio.wait_for(page.navigate(target_url), timeout=30)
+        if action == "login_hold":
+            hold = await _hold_for_login(page, request_dir, timeout_s=timeout_s)
+            _write_json(request_dir / "login-hold-result.json", hold)
+            final_page_state = {
+                "url": (hold.get("state") or {}).get("url"),
+                "conversation_id": (hold.get("state") or {}).get("conversation_id"),
+                "message_count": (hold.get("state") or {}).get("message_count"),
+                "assistant_count": (hold.get("state") or {}).get("assistant_count"),
+                "login_wall": (hold.get("state") or {}).get("login_wall"),
+                "challenge_wall": (hold.get("state") or {}).get("challenge_wall"),
+            }
+            if hold.get("ok"):
+                logged_in_verified = True
+                print(json.dumps(hold, ensure_ascii=False))
+                return 0
+            raise RuntimeError("chatgpt_login_hold_timeout")
         try:
             ready = await _wait_for_ready(page, timeout_s=90)
         except Exception:

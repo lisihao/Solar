@@ -13,7 +13,12 @@ import os
 import sys
 from pathlib import Path
 
-from chatgpt_report_operator import apply_profile_policy, run_wrapper_process, wrapper_cmd  # type: ignore
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "lib") not in sys.path:
+    sys.path.insert(0, str(ROOT / "lib"))
+
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
+from chatgpt_report_operator import apply_profile_policy, run_wrapper_process, wrapper_cmd  # type: ignore  # noqa: E402
 
 
 RAW_REQUIREMENT_ENV_KEYS = (
@@ -120,6 +125,18 @@ def build_prompt(raw_requirement: str, *, expected: str, purpose: str, source_ta
 
 def main() -> int:
     stdin_text = sys.stdin.read()
+    task_dir = Path(os.environ.get("TASK_DIR") or os.environ.get("BROWSER_AGENT_REQUEST_DIR") or Path.cwd()).expanduser()
+    task_dir.mkdir(parents=True, exist_ok=True)
+    queued_rc = enqueue_current_process_if_needed(
+        job_name="chatgpt_requirement_writer",
+        repo_root=ROOT,
+        cwd=task_dir,
+        timeout_seconds=int(os.environ.get("CHATGPT_REQUIREMENT_WRITER_QUEUE_WAIT_TIMEOUT_SECONDS") or 6 * 60 * 60),
+        stdin_text=stdin_text,
+    )
+    if queued_rc is not None:
+        return queued_rc
+
     action = (os.environ.get("CHATGPT_REQUIREMENT_WRITER_ACTION") or "run").strip().lower()
     if action not in {"run", "submit", "poll", "collect"}:
         print(f"chatgpt_requirement_writer_operator: invalid action={action}", file=sys.stderr)
@@ -183,4 +200,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
