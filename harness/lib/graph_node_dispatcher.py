@@ -31,6 +31,10 @@ def _harness_dir() -> Path:
 HARNESS_DIR = _harness_dir()
 if str(HARNESS_DIR / "lib") not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR / "lib"))
+try:
+    import actor_dispatch_bridge as _actor_dispatch_bridge  # type: ignore
+except Exception:
+    _actor_dispatch_bridge = None
 SPRINTS_DIR = HARNESS_DIR / "sprints"
 MULTI_TASK_RUN_DIR = HARNESS_DIR / "run" / "multi-task"
 SESSION = os.environ.get("SOLAR_HARNESS_SESSION", "solar-harness")
@@ -131,6 +135,8 @@ RECOVERABLE_DISPATCH_PROMPT_REASONS = {
     "edit_confirmation_prompt",
     "queued_prompt_residue",
     "plan_mode_blocked",
+    "feedback_survey_prompt",
+    "rewind_prompt_blocked",
 }
 RECOVERABLE_PANE_BLOCKER_FRAGMENTS = {
     "proceed_confirmation_prompt",
@@ -198,7 +204,8 @@ try:
 except Exception:  # pragma: no cover - state sync is best-effort in partial installs
     task_graph_state_io = None  # type: ignore
 from pane_lease import acquire as acquire_lease, release as release_lease, read_lease, list_leases  # noqa: E402
-from task_queue import enqueue  # noqa: E402
+import task_queue as _task_queue  # noqa: E402
+enqueue = _task_queue.enqueue
 try:
     from model_registry import load_registry as _load_model_registry, normalize as _normalize_model  # noqa: E402
 except Exception:  # pragma: no cover - partial fixtures can omit registry helper
@@ -405,6 +412,50 @@ def _node_requires_deepresearch_quality_gate(node: dict[str, Any]) -> bool:
         artifact_values.extend(str(item) for item in raw_scope)
     artifact_text = " ".join(artifact_values).lower()
     return bool(DEEPRESEARCH_GATE_ARTIFACT_RE.search(artifact_text))
+
+
+def _node_requires_mailbox_evidence_gate(node: dict[str, Any]) -> bool:
+    explicit = node.get("mailbox_evidence_gate_required")
+    if explicit is False:
+        return False
+    if explicit is True:
+        return True
+    if node.get("verdict_evidence_required") is True:
+        return True
+    gate = str(node.get("gate") or "").strip().upper()
+    return gate in {"G_EVIDENCE_VERDICT", "G_MAILBOX_EVIDENCE", "G_PANE_EVIDENCE"}
+
+
+def _mailbox_evidence_gate_for_pass(
+    graph_path: str | Path,
+    node_id: str,
+    *,
+    pane_text: str = "",
+) -> dict[str, Any]:
+    try:
+        from pane_handoff.evidence_validator import validate_pane_verdict_with_evidence  # type: ignore
+    except Exception as exc:
+        return {
+            "ok": False,
+            "blocker_reason": "validator_unavailable",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    try:
+        result = validate_pane_verdict_with_evidence(pane_text, graph_path, node_id)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "blocker_reason": "validator_error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    if hasattr(result, "to_dict"):
+        data = result.to_dict()
+    elif isinstance(result, dict):
+        data = dict(result)
+    else:
+        data = {"ok": bool(result)}
+    data["ok"] = bool(data.get("ok"))
+    return data
 
 
 def _refresh_requirement_coverage_artifacts(sid: str, *, dry_run: bool = False) -> dict[str, Any]:
@@ -619,6 +670,7 @@ def _evaluation_capacity_snapshot(plan: dict[str, Any], evaluators: list[dict[st
     mode = str(plan.get("review_mode") or "single")
     selected = available[:required]
     selected_panes = [str(item.get("pane") or "") for item in selected if str(item.get("pane") or "")]
+    fallback_panes = available_panes[required:]
     capacity_satisfied = len(selected) >= required
     quorum_dispatch_supported = True
     dispatchable_now = capacity_satisfied and quorum_dispatch_supported
@@ -627,6 +679,7 @@ def _evaluation_capacity_snapshot(plan: dict[str, Any], evaluators: list[dict[st
         "available_panes": available_panes,
         "required_evaluators": required,
         "selected_panes": selected_panes,
+        "fallback_panes": fallback_panes,
         "capacity_satisfied": capacity_satisfied,
         "quorum_dispatch_supported": quorum_dispatch_supported,
         "review_mode": mode,
@@ -1020,6 +1073,10 @@ def _normalize_model_alias(alias: str) -> str:
     if _normalize_model is not None:
         try:
             return str(_normalize_model(reg, alias))
+        except SystemExit:
+            # Test and degraded runtime registries may omit aliases that the
+            # default pane matrix still uses; fall back to the local map.
+            pass
         except Exception:
             pass
     value = str(alias or "").strip().lower()
@@ -1419,6 +1476,27 @@ def _resolve_handoff_artifact_paths(value: Any) -> list[Path]:
     return [path] if path is not None else []
 
 
+def _node_owns_parent_handoff(node: dict[str, Any]) -> bool:
+    """Return whether a sprint-level handoff path is the node's direct output.
+
+    Some release/verification nodes include the parent handoff in write_scope so
+    they can refresh it at closeout time.  An already-existing parent handoff is
+    not enough to prove those nodes have produced their own node handoff.
+    """
+    goal = str(node.get("goal") or "").lower()
+    acceptance_text = " ".join(str(item or "") for item in node.get("acceptance") or []).lower()
+    owner_phrases = (
+        "write sprint handoff",
+        "write final handoff",
+        "write parent handoff",
+        "sprint-level handoff",
+        "final sprint handoff",
+    )
+    if any(phrase in goal for phrase in owner_phrases):
+        return True
+    return "handoff exists" in acceptance_text
+
+
 def _node_handoff_candidates(sid: str, node: dict[str, Any], graph: dict[str, Any]) -> list[Path]:
     node_id = str(node.get("id") or "")
     candidates = [_handoff_file(sid, node_id)]
@@ -1433,7 +1511,7 @@ def _node_handoff_candidates(sid: str, node: dict[str, Any], graph: dict[str, An
     parent_handoff = f"sprints/{sid}.handoff.md"
     for scope in node.get("write_scope") or []:
         if str(scope).endswith(parent_handoff) or str(scope).endswith(f"{sid}.handoff.md"):
-            if _strict_dependencies_passed(graph, node):
+            if _node_owns_parent_handoff(node) and _strict_dependencies_passed(graph, node):
                 candidates.append(SPRINTS_DIR / f"{sid}.handoff.md")
             break
     deduped: list[Path] = []
@@ -1452,6 +1530,35 @@ def _existing_node_handoff(sid: str, node: dict[str, Any], graph: dict[str, Any]
         if candidate.exists():
             return candidate
     return None
+
+
+def _eval_sidecar_fresh_for_handoff(eval_json_path: str | Path, handoff_path: str | Path, sid: str, node_id: str) -> dict[str, Any]:
+    """Return whether an eval sidecar can be trusted for the current handoff."""
+    eval_path = Path(eval_json_path).expanduser()
+    handoff = Path(handoff_path).expanduser()
+    if not eval_path.exists() or not handoff.exists():
+        return {"fresh": True}
+    try:
+        eval_mtime = eval_path.stat().st_mtime
+        source_paths = [eval_path]
+        eval_md = _eval_md_file(sid, node_id)
+        if eval_md.exists():
+            source_paths.append(eval_md)
+            eval_mtime = min(eval_mtime, eval_md.stat().st_mtime)
+        handoff_mtime = handoff.stat().st_mtime
+    except OSError as exc:
+        return {"fresh": True, "reason": f"stat_unavailable:{type(exc).__name__}"}
+    if eval_mtime >= handoff_mtime:
+        return {"fresh": True}
+    return {
+        "fresh": False,
+        "reason": "eval_sidecar_older_than_handoff",
+        "eval_json": str(eval_path),
+        "handoff": str(handoff),
+        "eval_mtime": datetime.datetime.fromtimestamp(eval_mtime, tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "handoff_mtime": datetime.datetime.fromtimestamp(handoff_mtime, tz=datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_paths": [str(path) for path in source_paths],
+    }
 
 
 def _ledger_dispatch_for(sid: str, instruction_file: Path) -> dict[str, Any]:
@@ -1683,26 +1790,159 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
             eval_verdict = "FAIL"
         else:
             eval_verdict = ""
+        eval_md_path = _eval_md_file(sid, node_id)
+        eval_md_verdict = _verdict_from_eval_md(eval_md_path) if eval_md_path.exists() else ""
+        if handoff_file and eval_verdict in {"PASS", "FAIL"} and eval_md_verdict in {"PASS", "FAIL"} and eval_md_verdict != eval_verdict:
+            archive_paths = [eval_md_path, Path(eval_json_path)]
+            archived = _archive_eval_sidecars_for_retry(archive_paths, node)
+            pane = str(node.get("eval_assigned_to") or node.get("assigned_to") or "").strip()
+            dispatch_id = str(node.get("eval_dispatch_id") or node.get("dispatch_id") or "").strip()
+            if pane and dispatch_id:
+                release_lease(pane, dispatch_id, "graph_dispatch_reconcile_conflicting_eval_sidecars")
+            for key in (
+                "eval_json",
+                "eval_md_path",
+                "eval_assigned_to",
+                "eval_dispatch_id",
+                "eval_task_id",
+                "eval_graph_dispatch_id",
+                "eval_operator_id",
+                "eval_dispatched_at",
+                "eval_assignments",
+                "eval_recovered_from_lease",
+                "assigned_to",
+                "dispatch_id",
+            ):
+                node.pop(key, None)
+            artifacts = node.get("artifacts")
+            if isinstance(artifacts, dict):
+                for key in ("eval_json", "eval_md", "eval_md_path"):
+                    artifacts.pop(key, None)
+            graph.setdefault("node_results", {}).pop(node_id, None)
+            set_node_status(graph, node_id, "reviewing")
+            node["status"] = "reviewing"
+            node["eval_sidecar_conflict_detail"] = {
+                "reason": "eval_md_json_verdict_conflict",
+                "eval_md": str(eval_md_path),
+                "eval_md_verdict": eval_md_verdict,
+                "eval_json": eval_json_path,
+                "eval_json_verdict": eval_verdict,
+            }
+            node["updated_at"] = _utc_now()
+            repaired.append(
+                {
+                    "node": node_id,
+                    "status": "reviewing",
+                    "reason": "conflicting_eval_sidecars_archived",
+                    "handoff": str(handoff_file),
+                    "eval_json": eval_json_path,
+                    "eval_md_verdict": eval_md_verdict,
+                    "eval_json_verdict": eval_verdict,
+                    "archived": archived,
+                }
+            )
+            continue
+        if handoff_file and eval_verdict in {"PASS", "FAIL"}:
+            freshness = _eval_sidecar_fresh_for_handoff(eval_json_path, handoff_file, sid, node_id)
+            if not freshness.get("fresh", True):
+                archive_paths = [_eval_md_file(sid, node_id), Path(eval_json_path)]
+                archived = _archive_eval_sidecars_for_retry(archive_paths, node)
+                pane = str(node.get("eval_assigned_to") or node.get("assigned_to") or "").strip()
+                dispatch_id = str(node.get("eval_dispatch_id") or node.get("dispatch_id") or "").strip()
+                if pane and dispatch_id:
+                    release_lease(pane, dispatch_id, "graph_dispatch_reconcile_stale_eval_sidecar")
+                for key in (
+                    "eval_json",
+                    "eval_md_path",
+                    "eval_assigned_to",
+                    "eval_dispatch_id",
+                    "eval_task_id",
+                    "eval_graph_dispatch_id",
+                    "eval_operator_id",
+                    "eval_dispatched_at",
+                    "eval_assignments",
+                    "eval_recovered_from_lease",
+                    "assigned_to",
+                    "dispatch_id",
+                ):
+                    node.pop(key, None)
+                graph.setdefault("node_results", {}).pop(node_id, None)
+                set_node_status(graph, node_id, "reviewing")
+                node["status"] = "reviewing"
+                node["stale_eval_sidecar_detail"] = freshness
+                node["updated_at"] = _utc_now()
+                repaired.append(
+                    {
+                        "node": node_id,
+                        "status": "reviewing",
+                        "reason": "stale_eval_sidecar_archived",
+                        "handoff": str(handoff_file),
+                        "eval_json": eval_json_path,
+                        "verdict": eval_verdict,
+                        "archived": archived,
+                        "freshness": freshness,
+                    }
+                )
+                continue
         if handoff_file and eval_verdict in {"PASS", "FAIL"} and status in {"passed", "failed"}:
             stale_eval_keys = [
                 "eval_assigned_to",
                 "eval_dispatch_id",
+                "eval_task_id",
+                "eval_graph_dispatch_id",
+                "eval_operator_id",
+                "eval_dispatched_at",
+                "eval_assignments",
                 "eval_retry_reason",
                 "last_eval_closeout_failure",
                 "last_eval_operator_cooldown_after_closeout",
             ]
             cleared = [key for key in stale_eval_keys if key in node]
-            if cleared:
+            verdict_status = "passed" if eval_verdict == "PASS" else "failed"
+            existing_result = (graph.get("node_results") or {}).get(node_id)
+            result_missing = not isinstance(existing_result, dict) or str(existing_result.get("status") or "").lower() != verdict_status
+            projected = str(node.get("status") or "").lower() != verdict_status or status != verdict_status
+            if cleared or projected:
                 for key in cleared:
                     node.pop(key, None)
+                if projected:
+                    node["status"] = verdict_status
+                node["eval_json"] = eval_json_path
+                mark_node_result(
+                    graph,
+                    node_id,
+                    verdict_status,
+                    gate_status=verdict_status,
+                    note=f"canonical_eval_verdict_projected_from_sidecar:{Path(eval_json_path).name}",
+                )
+                node["updated_at"] = _utc_now()
+                repaired.append(
+                    {
+                        "node": node_id,
+                        "status": verdict_status,
+                        "reason": "canonical_eval_verdict_projected_to_node"
+                        if projected
+                        else "canonical_eval_verdict_cleared_stale_eval_state",
+                        "cleared": cleared,
+                        "eval_json": eval_json_path,
+                        "verdict": eval_verdict,
+                    }
+                )
+            elif result_missing:
+                mark_node_result(
+                    graph,
+                    node_id,
+                    verdict_status,
+                    gate_status=verdict_status,
+                    note=f"canonical_eval_verdict_result_backfilled_from_sidecar:{Path(eval_json_path).name}",
+                )
                 node["eval_json"] = eval_json_path
                 node["updated_at"] = _utc_now()
                 repaired.append(
                     {
                         "node": node_id,
-                        "status": status,
-                        "reason": "canonical_eval_verdict_cleared_stale_eval_state",
-                        "cleared": cleared,
+                        "status": verdict_status,
+                        "reason": "canonical_eval_verdict_backfilled_node_results",
                         "eval_json": eval_json_path,
                         "verdict": eval_verdict,
                     }
@@ -2053,6 +2293,67 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
                     }
                 )
                 continue
+            missing_sidecar_assignment = None
+            for assignment in assignments:
+                pane = str(assignment.get("pane") or "").strip()
+                dispatch_id = str(assignment.get("dispatch_id") or "").strip()
+                if not pane or not dispatch_id:
+                    continue
+                if pane.startswith("operator:"):
+                    continue
+                eval_json_path = Path(str(assignment.get("eval_json_path") or _eval_json_file(sid, node_id))).expanduser()
+                eval_md_path = Path(str(assignment.get("eval_md_path") or _eval_md_file(sid, node_id))).expanduser()
+                if eval_json_path.exists() or eval_md_path.exists():
+                    continue
+                lease = read_lease(pane) if pane else {}
+                lease_matches = bool(
+                    lease
+                    and not lease.get("_expired")
+                    and str(lease.get("sid") or lease.get("sprint_id") or "") == sid
+                    and str(lease.get("dispatch_id") or "") == dispatch_id
+                )
+                if lease_matches and not _pane_visibly_idle(pane):
+                    continue
+                if _pane_tui_busy(pane):
+                    # The lease already disappeared, but the TUI still shows
+                    # active work. Avoid duplicate evals until the pane settles;
+                    # the next reconcile will release it if no sidecar appears.
+                    continue
+                reason = (
+                    "eval_idle_without_sidecar"
+                    if lease_matches
+                    else "eval_dispatched_without_artifact_or_active_lease"
+                )
+                missing_sidecar_assignment = {
+                    "pane": pane,
+                    "dispatch_id": dispatch_id,
+                    "reason": reason,
+                    "eval_md_path": str(eval_md_path),
+                    "eval_json_path": str(eval_json_path),
+                }
+                break
+            if missing_sidecar_assignment:
+                release_lease(
+                    missing_sidecar_assignment["pane"],
+                    missing_sidecar_assignment["dispatch_id"],
+                    "graph_eval_reconcile_missing_sidecar_closeout",
+                )
+                _clear_eval_assignments(node)
+                node["eval_retry_reason"] = missing_sidecar_assignment["reason"]
+                node["last_eval_closeout_failure"] = missing_sidecar_assignment
+                node["updated_at"] = _utc_now()
+                repaired.append(
+                    {
+                        "node": node_id,
+                        "pane": missing_sidecar_assignment["pane"],
+                        "dispatch_id": missing_sidecar_assignment["dispatch_id"],
+                        "status": status,
+                        "reason": missing_sidecar_assignment["reason"],
+                        "eval_md_path": missing_sidecar_assignment["eval_md_path"],
+                        "eval_json_path": missing_sidecar_assignment["eval_json_path"],
+                    }
+                )
+                continue
             blocked_assignment = None
             for assignment in assignments:
                 pane = str(assignment.get("pane") or "").strip()
@@ -2295,13 +2596,44 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
     handoff = _existing_node_handoff(sid, node, {"nodes": [node]})
     eval_json_path = Path(eval_json).expanduser() if str(eval_json) else _eval_json_file(sid, node_id)
     eval_md_path = _eval_md_file(sid, node_id)
-    patch_path = Path(str(artifacts.get("patch_diff") or "")).expanduser() if artifacts.get("patch_diff") else Path("")
+    standard_artifact_candidates = {
+        "guard_decision": [
+            SPRINTS_DIR / f"{sid}.{node_id}-guard_decision.json",
+            SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
+        ],
+        "resource_binding": [
+            SPRINTS_DIR / f"{sid}.{node_id}-resource_binding.json",
+            SPRINTS_DIR / f"{sid}.{node_id}-resource-binding.json",
+        ],
+        "bridged_artifact": [
+            SPRINTS_DIR / f"{sid}.{node_id}-bridged_artifact.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-bridged-artifact.md",
+        ],
+        "patch_diff": [
+            SPRINTS_DIR / f"{sid}.{node_id}-patch_diff.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-patch.diff",
+            SPRINTS_DIR / f"{sid}.{node_id}-patch-diff.md",
+        ],
+    }
+    standard_artifacts = {key: candidates[0] for key, candidates in standard_artifact_candidates.items()}
+    standard_presence = {
+        key: any(candidate.exists() for candidate in candidates)
+        for key, candidates in standard_artifact_candidates.items()
+    }
+    patch_path = (
+        Path(str(artifacts.get("patch_diff") or "")).expanduser()
+        if artifacts.get("patch_diff")
+        else standard_artifacts["patch_diff"]
+    )
     test_path = Path(str(artifacts.get("test_log") or artifacts.get("test_report") or "")).expanduser() if (artifacts.get("test_log") or artifacts.get("test_report")) else Path("")
     presence = {
         "handoff_md": bool(handoff and Path(handoff).exists()),
         "eval_json": bool(eval_json_path.exists()),
         "eval_md": bool(eval_md_path.exists()),
-        "patch_diff": bool(str(patch_path) not in {"", "."} and patch_path.exists()) or bool(handoff and node.get("write_scope")),
+        "patch_diff": bool(str(patch_path) not in {"", "."} and patch_path.exists()) or standard_presence["patch_diff"] or bool(handoff and node.get("write_scope")),
+        "guard_decision": standard_presence["guard_decision"],
+        "resource_binding": standard_presence["resource_binding"],
+        "bridged_artifact": standard_presence["bridged_artifact"],
         "test_log": bool(str(test_path) not in {"", "."} and test_path.exists()),
     }
     for artifact_key, artifact_value in artifacts.items():
@@ -2343,6 +2675,25 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
     return presence
 
 
+def _proof_requirement_presence_key(requirement: str) -> str:
+    text = str(requirement or "").strip()
+    mapping = {
+        "check.guard_decision_written": "guard_decision",
+        "check.resource_binding_written": "resource_binding",
+        "check.adapter_output_written": "bridged_artifact",
+        "check.eval_written": "eval_json",
+        "guard_decision exists": "guard_decision",
+        "resource_binding exists": "resource_binding",
+        "adapter output exists": "bridged_artifact",
+        "eval_md exists": "eval_md",
+        "eval_json exists": "eval_json",
+        "patch_diff exists": "patch_diff",
+    }
+    if text in mapping:
+        return mapping[text]
+    return text
+
+
 def _evaluate_proof_obligations(sid: str, node: dict[str, Any], eval_json: str | Path = "") -> dict[str, Any]:
     obligations = _node_proof_obligations(sid, node)
     if not obligations:
@@ -2363,16 +2714,17 @@ def _evaluate_proof_obligations(sid: str, node: dict[str, Any], eval_json: str |
             satisfied = presence["eval_json"]
             reason = "eval_json_missing" if not satisfied else ""
         elif kind == "self_check":
-            if proof_checks:
+            presence_key = _proof_requirement_presence_key(requirement)
+            if proof_checks and requirement in proof_checks:
                 value = proof_checks.get(requirement)
-                satisfied = value is not False
+                deterministic_presence = bool(presence.get(presence_key))
+                satisfied = value is not False or deterministic_presence
                 reason = "self_check_failed" if not satisfied else ""
+            elif presence_key in presence:
+                satisfied = bool(presence.get(presence_key))
+                reason = "self_check_missing_artifact" if not satisfied else ""
             else:
-                if requirement in presence:
-                    satisfied = bool(presence.get(requirement))
-                    reason = "self_check_missing_artifact" if not satisfied else ""
-                else:
-                    satisfied = True
+                satisfied = True
         elif kind in {"pass_condition", "postcondition"}:
             field = str(obligation.get("field") or "")
             if "handoff" in requirement or field == "handoff_md":
@@ -2431,10 +2783,21 @@ def _proof_checks_template(obligations: list[dict[str, Any]]) -> dict[str, Any]:
     return template
 
 
-def _proof_obligations_block(obligations: list[dict[str, Any]]) -> str:
+def _proof_obligations_block(obligations: list[dict[str, Any]], sid: str = "", node_id: str = "") -> str:
     if not obligations:
         return "- `N/A`"
-    lines = []
+    sidecar_lines: list[str] = []
+    if sid and node_id:
+        sidecar_lines = [
+            f"- 标准 proof sidecar: `{SPRINTS_DIR / f'{sid}.{node_id}-guard-decision.json'}`",
+            f"- 标准 proof sidecar: `{SPRINTS_DIR / f'{sid}.{node_id}-resource-binding.json'}`",
+            f"- 标准 proof sidecar: `{SPRINTS_DIR / f'{sid}.{node_id}-bridged-artifact.md'}`",
+            "- 以上路径视为本节点允许写入的 proof sidecar scope；不能只写 handoff 后等待 evaluator 代补。",
+        ]
+    lines = [
+        "- 必须写 proof sidecars：`guard_decision.json`、`resource_binding.json`、`bridged_artifact.md`；缺任一项不得 PASS。",
+        *sidecar_lines,
+    ]
     for item in obligations:
         kind = str(item.get("kind") or "unknown")
         requirement = str(item.get("requirement") or "N/A")
@@ -2455,6 +2818,8 @@ def _store_eval_assignments(
         {
             "pane": str(item.get("pane") or ""),
             "dispatch_id": str(item.get("dispatch_id") or ""),
+            "pm_task_id": str(item.get("pm_task_id") or ""),
+            "operator_id": str(item.get("operator_id") or ""),
             "role": str(item.get("role") or "secondary"),
             "eval_md_path": str(item.get("eval_md_path") or ""),
             "eval_json_path": str(item.get("eval_json_path") or ""),
@@ -2544,9 +2909,12 @@ def _stale_eval_verdict_after_repair(graph: dict[str, Any], node_id: str, node: 
 
 
 def _queue_file(sprint_id: str) -> Path:
-    qdir = HARNESS_DIR / "run" / "queue"
-    qdir.mkdir(parents=True, exist_ok=True)
-    return qdir / f"{sprint_id}.jsonl"
+    try:
+        return Path(_task_queue._queue_file(sprint_id))  # type: ignore[attr-defined]
+    except Exception:
+        qdir = HARNESS_DIR / "run" / "queue"
+        qdir.mkdir(parents=True, exist_ok=True)
+        return qdir / f"{sprint_id}.jsonl"
 
 
 def _is_graph_queue_item(item: dict[str, Any]) -> bool:
@@ -2799,6 +3167,7 @@ def build_dispatch_text(payload: dict[str, Any], pane: str) -> str:
     capsule_plan_ir = payload.get("capsule_plan_ir") if isinstance(payload.get("capsule_plan_ir"), dict) else {}
     physical_plan_ir = payload.get("physical_plan_ir") if isinstance(payload.get("physical_plan_ir"), dict) else {}
     plan_artifacts = payload.get("plan_artifacts") if isinstance(payload.get("plan_artifacts"), dict) else {}
+    proof_obligations = _node_proof_obligations(str(sid), node)
     physical_selected = str(physical_plan_ir.get("selected_operator_id") or "N/A")
     logical_operator = str(
         logical_plan_node.get("logical_operator")
@@ -2879,6 +3248,10 @@ Graph: `{graph_path}`
 ## Acceptance
 
 {_acceptance_lines(node.get("acceptance"))}
+
+## Proof Obligations
+
+{_proof_obligations_block(proof_obligations, str(sid), str(node_id))}
 
 ## Rules
 
@@ -3022,7 +3395,7 @@ Handoff: `{handoff}`
 
 ## Proof Obligations
 
-{_proof_obligations_block(proof_obligations)}
+{_proof_obligations_block(proof_obligations, str(sid), str(node_id))}
 
 ## Write Scope
 
@@ -3113,6 +3486,18 @@ solar-harness session evaluate "{sid}" --json
     EOF
    ```
 
+## Sidecar Closeout Gate
+
+- 评审一旦开始执行，就必须以 sidecar 作为唯一 closeout；不能只在对话里总结测试结果。
+- 如果无法证明 PASS，也必须写 `FAIL` 的 `{eval_md}` 和 `{eval_json}`，再调用 fail verdict。
+- 最后必须执行这个检查；任何一项失败都视为 evaluator contract closeout failure：
+  ```bash
+  test -s "{eval_md}"
+  test -s "{eval_json}"
+  python3 -m json.tool "{eval_json}" >/dev/null
+  ```
+- 不允许停在“测试通过/看起来没问题”而不写 sidecar；缺 sidecar 会被 watchdog 自动回流并重派。
+
 ## Peer Evaluator Sidecars
 
 {peer_block}
@@ -3128,12 +3513,26 @@ solar-harness session evaluate "{sid}" --json
 
 def _pane_exists(pane: str) -> bool:
     try:
-        return subprocess.run(
+        exists = subprocess.run(
             ["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=2,
         ).returncode == 0
+        return bool(exists and not _pane_dead(pane))
+    except Exception:
+        return False
+
+
+def _pane_dead(pane: str) -> bool:
+    try:
+        out = subprocess.run(
+            ["tmux", "display-message", "-p", "-t", pane, "#{pane_dead}"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+        )
+        return out.returncode == 0 and out.stdout.strip() == "1"
     except Exception:
         return False
 
@@ -3197,18 +3596,24 @@ def _pane_evaluator_priority(pane: str, title: str = "") -> tuple[int, str]:
 
     Graph eval dispatch can run quorum/secondary reviews, but the canonical
     eval sidecar should stay anchored to the main Evaluator when it is
-    available. Lab panes are capacity spillover, not the first choice.
+    available. Operator-pool evaluator workers are preferred over lab-builder
+    spillover because lab panes may have just produced the handoff being
+    reviewed and can contain stale builder prompt residue.
     """
     if pane == f"{SESSION}:0.3":
         return (0, pane)
-    if re.search(r"Evaluator|审判官", title or _pane_title(pane), re.I):
+    if not pane.startswith("operator-pool:") and re.search(r"Evaluator|审判官", title or _pane_title(pane), re.I):
         return (1, pane)
-    if pane.startswith("solar-harness-multi-task:"):
+    if pane.startswith("operator-pool:evaluator.") and pane != "operator-pool:evaluator.0":
         return (2, pane)
-    if pane.startswith("solar-harness-lab:"):
+    if pane == "operator-pool:evaluator.0":
         return (3, pane)
-    if pane.startswith(f"{SESSION}:"):
+    if pane.startswith("solar-harness-multi-task:"):
         return (4, pane)
+    if pane.startswith("solar-harness-lab:"):
+        return (5, pane)
+    if pane.startswith(f"{SESSION}:"):
+        return (6, pane)
     return (9, pane)
 
 
@@ -3262,6 +3667,7 @@ def _pane_current_prompt_has_residue(text: str) -> bool:
     Only inspect the final prompt line and stop at status/footer lines.
     """
     lines = [line.rstrip() for line in text.splitlines()]
+    wrapped_prompt_continuations: list[str] = []
     for line in reversed(lines):
         stripped = line.strip()
         if not stripped:
@@ -3270,7 +3676,14 @@ def _pane_current_prompt_has_residue(text: str) -> bool:
             continue
         if stripped.startswith("❯"):
             remainder = stripped[1:].strip()
-            return bool(remainder) and not remainder.startswith("Try ")
+            has_wrapped_residue = any(part.strip() for part in wrapped_prompt_continuations)
+            return (bool(remainder) or has_wrapped_residue) and not remainder.startswith("Try ")
+        if line[:1].isspace() and len(wrapped_prompt_continuations) < 6:
+            # Claude wraps long editable prompt input onto indented continuation
+            # lines. Walk backwards through those lines until we find the live
+            # prompt marker instead of treating the continuation as output.
+            wrapped_prompt_continuations.append(stripped)
+            continue
         return False
     return False
 
@@ -3297,8 +3710,8 @@ def _tail_has_idle_prompt_footer(text: str) -> bool:
     even after Claude returns to a clean prompt/footer. Treating that history as
     live state strands otherwise idle panes.
     """
-    if tail_has_idle_prompt_footer:
-        return bool(tail_has_idle_prompt_footer(text))
+    if tail_has_idle_prompt_footer and bool(tail_has_idle_prompt_footer(text)):
+        return True
     lines = [line.rstrip() for line in text.splitlines()]
     footer_prefixes = (
         "⏵",
@@ -3327,6 +3740,14 @@ def _tail_has_idle_prompt_footer(text: str) -> bool:
             continue
         return False
     return False
+
+
+def _pane_visibly_idle(pane: str) -> bool:
+    """Return true when the current TUI tail has settled at an idle prompt."""
+    try:
+        return _tail_has_idle_prompt_footer(_pane_tail(pane))
+    except Exception:
+        return False
 
 
 def _pane_prompt_residue_is_stale_scrollback(pane: str, text: str) -> bool:
@@ -3492,7 +3913,7 @@ def _clear_stale_prompt_residue(pane: str) -> bool:
     # Never press editing/interrupt keys while Claude is actively working.
     # Queued-prompt text can remain visible in the frame during generation; it
     # is not safe to clear until the pane is idle.
-    if PANE_PROCESSING_RE.search(bottom) and not PANE_QUEUED_PROMPT_RE.search(bottom):
+    if PANE_PROCESSING_RE.search(bottom) and not PANE_QUEUED_PROMPT_RE.search(bottom) and not has_residue:
         return False
     if not has_residue:
         if PANE_TUI_BUSY_RE.search(bottom):
@@ -3562,6 +3983,13 @@ def _pane_unavailable_reason(pane: str) -> str:
             if not prompt_reason:
                 return ""
         return prompt_reason
+    if _pane_current_prompt_has_residue(bottom) and not _pane_prompt_residue_is_stale_scrollback(pane, tail):
+        if _clear_stale_prompt_residue(pane):
+            tail = _pane_tail(pane)
+            bottom = "\n".join(tail.splitlines()[-40:])
+            if not (_pane_current_prompt_has_residue(bottom) and not _pane_prompt_residue_is_stale_scrollback(pane, tail)):
+                return ""
+        return "unsubmitted_prompt_residue"
     # Active Claude output can leave an edit/proceed prompt visible while tests
     # or tool calls are still running. Do not recover/press keys in that state;
     # mark it busy only, and let the idle-path hygiene clear it after the run.
@@ -3659,7 +4087,7 @@ def _pane_title_active_unavailable_reason(pane: str, title: str) -> str:
     if not _pane_has_active_lease(pane):
         return ""
     if not _pane_tui_busy(pane):
-        return "pane_title_active_work"
+        return ""
     return "pane_title_active_work"
 
 
@@ -3717,6 +4145,16 @@ def _pane_dispatch_prompt_reason(tail: str) -> str:
         return "queued_prompt_residue"
     if PANE_PLAN_MODE_RE.search(bottom):
         return "plan_mode_blocked"
+    if PANE_SURVEY_PROMPT_RE.search(bottom):
+        return "feedback_survey_prompt"
+    rewind_match = re.search(r"\bRewind\b[\s\S]{0,240}Restore the code and/or conversation[\s\S]{0,160}Esc to exit", bottom, re.I)
+    rewind_followed_by_prompt = bool(re.search(r"(?m)^\s*❯", bottom[rewind_match.end():])) if rewind_match else False
+    if (
+        rewind_match
+        and not rewind_followed_by_prompt
+        and not _prompt_match_followed_by_idle_default_prompt(bottom, rewind_match)
+    ):
+        return "rewind_prompt_blocked"
     return ""
 
 
@@ -3746,6 +4184,12 @@ def _dismiss_dispatch_prompt(pane: str, reason: str) -> bool:
                 if not PANE_PLAN_MODE_RE.search(after):
                     return True
             return False
+        if reason == "feedback_survey_prompt":
+            subprocess.run(["tmux", "send-keys", "-t", pane, "0", "Enter"], timeout=2)
+            return True
+        if reason == "rewind_prompt_blocked":
+            subprocess.run(["tmux", "send-keys", "-t", pane, "Escape"], timeout=2)
+            return True
     except Exception:
         return False
     return False
@@ -3947,6 +4391,19 @@ def _send_to_pane(pane: str, instruction_file: Path, dry_run: bool,
     short_cmd = f"{_visibility_summary(instruction_file)['text']}; 读取并执行 {instruction_path}"
     _record_model_call("request", sid, pane, dispatch_id, instruction_file, status="tmux_submit_requested")
     last_error = ""
+
+    def _paste_short_cmd() -> bool:
+        buffer_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", f"solar-dispatch-{dispatch_id or dispatch_keyword}")[:180]
+        try:
+            subprocess.run(["tmux", "set-buffer", "-b", buffer_id, short_cmd], timeout=2, check=True)
+            time.sleep(0.2)
+            subprocess.run(["tmux", "paste-buffer", "-d", "-b", buffer_id, "-t", pane], timeout=2, check=True)
+            time.sleep(0.35)
+            subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], timeout=2)
+            return True
+        except Exception:
+            return False
+
     def _settled_dispatch_state() -> tuple[str, str, bool, bool]:
         time.sleep(1.0)
         settled_tail = _pane_tail(pane)
@@ -4093,6 +4550,33 @@ def _send_to_pane(pane: str, instruction_file: Path, dry_run: bool,
                 )
                 return True
             last_error = "dispatch text not accepted by pane"
+            if _paste_short_cmd():
+                time.sleep(4.0)
+                paste_tail = _pane_tail(pane)
+                paste_prompt_reason = _pane_dispatch_prompt_reason(paste_tail)
+                paste_has_keyword = dispatch_keyword in paste_tail or instruction_path in paste_tail
+                paste_has_processing = bool(processing_re.search(paste_tail))
+                if paste_prompt_reason:
+                    last_error = f"paste-buffer dispatch blocked by {paste_prompt_reason}"
+                    time.sleep(1.0)
+                    continue
+                if paste_has_keyword and not paste_has_processing:
+                    subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], timeout=2)
+                    time.sleep(2.0)
+                    paste_tail = _pane_tail(pane)
+                    paste_has_processing = bool(processing_re.search(paste_tail))
+                if paste_has_keyword or paste_has_processing:
+                    _record_model_call(
+                        "succeeded",
+                        sid,
+                        pane,
+                        dispatch_id,
+                        instruction_file,
+                        tries=tries,
+                        status="paste_buffer_submit_verified",
+                    )
+                    return True
+                last_error = "paste-buffer dispatch text not accepted by pane"
             # Never send C-c from the dispatcher. Claude Code treats C-c as an
             # interactive interruption and can leave the pane in a Rewind prompt
             # that blocks automation. If the text was not accepted, report
@@ -4249,6 +4733,17 @@ def _cooldown_missing_runtime_context(entry: dict[str, Any]) -> bool:
     return not graph_path.exists()
 
 
+def _cooldown_is_stale_title_active_work(pane: str, entry: dict[str, Any]) -> bool:
+    reason = str(entry.get("reason") or "")
+    if "assigned_pane_unavailable:pane_title_active_work" not in reason:
+        return False
+    if _pane_has_active_lease(pane):
+        return False
+    if _pane_tui_busy(pane):
+        return False
+    return True
+
+
 def _pane_cooldown_reason(pane: str) -> str:
     data = _pane_cooldowns()
     entry = data.get(pane)
@@ -4258,6 +4753,7 @@ def _pane_cooldown_reason(pane: str) -> str:
         not _pane_exists(pane)
         or _cooldown_conflicts_with_live_lease(pane, entry)
         or _cooldown_missing_runtime_context(entry)
+        or _cooldown_is_stale_title_active_work(pane, entry)
     ):
         data.pop(pane, None)
         _write_pane_cooldowns(data)
@@ -4391,13 +4887,21 @@ def _inject_dispatch_context(instruction_file: Path, sid: str = "", pane: str = 
     injector = HARNESS_DIR / "lib" / "solar_skills.py"
     if not instruction_file.exists():
         return
+    try:
+        skills_timeout = float(os.environ.get("SOLAR_GRAPH_DISPATCH_SKILLS_INJECT_TIMEOUT_SEC", "3") or "3")
+    except Exception:
+        skills_timeout = 3.0
+    try:
+        runtime_timeout = float(os.environ.get("SOLAR_GRAPH_DISPATCH_RUNTIME_INJECT_TIMEOUT_SEC", "5") or "5")
+    except Exception:
+        runtime_timeout = 5.0
     if injector.exists():
         try:
             subprocess.run(
                 [sys.executable, str(injector), "inject", str(instruction_file)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=15,
+                timeout=max(0.1, skills_timeout),
                 check=False,
                 env=_broker_env(sid),
             )
@@ -4422,7 +4926,7 @@ def _inject_dispatch_context(instruction_file: Path, sid: str = "", pane: str = 
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=20,
+                timeout=max(0.1, runtime_timeout),
                 check=False,
                 env=_broker_env(sid),
             )
@@ -4583,9 +5087,54 @@ def _builder_operator_pool_allowed_for_pane(pane: str) -> bool:
     )
 
 
+_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE: dict[str, Any] = {
+    "checked_at": 0.0,
+    "available": 0,
+}
+_OPERATOR_POOL_ROLE_PROBE_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+
+
+def _operator_usable_from_watchdog_snapshot(operator_id: str) -> bool:
+    """Return a conservative usability hint from the latest watchdog capacity run."""
+    if not operator_id:
+        return False
+    latest = HARNESS_DIR / "run" / "operator-health-watchdog" / "latest.json"
+    try:
+        data = json.loads(latest.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    blocked_states = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "error"}
+    stack: list[Any] = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            if str(item.get("operator_id") or "") == operator_id:
+                state = str(item.get("state") or item.get("runtime_state") or "").strip().lower()
+                if state in blocked_states:
+                    return False
+                if item.get("usable") is True:
+                    return True
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
 def _builder_operator_pool_available_count() -> int:
     if not _builder_operator_pool_enabled():
         return 0
+    now = time.time()
+    try:
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "20") or "20")
+    except Exception:
+        cache_ttl = 20.0
+    cached_at = float(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("checked_at") or 0.0)
+    if cache_ttl > 0 and cached_at > 0 and now - cached_at <= cache_ttl:
+        return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
+    try:
+        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "3") or "3")
+    except Exception:
+        timeout = 3.0
     try:
         completed = subprocess.run(
             [
@@ -4596,16 +5145,20 @@ def _builder_operator_pool_available_count() -> int:
             ],
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=max(0.1, timeout),
             env=_broker_env(),
         )
     except Exception:
-        return 0
+        # Avoid multiplying a slow status probe across every graph in one drain
+        # cycle. A stale in-process value is safer than blocking the controller.
+        return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
     if completed.returncode != 0:
+        _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": 0})
         return 0
     try:
         data = json.loads(completed.stdout)
     except Exception:
+        _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": 0})
         return 0
     try:
         available = int(data.get("total_available") or 0)
@@ -4620,12 +5173,23 @@ def _builder_operator_pool_available_count() -> int:
                 available += int(group.get("available") or 0)
             except Exception:
                 pass
-    return max(0, available)
+    available = max(0, available)
+    _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": available})
+    return available
 
 
 def _operator_pool_role_available(role: str) -> bool:
     if not _builder_operator_pool_enabled():
         return False
+    now = time.time()
+    try:
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "30") or "30")
+    except Exception:
+        cache_ttl = 30.0
+    cache_key = ("role", role)
+    cached = _OPERATOR_POOL_ROLE_PROBE_CACHE.get(cache_key)
+    if cache_ttl > 0 and cached and now - cached[0] <= cache_ttl:
+        return cached[1]
     cmd = [
         sys.executable,
         str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
@@ -4643,15 +5207,31 @@ def _operator_pool_role_available(role: str) -> bool:
     env = _broker_env()
     env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=8, env=env)
+        timeout = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "2") or "2")
     except Exception:
+        timeout = 2.0
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(0.1, timeout), env=env)
+    except Exception:
+        _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, False)
         return False
-    return completed.returncode == 0 and "operator_id" in completed.stdout
+    available = completed.returncode == 0 and "operator_id" in completed.stdout
+    _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, available)
+    return available
 
 
 def _operator_pool_operator_available_for_role(operator_id: str, role: str) -> bool:
     if not _builder_operator_pool_enabled() or not operator_id:
         return False
+    now = time.time()
+    try:
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "30") or "30")
+    except Exception:
+        cache_ttl = 30.0
+    cache_key = (role, operator_id)
+    cached = _OPERATOR_POOL_ROLE_PROBE_CACHE.get(cache_key)
+    if cache_ttl > 0 and cached and now - cached[0] <= cache_ttl:
+        return cached[1]
     cmd = [
         sys.executable,
         str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
@@ -4671,10 +5251,45 @@ def _operator_pool_operator_available_for_role(operator_id: str, role: str) -> b
     env = _broker_env()
     env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=8, env=env)
+        timeout = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "2") or "2")
     except Exception:
+        timeout = 2.0
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(0.1, timeout), env=env)
+    except Exception:
+        _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, False)
         return False
-    return completed.returncode == 0 and f"operator_id = {operator_id}" in completed.stdout
+    available = completed.returncode == 0 and f"operator_id = {operator_id}" in completed.stdout
+    _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, available)
+    return available
+
+
+def _operator_pool_operator_can_closeout_eval_sidecar(operator_id: str) -> bool:
+    """Return whether an explicit operator fallback can write graph eval sidecars."""
+    try:
+        registry = json.loads((HARNESS_DIR / "config" / "physical-operators.json").read_text(encoding="utf-8"))
+    except Exception:
+        return True
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    op = operators.get(operator_id)
+    if not isinstance(op, dict):
+        return True
+    policy = op.get("policy") if isinstance(op.get("policy"), dict) else {}
+    write_files = str(policy.get("write_files") or "").strip().lower()
+    eval_sidecar_allowed = (
+        write_files in {"eval_sidecar_only", "eval-sidecar-only"}
+        or str(policy.get("eval_sidecar_write") or "").strip().lower() in {"allowed", "true", "1", "yes"}
+    )
+    if write_files == "denied" and not eval_sidecar_allowed:
+        return False
+    pool = op.get("builder_pool") if isinstance(op.get("builder_pool"), dict) else {}
+    disabled_reason = str(pool.get("disabled_reason") or "").strip().lower()
+    if pool and not bool(pool.get("enabled", False)) and "file_execution" in disabled_reason and not eval_sidecar_allowed:
+        return False
+    avoid_for = {str(item).strip().lower() for item in op.get("avoid_for", []) if str(item or "").strip()}
+    if {"code-edit", "repo-modification", "implementation"} & avoid_for and not eval_sidecar_allowed:
+        return False
+    return True
 
 
 def _builder_operator_pool_workers(
@@ -4775,16 +5390,23 @@ def _evaluator_operator_pool_workers() -> list[dict[str, Any]]:
         item.strip()
         for item in os.environ.get(
             "SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS",
-            "mini-reasonix-deepseek-v4-builder",
+            "mini-codex-gpt55-medium-builder-2,mini-codex-gpt55-medium-builder-1,mini-reasonix-deepseek-v4-builder",
         ).split(",")
         if item.strip()
     ]
     for operator_id in advisor_fallbacks:
+        if not _operator_pool_operator_can_closeout_eval_sidecar(operator_id):
+            continue
         if _operator_pool_operator_available_for_role(operator_id, "evaluator"):
+            fallback_models = ["operator-pool"]
+            if "gpt55" in operator_id or "gpt-5.5" in operator_id:
+                fallback_models.insert(0, "gpt-5.5")
+            elif "deepseek" in operator_id:
+                fallback_models.insert(0, "deepseek-v4-pro")
             workers.append({
                 "pane": f"operator-pool:evaluator.{operator_id}",
                 "operator_id": operator_id,
-                "models": ["deepseek-v4-pro", "operator-pool"],
+                "models": fallback_models,
                 "skills": ["review", "testing", "bash"],
                 "busy": False,
                 "title": f"operator pool evaluator advisor fallback {operator_id}",
@@ -4828,7 +5450,27 @@ def _graph_queue_dispatch_role(payload: dict[str, Any], node: dict[str, Any], as
     role = str(raw or "builder").strip().lower().replace("-", "_")
     if role in {"builder_main", "builder_worker", "implementation"}:
         return "builder"
+    if role == "evaluator" and _node_requires_builder_lane(node):
+        return "builder"
     return role
+
+
+def _node_requires_builder_lane(node: dict[str, Any]) -> bool:
+    """Some verification-suite nodes create tests, so they need builder writes first."""
+    write_scope = node.get("write_scope")
+    has_write_scope = isinstance(write_scope, list) and any(str(item).strip() for item in write_scope)
+    if not has_write_scope:
+        return False
+    text = " ".join(
+        str(value or "")
+        for value in [
+            node.get("id"),
+            node.get("goal"),
+            " ".join(str(item) for item in (node.get("acceptance") or [])),
+            " ".join(str(item) for item in (node.get("required_capabilities") or [])),
+        ]
+    ).lower()
+    return any(token in text for token in ("verification_suite", "test", "pytest", "测试"))
 
 
 def _graph_node_task_type(node: dict[str, Any]) -> str:
@@ -4837,6 +5479,143 @@ def _graph_node_task_type(node: dict[str, Any]) -> str:
         if value:
             return value
     return "implementation"
+
+
+def _graph_payload_bool(*values: Any) -> bool:
+    for value in values:
+        if isinstance(value, bool):
+            if value:
+                return True
+            continue
+        if isinstance(value, (int, float)):
+            if value != 0:
+                return True
+            continue
+        if isinstance(value, str):
+            if value.strip().lower() in {"1", "true", "yes", "on"}:
+                return True
+    return False
+
+
+def _submit_ready_node_via_actor_runtime(
+    *,
+    sid: str,
+    node: dict[str, Any],
+    node_id: str,
+    graph_path: str,
+    dispatch_id: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Default S03 runtime path: ActorRuntime mailbox submit, not tmux pane."""
+
+    if _actor_dispatch_bridge is None:
+        return {"ok": False, "reason": "actor_dispatch_bridge_unavailable", "node": node_id}
+    if dry_run:
+        envelope = _actor_dispatch_bridge.build_envelope(sid, node, fallback_allowed=False)
+        return {
+            "ok": True,
+            "node": node_id,
+            "dispatch_id": dispatch_id,
+            "dispatch_path": "actor_runtime",
+            "dry_run": True,
+            "graph_updated": False,
+            "envelope": {
+                "sprint_id": envelope.get("sprint_id"),
+                "node_id": envelope.get("node_id"),
+                "logical_operator": envelope.get("logical_operator"),
+                "gate": envelope.get("gate"),
+                "fallback_allowed": envelope.get("fallback_allowed"),
+            },
+        }
+
+    result = _actor_dispatch_bridge.dispatch_node(sid, node, fallback_allowed=False)
+    result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(getattr(result, "__dict__", {}))
+    if not getattr(result, "success", False):
+        return {
+            "ok": False,
+            "reason": "actor_runtime_submit_failed",
+            "node": node_id,
+            "dispatch_id": dispatch_id,
+            "dispatch_path": getattr(result, "dispatch_path", None) or "actor_runtime",
+            "error": getattr(result, "error", None),
+            "result": result_dict,
+        }
+
+    actor_ref = (
+        getattr(result, "selected_host_type", None)
+        or (getattr(result, "scheduler_decision", None) or {}).get("selected_actor")
+        or (getattr(result, "lease", None).actor_id if getattr(result, "lease", None) else None)
+        or "actor_runtime"
+    )
+    graph_updated = _mark_graph_node_compat(
+        graph_path,
+        node_id,
+        "dispatched",
+        pane=f"actor:{actor_ref}",
+        dispatch_id=dispatch_id,
+    )
+    try:
+        graph = load_graph(graph_path)
+        graph_node = _node_by_id(graph, node_id)
+        if graph_node is not None:
+            graph_node["dispatched_via"] = "actor_runtime"
+            graph_node["dispatch_path"] = "actor_runtime"
+            graph_node["actor_runtime_result"] = result_dict
+            graph_node["updated_at"] = _utc_now()
+            save_graph(graph_path, graph)
+            graph_updated = True
+    except Exception:
+        pass
+    _append_dispatch_ledger(
+        "actor_runtime_dispatched",
+        sid,
+        f"actor:{actor_ref}",
+        dispatch_id,
+        {"node": node_id, "graph": graph_path, "result": result_dict},
+    )
+    return {
+        "ok": True,
+        "node": node_id,
+        "pane": f"actor:{actor_ref}",
+        "dispatch_id": dispatch_id,
+        "dispatch_path": "actor_runtime",
+        "dispatch_mode": "actor_runtime",
+        "dry_run": False,
+        "graph_updated": graph_updated,
+        "result": result_dict,
+    }
+
+
+def _dispatch_via_pane_compatibility_payload(
+    payload: dict[str, Any],
+    *,
+    fallback_allowed=True,
+    dispatch_path="compatibility_fallback",
+) -> dict[str, Any]:
+    """Annotate the explicit legacy pane fallback path.
+
+    The default S03 dispatch path is ActorRuntime. Pane/tmux dispatch remains
+    available only as an explicit compatibility fallback with a visible marker.
+    """
+
+    patched = dict(payload)
+    patched["fallback_allowed"] = fallback_allowed
+    patched["dispatch_path"] = dispatch_path
+    patched["fallback_reason"] = patched.get("fallback_reason") or "explicit_pane_compatibility"
+    return patched
+
+
+def _actor_runtime_candidate(node: dict[str, Any], payload: dict[str, Any], assignment: dict[str, Any]) -> bool:
+    return any(
+        str(value or "").strip()
+        for value in (
+            node.get("logical_operator"),
+            node.get("actor_id"),
+            payload.get("logical_operator"),
+            payload.get("actor_id"),
+            assignment.get("actor_id"),
+        )
+    )
 
 
 def _parse_pm_submit_output(stdout: str) -> dict[str, str]:
@@ -5110,12 +5889,6 @@ def _submit_eval_to_operator_pool(
     dry_run: bool,
     operator_id: str = "",
 ) -> dict[str, Any]:
-    dispatch_preview = instruction_file.read_text(encoding="utf-8")
-    if len(dispatch_preview) > 60000:
-        dispatch_preview = (
-            dispatch_preview[:60000]
-            + "\n\n[TRUNCATED] Full graph eval dispatch instructions are in the file path above; read the file before acting."
-        )
     objective = (
         "你是 graph-dispatch evaluator。请严格执行下面这个 DAG 节点评审文件；"
         "必须阅读 builder handoff/evidence，写入文件内要求的 eval.md/eval.json verdict，"
@@ -5126,9 +5899,7 @@ def _submit_eval_to_operator_pool(
         f"Node: {node_id}\n"
         f"Dispatch ID: {dispatch_id}\n"
         f"Original evaluator slot: {pane or 'N/A'}\n\n"
-        "--- BEGIN GRAPH EVAL DISPATCH FILE ---\n"
-        f"{dispatch_preview}"
-        "\n--- END GRAPH EVAL DISPATCH FILE ---"
+        "请先读取 Graph eval dispatch file 的完整内容，再执行评审。"
     )
     context = json.dumps(
         {
@@ -5165,12 +5936,21 @@ def _submit_eval_to_operator_pool(
     env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
     env.setdefault("SOLAR_PM_DISPATCH_SOURCE", "graph_node_dispatcher")
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=45, env=env)
+        timeout = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_EVAL_SUBMIT_TIMEOUT_SEC", "6") or "6")
+    except Exception:
+        timeout = 6.0
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(0.1, timeout), env=env)
     except Exception as exc:
+        if isinstance(exc, subprocess.TimeoutExpired):
+            error = f"timed out after {exc.timeout} seconds"
+        else:
+            error = str(exc)
         return {
             "ok": False,
             "reason": "operator_pool_eval_submit_exception",
-            "error": str(exc),
+            "error": error,
+            "exception_type": type(exc).__name__,
             "instruction_file": str(instruction_file),
         }
     if completed.returncode != 0:
@@ -5204,6 +5984,11 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
     pane = assignment.get("pane") or payload.get("pane") or ""
     graph_path = payload.get("graph") or str(SPRINTS_DIR / f"{sid}.task_graph.json")
     dispatch_id = payload.get("dispatch_id") or f"graph-{sid}-{node_id}"
+    fallback_allowed = _graph_payload_bool(
+        payload.get("fallback_allowed"),
+        assignment.get("fallback_allowed"),
+        node.get("fallback_allowed"),
+    )
 
     if not sid or not node_id:
         return {"ok": False, "reason": "invalid_graph_queue_item", "item": item}
@@ -5246,7 +6031,6 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             )
             if str(pane).startswith("operator-pool:"):
                 if not dry_run:
-                    enqueue(sid, item.get("intent", f"graph_node|node_id={node_id}"), item.get("priority", 80), payload)
                     _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
                 return {
                     "ok": False,
@@ -5254,8 +6038,33 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
                     "node": node_id,
                     "pane": pane,
                     "operator_pool": pool_result,
-                    "requeued": not dry_run,
+                    "requeued": False,
                 }
+    if not fallback_allowed and _actor_runtime_candidate(node, payload, assignment):
+        actor_result = _submit_ready_node_via_actor_runtime(
+            sid=sid,
+            node=node,
+            node_id=node_id,
+            graph_path=graph_path,
+            dispatch_id=dispatch_id,
+            dry_run=dry_run,
+        )
+        if actor_result.get("ok"):
+            return actor_result
+        if actor_result.get("reason") != "actor_dispatch_bridge_unavailable":
+            actor_error = str(actor_result.get("error") or "")
+            if pane and actor_error.startswith("no_available_actor_for_"):
+                _append_dispatch_ledger(
+                    "actor_runtime_no_binding_compat_fallback",
+                    sid,
+                    pane,
+                    dispatch_id,
+                    {"node": node_id, "graph": graph_path, "actor_runtime": actor_result},
+                )
+            else:
+                if not dry_run:
+                    _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
+                return actor_result
     if not pane:
         return {"ok": False, "reason": "missing_assigned_pane", "node": node_id}
     if current_status in {"assigned", "dispatched", "in_progress", "running"} and current_dispatch_id == dispatch_id:
@@ -5329,6 +6138,7 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
         if unavailable_reason:
             marker = _mark_pane_recover_retryable if _recoverable_pane_blocker(unavailable_reason) else _mark_pane_recover_cooldown
             marker(pane, f"assigned_pane_unavailable:{unavailable_reason}", sid=sid, dispatch_id=dispatch_id)
+            release_lease(pane, dispatch_id, f"graph_dispatch_assigned_pane_unavailable:{unavailable_reason}")
             _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
             return {
                 "ok": True,
@@ -5353,7 +6163,11 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "requeued": True,
         }
 
-    text_payload = dict(payload, dispatch_id=dispatch_id, sprint_id=sid)
+    text_payload = _dispatch_via_pane_compatibility_payload(
+        dict(payload, dispatch_id=dispatch_id, sprint_id=sid),
+        fallback_allowed=True,
+        dispatch_path="compatibility_fallback",
+    )
     text_payload = _ensure_execution_plan_payload(text_payload, graph_path=graph_path, sid=sid, node=node)
     actorhost = _actorhost_bridge(
         pane=pane,
@@ -5382,6 +6196,8 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "pane": pane,
             "dispatch_id": dispatch_id,
             "instruction_file": str(instruction_file),
+            "dispatch_path": "compatibility_fallback",
+            "fallback_reason": "explicit_pane_compatibility",
             "dry_run": True,
             "graph_updated": False,
         }, actorhost)
@@ -5404,6 +6220,8 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "pane": pane,
             "dispatch_id": dispatch_id,
             "instruction_file": str(instruction_file),
+            "dispatch_path": "compatibility_fallback",
+            "fallback_reason": "explicit_pane_compatibility",
             "dry_run": dry_run,
             "graph_updated": graph_updated,
         }, actorhost)
@@ -5427,11 +6245,13 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "ok": True,
             "reason": "pane_busy_retry_later",
             "node": node_id,
-            "pane": pane,
-            "instruction_file": str(instruction_file),
-            "dispatch_id": dispatch_id,
-            "requeued": False,
-        }
+        "pane": pane,
+        "instruction_file": str(instruction_file),
+        "dispatch_id": dispatch_id,
+        "dispatch_path": "compatibility_fallback",
+        "fallback_reason": "explicit_pane_compatibility",
+        "requeued": False,
+    }
     enqueue(sid, item.get("intent", f"graph_node|node_id={node_id}"), item.get("priority", 80), payload)
     _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
     _mark_pane_recover_cooldown(
@@ -5446,6 +6266,8 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
         "node": node_id,
         "pane": pane,
         "instruction_file": str(instruction_file),
+        "dispatch_path": "compatibility_fallback",
+        "fallback_reason": "explicit_pane_compatibility",
         "requeued": True,
     }
 
@@ -5569,11 +6391,11 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
         ]
     try:
         out = subprocess.check_output(
-            ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}"],
+            ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}\t#{pane_dead}"],
             stderr=subprocess.DEVNULL,
             timeout=3,
         ).decode()
-        pane_rows = [p.rstrip("\n").split("\t", 1) for p in out.splitlines() if p.strip()]
+        pane_rows = [p.rstrip("\n").split("\t", 2) for p in out.splitlines() if p.strip()]
     except Exception:
         pane_rows = []
     workers = []
@@ -5581,6 +6403,7 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
     for row in pane_rows:
         pane = row[0].strip()
         title = row[1].strip() if len(row) > 1 else ""
+        pane_dead = len(row) > 2 and row[2].strip() == "1"
         dispatch_role = _dispatch_role_for_pane(pane, title)
         if restrict_to_session:
             continue
@@ -5603,7 +6426,9 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
         current_command = _pane_current_command(pane)
         runtime_unavailable_reason = "" if cooldown_reason else _pane_runtime_unavailable_reason(pane, title)
         unavailable_reason = (
-            cooldown_reason
+            ("pane_dead" if pane_dead else "")
+            or cooldown_reason
+            or _pane_hygiene_unavailable_reason(pane)
             or
             _multi_task_direct_dispatch_unavailable_reason(pane, current_command=current_command)
             or runtime_unavailable_reason
@@ -5624,6 +6449,7 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
             "rate_limit_operator_blocks": rate_limit_blocks,
             "health": health,
             "unavailable_reason": unavailable_reason,
+            "pane_dead": pane_dead,
             "current_command": current_command,
         }
         _flatten_actorhost_bridge(
@@ -5649,11 +6475,11 @@ def _discover_evaluators(dry_run: bool = False) -> list[dict[str, Any]]:
     candidates = [f"{SESSION}:0.3"]
     try:
         out = subprocess.check_output(
-            ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}"],
+            ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}\t#{pane_dead}"],
             stderr=subprocess.DEVNULL,
             timeout=3,
         ).decode()
-        pane_rows = [p.rstrip("\n").split("\t", 1) for p in out.splitlines() if p.strip()]
+        pane_rows = [p.rstrip("\n").split("\t", 2) for p in out.splitlines() if p.strip()]
     except Exception:
         pane_rows = []
     for row in pane_rows:
@@ -5679,6 +6505,7 @@ def _discover_evaluators(dry_run: bool = False) -> list[dict[str, Any]]:
         seen.add(pane)
         if _pane_exists(pane):
             title = _pane_title(pane)
+            pane_dead = _pane_dead(pane)
             title_matches_evaluator = _pane_title_matches_role(pane, title, "evaluator")
             evaluator_spillover = _lab_builder_can_host_evaluator(pane, title)
             if not (title_matches_evaluator or evaluator_spillover):
@@ -5694,7 +6521,8 @@ def _discover_evaluators(dry_run: bool = False) -> list[dict[str, Any]]:
             rate_limit_blocks = _persist_pane_rate_limit_block(pane, title, tail, quota_exhausted) if quota_exhausted else []
             runtime_unavailable_reason = "" if cooldown_reason else _pane_runtime_unavailable_reason(pane, title)
             unavailable_reason = (
-                _pane_hygiene_unavailable_reason(pane)
+                ("pane_dead" if pane_dead else "")
+                or _pane_hygiene_unavailable_reason(pane)
                 or cooldown_reason
                 or _multi_task_direct_dispatch_unavailable_reason(pane, current_command=current_command)
                 or runtime_unavailable_reason
@@ -5711,10 +6539,12 @@ def _discover_evaluators(dry_run: bool = False) -> list[dict[str, Any]]:
                 "unavailable_reason": unavailable_reason,
                 "quota_exhausted": quota_exhausted,
                 "rate_limit_operator_blocks": rate_limit_blocks,
+                "pane_dead": pane_dead,
                 "current_command": current_command,
             })
-    if not dry_run:
-        evaluators.extend(_evaluator_operator_pool_workers())
+    # Dry-run must mirror apply-time capacity; otherwise GraphDrain/status
+    # reports false no_available_evaluator while apply can use the pool.
+    evaluators.extend(_evaluator_operator_pool_workers())
     evaluators.sort(key=lambda item: _pane_evaluator_priority(str(item.get("pane") or ""), str(item.get("title") or "")))
     return evaluators
 
@@ -5723,13 +6553,20 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
     node_id = str(node.get("id") or "")
     if not node_id:
         return False
+    retry_requested = bool(node.get("eval_retry_requested_at")) or str(node.get("eval_retry_reason") or "") in {
+        "stale_eval_assignment_missing_sidecar",
+        "eval_dispatched_without_artifact_or_active_lease",
+        "eval_failed_contract_closeout",
+        "pm_repair_archived_stale_eval_sidecars",
+        "force_retry_archived_stale_eval_sidecars",
+    }
     repair_mode = bool(node.get("quality_gate_repair_requested_at")) and _node_requires_deepresearch_quality_gate(node)
     results = graph.get("node_results") or {}
     result = results.get(node_id) if isinstance(results, dict) else None
     result_status = str(result.get("status", "")).lower() if isinstance(result, dict) else ""
     if result_status == "passed":
         return False
-    if result_status in {"failed", "skipped"} and not force:
+    if result_status in {"failed", "skipped"} and not force and not retry_requested:
         return False
     if _eval_json_file(sid, node_id).exists() and not force and not repair_mode:
         return False
@@ -5793,6 +6630,8 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
     if status == "passed":
         return False
     if status in {"failed", "skipped"}:
+        if retry_requested:
+            return bool(_existing_node_handoff(sid, node, graph))
         if not force:
             return False
         return bool(_existing_node_handoff(sid, node, graph))
@@ -5883,6 +6722,20 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             for item in loop_evaluators
             if not item.get("busy") and str(item.get("pane") or "") in selected_panes
         ]
+        fallback_panes = [
+            str(pane)
+            for pane in runtime_capacity.get("fallback_panes", [])
+            if str(pane)
+        ]
+        fallback_evaluators = [
+            item
+            for item in loop_evaluators
+            if (
+                not item.get("busy")
+                and str(item.get("pane") or "") in fallback_panes
+                and str(item.get("pane") or "") not in selected_panes
+            )
+        ]
         if len(selected_evaluators) < int(runtime_plan.get("required_evaluators") or 1):
             skipped.append({
                 "node": node_id,
@@ -5893,7 +6746,10 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
         total_evaluators = int(runtime_plan.get("required_evaluators") or 1)
         dispatch_group_id = f"graph-eval-{sid}-{node_id}-{_utc_now().replace(':', '').replace('-', '')}"
         planned_assignments: list[dict[str, Any]] = []
-        for idx, evaluator in enumerate(selected_evaluators[:total_evaluators], start=1):
+        dispatch_candidates = selected_evaluators[:total_evaluators]
+        if total_evaluators == 1 and not dry_run and fallback_evaluators:
+            dispatch_candidates.extend(fallback_evaluators)
+        for idx, evaluator in enumerate(dispatch_candidates, start=1):
             pane = str(evaluator.get("pane") or "")
             if pane in used_evaluator_panes:
                 skipped.append({
@@ -5905,13 +6761,14 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
                 planned_assignments = []
                 break
             role = "primary" if idx == 1 else "secondary"
-            eval_md_path = _eval_md_file(sid, node_id) if idx == 1 else _eval_peer_md_file(sid, node_id, idx)
-            eval_json_path = _eval_json_file(sid, node_id) if idx == 1 else _eval_peer_json_file(sid, node_id, idx)
+            eval_md_path = _eval_md_file(sid, node_id) if total_evaluators == 1 or idx == 1 else _eval_peer_md_file(sid, node_id, idx)
+            eval_json_path = _eval_json_file(sid, node_id) if total_evaluators == 1 or idx == 1 else _eval_peer_json_file(sid, node_id, idx)
             planned_assignments.append(
                 {
                     "pane": pane,
+                    "operator_id": str(evaluator.get("operator_id") or ""),
                     "dispatch_id": f"{dispatch_group_id}-q{idx}",
-                    "role": role,
+                    "role": role if idx <= total_evaluators else "fallback",
                     "index": idx,
                     "eval_md_path": str(eval_md_path),
                     "eval_json_path": str(eval_json_path),
@@ -5926,38 +6783,40 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
 
         lease_results: list[dict[str, Any]] = []
         lease_failed = None
-        for assignment in planned_assignments:
-            if str(assignment["pane"]).startswith("operator-pool:"):
-                lease_result = {"acquired": True, "reason": "operator_pool_virtual_pane"}
-            else:
-                lease_result = _ensure_lease(
-                    str(assignment["pane"]),
-                    sid,
-                    str(assignment["dispatch_id"]),
-                    ttl,
-                    dry_run,
-                )
-            lease_results.append(lease_result)
-            if not lease_result.get("acquired"):
-                lease_failed = {"assignment": assignment, "lease": lease_result}
-                break
-        if lease_failed:
-            if not dry_run:
-                for assignment, lease_result in zip(planned_assignments, lease_results):
-                    if lease_result.get("acquired"):
-                        release_lease(str(assignment["pane"]), str(assignment["dispatch_id"]), "graph_eval_dispatch_partial_lease_failed")
-            skipped.append({
-                "node": node_id,
-                "pane": str(lease_failed["assignment"]["pane"]),
-                "reason": lease_failed["lease"].get("reason", "lease_failed"),
-                "lease": lease_failed["lease"],
-                "evaluation_plan": runtime_plan,
-            })
-            continue
+        if total_evaluators > 1:
+            for assignment in planned_assignments:
+                if str(assignment["pane"]).startswith("operator-pool:"):
+                    lease_result = {"acquired": True, "reason": "operator_pool_virtual_pane"}
+                else:
+                    lease_result = _ensure_lease(
+                        str(assignment["pane"]),
+                        sid,
+                        str(assignment["dispatch_id"]),
+                        ttl,
+                        dry_run,
+                    )
+                lease_results.append(lease_result)
+                if not lease_result.get("acquired"):
+                    lease_failed = {"assignment": assignment, "lease": lease_result}
+                    break
+            if lease_failed:
+                if not dry_run:
+                    for assignment, lease_result in zip(planned_assignments, lease_results):
+                        if lease_result.get("acquired"):
+                            release_lease(str(assignment["pane"]), str(assignment["dispatch_id"]), "graph_eval_dispatch_partial_lease_failed")
+                skipped.append({
+                    "node": node_id,
+                    "pane": str(lease_failed["assignment"]["pane"]),
+                    "reason": lease_failed["lease"].get("reason", "lease_failed"),
+                    "lease": lease_failed["lease"],
+                    "evaluation_plan": runtime_plan,
+                })
+                continue
 
         canonical_eval_md = str(_eval_md_file(sid, node_id))
         canonical_eval_json = str(_eval_json_file(sid, node_id))
         sent_records: list[dict[str, Any]] = []
+        successful_assignments: list[dict[str, Any]] = []
         send_failed = None
         for assignment in planned_assignments:
             pane = str(assignment["pane"])
@@ -5965,29 +6824,24 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             peer_paths = [
                 str(item["eval_json_path"])
                 for item in planned_assignments
-                if item["dispatch_id"] != assignment["dispatch_id"]
+                if total_evaluators > 1 and item["dispatch_id"] != assignment["dispatch_id"]
             ]
             instruction_file = _eval_dispatch_member_file(sid, node_id, int(assignment["index"]))
-            instruction_file.parent.mkdir(parents=True, exist_ok=True)
-            instruction_file.write_text(
-                build_eval_dispatch_text(
-                    graph,
-                    graph_path,
-                    node,
-                    pane,
-                    str(assignment["dispatch_id"]),
-                    evaluator_role=str(assignment["role"]),
-                    evaluator_index=int(assignment["index"]),
-                    evaluator_total=total_evaluators,
-                    eval_md_override=Path(str(assignment["eval_md_path"])),
-                    eval_json_override=Path(str(assignment["eval_json_path"])),
-                    peer_eval_json_paths=peer_paths,
-                    canonical_eval_json_path=canonical_eval_json,
-                    canonical_eval_md_path=canonical_eval_md,
-                ),
-                encoding="utf-8",
+            dispatch_text = build_eval_dispatch_text(
+                graph,
+                graph_path,
+                node,
+                pane,
+                str(assignment["dispatch_id"]),
+                evaluator_role=str(assignment["role"]),
+                evaluator_index=int(assignment["index"]),
+                evaluator_total=total_evaluators,
+                eval_md_override=Path(str(assignment["eval_md_path"])),
+                eval_json_override=Path(str(assignment["eval_json_path"])),
+                peer_eval_json_paths=peer_paths,
+                canonical_eval_json_path=canonical_eval_json,
+                canonical_eval_md_path=canonical_eval_md,
             )
-            _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=str(assignment["dispatch_id"]))
             if dry_run:
                 used_evaluator_panes.add(assigned_pane)
                 sent_records.append({
@@ -6000,6 +6854,31 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
                     "dry_run": True,
                 })
                 continue
+            if total_evaluators == 1:
+                if pane.startswith("operator-pool:"):
+                    lease_result = {"acquired": True, "reason": "operator_pool_virtual_pane"}
+                else:
+                    lease_result = _ensure_lease(
+                        pane,
+                        sid,
+                        str(assignment["dispatch_id"]),
+                        ttl,
+                        dry_run,
+                    )
+                if not lease_result.get("acquired"):
+                    send_failed = {
+                        "assignment": assignment,
+                        "instruction_file": str(instruction_file),
+                        "submit_result": {
+                            "reason": str(lease_result.get("reason") or "lease_failed"),
+                            "lease": lease_result,
+                        },
+                    }
+                    used_evaluator_panes.add(assigned_pane)
+                    continue
+            instruction_file.parent.mkdir(parents=True, exist_ok=True)
+            instruction_file.write_text(dispatch_text, encoding="utf-8")
+            _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=str(assignment["dispatch_id"]))
             if pane.startswith("operator-pool:evaluator"):
                 submit_result = _submit_eval_to_operator_pool(
                     sid=sid,
@@ -6015,6 +6894,11 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
                 if sent:
                     pane = str(submit_result.get("pane") or pane)
                     assignment["pane"] = pane
+                    pm_dispatch = submit_result.get("pm_dispatch") if isinstance(submit_result.get("pm_dispatch"), dict) else {}
+                    if pm_dispatch.get("pm_task_id"):
+                        assignment["pm_task_id"] = str(pm_dispatch.get("pm_task_id") or "")
+                    if submit_result.get("operator_id"):
+                        assignment["operator_id"] = str(submit_result.get("operator_id") or "")
             else:
                 submit_result = {}
                 sent = _send_to_pane(pane, instruction_file, dry_run, sid=sid, dispatch_id=str(assignment["dispatch_id"]))
@@ -6028,11 +6912,20 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
                 if not str(assignment["pane"]).startswith("operator-pool:"):
                     marker = _mark_pane_recover_retryable if _recoverable_pane_blocker(reason) else _mark_pane_recover_cooldown
                     marker(pane, reason, sid=sid, dispatch_id=str(assignment["dispatch_id"]))
+                    if total_evaluators == 1:
+                        release_lease(pane, str(assignment["dispatch_id"]), "graph_eval_dispatch_send_failed")
                 used_evaluator_panes.add(assigned_pane)
+                if len(successful_assignments) < total_evaluators:
+                    continue
                 break
             _write_submit_ack(sid, node_id, pane, str(assignment["dispatch_id"]))
             used_evaluator_panes.add(assigned_pane)
             used_evaluator_panes.add(pane)
+            successful_assignments.append(dict(assignment))
+            node["status"] = "reviewing"
+            node["eval_dispatch_group_id"] = dispatch_group_id
+            _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
+            save_graph(graph_path, graph)
             sent_records.append({
                 "node": node_id,
                 "pane": pane,
@@ -6041,6 +6934,9 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
                 "evaluation_plan": runtime_plan,
                 "role": assignment["role"],
             })
+            if len(successful_assignments) >= total_evaluators:
+                send_failed = None
+                break
         if send_failed:
             if not dry_run:
                 for assignment in planned_assignments:
@@ -6052,6 +6948,8 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             submit_detail = send_failed.get("submit_result") if isinstance(send_failed.get("submit_result"), dict) else {}
             node["eval_retry_detail"] = {
                 "reason": str(submit_detail.get("reason") or "send_failed"),
+                "error": str(submit_detail.get("error") or "")[-1200:],
+                "exception_type": submit_detail.get("exception_type"),
                 "returncode": submit_detail.get("returncode"),
                 "stderr": str(submit_detail.get("stderr") or "")[-1200:],
                 "stdout": str(submit_detail.get("stdout") or "")[-1200:],
@@ -6074,7 +6972,8 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
 
         node["status"] = "reviewing"
         node["eval_dispatch_group_id"] = dispatch_group_id
-        _store_eval_assignments(node, planned_assignments, _utc_now(), sprint_id=sid)
+        if not dry_run:
+            _store_eval_assignments(node, successful_assignments or planned_assignments, _utc_now(), sprint_id=sid)
         for item in sent_records:
             dispatched.append(item)
 
@@ -6087,6 +6986,32 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
         "dispatched": dispatched,
         "skipped": skipped,
     }
+
+
+def _workers_with_graph_active_panes_marked_busy(graph: dict[str, Any], workers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    active_panes: set[str] = set()
+    for node in graph.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        status = str(node_status(graph, str(node.get("id") or "")) or node.get("status") or "").strip().lower()
+        if status not in {"assigned", "dispatched", "in_progress", "running", "reviewing"}:
+            continue
+        pane = str(node.get("assigned_to") or "").strip()
+        if pane:
+            active_panes.add(pane)
+    if not active_panes:
+        return workers
+    marked: list[dict[str, Any]] = []
+    for worker in workers:
+        pane = str(worker.get("pane") or "").strip()
+        if pane in active_panes:
+            item = dict(worker)
+            item["busy"] = True
+            item["unavailable_reason"] = str(item.get("unavailable_reason") or "graph_active_assignment")
+            marked.append(item)
+        else:
+            marked.append(worker)
+    return marked
 
 
 def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
@@ -6104,7 +7029,7 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     enqueue_result = enqueue_ready(
         graph,
         graph_path,
-        _discover_workers(dry_run),
+        _workers_with_graph_active_panes_marked_busy(graph, _discover_workers(dry_run)),
         max_parallel=effective_max_parallel,
         lease=not dry_run,
         ttl=ttl,
@@ -6224,6 +7149,22 @@ def node_verdict(graph_path: str, node_id: str, verdict: str, reason: str = "",
                 "research_quality_gate": research_quality_gate,
             }
 
+    mailbox_evidence_gate: dict[str, Any] = {"required": False}
+    if status == "passed" and _node_requires_mailbox_evidence_gate(node):
+        mailbox_evidence_gate = {
+            "required": True,
+            **_mailbox_evidence_gate_for_pass(graph_path, node_id, pane_text=reason),
+        }
+        if not mailbox_evidence_gate.get("ok"):
+            return {
+                "ok": False,
+                "reason": "mailbox_evidence_gate_failed",
+                "node": node_id,
+                "status": "blocked",
+                "eval_json": str(eval_json or _eval_json_file(sid, node_id)),
+                "mailbox_evidence_gate": mailbox_evidence_gate,
+            }
+
     note_parts = []
     if reason:
         note_parts.append(reason)
@@ -6239,6 +7180,8 @@ def node_verdict(graph_path: str, node_id: str, verdict: str, reason: str = "",
         node["proof_gate"] = proof_gate
     if research_quality_gate.get("required"):
         node["research_quality_gate"] = research_quality_gate.get("gate") or research_quality_gate
+    if mailbox_evidence_gate.get("required"):
+        node["mailbox_evidence_gate"] = mailbox_evidence_gate
     worker_pane = str(node.get("assigned_to") or "")
     worker_dispatch_id = str(node.get("dispatch_id") or "")
     effect_result: dict[str, Any] = {}
@@ -6261,6 +7204,7 @@ def node_verdict(graph_path: str, node_id: str, verdict: str, reason: str = "",
     node.pop("eval_dispatch_group_id", None)
     node.pop("eval_retry_reason", None)
     node.pop("eval_retry_detail", None)
+    node.pop("eval_retry_requested_at", None)
     _clear_eval_assignments(node)
     state_sync = _sync_state_node(
         sid,
@@ -6311,6 +7255,7 @@ def node_verdict(graph_path: str, node_id: str, verdict: str, reason: str = "",
         "capability_effect": effect_result,
         "proof_gate": proof_gate,
         "research_quality_gate": research_quality_gate,
+        "mailbox_evidence_gate": mailbox_evidence_gate,
         "coverage_refresh": coverage_refresh,
     }
 

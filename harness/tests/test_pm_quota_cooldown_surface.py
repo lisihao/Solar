@@ -92,6 +92,15 @@ class TestQuotaTextClassification:
     def test_normal_output_not_classified(self, ofc):
         assert ofc.classify_failure_state("Task completed successfully") == ""
 
+    def test_explicit_usage_limit_not_masked_by_closeout_words(self, ofc):
+        text = (
+            "必须阅读 builder handoff/evidence，写入 eval.md/eval.json verdict，"
+            "不要只写 PM result。\n"
+            "ERROR: You've hit your usage limit. Visit settings or try again at "
+            "Jun 10th, 2026 8:56 PM."
+        )
+        assert ofc.classify_failure_state(text) == "cooldown"
+
 
 # ---------------------------------------------------------------------------
 # 2. quotaProject= must NOT trigger quota classification
@@ -370,6 +379,7 @@ class TestApplyFailureFlowControl:
         assert result["task_control"]["delay_seconds"] == 600
         assert result["task_control"]["reason"] == "browser_history_throttle"
         assert result["config_block"]["reason"] == "browser_history_throttle"
+
 
 class TestQuotaRecoveryPrune:
     def test_claude_live_heartbeat_clears_future_registry_and_status_cooldown(self, ofc, tmp_path, monkeypatch):

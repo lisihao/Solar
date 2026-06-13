@@ -1246,6 +1246,80 @@ def test_evaluator_dispatch_marks_graph_assignment(monkeypatch, tmp_path):
     assert state["node_results"]["E1"]["dispatch_id"] == "pm-sprint-eval-E1-test"
 
 
+def test_cmd_submit_graph_eval_uses_direct_inbox_fast_path(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    pm_inbox = tmp_path / "run" / "pm-inbox"
+    operator_inbox = tmp_path / "run" / "operator-inbox"
+    sprints.mkdir(parents=True)
+    pm_inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", pm_inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+    monkeypatch.setenv("SOLAR_PM_DISPATCH_ALLOW_DIRECT", "1")
+
+    graph_path = sprints / "sprint-eval.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval",
+                "nodes": [{"id": "E1", "status": "reviewing"}],
+                "node_results": {"E1": {"status": "reviewing"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        pm_dispatch,
+        "select_operator_by_role",
+        lambda **kwargs: (
+            "mini-codex-gpt55-medium-evaluator",
+            {"model": "gpt-5.5", "roles": ["evaluator"]},
+            "",
+        ),
+    )
+
+    fake_operator_runtime = types.ModuleType("operator_runtime")
+
+    def _unexpected_submit(envelope):
+        raise AssertionError("graph_eval evaluator should bypass operator_runtime.submit")
+
+    fake_operator_runtime.submit = _unexpected_submit  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "operator_runtime", fake_operator_runtime)
+
+    rc = pm_dispatch.cmd_submit(
+        argparse.Namespace(
+            role="evaluator",
+            objective="Review E1 handoff and write eval sidecar.",
+            operator="",
+            sprint="sprint-eval",
+            node="E1",
+            task_type="graph_eval",
+            context="",
+            dry_run=False,
+        )
+    )
+
+    assert rc == 0
+    records = list(pm_inbox.glob("pm-*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["status"] == "submitted_fallback"
+    assert record["submit_mode"] == "direct_inbox_graph_eval"
+    assert record["requested_role"] == "evaluator"
+    inbox_path = Path(record["inbox_path"])
+    assert inbox_path.exists()
+    envelope = json.loads(inbox_path.read_text(encoding="utf-8"))
+    assert envelope["task_type"] == "graph_eval"
+    assert envelope["requested_role"] == "evaluator"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["eval_dispatch_id"] == record["task_id"]
+    assert node["eval_assignments"][0]["operator_id"] == "mini-codex-gpt55-medium-evaluator"
+
+
 def test_transient_evaluator_failure_releases_graph_assignment(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
@@ -1342,6 +1416,194 @@ def test_transient_evaluator_release_reads_operator_stderr(monkeypatch, tmp_path
     )
 
     assert result["released"] is True
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert "eval_dispatch_id" not in node
+    assert "eval_assignments" not in node
+
+
+def test_failed_contract_closeout_releases_evaluator_assignment(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    task_id = "pm-sprint-eval-contract-E1-test"
+    graph_path = sprints / "sprint-eval-contract.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval-contract",
+                "nodes": [
+                    {
+                        "id": "E1",
+                        "status": "reviewing",
+                        "eval_dispatch_id": task_id,
+                        "eval_dispatched_at": "2026-06-05T00:00:00Z",
+                        "eval_operator_id": "gpt55-evaluator",
+                        "eval_assignments": [{"task_id": task_id, "operator_id": "gpt55-evaluator"}],
+                    }
+                ],
+                "node_results": {
+                    "E1": {
+                        "status": "reviewing",
+                        "eval_dispatch_id": task_id,
+                        "eval_dispatched_at": "2026-06-05T00:00:00Z",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = pm_dispatch._release_graph_eval_on_transient_operator_failure(
+        {
+            "task_id": task_id,
+            "sprint_id": "sprint-eval-contract",
+            "node_id": "E1",
+            "operator_id": "gpt55-evaluator",
+            "requested_role": "evaluator",
+            "status": "failed_contract_closeout",
+            "failure_reason": "completed_without_required_artifacts",
+            "closeout_status": {
+                "ok": False,
+                "missing_artifacts": [
+                    str(sprints / "sprint-eval-contract.E1-eval.md"),
+                    str(sprints / "sprint-eval-contract.E1-eval.json"),
+                ],
+                "stale_artifacts": [],
+            },
+        }
+    )
+
+    assert result["released"] is True
+    assert result["requeue_reason"] == "failed_contract_closeout"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert "eval_dispatch_id" not in node
+    assert "eval_assignments" not in node
+    assert node["eval_requeue_history"][0]["reason"] == "failed_contract_closeout"
+    assert "eval_dispatch_id" not in graph["node_results"]["E1"]
+
+
+def test_failed_contract_closeout_releases_pm_task_backlinked_eval_assignment(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    task_id = "pm-sprint-eval-contract-E1-test"
+    graph_dispatch_id = "graph-eval-sprint-eval-contract-E1-q1"
+    graph_path = sprints / "sprint-eval-contract.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval-contract",
+                "nodes": [
+                    {
+                        "id": "E1",
+                        "status": "reviewing",
+                        "eval_dispatch_id": graph_dispatch_id,
+                        "eval_dispatched_at": "2026-06-05T00:00:00Z",
+                        "eval_operator_id": "gpt55-evaluator",
+                        "eval_assigned_to": "operator:gpt55-evaluator",
+                        "eval_pm_task_id": task_id,
+                        "eval_assignments": [
+                            {
+                                "dispatch_id": graph_dispatch_id,
+                                "pm_task_id": task_id,
+                                "operator_id": "gpt55-evaluator",
+                            }
+                        ],
+                    }
+                ],
+                "node_results": {
+                    "E1": {
+                        "status": "reviewing",
+                        "eval_dispatch_id": graph_dispatch_id,
+                        "eval_pm_task_id": task_id,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = pm_dispatch._release_graph_eval_on_transient_operator_failure(
+        {
+            "task_id": task_id,
+            "sprint_id": "sprint-eval-contract",
+            "node_id": "E1",
+            "operator_id": "gpt55-evaluator",
+            "requested_role": "evaluator",
+            "status": "failed_contract_closeout",
+            "failure_reason": "completed_without_required_artifacts",
+            "closeout_status": {
+                "ok": False,
+                "missing_artifacts": [str(sprints / "sprint-eval-contract.E1-eval.json")],
+                "stale_artifacts": [],
+            },
+        }
+    )
+
+    assert result["released"] is True
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert "eval_assignments" not in node
+    assert "eval_dispatch_id" not in node
+    assert "eval_pm_task_id" not in node
+    assert node["eval_requeue_history"][0]["task_id"] == task_id
+    assert "eval_dispatch_id" not in graph["node_results"]["E1"]
+    assert "eval_pm_task_id" not in graph["node_results"]["E1"]
+
+
+def test_cmd_complete_evaluator_missing_sidecars_releases_graph(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "run" / "pm-inbox"
+    sprints.mkdir(parents=True)
+    inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    task_id = "pm-sprint-eval-complete-E1-test"
+    graph_path = sprints / "sprint-eval-complete.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval-complete",
+                "nodes": [
+                    {
+                        "id": "E1",
+                        "status": "reviewing",
+                        "eval_dispatch_id": task_id,
+                        "eval_assignments": [{"task_id": task_id, "operator_id": "gpt55-evaluator"}],
+                    }
+                ],
+                "node_results": {"E1": {"status": "reviewing", "eval_dispatch_id": task_id}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pm_dispatch.write_pm_task_record(
+        task_id,
+        {
+            "task_id": task_id,
+            "sprint_id": "sprint-eval-complete",
+            "node_id": "E1",
+            "operator_id": "gpt55-evaluator",
+            "requested_role": "evaluator",
+            "status": "active",
+            "submitted_at": "2026-06-05T00:00:00Z",
+        },
+    )
+
+    rc = pm_dispatch.cmd_complete(argparse.Namespace(task_id=task_id))
+
+    assert rc == 2
+    record = pm_dispatch.read_pm_task_record(task_id)
+    assert record["status"] == "failed_contract_closeout"
+    assert record["graph_eval_requeue"]["released"] is True
     graph = json.loads(graph_path.read_text(encoding="utf-8"))
     node = graph["nodes"][0]
     assert "eval_dispatch_id" not in node
