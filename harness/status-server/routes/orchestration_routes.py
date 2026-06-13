@@ -316,6 +316,165 @@ def _actorhost_for_pane(pane_id: str, required_capabilities: list[str] | None = 
         return _local_actorhost(operator_id, required, f"resolver_error:{type(exc).__name__}")
 
 
+def _build_verification_gate(sid: str, node_id: str, node: dict, routing: list[dict]) -> dict:
+    """Build verification_gate section for a node from real artifacts or sidecars."""
+    gate = node.get("gate") or ""
+    evidence_policy = node.get("evidence_policy") or {}
+    risk_level = node.get("risk_level") or ""
+    verifier_required = node.get("verifier_required") or False
+    cross_provider_required = node.get("cross_provider_required") or False
+
+    # Find routing decision for this node
+    routing_decision = {}
+    for r in routing:
+        if r.get("sprint_id") == sid and r.get("node_id") == node_id:
+            routing_decision = r
+            break
+
+    # Extract actor IDs from routing or node
+    writer_actor_id = routing_decision.get("writer_actor_id") or node.get("assigned_to") or ""
+    verifier_actor_id = routing_decision.get("verifier_actor_id") or ""
+
+    # Extract provider information
+    def _extract_provider(actor_id: str) -> str:
+        if not actor_id:
+            return ""
+        # Provider prefixes based on known operator IDs
+        if "claude" in actor_id.lower():
+            return "anthropic"
+        if "glm" in actor_id.lower() or "zhipu" in actor_id.lower():
+            return "zhipu"
+        if "deepseek" in actor_id.lower():
+            return "deepseek"
+        if "thunderomlx" in actor_id.lower() or "qwen" in actor_id.lower():
+            return "thunder"
+        if "gpt" in actor_id.lower() or "openai" in actor_id.lower():
+            return "openai"
+        return "unknown"
+
+    writer_provider = _extract_provider(writer_actor_id)
+    verifier_provider = _extract_provider(verifier_actor_id)
+
+    # Check for writer/verifier conflict
+    writer_verifier_conflict = (
+        "unknown" if not writer_actor_id or not verifier_actor_id
+        else writer_actor_id == verifier_actor_id
+    )
+
+    # Check for provider conflict
+    provider_conflict = (
+        "unknown" if not writer_provider or not verifier_provider or risk_level != "high"
+        else writer_provider == verifier_provider
+    )
+
+    # Build audit refs from routing
+    audit_refs = {
+        "routing_decision_ref": routing_decision.get("decision_id") or "",
+        "runtime_context_ref": routing_decision.get("runtime_context_ref") or "",
+        "sidecar_ref": routing_decision.get("sidecar_ref") or "",
+    }
+
+    # Try to load review decision artifact
+    review_decision_status = "missing"
+    must_fix_count = None
+    sprint_dir = SPRINTS_DIR / sid
+    if sprint_dir.exists():
+        # Check for review_decision.yaml/json
+        review_paths = [
+            sprint_dir / "review_decision.yaml",
+            sprint_dir / "review_decision.json",
+            sprint_dir / f"{node_id}-review_decision.yaml",
+            sprint_dir / f"{node_id}-review_decision.json",
+        ]
+        for path in review_paths:
+            if path.exists():
+                try:
+                    data, ok = _read_json(path)
+                    if ok and isinstance(data, dict):
+                        review_decision_status = "present"
+                        must_fix_count = data.get("must_fix")
+                        if isinstance(must_fix_count, list):
+                            must_fix_count = len(must_fix_count)
+                        break
+                except Exception:
+                    pass
+
+    # Try to load test evidence artifact
+    test_evidence_status = "missing"
+    test_paths = [
+        sprint_dir / "test_evidence.json",
+        sprint_dir / "test_report.json",
+        sprint_dir / f"{node_id}-test_evidence.json",
+        sprint_dir / f"{node_id}-test_report.json",
+        HARNESS_DIR / "tests" / f"test_{sid.replace('-', '_')}.py",
+    ]
+    for path in test_paths:
+        if path.exists():
+            try:
+                data, ok = _read_json(path)
+                if ok and isinstance(data, dict) and data.get("tests"):
+                    test_evidence_status = "present"
+                    break
+            except Exception:
+                pass
+
+    # Try to load patch/artifact evidence
+    patch_artifact_status = "missing"
+    patch_paths = [
+        sprint_dir / "handoff.md",
+        sprint_dir / f"{node_id}-handoff.md",
+        sprint_dir / "patch.diff",
+        sprint_dir / f"{node_id}.patch",
+    ]
+    for path in patch_paths:
+        if path.exists():
+            try:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+                if len(content) > 100:  # Non-trivial content
+                    patch_artifact_status = "present"
+                    break
+            except Exception:
+                pass
+
+    return {
+        "patch_artifact": {
+            "status": patch_artifact_status,
+            "source": "artifact_scan",
+            "degraded": patch_artifact_status == "missing",
+        },
+        "test_evidence": {
+            "status": test_evidence_status,
+            "source": "artifact_scan",
+            "degraded": test_evidence_status == "missing",
+        },
+        "review_decision": {
+            "status": review_decision_status,
+            "source": "artifact_scan",
+            "degraded": review_decision_status == "missing",
+            "must_fix_count": must_fix_count,
+        },
+        "writer_verifier_conflict": {
+            "detected": writer_verifier_conflict,
+            "writer_actor_id": writer_actor_id,
+            "verifier_actor_id": verifier_actor_id,
+            "degraded": writer_verifier_conflict is True,
+        },
+        "provider_conflict": {
+            "detected": provider_conflict,
+            "writer_provider": writer_provider,
+            "verifier_provider": verifier_provider,
+            "risk_level": risk_level,
+            "cross_provider_required": cross_provider_required,
+            "degraded": provider_conflict is True and risk_level == "high",
+        },
+        "audit_refs": audit_refs,
+        "verifier_required": verifier_required,
+        "cross_provider_required": cross_provider_required,
+        "gate_name": gate,
+        "evidence_policy": evidence_policy,
+    }
+
+
 def _build_node_cards(sid: str, nodes: list[dict], status_state: dict, routing: list[dict]) -> list[dict]:
     by_node = {r.get("node_id"): r for r in routing if r.get("sprint_id") == sid}
     cards: list[dict] = []
@@ -327,6 +486,7 @@ def _build_node_cards(sid: str, nodes: list[dict], status_state: dict, routing: 
         missing = [cap for cap in required if cap not in _provided_capability_names(provided)]
         target_pane = str(decision.get("target_pane") or "")
         actorhost = _actorhost_for_pane(target_pane, required) if target_pane else {}
+        verification_gate = _build_verification_gate(sid, nid, node, routing)
         cards.append({
             "id": nid,
             "goal": node.get("goal") or "",
@@ -348,6 +508,7 @@ def _build_node_cards(sid: str, nodes: list[dict], status_state: dict, routing: 
             "decision": decision.get("decision") or "no_routing_record",
             "write_scope": node.get("write_scope") or [],
             "read_scope": node.get("read_scope") or [],
+            "verification_gate": verification_gate,
         })
     return cards
 
@@ -376,6 +537,43 @@ def _diagnostic_guidance(kind: str, subject: str) -> list[str]:
             "Restore or regenerate the sprint .task_graph.json artifact.",
             "Run solar-harness graph-scheduler validate --graph <task_graph.json>.",
             "Do not dispatch implementation work until the graph validates.",
+        ]
+    if kind == "verification_gate":
+        return [
+            f"Node {subject} requires verification evidence before completion.",
+            "Ensure patch/artifact, test evidence, and review decision artifacts exist.",
+            "Writer and verifier operators must differ for critical nodes.",
+            "High-risk nodes require cross-provider verification.",
+        ]
+    if kind == "missing_patch":
+        return [
+            "Ensure the node produced a handoff.md or patch artifact.",
+            "Check sprint directory for artifact files.",
+            "Verify write_scope includes artifact paths.",
+        ]
+    if kind == "missing_test":
+        return [
+            "Ensure test or benchmark evidence was produced.",
+            "Check for test_report.json or test_evidence.json files.",
+            "Run tests before marking node as complete.",
+        ]
+    if kind == "missing_review":
+        return [
+            "Ensure independent review decision was produced.",
+            "Check for review_decision.yaml or review_decision.json files.",
+            "Independent verifier must differ from writer operator.",
+        ]
+    if kind == "writer_verifier_conflict":
+        return [
+            "Writer and verifier cannot be the same operator.",
+            "Redispatch with a different verifier operator.",
+            "Update node assignment to ensure separation of duties.",
+        ]
+    if kind == "provider_conflict":
+        return [
+            "High-risk nodes require cross-provider verification.",
+            "Writer and verifier must use different provider models.",
+            "Select a verifier from a different provider.",
         ]
     return [
         "Check status-server logs under run/status-server.log.",
@@ -423,7 +621,133 @@ def _build_blocker_diagnostics(sid: str, status: dict, nodes: list[dict], node_c
                 "detail": ", ".join(card["missing_capabilities"]),
                 "guidance": _diagnostic_guidance("capability", card["id"]),
             })
+
+        # Verification gate diagnostics
+        vg = card.get("verification_gate") or {}
+        if not isinstance(vg, dict):
+            vg = {}
+
+        # Check for missing patch
+        if vg.get("patch_artifact", {}).get("status") == "missing":
+            diagnostics.append({
+                "severity": "error",
+                "kind": "missing_patch",
+                "title": f"{card['id']} missing patch/artifact evidence",
+                "detail": "No handoff.md or patch artifact found",
+                "guidance": _diagnostic_guidance("missing_patch", card["id"]),
+            })
+
+        # Check for missing test evidence
+        if vg.get("test_evidence", {}).get("status") == "missing":
+            diagnostics.append({
+                "severity": "error",
+                "kind": "missing_test",
+                "title": f"{card['id']} missing test evidence",
+                "detail": "No test_report.json or test_evidence.json found",
+                "guidance": _diagnostic_guidance("missing_test", card["id"]),
+            })
+
+        # Check for missing review decision
+        if vg.get("review_decision", {}).get("status") == "missing" and vg.get("verifier_required"):
+            diagnostics.append({
+                "severity": "error",
+                "kind": "missing_review",
+                "title": f"{card['id']} missing independent review decision",
+                "detail": "No review_decision.yaml/json found and verifier_required=true",
+                "guidance": _diagnostic_guidance("missing_review", card["id"]),
+            })
+
+        # Check for writer/verifier conflict
+        if vg.get("writer_verifier_conflict", {}).get("detected") is True:
+            writer_id = vg.get("writer_verifier_conflict", {}).get("writer_actor_id") or "unknown"
+            diagnostics.append({
+                "severity": "error",
+                "kind": "writer_verifier_conflict",
+                "title": f"{card['id']} writer and verifier are the same operator",
+                "detail": f"Writer and verifier both: {writer_id}",
+                "guidance": _diagnostic_guidance("writer_verifier_conflict", card["id"]),
+            })
+
+        # Check for provider conflict
+        if vg.get("provider_conflict", {}).get("detected") is True:
+            provider = vg.get("provider_conflict", {}).get("writer_provider") or "unknown"
+            diagnostics.append({
+                "severity": "error",
+                "kind": "provider_conflict",
+                "title": f"{card['id']} high-risk node uses same provider for writer and verifier",
+                "detail": f"Both writer and verifier use provider: {provider}",
+                "guidance": _diagnostic_guidance("provider_conflict", card["id"]),
+            })
+
+        # Overall verification gate degraded status
+        if isinstance(vg, dict) and vg.get("verifier_required"):
+            missing_items = []
+            if vg.get("patch_artifact", {}).get("status") == "missing":
+                missing_items.append("patch")
+            if vg.get("test_evidence", {}).get("status") == "missing":
+                missing_items.append("test")
+            if vg.get("review_decision", {}).get("status") == "missing":
+                missing_items.append("review")
+            if missing_items and card["status"] in {"passed", "completed"}:
+                diagnostics.append({
+                    "severity": "warn",
+                    "kind": "verification_gate",
+                    "title": f"{card['id']} marked {card['status']} but missing verification evidence",
+                    "detail": f"Missing: {', '.join(missing_items)}",
+                    "guidance": _diagnostic_guidance("verification_gate", card["id"]),
+                })
+
     return diagnostics
+
+
+def _build_apo_chain_for_nodes(sid: str, nodes: list[dict], graph: dict) -> dict[str, dict]:
+    """Build APO chain status per node via apo_chain_status adapter."""
+    try:
+        sys_path_insert = str(SCRIPT_HARNESS_DIR / "lib")
+        if sys_path_insert not in __import__("sys").path:
+            __import__("sys").path.insert(0, sys_path_insert)
+        from orchestration.apo_chain_status import get_apo_chain_status
+    except Exception:
+        return {}
+    result: dict[str, dict] = {}
+    for node in nodes:
+        nid = str(node.get("id") or "")
+        if not nid:
+            continue
+        try:
+            result[nid] = get_apo_chain_status(sid, nid, graph=graph)
+        except Exception:
+            result[nid] = {"mode": "unknown_degraded", "degraded_sources": [{"source": "apo_chain_status", "reason": "adapter_exception"}]}
+    return result
+
+
+def _build_pane_evidence(sid: str, node_cards: list[dict]) -> list[dict]:
+    """Collect actor mailbox outbox evidence for each dispatched node."""
+    actors_dir = HARNESS_DIR / "actors"
+    if not actors_dir.exists():
+        return []
+    evidence: list[dict] = []
+    for card in node_cards:
+        nid = card.get("id", "")
+        actor_id = card.get("actor_id") or ""
+        if actor_id in ("N/A", ""):
+            continue
+        actor_dir = actors_dir / actor_id
+        outbox_dir = actor_dir / "outbox"
+        if not outbox_dir.exists():
+            continue
+        outbox_files = sorted(outbox_dir.glob("*.json"))
+        for f in outbox_files:
+            data, ok = _read_json(f)
+            if ok and isinstance(data, dict):
+                evidence.append({
+                    "node_id": nid,
+                    "actor_id": actor_id,
+                    "outbox_file": str(f.name),
+                    "verdict": data.get("verdict", ""),
+                    "task_id": data.get("task_id", ""),
+                })
+    return evidence
 
 
 def build_dashboard_payload(sprint_id: str | None = None) -> tuple[dict, list[str]]:
@@ -447,7 +771,40 @@ def build_dashboard_payload(sprint_id: str | None = None) -> tuple[dict, list[st
     panes = _load_pane_state()
     registry = _capability_registry()
     node_cards = _build_node_cards(sid, nodes, tg.get("runtime_state") or {}, routing)
+
+    # APO chain status per node
+    apo_chain = _build_apo_chain_for_nodes(sid, nodes, tg) if sid else {}
+    # Inject enforcers/rejected_candidates into node cards
+    for card in node_cards:
+        nid = card.get("id", "")
+        apo = apo_chain.get(nid, {})
+        card["enforcers"] = apo.get("enforcers", [])
+        card["rejected_candidates"] = apo.get("rejected_candidates", [])
+        card["apo_mode"] = apo.get("mode", "unknown")
+        # Surface APO degraded sources as card-level diagnostic
+        apo_degraded = apo.get("degraded_sources", [])
+        if apo_degraded:
+            card["apo_degraded_sources"] = apo_degraded
+
+    # Pane (actor mailbox) evidence
+    pane_evidence = _build_pane_evidence(sid, node_cards)
+
     diagnostics = _build_blocker_diagnostics(sid, status, nodes, node_cards, tg_ok)
+
+    # Add APO degraded sources to diagnostics
+    for nid, apo in apo_chain.items():
+        for ds in apo.get("degraded_sources", []):
+            diagnostics.append({
+                "severity": "warn",
+                "kind": "apo_source_degraded",
+                "title": f"{nid} APO source degraded",
+                "detail": f"{ds.get('source', '?')}: {ds.get('reason', '?')} (file: {ds.get('file', '?')})",
+                "guidance": [
+                    f"Check {ds.get('file', '?')} exists and is valid JSON.",
+                    "Regenerate the compiler artifact if missing.",
+                    "APO chain explanation will be limited until source is restored.",
+                ],
+            })
 
     status_counts: dict[str, int] = {}
     cost_by_status: dict[str, float] = {}
@@ -501,6 +858,8 @@ def build_dashboard_payload(sprint_id: str | None = None) -> tuple[dict, list[st
             "busy_panes": sorted({r.get("target_pane") for r in all_routing if r.get("decision") == "dispatched" and r.get("target_pane")}),
         },
         "blocker_diagnostics": diagnostics,
+        "apo_chain": apo_chain,
+        "pane_evidence": pane_evidence,
     }, degraded
 
 
@@ -747,6 +1106,11 @@ def get_sprint(sid: str):
         "sidecar_refs": sidecar_refs,
         "verifier_refs": verifier_refs,
         "routing_decisions": routing,
+        "apo_chain": _build_apo_chain_for_nodes(sid, nodes, tg) if tg_ok else {},
+        "pane_evidence": _build_pane_evidence(sid, [
+            {"id": n.get("id", ""), "actor_id": "N/A"}
+            for n in nodes
+        ]),
     }, degraded))
 
 
