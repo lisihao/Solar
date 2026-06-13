@@ -8,6 +8,7 @@ Tests verify:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -21,9 +22,31 @@ HARNESS_LIB = Path(__file__).resolve().parent.parent.parent / "lib"
 sys.path.insert(0, str(HARNESS_LIB))
 
 
+def _install_canonical_graph_scheduler() -> None:
+    spec = importlib.util.spec_from_file_location("graph_scheduler", HARNESS_LIB / "graph_scheduler.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    sys.modules["graph_scheduler"] = module
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def legacy_graph_closeout_mode(monkeypatch):
+    """Keep these legacy closeout tests focused on parent_ready_check semantics.
+
+    The mandatory CompletionPipeline path is covered in test_completion_gate.py.
+    These older graph-scheduler fixtures intentionally omit handoff/eval
+    artifacts, so they opt out of the new post-result gate.
+    """
+    monkeypatch.setenv("SOLAR_COMPLETION_GATE_DISABLE", "1")
+    _install_canonical_graph_scheduler()
+    sys.modules.pop("graph_node_dispatcher", None)
+    sys.modules.pop("epic_decomposer", None)
+
 
 @pytest.fixture
 def tmp_harness(tmp_path, monkeypatch):
