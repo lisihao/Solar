@@ -16,7 +16,7 @@ def _make_track(kind="standard", language="en") -> SubtitleTrack:
         video_id="test_vid", source_backend="yt_dlp",
         language=language, language_name=language,
         track_kind=kind, format="vtt",
-        is_auto_generated=(kind == "asr"),
+        is_auto_generated=(kind in {"auto", "asr"}),
         is_translatable=True, confidence=1.0,
     )
 
