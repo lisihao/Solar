@@ -28,6 +28,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 import browser_job_runtime as bjrt
+from browser_agent_profile_policy import select_profile_policy
 from browser import runtime_control as brtc
 
 DEFAULT_URL = "https://chatgpt.com/"
@@ -998,14 +999,24 @@ def _trim_chatgpt_header(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 async def _run(input_data: dict) -> int:
+    global TARGET_ACCOUNT_EMAIL
     from browser_use.browser.profile import BrowserProfile
     from browser_use.browser.session import BrowserSession
     from playwright.async_api import async_playwright
 
     request_dir = _request_dir()
-    profile_directory = str(os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
-    user_data_dir = Path(os.environ.get("BROWSER_AGENT_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
-    headless = str(os.environ.get("BROWSER_AGENT_HEADLESS") or "false").strip().lower() in {"1", "true", "yes", "on"}
+    profile_policy = select_profile_policy(
+        service="chatgpt",
+        purpose="technology-diagram-painter",
+        default_profile_directory=DEFAULT_PROFILE_DIRECTORY,
+        default_user_data_dir=DEFAULT_USER_DATA_DIR,
+    )
+    profile_directory = str(profile_policy.get("selected_profile_directory") or DEFAULT_PROFILE_DIRECTORY)
+    user_data_dir = Path(str(profile_policy.get("user_data_dir") or DEFAULT_USER_DATA_DIR)).expanduser()
+    if profile_policy.get("selected_account_email"):
+        TARGET_ACCOUNT_EMAIL = str(profile_policy["selected_account_email"])
+    headless_raw = "false" if profile_policy.get("force_headed") or not bool(profile_policy.get("allow_headless", True)) else os.environ.get("BROWSER_AGENT_HEADLESS") or "false"
+    headless = str(headless_raw).strip().lower() in {"1", "true", "yes", "on"}
     timeout_s = int(os.environ.get("BROWSER_AGENT_TIMEOUT") or "600")
 
     staged_dir, cleanup_dir = bjrt._stage_browser_profile(user_data_dir, profile_directory)
@@ -1032,6 +1043,7 @@ async def _run(input_data: dict) -> int:
             "request_dir": str(request_dir),
             "target_url": DEFAULT_URL,
             "headless": headless,
+            "profile_policy": profile_policy,
         },
     )
     final_error_text: str | None = None

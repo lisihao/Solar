@@ -30,6 +30,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 import browser_job_runtime as bjrt
+from browser_agent_profile_policy import select_profile_policy
 from browser import runtime_control as brtc
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
@@ -923,11 +924,18 @@ async def _ensure_pro_model_with_extended_thinking(page) -> None:
 
 async def _run(prompt: str) -> int:
     request_dir = _request_dir()
-    profile_directory = str(os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
-    user_data_dir = Path(os.environ.get("BROWSER_AGENT_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
+    profile_policy = select_profile_policy(
+        service="gemini",
+        purpose="gemini-deep-research",
+        default_profile_directory=DEFAULT_PROFILE_DIRECTORY,
+        default_user_data_dir=DEFAULT_USER_DATA_DIR,
+    )
+    profile_directory = str(profile_policy.get("selected_profile_directory") or DEFAULT_PROFILE_DIRECTORY)
+    user_data_dir = Path(str(profile_policy.get("user_data_dir") or DEFAULT_USER_DATA_DIR)).expanduser()
     target_url = str(os.environ.get("BROWSER_AGENT_GEMINI_URL") or DEFAULT_URL)
     timeout_s = int(os.environ.get("BROWSER_AGENT_GEMINI_TIMEOUT") or "1800")
-    headless = str(os.environ.get("BROWSER_AGENT_HEADLESS") or "false").strip().lower() in {"1", "true", "yes", "on"}
+    headless_raw = "false" if profile_policy.get("force_headed") or not bool(profile_policy.get("allow_headless", True)) else os.environ.get("BROWSER_AGENT_HEADLESS") or "false"
+    headless = str(headless_raw).strip().lower() in {"1", "true", "yes", "on"}
     minimum_mode_evidence = str(os.environ.get("BROWSER_AGENT_GEMINI_MODE_EVIDENCE_MIN") or "strong").strip().lower()
     allowed_domains = DEFAULT_ALLOWED_DOMAINS
 
@@ -953,6 +961,8 @@ async def _run(prompt: str) -> int:
             "request_dir": str(request_dir),
             "target_url": target_url,
             "headless": headless,
+            "target_account_email": profile_policy.get("selected_account_email") or "",
+            "profile_policy": profile_policy,
         },
     )
     final_error_text: str | None = None

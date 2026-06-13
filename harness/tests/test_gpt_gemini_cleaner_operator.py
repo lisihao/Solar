@@ -142,6 +142,7 @@ print(json.dumps({{"ok": True, "backend": "gemini", "status": "succeeded", "targ
             "GPT_GEMINI_CLEANER_CHATGPT_WRAPPER_CMD": f"{sys.executable} {fake_chatgpt}",
             "GPT_GEMINI_CLEANER_GEMINI_WRAPPER_CMD": f"{sys.executable} {fake_gemini}",
             "BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED": "true",
+            "BROWSER_AGENT_GEMINI_PROFILE_POLICY_DISABLED": "true",
             "BROWSER_AGENT_QUEUE_BYPASS": "1",
         }
     )

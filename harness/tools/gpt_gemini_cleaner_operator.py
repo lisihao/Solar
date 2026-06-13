@@ -34,6 +34,7 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
+from browser_agent_profile_policy import apply_profile_policy_to_env  # noqa: E402
 from chatgpt_browser_agent_task_operator import apply_profile_policy  # noqa: E402
 
 
@@ -282,6 +283,11 @@ def _gemini_env(request_dir: Path, envelope: dict[str, Any], *, target_week: str
     if account_email:
         env["BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL"] = account_email
         env["BROWSER_AGENT_TARGET_ACCOUNT_EMAIL"] = account_email
+    apply_profile_policy_to_env(
+        env,
+        service="gemini",
+        purpose=str(envelope.get("purpose") or "gpt-gemini-cleaner-gemini"),
+    )
     return env
 
 
