@@ -458,6 +458,62 @@ def parse_transcript_payload(text: str) -> str:
     return strip_text(" ".join(parts))
 
 
+def _browser_agent_profile_policy_path(env: dict[str, str]) -> Path | None:
+    raw = (
+        env.get("BROWSER_AGENT_YOUTUBE_PROFILE_POLICY_FILE")
+        or env.get("BROWSER_AGENT_PROFILE_POLICY_FILE")
+        or env.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE")
+        or env.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_POLICY_FILE")
+        or ""
+    ).strip()
+    if raw:
+        return Path(raw).expanduser()
+    default_path = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
+    return default_path if default_path.exists() else None
+
+
+def _account_from_policy(policy: dict[str, Any]) -> str:
+    for key in ("expected_account_email", "selected_account_email", "target_account_email", "account_email"):
+        value = str(policy.get(key) or "").strip()
+        if value:
+            return value
+    allowed = policy.get("allowed_account_identifiers")
+    if isinstance(allowed, list):
+        for item in allowed:
+            value = str(item or "").strip()
+            if "@" in value:
+                return value
+    return ""
+
+
+def _resolve_browser_agent_target_account_email(env: dict[str, str]) -> str:
+    explicit = str(env.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL") or "").strip()
+    if explicit:
+        return explicit
+    path = _browser_agent_profile_policy_path(env)
+    if path is None:
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    direct = _account_from_policy(data)
+    if direct:
+        return direct
+    policies = data.get("policies")
+    if not isinstance(policies, dict):
+        return ""
+    for key in ("youtube_transcript", "ai_influence_report", "default"):
+        policy = policies.get(key)
+        if isinstance(policy, dict):
+            value = _account_from_policy(policy)
+            if value:
+                return value
+    return ""
+
+
 def fetch_transcript_via_browser_operator(video_id: str, timeout_seconds: int = 300) -> tuple[str, str, str]:
     import tempfile
 
@@ -484,7 +540,9 @@ def fetch_transcript_via_browser_operator(video_id: str, timeout_seconds: int = 
         if "BROWSER_AGENT_HEADLESS" not in env:
             env["BROWSER_AGENT_HEADLESS"] = "false"
         env.setdefault("BROWSER_AGENT_PROFILE_DIRECTORY", "Default")
-        env.setdefault("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", "browser-agent@example.com")
+        target_account_email = _resolve_browser_agent_target_account_email(env)
+        if target_account_email:
+            env.setdefault("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", target_account_email)
 
         operator_script = Path("${SOLAR_REPO}/harness/tools/youtube_transcript_operator.py")
         if not operator_script.exists():
