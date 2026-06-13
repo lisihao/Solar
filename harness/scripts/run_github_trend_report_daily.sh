@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-HARNESS_DIR="${HARNESS_DIR:-/Users/lisihao/Solar/harness}"
+SOLAR_REPO="${SOLAR_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+HARNESS_DIR="${HARNESS_DIR:-${SOLAR_REPO}/harness}"
 PYTHON="${PYTHON:-python3}"
+SOLAR_HOME="${SOLAR_HOME:-$HOME/.solar}"
 CONFIG="${CONFIG:-$HARNESS_DIR/config/tech-hotspot-radar.yaml}"
 DB="${DB:-/Users/lisihao/.solar/harness/state/tech-hotspot-radar/tech-hotspot-radar.sqlite}"
 LOG_DIR="${SOLAR_GITHUB_REPORT_LOG_DIR:-$HARNESS_DIR/logs}"
@@ -14,6 +16,8 @@ LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 MAIL_TO_CONFIG="${AI_INFLUENCE_MAIL_CONFIG:-/Users/lisihao/.solar/harness/state/ai-influence-mail-config.json}"
 
 mkdir -p "$(dirname "$LOCK_DIR")" "$LOG_DIR" "$(dirname "$COOLDOWN_FILE")" "$(dirname "$DB_WRITER_LOCK_DIR")"
+source "$HARNESS_DIR/scripts/lib/browser_agent_queue.sh"
+solar_browser_agent_enqueue_or_continue "github-trend-report-daily" "$HARNESS_DIR" "$0" "$@"
 source "$HARNESS_DIR/scripts/lib/lockdir.sh"
 solar_acquire_lockdir "$LOCK_DIR" "github-trend-report-daily"
 rc=$?
@@ -57,6 +61,7 @@ export GMAIL_USER="${GMAIL_USER:-lisihao@gmail.com}"
 export GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE="${GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE:-solar-ai-influence-gmail}"
 export GITHUB_TREND_REPORT_SEND_MAIL="${GITHUB_TREND_REPORT_SEND_MAIL:-true}"
 export SOLAR_KNOWLEDGE_DIR="${SOLAR_KNOWLEDGE_DIR:-/Users/lisihao/Knowledge}"
+export SOLAR_REPO HARNESS_DIR SOLAR_HOME SOLAR_KNOWLEDGE_DIR
 
 REPORT_DATE="${GITHUB_TREND_REPORT_DATE:-$("$PYTHON" - <<'PY'
 import datetime as dt

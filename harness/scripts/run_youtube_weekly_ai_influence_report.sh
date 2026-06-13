@@ -12,8 +12,12 @@ DB_WRITER_LOCK_DIR="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_DIR:-$(dirname "$DB")/db
 DB_WRITER_LOCK_WAIT_SECONDS="${SOLAR_TECH_HOTSPOT_DB_WRITER_LOCK_WAIT_SECONDS:-2400}"
 LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 ERR_LOG="${SOLAR_YOUTUBE_REPORT_ERR_LOG:-$LOG_DIR/youtube-daily-ai-influence-report.err.log}"
+SOLAR_HOME="${SOLAR_HOME:-$HOME/.solar}"
+SOLAR_KNOWLEDGE_DIR="${SOLAR_KNOWLEDGE_DIR:-$HOME/Knowledge}"
 
 mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")" "$(dirname "$DB_WRITER_LOCK_DIR")"
+source "$HARNESS_DIR/scripts/lib/browser_agent_queue.sh"
+solar_browser_agent_enqueue_or_continue "youtube-weekly-ai-influence-report" "$HARNESS_DIR" "$0" "$@"
 source "$HARNESS_DIR/scripts/lib/lockdir.sh"
 solar_acquire_lockdir "$LOCK_DIR" "youtube-daily-ai-influence-report"
 rc=$?
@@ -37,6 +41,7 @@ trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_
 export PYTHONPATH="$HARNESS_DIR/lib:${PYTHONPATH:-}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 export PYTHONIOENCODING="utf-8"
+export SOLAR_HOME SOLAR_KNOWLEDGE_DIR
 export BROWSER_AGENT_HEADLESS="${BROWSER_AGENT_HEADLESS:-true}"
 export TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS="${TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS:-true}"
 export BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE="${BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE:-${SOLAR_HOME:-$HOME/.solar}/harness/browser-agent-chatgpt-local.json}"
@@ -277,7 +282,7 @@ if run_step_with_timeout "plan-ai-influence-reports daily ${WINDOW_START}" "${YO
     --transcript-char-limit "${AI_INFLUENCE_YOUTUBE_TRANSCRIPT_CHAR_LIMIT}" \
     --skip-notebooklm \
     --continue-on-error \
-    $([[ "${YOUTUBE_DAILY_REPORT_SEND_MAIL:-true}" == "true" ]] && printf '%s' '--send')
+    $([[ "${YOUTUBE_DAILY_REPORT_SEND_MAIL:-true}" == "true" ]] && printf '%s' '--send' || printf '%s' '--no-send')
 
   run_step_with_timeout "validate-ai-influence-planned-reports daily ${WINDOW_START}" "${YOUTUBE_DAILY_REPORT_VALIDATE_TIMEOUT:-300}" \
     "${RADAR[@]}" validate-ai-influence-planned-reports \
