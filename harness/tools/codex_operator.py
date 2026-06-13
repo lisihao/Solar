@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -76,6 +77,46 @@ def _pm_result_ready(started_wall: float) -> bool:
         return False
 
 
+_ABS_EVAL_ARTIFACT_RE = re.compile(r"(/[^`'\"\s]+-eval\.(?:md|json))")
+_ABS_EVAL_DISPATCH_RE = re.compile(r"(/[^`'\"\s]+-eval-dispatch[^`'\"\s]*\.md)")
+
+
+def _required_eval_artifacts(dispatch: str) -> list[Path]:
+    """Extract explicit eval sidecar outputs from graph-eval dispatch text."""
+    artifacts: list[Path] = []
+    seen: set[str] = set()
+    texts = [dispatch]
+    for match in _ABS_EVAL_DISPATCH_RE.finditer(dispatch):
+        path = Path(match.group(1).strip())
+        try:
+            if path.exists() and path.is_file():
+                texts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    for text in texts:
+        for match in _ABS_EVAL_ARTIFACT_RE.finditer(text):
+            raw = match.group(1).strip()
+            if raw in seen:
+                continue
+            seen.add(raw)
+            artifacts.append(Path(raw))
+    return artifacts
+
+
+def _artifacts_ready(paths: list[Path], started_wall: float) -> bool:
+    if not paths:
+        return True
+    for path in paths:
+        try:
+            if not path.exists() or path.stat().st_size <= 0:
+                return False
+            if path.stat().st_mtime < started_wall:
+                return False
+        except OSError:
+            return False
+    return True
+
+
 def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
     try:
         os.killpg(proc.pid, signal.SIGTERM)
@@ -86,22 +127,11 @@ def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
             return
 
 
-def main() -> int:
-    dispatch = _read_dispatch().strip()
-    if not dispatch:
-        print("ERROR: empty dispatch for Codex operator", file=sys.stderr)
-        return 64
-
-    task_dir = Path(os.environ.get("TASK_DIR") or ".").expanduser()
-    task_dir.mkdir(parents=True, exist_ok=True)
-    output_file = task_dir / "codex-last-message.md"
-    model = os.environ.get("CODEX_MODEL", "gpt-5.5").strip() or "gpt-5.5"
-    effort = os.environ.get("CODEX_REASONING_EFFORT", "medium").strip() or "medium"
-    cwd = os.environ.get("CODEX_WORKDIR") or os.environ.get("WORK_DIR") or os.getcwd()
-
-    cmd = [
+def _build_codex_exec_cmd(model: str, effort: str, cwd: str, output_file: Path) -> list[str]:
+    return [
         "codex",
         "exec",
+        "--ignore-user-config",
         "--skip-git-repo-check",
         "--config",
         "service_tier=fast",
@@ -116,6 +146,23 @@ def main() -> int:
         str(output_file),
         "-",
     ]
+
+
+def main() -> int:
+    dispatch = _read_dispatch().strip()
+    if not dispatch:
+        print("ERROR: empty dispatch for Codex operator", file=sys.stderr)
+        return 64
+    required_eval_artifacts = _required_eval_artifacts(dispatch)
+
+    task_dir = Path(os.environ.get("TASK_DIR") or ".").expanduser()
+    task_dir.mkdir(parents=True, exist_ok=True)
+    output_file = task_dir / "codex-last-message.md"
+    model = os.environ.get("CODEX_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+    effort = os.environ.get("CODEX_REASONING_EFFORT", "medium").strip() or "medium"
+    cwd = os.environ.get("CODEX_WORKDIR") or os.environ.get("WORK_DIR") or os.getcwd()
+
+    cmd = _build_codex_exec_cmd(model, effort, cwd, output_file)
     timeout_seconds = _timeout_seconds()
     pm_result_grace = float(os.environ.get("CODEX_PM_RESULT_GRACE_SECONDS", "20"))
     print("codex_operator: invoking " + " ".join(shlex.quote(part) for part in cmd[:-1]) + " <dispatch>")
@@ -143,7 +190,7 @@ def main() -> int:
             if proc.poll() is not None:
                 break
             elapsed = time.monotonic() - started
-            if _pm_result_ready(started_wall):
+            if _pm_result_ready(started_wall) and _artifacts_ready(required_eval_artifacts, started_wall):
                 pm_ready_since = pm_ready_since or time.monotonic()
                 if (time.monotonic() - pm_ready_since) >= pm_result_grace:
                     print(

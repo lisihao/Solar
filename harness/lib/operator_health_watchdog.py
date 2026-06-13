@@ -1174,6 +1174,17 @@ def run_watchdog(
         summary["graph_drain_submitted"] = graph_drain_submitted
         phases.append(graph_drain_phase)
 
+        if graph_drain_submitted > 0:
+            post_drain_pump_phase, post_drain_kicked = _run_operator_inbox_pump_phase(inbox_pump_mod, apply=apply)
+            post_drain_pump_phase["phase"] = "operator_inbox_pump_after_graph_drain"
+            counters["operator_inbox_kicked"] += post_drain_kicked
+            actions.extend(
+                item
+                for item in post_drain_pump_phase.get("actions", [])
+                if isinstance(item, dict) and item.get("status") == "applied"
+            )
+            phases.append(post_drain_pump_phase)
+
         drain_phase, drain_submitted = _run_safe_drain_phase(pm_mod, apply=apply, capacity=capacity)
         counters["drain_submitted"] += drain_submitted
         summary["deterministic_eval_gate_checked"] = counters["deterministic_eval_gate_checked"]

@@ -129,8 +129,28 @@ def _verdict_summary(graph: dict, node_id: str) -> str:
     return ""
 
 
-def _clear_eval_artifacts(graph: dict, node_id: str) -> None:
+def _failure_evidence_from_payload(payload: object, *, summary: str, archive_path: pathlib.Path | None) -> dict:
+    evidence = {
+        "summary": summary,
+        "eval_json_archive": str(archive_path) if archive_path else "",
+        "failed_conditions": [],
+        "errors": [],
+    }
+    if not isinstance(payload, dict):
+        return evidence
+    failed_conditions = payload.get("failed_conditions")
+    if isinstance(failed_conditions, list):
+        evidence["failed_conditions"] = [str(item) for item in failed_conditions[:20]]
+    errors = payload.get("errors")
+    if isinstance(errors, list):
+        evidence["errors"] = [item for item in errors[:20] if isinstance(item, dict)]
+    return evidence
+
+
+def _clear_eval_artifacts(graph: dict, node_id: str) -> dict:
     """清上轮 eval 结果, 让重做是干净的 (否则 reconcile 会读到旧 FAIL verdict)。"""
+    archived_eval_json: pathlib.Path | None = None
+    archived_payload: object | None = None
     nr = graph.get("node_results", {}).get(node_id)
     if isinstance(nr, dict):
         for k in ("eval_json", "eval_verdict", "verdict"):
@@ -146,9 +166,17 @@ def _clear_eval_artifacts(graph: dict, node_id: str) -> None:
         evp = SPRINTS_DIR / f"{sid}.{node_id}-eval.json"
         if evp.is_file():
             try:
-                evp.rename(evp.with_suffix(f".json.redispatched-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"))
+                archived_payload = json.loads(evp.read_text(encoding="utf-8"))
+            except Exception:
+                archived_payload = None
+            try:
+                archived_eval_json = evp.with_suffix(
+                    f".json.redispatched-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+                )
+                evp.rename(archived_eval_json)
             except Exception:
                 pass
+    return {"archived_eval_json": archived_eval_json, "archived_payload": archived_payload}
 
 
 def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
@@ -167,12 +195,18 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
         summary = _verdict_summary(graph, node_id)
 
         if rc < max_retry:
+            archive_info = {}
             if apply:
-                _clear_eval_artifacts(graph, node_id)
+                archive_info = _clear_eval_artifacts(graph, node_id)
                 gs.set_node_status(graph, node_id, "pending", allow_reopen_failed=True)
                 node["redispatch_count"] = rc + 1
                 node["last_redispatch_at"] = _now()
                 node["last_fail_summary"] = summary
+                node["last_failure_evidence"] = _failure_evidence_from_payload(
+                    archive_info.get("archived_payload"),
+                    summary=summary,
+                    archive_path=archive_info.get("archived_eval_json"),
+                )
                 _emit_event("dag_node_redispatched", {
                     "sprint_id": sid, "node_id": node_id, "retry": rc + 1,
                     "max_retry": max_retry, "fail_summary": summary[:140]})

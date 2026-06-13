@@ -1580,10 +1580,28 @@ def objective_for_role_handoff(sid: str, role: str) -> str:
     return f"请接手 {sid} 的 {role} handoff，并按 Solar Harness 标准产出对应 artifact。"
 
 
+def _task_graph_has_nodes(sid: str) -> bool:
+    path = SPRINTS / f"{sid}.task_graph.json"
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    nodes = payload.get("nodes")
+    if isinstance(nodes, dict):
+        return bool(nodes)
+    if isinstance(nodes, list):
+        return bool(nodes)
+    return False
+
+
 def dispatch_role_handoff(sid: str, ftype: str) -> tuple[bool, dict]:
     role = role_for_handoff_finding(ftype)
     if not sid or not role:
         return False, {"reason": "not_role_pool_handoff"}
+    if role == "builder" and _task_graph_has_nodes(sid):
+        return False, {"reason": "builder_handoff_managed_by_task_graph", "role": role, "sprint_id": sid}
     cached = _role_pool_cache_get(role)
     if cached is not None:
         return False, {**cached, "cached": True}

@@ -53,6 +53,14 @@ def test_requirement_ir_and_quality_gates_aliases_match_control_plane_workers() 
     assert mod._skills_match(worker, ["requirement-ir", "quality-gates"]) is True
 
 
+def test_patch_review_hardcore_alias_matches_critical_code_review_worker() -> None:
+    worker = {
+        "skills": ["critical-code-review", "review", "testing"],
+        "capabilities": ["harness.verification", "dag.validate"],
+    }
+    assert mod._skills_match(worker, ["skill.patch-review-hardcore"]) is True
+
+
 def test_assign_workers_prefers_planner_role_before_builder_fallback() -> None:
     node = {
         "id": "N1",

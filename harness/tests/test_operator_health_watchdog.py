@@ -36,6 +36,8 @@ def test_watchdog_dry_run_does_not_prune_or_apply_reconcile(monkeypatch, tmp_pat
     calls: list[tuple[str, object]] = []
 
     class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
         def _prune_expired_operator_blocks(self):
             calls.append(("prune", None))
             return {"ok": True, "pruned": [{"operator_id": "op"}], "kept": []}
@@ -78,6 +80,8 @@ def test_watchdog_apply_prunes_and_applies_reconcile(monkeypatch, tmp_path):
     calls: list[tuple[str, object]] = []
 
     class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
         def _prune_expired_operator_blocks(self):
             calls.append(("prune", None))
             return {"ok": True, "pruned": [{"operator_id": "op-a"}], "kept": [{"operator_id": "op-b"}]}
@@ -459,6 +463,102 @@ def test_watchdog_runs_operator_inbox_pump_before_graph_drain(monkeypatch, tmp_p
     ]
     assert phases["operator_inbox_pump"]["status"] == "ok"
     assert phases["operator_inbox_pump"]["counters"]["kicked"] == 1
+    assert payload["counters"]["operator_inbox_kicked"] == 1
+    assert payload["summary"]["operator_inbox_kicked"] == 1
+
+
+def test_watchdog_runs_operator_inbox_pump_after_graph_drain_submission(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
+    monkeypatch.setattr(watchdog, "LATEST_REPORT_PATH", tmp_path / "latest.json")
+    monkeypatch.setattr(watchdog, "HISTORY_PATH", tmp_path / "history.jsonl")
+    calls: list[tuple[str, object]] = []
+
+    class FakePM:
+        PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        def __init__(self):
+            self.PM_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+        def _prune_expired_operator_blocks(self):
+            return {"ok": True, "pruned": [], "kept": []}
+
+        def cmd_reconcile(self, args):
+            print('{"ok": true, "summary": {}}')
+            return 0
+
+        def cmd_drain_builder_ready(self, args):
+            calls.append(("pm_drain", args.dry_run))
+            print('{"ok": true, "submitted": [], "skipped": []}')
+            return 0
+
+    class FakeQuota:
+        def refresh_snapshot(self, *, apply=False):
+            return {
+                "ok": True,
+                "operators_total": 2,
+                "operators_usable": 2,
+                "operators_hard_blocked": 0,
+                "recommended_level": "normal",
+                "backlog": 2,
+                "groups": {},
+            }
+
+    class FakeInboxPump:
+        def __init__(self):
+            self.calls = 0
+
+        def run_pump(self, *, apply=False, limit=3):
+            self.calls += 1
+            calls.append(("inbox_pump", {"apply": apply, "limit": limit, "call": self.calls}))
+            kicked = [] if self.calls == 1 else [{"operator": "op-after-drain", "pending": 1, "kick_pid": 23456}]
+            return {"ok": True, "apply": apply, "limit": limit, "kicked": kicked, "skipped": []}
+
+    inbox_pump = FakeInboxPump()
+
+    class FakeGraphDrain:
+        def run_graph_drain(self, **kwargs):
+            calls.append(("graph_drain", kwargs.get("apply")))
+            return {
+                "ok": True,
+                "dry_run": False,
+                "counters": {"drain_submitted": 2},
+                "actions": [],
+                "skipped": [],
+            }
+
+    def fake_load_tool(name):
+        if name == "pm_dispatch":
+            return FakePM()
+        if name == "operator_runtime":
+            return SimpleNamespace()
+        if name == "quota_refresh":
+            return FakeQuota()
+        if name == "inbox_pump":
+            return inbox_pump
+        if name == "graph_drain_controller":
+            return FakeGraphDrain()
+        raise FileNotFoundError(name)
+
+    monkeypatch.setattr(watchdog, "_load_tool", fake_load_tool)
+
+    payload = watchdog.run_watchdog(
+        apply=True,
+        max_age_minutes=15,
+        lock_path=tmp_path / "lock",
+        latest_path=tmp_path / "latest.json",
+        history_path=tmp_path / "history.jsonl",
+    )
+    phases = {phase["phase"]: phase for phase in payload["phases"]}
+
+    assert calls[:4] == [
+        ("inbox_pump", {"apply": True, "limit": 3, "call": 1}),
+        ("graph_drain", True),
+        ("inbox_pump", {"apply": True, "limit": 3, "call": 2}),
+        ("pm_drain", True),
+    ]
+    assert phases["operator_inbox_pump"]["counters"]["kicked"] == 0
+    assert phases["operator_inbox_pump_after_graph_drain"]["counters"]["kicked"] == 1
     assert payload["counters"]["operator_inbox_kicked"] == 1
     assert payload["summary"]["operator_inbox_kicked"] == 1
 

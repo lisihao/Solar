@@ -133,6 +133,12 @@ LABEL_ALIAS_GROUPS = [
         "quality-gates",
         "testing",
         "test_execution",
+        "skill.patch-review-hardcore",
+        "patch-review-hardcore",
+        "patch-review",
+        "critical-review",
+        "critical-code-review",
+        "code-review",
         "code.review",
     },
     {
@@ -2281,6 +2287,17 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     requested_status = str(status or "").lower()
     completion_run: dict[str, Any] | None = None
     effective_status = status
+    if (
+        requested_status in COMPLETION_OUTCOME_STATUSES
+        and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1"
+        and _node_has_handoff(graph, node_id)
+    ):
+        _sync_node_evidence_refs(
+            graph,
+            node_id,
+            repair=True,
+            command_line=f"python3 lib/graph_scheduler.py mark --node {node_id} --status {status}",
+        )
     if (
         requested_status in COMPLETION_OUTCOME_STATUSES
         and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1"

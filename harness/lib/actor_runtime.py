@@ -96,6 +96,70 @@ class ActorRuntime:
             runs_root = self.harness_dir / "run" / "runs"
             self._materializer = RunMaterializer(runs_root)
 
+    def _runtime_unavailable_actor_ids(self, logical_operator: str) -> set[str]:
+        """Return logical-operator candidates that operator_runtime cannot dispatch now."""
+        try:
+            import operator_runtime  # type: ignore  # noqa: WPS433
+        except Exception:
+            return set()
+        unavailable_states = {
+            "auth_expired",
+            "cooldown",
+            "disabled",
+            "leased",
+            "quota_exhausted",
+            "running",
+            "unavailable",
+        }
+        unavailable: set[str] = set()
+        for actor_id in self.router.get_candidates(logical_operator):
+            if not actor_id:
+                continue
+            try:
+                state = str(operator_runtime.get_operator_runtime_state(actor_id) or "").strip().lower()
+            except Exception:
+                continue
+            if state in unavailable_states:
+                unavailable.add(actor_id)
+        return unavailable
+
+    def _runtime_state_for_actor(self, actor_id: str) -> str:
+        try:
+            import operator_runtime  # type: ignore  # noqa: WPS433
+        except Exception:
+            return ""
+        try:
+            return str(operator_runtime.get_operator_runtime_state(actor_id) or "").strip().lower()
+        except Exception:
+            return ""
+
+    def _physical_plan_runtime_fallback_actor(self, task_envelope: Dict[str, Any]) -> Optional[str]:
+        physical_plan = task_envelope.get("physical_plan_ir")
+        if not isinstance(physical_plan, dict):
+            return None
+        unavailable_states = {
+            "auth_expired",
+            "cooldown",
+            "disabled",
+            "leased",
+            "quota_exhausted",
+            "running",
+            "unavailable",
+        }
+        for candidate in physical_plan.get("execution_candidates") or []:
+            if not isinstance(candidate, dict):
+                continue
+            actor_id = str(candidate.get("operator_id") or "").strip()
+            if not actor_id:
+                continue
+            profile = str(candidate.get("profile") or "").strip().lower()
+            if "advisory" in profile:
+                continue
+            if self._runtime_state_for_actor(actor_id) in unavailable_states:
+                continue
+            return actor_id
+        return None
+
     def _materialize_run_dir(
         self,
         dag_id: str,
@@ -328,7 +392,12 @@ class ActorRuntime:
                     # Default Fallback: Webwright
                     actor_id = "op.browser.webwright.playwright.01"
             else:
-                selected, rejected = self.router.select_actor(logical_operator)
+                selected, rejected = self.router.select_actor(
+                    logical_operator,
+                    unavailable=self._runtime_unavailable_actor_ids(logical_operator),
+                )
+                if not selected:
+                    selected = self._physical_plan_runtime_fallback_actor(task_envelope)
                 if not selected:
                     return SubmitResult(success=False, error=f"no_available_actor_for_{logical_operator}")
                 actor_id = selected

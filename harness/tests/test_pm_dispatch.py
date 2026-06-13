@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import types
 from pathlib import Path
 
@@ -61,6 +62,30 @@ def test_select_operator_by_role_prefers_capsule_operator_constraints(monkeypatc
     )
     assert reason == ""
     assert operator_id == "builder-b"
+
+
+def test_list_pm_tasks_prioritizes_active_records_before_failed_and_completed(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+
+    completed = tmp_path / "pm-completed.json"
+    failed = tmp_path / "pm-failed.json"
+    submitted = tmp_path / "pm-submitted.json"
+    completed.write_text(json.dumps({"task_id": "pm-completed", "status": "completed"}), encoding="utf-8")
+    failed.write_text(json.dumps({"task_id": "pm-failed", "status": "failed_no_dispatchable_operator"}), encoding="utf-8")
+    submitted.write_text(json.dumps({"task_id": "pm-submitted", "status": "submitted"}), encoding="utf-8")
+    now = time.time()
+    os.utime(submitted, (now - 300, now - 300))
+    os.utime(failed, (now - 200, now - 200))
+    os.utime(completed, (now, now))
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_pm_record_files",
+        lambda include_probe_records=True: [completed, failed, submitted],
+    )
+
+    tasks = pm_dispatch.list_pm_tasks(limit=2)
+
+    assert [task["task_id"] for task in tasks] == ["pm-submitted", "pm-failed"]
 
 
 def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
@@ -552,6 +577,37 @@ def test_cmd_submit_persists_failed_record_when_no_operator_available(monkeypatc
     assert payload["failure_reason"] == "no_dispatchable_operator_for_role: planner"
 
 
+def test_cmd_submit_dry_run_no_operator_does_not_persist_failed_record(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setenv("SOLAR_PM_DISPATCH_ALLOW_DIRECT", "1")
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", tmp_path / "sprints")
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", tmp_path / "run" / "pm-inbox")
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", tmp_path / "run" / "operator-inbox")
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_STATUS_DIR", tmp_path / "run" / "operator-status")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "select_operator_by_role",
+        lambda **kwargs: ("", {}, "preferred_operator_unavailable: op-1: runtime_state=running"),
+    )
+
+    rc = pm_dispatch.cmd_submit(
+        argparse.Namespace(
+            role="evaluator",
+            objective="capacity probe",
+            operator="op-1",
+            sprint="graph-dispatch-capacity-probe",
+            node="CAPACITY",
+            task_type="",
+            context="",
+            dry_run=True,
+        )
+    )
+
+    assert rc == 1
+    assert not list((tmp_path / "run" / "pm-inbox").glob("pm-*.json"))
+
+
 def test_pending_pm_backlog_count_ignores_failed_variants(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     inbox = tmp_path / "run" / "pm-inbox"
@@ -566,6 +622,145 @@ def test_pending_pm_backlog_count_ignores_failed_variants(monkeypatch, tmp_path)
     for name, payload in samples.items():
         (inbox / name).write_text(json.dumps(payload), encoding="utf-8")
     assert pm_dispatch._pending_pm_backlog_count() == 1
+
+
+def test_list_pm_tasks_hides_superseded_no_dispatch_failure(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    failed_id = "pm-sprint-one-S1-oldfail"
+    completed_id = "pm-sprint-one-S1-newdone"
+    failed_path = inbox / f"{failed_id}.json"
+    completed_path = inbox / f"{completed_id}.json"
+    common = {"sprint_id": "sprint-one", "node_id": "S1", "requested_role": "evaluator"}
+    failed_path.write_text(
+        json.dumps(
+            {
+                **common,
+                "task_id": failed_id,
+                "status": "failed_no_dispatchable_operator",
+                "failure_reason": "preferred_operator_unavailable: op: runtime_state=running",
+            }
+        ),
+        encoding="utf-8",
+    )
+    completed_path.write_text(
+        json.dumps({**common, "task_id": completed_id, "status": "completed", "operator_id": "op"}),
+        encoding="utf-8",
+    )
+    os.utime(failed_path, (1000, 1000))
+    os.utime(completed_path, (2000, 2000))
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20)] == [completed_id]
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20, include_superseded=True)] == [
+        completed_id,
+        failed_id,
+    ]
+
+
+def test_list_pm_tasks_hides_newer_no_dispatch_failure_when_same_projection_completed(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    failed_id = "pm-sprint-one-S1-newerfail"
+    completed_id = "pm-sprint-one-S1-olderdone"
+    failed_path = inbox / f"{failed_id}.json"
+    completed_path = inbox / f"{completed_id}.json"
+    common = {"sprint_id": "sprint-one", "node_id": "S1", "requested_role": "evaluator"}
+    failed_path.write_text(
+        json.dumps({**common, "task_id": failed_id, "status": "failed_no_dispatchable_operator"}),
+        encoding="utf-8",
+    )
+    completed_path.write_text(
+        json.dumps({**common, "task_id": completed_id, "status": "completed", "operator_id": "op"}),
+        encoding="utf-8",
+    )
+    os.utime(completed_path, (1000, 1000))
+    os.utime(failed_path, (2000, 2000))
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20)] == [completed_id]
+
+
+def test_list_pm_tasks_hides_transient_failed_record_when_same_projection_completed(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    failed_id = "pm-sprint-one-N0-old-config-failed"
+    completed_id = "pm-sprint-one-N0-new-completed"
+    failed_path = inbox / f"{failed_id}.json"
+    completed_path = inbox / f"{completed_id}.json"
+    common = {"sprint_id": "sprint-one", "node_id": "N0", "requested_role": "planner"}
+    failed_path.write_text(
+        json.dumps(
+            {
+                **common,
+                "task_id": failed_id,
+                "status": "failed",
+                "failure_reason": "Error loading config.toml: unknown variant 'default', expected 'fast' or 'flex'",
+            }
+        ),
+        encoding="utf-8",
+    )
+    completed_path.write_text(
+        json.dumps({**common, "task_id": completed_id, "status": "completed", "operator_id": "op"}),
+        encoding="utf-8",
+    )
+    os.utime(completed_path, (1000, 1000))
+    os.utime(failed_path, (2000, 2000))
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20)] == [completed_id]
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20, include_superseded=True)] == [
+        failed_id,
+        completed_id,
+    ]
+
+
+def test_list_pm_tasks_hides_duplicate_completion_gate_blocker(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    task_id = "pm-sprint-one-S1-duplicate"
+    path = inbox / f"{task_id}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "blocked_by_verifier",
+                "failure_reason": "post_result_verifier_failed",
+                "completion_gate": {"verdict": {"covered_result_event_id": "duplicate"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    assert pm_dispatch.list_pm_tasks(limit=20) == []
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20, include_superseded=True)] == [task_id]
+
+
+def test_list_pm_tasks_collapses_duplicate_projection_keys(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    old_id = "pm-sprint-one-N1-old"
+    new_id = "pm-sprint-one-N1-new"
+    common = {"sprint_id": "sprint-one", "node_id": "N1", "requested_role": "evaluator"}
+    old_path = inbox / f"{old_id}.json"
+    new_path = inbox / f"{new_id}.json"
+    old_path.write_text(json.dumps({**common, "task_id": old_id, "status": "failed_contract_closeout"}), encoding="utf-8")
+    new_path.write_text(json.dumps({**common, "task_id": new_id, "status": "failed_contract_closeout"}), encoding="utf-8")
+    os.utime(old_path, (1000, 1000))
+    os.utime(new_path, (2000, 2000))
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20)] == [new_id]
+    assert [item["task_id"] for item in pm_dispatch.list_pm_tasks(limit=20, include_superseded=True)] == [
+        new_id,
+        old_id,
+    ]
 
 
 def _write_builder_ready_graph(sprints: Path, sprint_id: str) -> None:
@@ -718,6 +913,7 @@ def test_eval_backlog_ignores_failed_graphs_and_failed_sprint_eval(monkeypatch, 
     inbox.mkdir(parents=True)
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
 
     _write_eval_ready_graph(sprints, "sprint-failed-node")
     (sprints / "sprint-failed-node.status.json").write_text(
@@ -823,6 +1019,11 @@ def test_pm_reconcile_excludes_capacity_probe_records(monkeypatch, tmp_path, cap
     assert f"{probe_id}.json" not in files
     assert f"{normal_id}.json" in files
 
+    listed = pm_dispatch.list_pm_tasks(limit=20)
+    assert [item["task_id"] for item in listed] == [normal_id]
+    listed_with_probes = pm_dispatch.list_pm_tasks(limit=20, include_probe_records=True)
+    assert {item["task_id"] for item in listed_with_probes} == {probe_id, normal_id}
+
     rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=1, json=True, limit=40))
     out = json.loads(capsys.readouterr().out)
 
@@ -830,6 +1031,368 @@ def test_pm_reconcile_excludes_capacity_probe_records(monkeypatch, tmp_path, cap
     assert out["summary"] == {"fail_missing_pm_result": 1}
     assert json.loads((inbox / f"{probe_id}.json").read_text(encoding="utf-8"))["status"] == "submitted"
     assert json.loads((inbox / f"{normal_id}.json").read_text(encoding="utf-8"))["status"] == "failed_missing_pm_result"
+
+
+def test_pm_reconcile_recovers_failed_contract_closeout_when_artifacts_arrive(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    task_id = "pm-sprint-one-S2-eval"
+    eval_md = sprints / "sprint-one.S2-eval.md"
+    eval_json = sprints / "sprint-one.S2-eval.json"
+    eval_md.write_text("# Eval\n", encoding="utf-8")
+    eval_json.write_text(json.dumps({"verdict": "FAIL"}), encoding="utf-8")
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": "sprint-one",
+                "node_id": "S2",
+                "requested_role": "evaluator",
+                "status": "failed_contract_closeout",
+                "failed_at": "2026-06-13T22:29:31Z",
+                "failure_reason": "post_result_verifier_failed",
+                "result_path": str(sprints / "sprint-one.S2.pm-result.md"),
+                "closeout_status": {"ok": False, "missing_artifacts": [str(eval_json)]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=1, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"complete": 1}
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "completed"
+    assert "failed_at" not in record
+    assert "failure_reason" not in record
+    assert record["closeout_status"]["ok"] is True
+    assert record["reconcile_history"][-1]["reason"] == "failed_contract_closeout_recovered"
+
+
+def test_pm_reconcile_cleans_failure_projection_on_completed_record(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-clean-completed"
+    task_id = f"pm-{sprint_id}-N0-planner"
+    (sprints / f"{sprint_id}.plan.md").write_text("# Plan\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.task_graph.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "N0",
+                "requested_role": "planner",
+                "status": "completed",
+                "completed_at": "2026-06-13T22:32:41Z",
+                "failed_at": "2026-06-13T22:29:31Z",
+                "failure_reason": "post_result_verifier_failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"repair_completed_projection": 1}
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "completed"
+    assert "failed_at" not in record
+    assert "failure_reason" not in record
+    assert record["reconcile_history"][-1]["reason"] == "completed_record_projection_drift"
+
+
+def test_pm_reconcile_repairs_completed_retry_over_failed_graph_dispatch(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-retry-complete"
+    old_id = f"pm-{sprint_id}-S2-old"
+    new_id = f"pm-{sprint_id}-S2-new"
+    (sprints / f"{sprint_id}.S2-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.task_graph.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": sprint_id,
+                "nodes": [
+                    {
+                        "id": "S2",
+                        "status": "dispatched",
+                        "assigned_to": "builder-1",
+                        "dispatch_id": old_id,
+                        "pm_task_id": old_id,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (inbox / f"{old_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": old_id,
+                "sprint_id": sprint_id,
+                "node_id": "S2",
+                "requested_role": "builder",
+                "status": "failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (inbox / f"{new_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": new_id,
+                "sprint_id": sprint_id,
+                "node_id": "S2",
+                "requested_role": "builder",
+                "status": "completed",
+                "objective": "Redo S2 verification after failed dispatch",
+                "context": f"retry_of={old_id}; known_blocker=pytest_import_file_mismatch_broad_collection",
+                "submitted_at": "2000-01-01T00:00:00Z",
+                "completed_at": "2026-06-13T22:59:22Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"repair_completed_projection": 1}
+    graph = json.loads((sprints / f"{sprint_id}.task_graph.json").read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["status"] == "reviewing"
+    assert node["handoff_path"].endswith(f"{sprint_id}.S2-handoff.md")
+    assert "dispatch_id" not in node
+    assert graph["node_results"]["S2"]["status"] == "reviewing"
+    record = json.loads((inbox / f"{new_id}.json").read_text(encoding="utf-8"))
+    assert record["graph_reviewing"]["repair_completion"] is True
+
+
+def test_pm_reconcile_does_not_treat_empty_result_path_as_current_directory(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-empty-result-path"
+    task_id = f"pm-{sprint_id}-B7-builder"
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "B7",
+                "requested_role": "builder",
+                "status": "blocked_by_verifier",
+                "blocked_at": "2026-06-13T22:35:55Z",
+                "failure_reason": "post_result_verifier_failed",
+                "closeout_status": {"ok": True, "expected_artifacts": [], "missing_artifacts": [], "stale_artifacts": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: set())
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=False, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {}
+    assert out["actions"] == []
+
+
+def test_pm_reconcile_cancels_synthetic_builder_b0_when_task_graph_has_real_nodes(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-graph-managed-builder"
+    task_id = f"pm-{sprint_id}-B0-synthetic"
+    (sprints / f"{sprint_id}.task_graph.json").write_text(
+        json.dumps({"nodes": [{"id": "B1", "status": "passed"}, {"id": "B2", "status": "dispatched"}]}),
+        encoding="utf-8",
+    )
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "B0",
+                "requested_role": "builder",
+                "status": "failed_no_dispatchable_operator",
+                "failed_at": "2026-06-13T22:43:16Z",
+                "failure_reason": "no_dispatchable_operator_for_role: builder; builder_pool_depleted",
+                "result_path": str(sprints / f"{sprint_id}.B0.pm-result.md"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"cancel": 1}
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "cancelled"
+    assert record["cancel_reason"] == "builder_handoff_managed_by_task_graph"
+    assert "failed_at" not in record
+    assert "failure_reason" not in record
+
+
+def test_pm_reconcile_does_not_repeat_cancelled_synthetic_builder_b0(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-graph-managed-builder"
+    task_id = f"pm-{sprint_id}-B0-synthetic"
+    (sprints / f"{sprint_id}.task_graph.json").write_text(
+        json.dumps({"nodes": [{"id": "B1", "status": "passed"}]}),
+        encoding="utf-8",
+    )
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "B0",
+                "requested_role": "builder",
+                "status": "cancelled",
+                "cancel_reason": "builder_handoff_managed_by_task_graph",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=False, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {}
+    assert out["actions"] == []
+
+
+def test_pm_reconcile_completes_submitted_record_when_graph_node_already_passed(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-graph-passed"
+    task_id = f"pm-{sprint_id}-N4-eval"
+    (sprints / f"{sprint_id}.N4-eval.md").write_text("# Eval\nPASS\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.N4-eval.json").write_text(json.dumps({"verdict": "PASS"}), encoding="utf-8")
+    (sprints / f"{sprint_id}.task_graph.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": sprint_id,
+                "nodes": [{"id": "N4", "status": "passed"}],
+                "node_results": {"N4": {"status": "passed"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "N4",
+                "requested_role": "evaluator",
+                "status": "submitted_fallback",
+                "submitted_at": "2026-06-13T22:14:39Z",
+                "failed_at": "2026-06-13T22:15:39Z",
+                "failure_reason": "post_result_verifier_failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"complete": 1}
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "completed"
+    assert "failed_at" not in record
+    assert "failure_reason" not in record
+    assert record["closeout_status"]["reason"] == "graph_node_already_closed"
+    assert record["reconcile_history"][-1]["reason"] == "graph_node_already_closed"
+
+
+def test_pm_reconcile_completes_idle_submitted_record_when_expected_artifacts_exist(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir()
+    inbox.mkdir()
+    sprint_id = "sprint-planner-artifacts"
+    task_id = f"pm-{sprint_id}-N0-planner"
+    (sprints / f"{sprint_id}.plan.md").write_text("# Plan\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.task_graph.json").write_text(json.dumps({"nodes": []}), encoding="utf-8")
+    (inbox / f"{task_id}.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": "N0",
+                "requested_role": "planner",
+                "status": "submitted",
+                "submitted_at": "2026-06-13T22:26:10Z",
+                "failed_at": "2026-06-13T22:29:31Z",
+                "failure_reason": "post_result_verifier_failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: set())
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=45, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"complete": 1}
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "completed"
+    assert "failed_at" not in record
+    assert "failure_reason" not in record
+    assert record["closeout_status"]["ok"] is True
+    assert record["reconcile_history"][-1]["reason"] == "expected_artifacts_exist"
 
 
 def test_drain_builder_ready_submits_and_marks_graph(monkeypatch, tmp_path):
@@ -877,6 +1440,7 @@ def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tm
     inbox.mkdir(parents=True)
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
 
     task_id = "pm-sprint-requeue-B1-test"
     graph_path = sprints / "sprint-requeue.task_graph.json"
@@ -948,6 +1512,75 @@ def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tm
     state = json.loads((sprints / "sprint-requeue.task_dag.state.json").read_text(encoding="utf-8"))
     assert state["node_results"]["B1"]["status"] == "pending"
     assert "B1" not in state["dispatch_ids"]
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["graph_requeue"]["released"] is True
+
+
+def test_cmd_fail_requeues_codex_config_variant_failure(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "run" / "pm-inbox"
+    sprints.mkdir(parents=True)
+    inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+
+    task_id = "pm-sprint-codex-config-N0-test"
+    graph_path = sprints / "sprint-codex-config.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-codex-config",
+                "nodes": [
+                    {
+                        "id": "N0",
+                        "status": "dispatched",
+                        "assigned_to": "mini-codex-gpt55-medium-planner-1",
+                        "dispatch_id": task_id,
+                        "pm_task_id": task_id,
+                        "operator_id": "mini-codex-gpt55-medium-planner-1",
+                    }
+                ],
+                "node_results": {
+                    "N0": {
+                        "status": "dispatched",
+                        "dispatch_id": task_id,
+                        "pm_task_id": task_id,
+                        "operator_id": "mini-codex-gpt55-medium-planner-1",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    pm_dispatch.write_pm_task_record(
+        task_id,
+        {
+            "task_id": task_id,
+            "status": "submitted",
+            "sprint_id": "sprint-codex-config",
+            "node_id": "N0",
+            "operator_id": "mini-codex-gpt55-medium-planner-1",
+        },
+    )
+
+    rc = pm_dispatch.cmd_fail(
+        argparse.Namespace(
+            task_id=task_id,
+            status="failed",
+            reason=(
+                "codex_operator: invoking codex exec --model gpt-5.5\n"
+                "Error loading config.toml: unknown variant `default`, expected `fast` or `flex`"
+            ),
+        )
+    )
+
+    assert rc == 0
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["status"] == "pending"
+    assert node["requeue_reason"] == "transient_operator_failure"
     record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
     assert record["graph_requeue"]["released"] is True
 
@@ -1057,6 +1690,7 @@ def test_cmd_complete_marks_builder_graph_node_reviewing(monkeypatch, tmp_path):
     inbox.mkdir(parents=True)
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
 
     task_id = "pm-sprint-review-B1-test"
     graph_path = sprints / "sprint-review.task_graph.json"
@@ -1126,6 +1760,7 @@ def test_cmd_complete_reopens_failed_node_for_fresh_repair_handoff(monkeypatch, 
     inbox.mkdir(parents=True)
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
 
     task_id = "pm-sprint-repair-B1-test"
     graph_path = sprints / "sprint-repair.task_graph.json"
@@ -1189,6 +1824,129 @@ def test_cmd_complete_reopens_failed_node_for_fresh_repair_handoff(monkeypatch, 
     assert record["graph_reviewing"]["repair_completion"] is True
     assert record["graph_reviewing"]["state_sync"]["ok"] is True
     assert len(record["graph_reviewing"]["archived_eval_sidecars"]) == 4
+
+
+def test_pm_completion_gate_uses_node_handoff_not_result_path(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+
+    handoff = sprints / "sprint-b7.B7_unit_tests-handoff.md"
+    handoff.write_text("# B7 handoff\n", encoding="utf-8")
+    pm_result = sprints / "sprint-b7.B7_unit_tests.pm-result.md"
+    pm_result.write_text("# PM result\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class FakeOperatorResult:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    fake_pipeline = types.SimpleNamespace(
+        OperatorResult=FakeOperatorResult,
+        submit_result=lambda result, harness_dir: {"status": "completed", "result": dict(captured)},
+    )
+    monkeypatch.setitem(sys.modules, "completion_pipeline", fake_pipeline)
+
+    result = pm_dispatch._run_pm_completion_gate(
+        "pm-sprint-b7-B7_unit_tests-test",
+        {
+            "task_id": "pm-sprint-b7-B7_unit_tests-test",
+            "sprint_id": "sprint-b7",
+            "node_id": "B7_unit_tests",
+            "dispatch_id": "dispatch-b7",
+            "result_path": str(pm_result),
+            "requested_role": "builder",
+        },
+    )
+
+    assert result["status"] == "completed"
+    assert captured["handoff_path"] == str(handoff)
+    assert captured["handoff_path"] != str(pm_result)
+
+
+def test_builder_complete_cleans_stale_assignment_on_reviewing_node(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    task_id = "pm-sprint-reviewing-B7-test"
+    graph_path = sprints / "sprint-reviewing.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-reviewing",
+                "nodes": [
+                    {
+                        "id": "B7",
+                        "status": "reviewing",
+                        "assigned_to": "operator:builder-2",
+                        "dispatch_id": "dispatch-stale",
+                        "pm_task_id": task_id,
+                        "operator_id": "builder-2",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / "sprint-reviewing.B7-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+
+    result = pm_dispatch._mark_graph_node_reviewing_on_builder_complete(
+        {
+            "task_id": task_id,
+            "sprint_id": "sprint-reviewing",
+            "node_id": "B7",
+            "requested_role": "builder",
+        }
+    )
+
+    assert result["marked"] is True
+    assert result["reason"] == "already_reviewing_cleanup"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["status"] == "reviewing"
+    assert node["handoff_path"].endswith("sprint-reviewing.B7-handoff.md")
+    for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+        assert key not in node
+        assert key not in graph["node_results"]["B7"]
+
+
+def test_builder_complete_does_not_demote_passed_node(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    graph_path = sprints / "sprint-passed.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-passed",
+                "nodes": [{"id": "B9", "status": "passed"}],
+                "node_results": {"B9": {"status": "passed"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / "sprint-passed.B9-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+
+    result = pm_dispatch._mark_graph_node_reviewing_on_builder_complete(
+        {
+            "task_id": "pm-sprint-passed-B9-duplicate",
+            "sprint_id": "sprint-passed",
+            "node_id": "B9",
+            "requested_role": "builder",
+        }
+    )
+
+    assert result["marked"] is False
+    assert result["reason"] == "node_already_terminal"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert graph["nodes"][0]["status"] == "passed"
+    assert graph["node_results"]["B9"]["status"] == "passed"
 
 
 def test_evaluator_dispatch_marks_graph_assignment(monkeypatch, tmp_path):

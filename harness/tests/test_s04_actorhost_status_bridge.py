@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
+TOOLS = ROOT / "tools"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
@@ -25,6 +26,7 @@ def _load_module(name: str, path: Path):
 
 mts = _load_module("multi_task_status", LIB / "multi_task_status.py")
 gnd = _load_module("graph_node_dispatcher", LIB / "graph_node_dispatcher.py")
+gnd_tools = _load_module("graph_node_dispatcher_tools", TOOLS / "graph_node_dispatcher.py")
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -172,7 +174,7 @@ def test_operator_pool_virtual_workers_advertise_brokered_capabilities(monkeypat
     assert evaluator_match["observed"] == ["review", "testing"]
 
 
-def test_evaluator_pool_uses_deepseek_advisor_fallback_when_default_empty(monkeypatch) -> None:
+def test_evaluator_pool_excludes_deepseek_advisor_from_final_sidecar_fallback(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
     monkeypatch.setattr(
         gnd,
@@ -182,12 +184,10 @@ def test_evaluator_pool_uses_deepseek_advisor_fallback_when_default_empty(monkey
 
     evaluator_workers = gnd._evaluator_operator_pool_workers()
 
-    assert len(evaluator_workers) == 1
-    assert evaluator_workers[0]["operator_id"] == "mini-reasonix-deepseek-v4-builder"
-    assert evaluator_workers[0]["evaluator_host_role"] == "operator_pool_advisor_fallback"
+    assert evaluator_workers == []
 
 
-def test_eval_sidecar_only_policy_overrides_builder_pool_file_execution_guard(monkeypatch, tmp_path: Path) -> None:
+def test_deepseek_advisory_policy_does_not_override_final_sidecar_guard(monkeypatch, tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
     _write_json(
@@ -196,6 +196,9 @@ def test_eval_sidecar_only_policy_overrides_builder_pool_file_execution_guard(mo
             "version": 1,
             "operators": {
                 "mini-reasonix-deepseek-v4-builder": {
+                    "role": "advisor",
+                    "persona": "advisor",
+                    "profile": "deepseek-advisory",
                     "policy": {
                         "write_files": "eval_sidecar_only",
                         "eval_sidecar_write": "allowed",
@@ -205,14 +208,43 @@ def test_eval_sidecar_only_policy_overrides_builder_pool_file_execution_guard(mo
                         "enabled": False,
                         "disabled_reason": "reasonix_no_verified_file_execution_surface",
                     },
-                    "avoid_for": ["implementation", "code-edit", "repo-modification"],
+                    "avoid_for": ["implementation", "code-edit", "repo-modification", "final-quality-gate"],
+                    "state": {"runtime_state": "cooldown"},
                 }
             },
         },
     )
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
 
-    assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-reasonix-deepseek-v4-builder") is True
+    assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-reasonix-deepseek-v4-builder") is False
+
+
+def test_eval_sidecar_final_fallback_allows_codex_write_capable_operator(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-codex-gpt55-medium-builder-1": {
+                    "role": "builder",
+                    "persona": "builder",
+                    "roles": ["builder", "evaluator"],
+                    "policy": {
+                        "write_files": "allowed",
+                        "run_shell": "allowed",
+                    },
+                    "builder_pool": {"enabled": True},
+                    "avoid_for": ["bulk-extraction"],
+                    "state": {"runtime_state": "idle"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+
+    assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-codex-gpt55-medium-builder-1") is True
 
 
 def test_evaluator_pool_prefers_gpt55_advisor_fallback_when_available(monkeypatch) -> None:
@@ -228,6 +260,50 @@ def test_evaluator_pool_prefers_gpt55_advisor_fallback_when_available(monkeypatc
     assert len(evaluator_workers) == 1
     assert evaluator_workers[0]["operator_id"] == "mini-codex-gpt55-medium-builder-2"
     assert evaluator_workers[0]["models"] == ["gpt-5.5", "operator-pool"]
+
+
+def test_tools_eval_fallback_skips_deepseek_advisor_before_codex(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "role": "advisor",
+                    "persona": "advisor",
+                    "profile": "deepseek-advisory",
+                    "operator_class": "AdvisoryReview",
+                    "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+                    "builder_pool": {
+                        "enabled": False,
+                        "disabled_reason": "reasonix_no_verified_file_execution_surface",
+                    },
+                    "avoid_for": ["implementation", "code-edit", "repo-modification", "final-quality-gate"],
+                    "state": {"runtime_state": "idle"},
+                },
+                "mini-codex-gpt55-medium-builder-1": {
+                    "role": "builder",
+                    "persona": "builder",
+                    "policy": {"write_files": "allowed", "run_shell": "allowed"},
+                    "builder_pool": {"enabled": True},
+                    "state": {"runtime_state": "idle"},
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(gnd_tools, "HARNESS_DIR", tmp_path)
+    monkeypatch.setenv(
+        "SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS",
+        "mini-reasonix-deepseek-v4-builder,mini-codex-gpt55-medium-builder-1",
+    )
+    monkeypatch.setattr(gnd_tools, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(gnd_tools, "_operator_pool_operator_available_for_role", lambda *_: True)
+
+    workers = gnd_tools._evaluator_operator_pool_workers()
+
+    assert [worker["operator_id"] for worker in workers] == ["mini-codex-gpt55-medium-builder-1"]
 
 
 def test_operator_pool_operator_probe_uses_short_ttl_cache(monkeypatch, tmp_path: Path) -> None:

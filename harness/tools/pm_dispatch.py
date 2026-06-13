@@ -78,6 +78,7 @@ ROLE_ALIASES: dict[str, str] = {
 NON_DISPATCHABLE_STATES = {"leased", "running", "draining", "cooldown", "quota_exhausted", "auth_expired", "disabled"}
 TRANSIENT_OPERATOR_FAILURE_RE = re.compile(
     r"runtime_state=(?:cooldown|quota_exhausted|auth_expired)|"
+    r"Error loading config\.toml:\s+unknown variant [`'\"]?default[`'\"]?, expected [`'\"]?fast[`'\"]? or [`'\"]?flex[`'\"]?|"
     r"you(?:'|’)ve hit .*limit|usage limit|rate[- ]?limit|quota(?:\s+exhausted)?|"
     r"auth_expired|not logged in|not authenticated",
     re.I,
@@ -1365,15 +1366,89 @@ def read_pm_task_record(task_id: str) -> dict[str, Any] | None:
         return None
 
 
-def list_pm_tasks(limit: int = 20) -> list[dict[str, Any]]:
-    tasks = []
-    d = pm_inbox_dir()
-    for p in sorted(d.glob("pm-*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+def _pm_task_projection_key(record: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(record.get("sprint_id") or ""),
+        str(record.get("node_id") or ""),
+        str(record.get("requested_role") or record.get("role") or ""),
+    )
+
+
+def _is_supersedable_pm_failure(record: dict[str, Any]) -> bool:
+    status = str(record.get("status") or "").strip().lower()
+    if status == "failed_no_dispatchable_operator":
+        return True
+    if status.startswith("failed") and TRANSIENT_OPERATOR_FAILURE_RE.search(_transient_operator_failure_text(record)):
+        return True
+    if status == "blocked_by_verifier":
+        completion_gate = record.get("completion_gate")
+        verdict = completion_gate.get("verdict") if isinstance(completion_gate, dict) else {}
+        return isinstance(verdict, dict) and str(verdict.get("covered_result_event_id") or "") == "duplicate"
+    return False
+
+
+def _is_superseding_pm_record(record: dict[str, Any]) -> bool:
+    status = str(record.get("status") or "").strip().lower()
+    return bool(status) and not status.startswith("failed")
+
+
+def _pm_status_is_resolved_for_inbox(status: str) -> bool:
+    value = str(status or "").strip().lower()
+    return value in {"completed", "cancelled"}
+
+
+def _pm_inbox_status_sort_bucket(status: str) -> int:
+    value = str(status or "").strip().lower()
+    if _pm_status_is_resolved_for_inbox(value):
+        return 2
+    if value.startswith("failed") or value.startswith("blocked"):
+        return 1
+    return 0
+
+
+def list_pm_tasks(
+    limit: int = 20,
+    *,
+    include_probe_records: bool = False,
+    include_superseded: bool = False,
+) -> list[dict[str, Any]]:
+    loaded: list[tuple[dict[str, Any], float]] = []
+    for p in _pm_record_files(include_probe_records=include_probe_records):
         try:
-            tasks.append(json.loads(p.read_text(encoding="utf-8")))
+            record = json.loads(p.read_text(encoding="utf-8"))
+            mtime = p.stat().st_mtime
         except Exception:
             pass
-    return tasks
+        else:
+            loaded.append((record, mtime))
+    if include_superseded:
+        tasks = loaded
+        tasks.sort(key=lambda item: -item[1])
+    else:
+        tasks = []
+        grouped: dict[tuple[str, str, str], list[tuple[dict[str, Any], float]]] = {}
+        for record, mtime in loaded:
+            key = _pm_task_projection_key(record)
+            if (
+                _is_supersedable_pm_failure(record)
+                and str(record.get("status") or "").strip().lower() == "blocked_by_verifier"
+                and key == ("", "", "")
+            ):
+                continue
+            if key == ("", "", ""):
+                tasks.append((record, mtime))
+                continue
+            grouped.setdefault(key, []).append((record, mtime))
+        for group in grouped.values():
+            group.sort(key=lambda item: -item[1])
+            has_superseding = any(_is_superseding_pm_record(record) for record, _ in group)
+            for record, mtime in group:
+                if has_superseding and _is_supersedable_pm_failure(record):
+                    continue
+                tasks.append((record, mtime))
+                break
+        tasks.sort(key=lambda item: (_pm_inbox_status_sort_bucket(str(item[0].get("status") or "")), -item[1]))
+    return [record for record, _ in tasks[:limit]]
 
 
 def is_capacity_probe_record(record: dict[str, Any] | None = None, path: Path | None = None) -> bool:
@@ -1809,6 +1884,81 @@ def _pm_closeout_status(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _pm_graph_node_closed_closeout(record: dict[str, Any]) -> dict[str, Any]:
+    sprint_id = str(record.get("sprint_id") or "").strip()
+    node_id = str(record.get("node_id") or "").strip()
+    if not sprint_id or not node_id:
+        return {"ok": False, "reason": "missing_graph_identity"}
+    graph_path = SPRINTS_DIR / f"{sprint_id}.task_graph.json"
+    if not graph_path.exists():
+        return {"ok": False, "reason": "graph_missing", "graph": str(graph_path)}
+    try:
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"ok": False, "reason": f"graph_read_failed:{type(exc).__name__}", "graph": str(graph_path)}
+    node_status = ""
+    nodes = graph.get("nodes")
+    if isinstance(nodes, list):
+        for node in nodes:
+            if isinstance(node, dict) and str(node.get("id") or node.get("node_id") or "") == node_id:
+                node_status = str(node.get("status") or "").strip().lower()
+                break
+    elif isinstance(nodes, dict):
+        node = nodes.get(node_id)
+        if isinstance(node, dict):
+            node_status = str(node.get("status") or "").strip().lower()
+    result_status = ""
+    results = graph.get("node_results")
+    result = results.get(node_id) if isinstance(results, dict) else None
+    if isinstance(result, dict):
+        result_status = str(result.get("status") or "").strip().lower()
+    closed_statuses = {"passed", "skipped", "cancelled", "canceled", "skipped_parent_passed"}
+    effective_status = node_status or result_status
+    if node_status not in closed_statuses and result_status not in closed_statuses:
+        return {"ok": False, "reason": "graph_node_not_closed", "graph": str(graph_path), "graph_status": effective_status}
+    closeout = _pm_closeout_status(record)
+    return {
+        **closeout,
+        "reason": "graph_node_already_closed",
+        "graph": str(graph_path),
+        "graph_status": effective_status,
+    }
+
+
+def _synthetic_builder_handoff_cancel(record: dict[str, Any]) -> dict[str, Any]:
+    if _pm_status_is_resolved_for_inbox(str(record.get("status") or "")):
+        return {"ok": False, "reason": "already_terminal"}
+    role = str(record.get("requested_role") or record.get("role") or "").strip().lower()
+    node_id = str(record.get("node_id") or "").strip()
+    sprint_id = str(record.get("sprint_id") or "").strip()
+    if role != "builder" or node_id != "B0" or not sprint_id:
+        return {"ok": False, "reason": "not_synthetic_builder_handoff"}
+    graph_path = SPRINTS_DIR / f"{sprint_id}.task_graph.json"
+    if not graph_path.exists():
+        return {"ok": False, "reason": "graph_missing", "graph": str(graph_path)}
+    try:
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"ok": False, "reason": f"graph_read_failed:{type(exc).__name__}", "graph": str(graph_path)}
+    nodes = graph.get("nodes")
+    node_ids: set[str] = set()
+    if isinstance(nodes, list):
+        node_ids = {str(node.get("id") or node.get("node_id") or "").strip() for node in nodes if isinstance(node, dict)}
+    elif isinstance(nodes, dict):
+        node_ids = {str(key).strip() for key in nodes}
+    node_ids.discard("")
+    if not node_ids:
+        return {"ok": False, "reason": "graph_has_no_nodes", "graph": str(graph_path)}
+    if "B0" in node_ids:
+        return {"ok": False, "reason": "graph_has_b0_node", "graph": str(graph_path)}
+    return {
+        "ok": True,
+        "reason": "builder_handoff_managed_by_task_graph",
+        "graph": str(graph_path),
+        "node_count": len(node_ids),
+    }
+
+
 def _record_age_minutes(record: dict[str, Any], path: Path) -> float:
     for key in ("submitted_at", "created_at", "updated_at", "ts"):
         parsed = _parse_utc(str(record.get(key) or ""))
@@ -2071,6 +2221,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
         logical_operator=logical_operator,
     )
     if not operator_id:
+        if dry_run:
+            print(f"[DRY-RUN] ERROR: 没有可用算子 ({fallback_reason})", file=sys.stderr)
+            return 1
         failure_record: dict[str, Any] = {
             "task_id": task_id,
             "sprint_id": sprint_id,
@@ -3049,13 +3202,28 @@ def _is_terminal_repair_completion(
 ) -> bool:
     target_status = str(target.get("status") or "").strip().lower()
     result_status = str(result_entry.get("status") or "").strip().lower()
-    if target_status not in {"failed", "skipped"} and result_status not in {"failed", "skipped"}:
+    previous_dispatch_ids = {
+        str(target.get("dispatch_id") or ""),
+        str(target.get("pm_task_id") or ""),
+        str(result_entry.get("dispatch_id") or ""),
+        str(result_entry.get("pm_task_id") or ""),
+    }
+    previous_dispatch_failed = any(
+        str((read_pm_task_record(dispatch_id) or {}).get("status") or "").strip().lower().startswith("failed")
+        for dispatch_id in previous_dispatch_ids
+        if dispatch_id
+    )
+    if (
+        target_status not in {"failed", "skipped"}
+        and result_status not in {"failed", "skipped"}
+        and not previous_dispatch_failed
+    ):
         return False
     repair_text = "\n".join(
         str(record.get(key) or "")
-        for key in ("objective", "pm_context", "failure_reason", "task_type")
+        for key in ("objective", "pm_context", "context", "retry_of", "failure_reason", "task_type")
     ).lower()
-    if not any(token in repair_text for token in ("repair", "retry", "fix", "requeue", "修复", "重跑", "重派")):
+    if not any(token in repair_text for token in ("repair", "retry", "redo", "fix", "requeue", "修复", "重试", "重跑", "重派")):
         return False
     return _handoff_is_fresh_for_record(record, handoff_path)
 
@@ -3125,11 +3293,61 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
             break
     if target is None:
         return {"ok": False, "marked": False, "reason": "node_missing", "graph": str(graph_path), "node_id": node_id}
-    if str(target.get("status") or "") == "reviewing":
-        return {"ok": True, "marked": False, "reason": "already_reviewing", "graph": str(graph_path), "node_id": node_id}
 
     node_results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
     result_entry = node_results.get(node_id) if isinstance(node_results.get(node_id), dict) else {}
+    target_status = str(target.get("status") or "").strip().lower()
+    result_status = str(result_entry.get("status") or "").strip().lower()
+    closed_statuses = {"passed", "skipped", "cancelled", "canceled", "skipped_parent_passed"}
+    if target_status in closed_statuses or result_status in closed_statuses:
+        return {
+            "ok": True,
+            "marked": False,
+            "reason": "node_already_terminal",
+            "graph": str(graph_path),
+            "node_id": node_id,
+            "status": target_status or result_status,
+        }
+    if str(target.get("status") or "") == "reviewing":
+        stale_keys = [key for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id") if target.get(key) is not None]
+        if not stale_keys and str(target.get("handoff_path") or "") == str(handoff_path):
+            return {"ok": True, "marked": False, "reason": "already_reviewing", "graph": str(graph_path), "node_id": node_id}
+        now = _now()
+        previous = {key: target.get(key) for key in stale_keys}
+        target.setdefault("completion_history", []).append(
+            {
+                "ts": now,
+                "reason": "pm_builder_reviewing_cleanup",
+                "task_id": task_id,
+                "previous_dispatch": previous,
+                "handoff": str(handoff_path),
+            }
+        )
+        target["updated_at"] = now
+        target["handoff_path"] = str(handoff_path)
+        for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+            target.pop(key, None)
+        graph.setdefault("node_results", {})
+        graph["node_results"].setdefault(node_id, {})
+        result_entry = graph["node_results"][node_id]
+        result_entry["status"] = "reviewing"
+        result_entry["updated_at"] = now
+        result_entry["handoff_path"] = str(handoff_path)
+        result_entry.setdefault("completion_history", []).append(
+            {"ts": now, "reason": "pm_builder_reviewing_cleanup", "task_id": task_id}
+        )
+        for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+            result_entry.pop(key, None)
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return {
+            "ok": True,
+            "marked": True,
+            "reason": "already_reviewing_cleanup",
+            "graph": str(graph_path),
+            "node_id": node_id,
+            "stale_keys": stale_keys,
+        }
+
     dispatch_ids = {
         str(target.get("dispatch_id") or ""),
         str(target.get("pm_task_id") or ""),
@@ -3421,7 +3639,11 @@ def cmd_prune_rate_limits(args: argparse.Namespace) -> int:
 
 def cmd_inbox(args: argparse.Namespace) -> int:
     limit = int(getattr(args, "limit", 20))
-    tasks = list_pm_tasks(limit=limit)
+    tasks = list_pm_tasks(
+        limit=limit,
+        include_probe_records=bool(getattr(args, "include_probes", False)),
+        include_superseded=bool(getattr(args, "show_superseded", False)),
+    )
     if not tasks:
         print("PM inbox 为空（暂无任务记录）")
         return 0
@@ -3534,13 +3756,13 @@ def _run_pm_completion_gate(task_id: str, record: dict[str, Any]) -> dict[str, A
 
     sprint_id = str(record.get("sprint_id") or task_id)
     node_id = str(record.get("node_id") or "pm")
-    result_path = str(record.get("result_path") or "")
+    handoff_path = _pm_completion_handoff_path(record, sprint_id, node_id)
     return submit_result(
         OperatorResult(
             session_id=sprint_id,
             node_id=node_id,
             attempt_id=str(record.get("dispatch_id") or record.get("task_id") or task_id),
-            handoff_path=result_path,
+            handoff_path=handoff_path,
             eval_path=str(record.get("eval_path") or ""),
             write_scope=list(record.get("write_scope") or []),
             operator_status=str(record.get("status") or "done"),
@@ -3548,6 +3770,28 @@ def _run_pm_completion_gate(task_id: str, record: dict[str, Any]) -> dict[str, A
         ),
         harness_dir=HARNESS_DIR,
     )
+
+
+def _pm_completion_handoff_path(record: dict[str, Any], sprint_id: str, node_id: str) -> str:
+    for key in ("handoff_path", "handoff", "handoff_md"):
+        raw = str(record.get(key) or "").strip()
+        if not raw:
+            continue
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = SPRINTS_DIR / raw
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+
+    if sprint_id and node_id and node_id != "pm":
+        candidate = _node_handoff_path(sprint_id, node_id)
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+
+    result_path = Path(str(record.get("result_path") or "")).expanduser()
+    if result_path.exists() and result_path.is_file() and "handoff" in result_path.name:
+        return str(result_path)
+    return ""
 
 
 def cmd_fail(args: argparse.Namespace) -> int:
@@ -3581,6 +3825,11 @@ def cmd_fail(args: argparse.Namespace) -> int:
     return 0
 
 
+def _clear_pm_failure_projection(record: dict[str, Any]) -> None:
+    for key in ("failed_at", "failure_reason", "blocked_at"):
+        record.pop(key, None)
+
+
 def cmd_reconcile(args: argparse.Namespace) -> int:
     """Repair PM inbox projection drift without bypassing operator evidence."""
     max_age_minutes = max(1, int(args.max_age_minutes or 60))
@@ -3598,9 +3847,55 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
 
         task_id = str(record.get("task_id") or path.stem)
         status = str(record.get("status") or "").strip()
+        if status == "failed_contract_closeout":
+            closeout = _pm_closeout_status(record)
+            if closeout.get("ok"):
+                actions.append({
+                    "task_id": task_id,
+                    "action": "complete",
+                    "reason": "failed_contract_closeout_recovered",
+                    **closeout,
+                })
+                if apply_changes:
+                    record["task_id"] = task_id
+                    record["status"] = "completed"
+                    record["completed_at"] = now
+                    _clear_pm_failure_projection(record)
+                    record["closeout_status"] = closeout
+                    record.setdefault("reconcile_history", []).append(
+                        {"ts": now, "action": "complete", "reason": "failed_contract_closeout_recovered", **closeout}
+                    )
+                    write_pm_task_record(task_id, record)
+                continue
         if status == "completed":
             closeout = _pm_closeout_status(record)
             if closeout.get("ok"):
+                dirty_failure_projection = any(key in record for key in ("failed_at", "failure_reason", "blocked_at"))
+                graph_reviewing = _mark_graph_node_reviewing_on_builder_complete(record)
+                if dirty_failure_projection or graph_reviewing.get("marked"):
+                    actions.append({
+                        "task_id": task_id,
+                        "action": "repair_completed_projection",
+                        "reason": "completed_record_projection_drift",
+                        "clean_failure_projection": dirty_failure_projection,
+                        "graph_reviewing": graph_reviewing,
+                    })
+                    if apply_changes:
+                        record["task_id"] = task_id
+                        if dirty_failure_projection:
+                            _clear_pm_failure_projection(record)
+                        if graph_reviewing.get("marked"):
+                            record["graph_reviewing"] = graph_reviewing
+                        record.setdefault("reconcile_history", []).append(
+                            {
+                                "ts": now,
+                                "action": "repair_completed_projection",
+                                "reason": "completed_record_projection_drift",
+                                "clean_failure_projection": dirty_failure_projection,
+                                "graph_reviewing": graph_reviewing,
+                            }
+                        )
+                        write_pm_task_record(task_id, record)
                 continue
             actions.append({
                 "task_id": task_id,
@@ -3625,11 +3920,57 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                     )
                 write_pm_task_record(task_id, record)
             continue
+        synthetic_cancel = _synthetic_builder_handoff_cancel(record)
+        if synthetic_cancel.get("ok"):
+            actions.append({"task_id": task_id, "action": "cancel", **synthetic_cancel})
+            if apply_changes:
+                record["task_id"] = task_id
+                record["status"] = "cancelled"
+                record["cancelled_at"] = now
+                record["cancel_reason"] = "builder_handoff_managed_by_task_graph"
+                _clear_pm_failure_projection(record)
+                record.setdefault("reconcile_history", []).append(
+                    {"ts": now, "action": "cancel", **synthetic_cancel}
+                )
+                write_pm_task_record(task_id, record)
+            continue
+
         if _pm_status_is_terminal(status):
             continue
 
-        result_path = Path(str(record.get("result_path") or ""))
-        result_exists = bool(str(result_path) and result_path.exists())
+        graph_closeout = _pm_graph_node_closed_closeout(record)
+        if graph_closeout.get("ok"):
+            actions.append({"task_id": task_id, "action": "complete", "reason": "graph_node_already_closed", **graph_closeout})
+            if apply_changes:
+                record["task_id"] = task_id
+                record["status"] = "completed"
+                record["completed_at"] = now
+                _clear_pm_failure_projection(record)
+                record["closeout_status"] = graph_closeout
+                record.setdefault("reconcile_history", []).append(
+                    {"ts": now, "action": "complete", "reason": "graph_node_already_closed", **graph_closeout}
+                )
+                write_pm_task_record(task_id, record)
+            continue
+
+        closeout = _pm_closeout_status(record)
+        if task_id not in active_task_ids and closeout.get("ok") and closeout.get("expected_artifacts"):
+            actions.append({"task_id": task_id, "action": "complete", "reason": "expected_artifacts_exist", **closeout})
+            if apply_changes:
+                record["task_id"] = task_id
+                record["status"] = "completed"
+                record["completed_at"] = now
+                _clear_pm_failure_projection(record)
+                record["closeout_status"] = closeout
+                record.setdefault("reconcile_history", []).append(
+                    {"ts": now, "action": "complete", "reason": "expected_artifacts_exist", **closeout}
+                )
+                write_pm_task_record(task_id, record)
+            continue
+
+        result_path_raw = str(record.get("result_path") or "").strip()
+        result_path = Path(result_path_raw).expanduser() if result_path_raw else Path()
+        result_exists = bool(result_path_raw) and result_path.exists()
         if result_exists:
             closeout = _pm_closeout_status(record)
             if not closeout.get("ok"):
@@ -3663,6 +4004,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 if completion.get("status") == "completed":
                     record["status"] = "completed"
                     record["completed_at"] = now
+                    _clear_pm_failure_projection(record)
                     action = "complete"
                     reason = "result_path_exists"
                 else:
@@ -3780,6 +4122,8 @@ def main() -> int:
     # inbox
     ib = sub.add_parser("inbox", help="查看 PM 任务收件箱")
     ib.add_argument("--limit", type=int, default=20, help="显示最近 N 条")
+    ib.add_argument("--include-probes", action="store_true", help="包含 capacity-probe 诊断记录")
+    ib.add_argument("--show-superseded", action="store_true", help="包含已被更新记录覆盖的旧失败")
 
     # result
     r = sub.add_parser("result", help="查看任务结果")

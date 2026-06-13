@@ -117,6 +117,10 @@ PANE_SURVEY_PROMPT_RE = re.compile(
     r"How is Claude doing this session\?|1:\s*Bad\s+2:\s*Fine\s+3:\s*Good\s+0:\s*Dismiss",
     re.I,
 )
+PANE_INTERRUPT_PROMPT_RE = re.compile(
+    r"Interrup(?:t|ted)\s*[·:,-]?\s*What should Claude do(?: instead)?",
+    re.I,
+)
 PANE_APPROVAL_PROMPT_RE = re.compile(
     r"Do you want to make this edit|"
     r"allow all edits during this session|"
@@ -2578,6 +2582,29 @@ def _node_proof_obligations(sid: str, node: dict[str, Any]) -> list[dict[str, An
     obligations = node.get("proof_obligations")
     if isinstance(obligations, list):
         return [item for item in obligations if isinstance(item, dict)]
+    validation = node.get("validation") if isinstance(node.get("validation"), list) else []
+    validates_review_decision = any(
+        isinstance(item, dict)
+        and str(item.get("kind") or "") == "artifact"
+        and str(item.get("target") or "").replace("_", "-") in {"review-decision.yaml", "review-decision.yml"}
+        and item.get("required") is not False
+        for item in validation
+    )
+    if str(node.get("type") or "").lower() == "review" and validates_review_decision:
+        return [
+            {
+                "kind": "pass_condition",
+                "requirement": "review_decision exists",
+            },
+            {
+                "kind": "pass_condition",
+                "requirement": "eval_md exists",
+            },
+            {
+                "kind": "pass_condition",
+                "requirement": "eval_json exists",
+            },
+        ]
     for key in ("capsule_plan_ir", "physical_plan_ir"):
         payload = node.get(key)
         if isinstance(payload, dict) and isinstance(payload.get("proof_obligations"), list):
@@ -2596,10 +2623,19 @@ def _node_proof_obligations(sid: str, node: dict[str, Any]) -> list[dict[str, An
 def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Path = "") -> dict[str, bool]:
     node_id = str(node.get("id") or "")
     artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+    write_scope = [str(item or "") for item in (node.get("write_scope") or [])]
     handoff = _existing_node_handoff(sid, node, {"nodes": [node]})
     eval_json_path = Path(eval_json).expanduser() if str(eval_json) else _eval_json_file(sid, node_id)
     eval_md_path = _eval_md_file(sid, node_id)
     standard_artifact_candidates = {
+        "review_decision": [
+            SPRINTS_DIR / f"{sid}.{node_id}-review_decision.yaml",
+            SPRINTS_DIR / f"{sid}.{node_id}-review-decision.yaml",
+            SPRINTS_DIR / f"{sid}.{node_id}-review_decision.yml",
+            SPRINTS_DIR / f"{sid}.{node_id}-review-decision.yml",
+            SPRINTS_DIR / f"{sid}.{node_id}-review_decision.json",
+            SPRINTS_DIR / f"{sid}.{node_id}-review-decision.json",
+        ],
         "guard_decision": [
             SPRINTS_DIR / f"{sid}.{node_id}-guard_decision.json",
             SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
@@ -2623,6 +2659,17 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         key: any(candidate.exists() for candidate in candidates)
         for key, candidates in standard_artifact_candidates.items()
     }
+    if not standard_presence["review_decision"]:
+        for item in write_scope:
+            normalized = item.replace("_", "-")
+            if "review-decision" not in normalized:
+                continue
+            candidate = Path(item).expanduser()
+            if not candidate.is_absolute():
+                candidate = HARNESS_DIR / item
+            if candidate.exists():
+                standard_presence["review_decision"] = True
+                break
     patch_path = (
         Path(str(artifacts.get("patch_diff") or "")).expanduser()
         if artifacts.get("patch_diff")
@@ -2633,6 +2680,7 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         "handoff_md": bool(handoff and Path(handoff).exists()),
         "eval_json": bool(eval_json_path.exists()),
         "eval_md": bool(eval_md_path.exists()),
+        "review_decision": standard_presence["review_decision"],
         "patch_diff": bool(str(patch_path) not in {"", "."} and patch_path.exists()) or standard_presence["patch_diff"] or bool(handoff and node.get("write_scope")),
         "guard_decision": standard_presence["guard_decision"],
         "resource_binding": standard_presence["resource_binding"],
@@ -2685,9 +2733,11 @@ def _proof_requirement_presence_key(requirement: str) -> str:
         "check.resource_binding_written": "resource_binding",
         "check.adapter_output_written": "bridged_artifact",
         "check.eval_written": "eval_json",
+        "check.review_decision_written": "review_decision",
         "guard_decision exists": "guard_decision",
         "resource_binding exists": "resource_binding",
         "adapter output exists": "bridged_artifact",
+        "review_decision exists": "review_decision",
         "eval_md exists": "eval_md",
         "eval_json exists": "eval_json",
         "patch_diff exists": "patch_diff",
@@ -4150,6 +4200,9 @@ def _pane_dispatch_prompt_reason(tail: str) -> str:
         return "plan_mode_blocked"
     if PANE_SURVEY_PROMPT_RE.search(bottom):
         return "feedback_survey_prompt"
+    interrupt_match = PANE_INTERRUPT_PROMPT_RE.search(bottom)
+    if interrupt_match and not _pane_current_prompt_has_residue(bottom):
+        return "interrupt_prompt_blocked"
     rewind_match = re.search(r"\bRewind\b[\s\S]{0,240}Restore the code and/or conversation[\s\S]{0,160}Esc to exit", bottom, re.I)
     rewind_followed_by_prompt = bool(re.search(r"(?m)^\s*❯", bottom[rewind_match.end():])) if rewind_match else False
     if (
@@ -5135,9 +5188,9 @@ def _builder_operator_pool_available_count() -> int:
     if cache_ttl > 0 and cached_at > 0 and now - cached_at <= cache_ttl:
         return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
     try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "3") or "3")
+        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "12") or "12")
     except Exception:
-        timeout = 3.0
+        timeout = 12.0
     try:
         completed = subprocess.run(
             [
@@ -5277,6 +5330,12 @@ def _operator_pool_operator_can_closeout_eval_sidecar(operator_id: str) -> bool:
     op = operators.get(operator_id)
     if not isinstance(op, dict):
         return True
+    state = op.get("state") if isinstance(op.get("state"), dict) else {}
+    runtime_state = str(state.get("runtime_state") or state.get("availability") or "").strip().lower()
+    if runtime_state in {"cooldown", "auth_expired", "disabled", "unavailable"}:
+        return False
+    if str(op.get("enabled", True)).strip().lower() in {"false", "0", "no"}:
+        return False
     policy = op.get("policy") if isinstance(op.get("policy"), dict) else {}
     write_files = str(policy.get("write_files") or "").strip().lower()
     eval_sidecar_allowed = (
@@ -5285,11 +5344,21 @@ def _operator_pool_operator_can_closeout_eval_sidecar(operator_id: str) -> bool:
     )
     if write_files == "denied" and not eval_sidecar_allowed:
         return False
+    role_markers = {
+        str(op.get("role") or "").strip().lower(),
+        str(op.get("persona") or "").strip().lower(),
+        str(op.get("profile") or "").strip().lower(),
+        str(op.get("operator_class") or "").strip().lower(),
+    }
+    if "advisor" in role_markers or "deepseek-advisory" in role_markers or "advisoryreview" in role_markers:
+        return False
     pool = op.get("builder_pool") if isinstance(op.get("builder_pool"), dict) else {}
     disabled_reason = str(pool.get("disabled_reason") or "").strip().lower()
-    if pool and not bool(pool.get("enabled", False)) and "file_execution" in disabled_reason and not eval_sidecar_allowed:
+    if pool and not bool(pool.get("enabled", False)) and "file_execution" in disabled_reason:
         return False
     avoid_for = {str(item).strip().lower() for item in op.get("avoid_for", []) if str(item or "").strip()}
+    if "final-quality-gate" in avoid_for:
+        return False
     if {"code-edit", "repo-modification", "implementation"} & avoid_for and not eval_sidecar_allowed:
         return False
     return True
@@ -7174,6 +7243,19 @@ def node_verdict(graph_path: str, node_id: str, verdict: str, reason: str = "",
                 "eval_json": str(eval_json or _eval_json_file(sid, node_id)),
                 "mailbox_evidence_gate": mailbox_evidence_gate,
             }
+
+    if dry_run:
+        return {
+            "ok": True,
+            "node": node_id,
+            "status": status,
+            "dry_run": True,
+            "proof_gate": proof_gate,
+            "research_quality_gate": research_quality_gate,
+            "mailbox_evidence_gate": mailbox_evidence_gate,
+            "downstream": {"ok": True, "skipped": "dry_run"},
+            "parent": {"ready": False, "skipped": "dry_run"},
+        }
 
     note_parts = []
     if reason:
