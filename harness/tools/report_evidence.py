@@ -19,6 +19,25 @@ FORBIDDEN_PUBLIC_FIELDS = (
     "transcript_status",
 )
 _FORBIDDEN_RE = re.compile(r"\b(video_id|chapter_id|evidence_pack_id|transcript_status)\b\s*[:=]?\s*[\w./:-]*", re.I)
+_HEAVY_VIDEO_FIELDS = {
+    "transcript",
+    "transcript_raw",
+    "transcript_clean",
+    "transcript_segments",
+    "segments",
+    "segments_json",
+    "segments_json_path",
+    "raw_path",
+    "clean_path",
+}
+
+
+def _chapter_transcript_char_limit() -> int:
+    raw = os.environ.get("AI_INFLUENCE_CHAPTER_EVIDENCE_TRANSCRIPT_CHARS", "4500")
+    try:
+        return max(800, int(raw))
+    except Exception:
+        return 4500
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -88,15 +107,37 @@ def _transcript_status(video: dict[str, Any]) -> str:
 
 
 def _segments(video: dict[str, Any]) -> list[dict[str, Any]]:
+    limit = _chapter_transcript_char_limit()
     raw = video.get("transcript_segments") or video.get("segments") or []
     if isinstance(raw, list) and raw:
-        return [s for s in raw if isinstance(s, dict)]
+        out: list[dict[str, Any]] = []
+        used = 0
+        for segment in raw:
+            if not isinstance(segment, dict):
+                continue
+            text = str(segment.get("text") or "").strip()
+            if not text:
+                continue
+            remaining = limit - used
+            if remaining <= 0:
+                break
+            clipped = text[:remaining]
+            out.append({**segment, "text": clipped, "truncated": len(text) > len(clipped)})
+            used += len(clipped)
+        return out
     transcript = str(video.get("transcript_clean") or video.get("transcript") or "").strip()
-    return [{"text": transcript}] if transcript else []
+    if not transcript:
+        return []
+    clipped = transcript[:limit]
+    return [{"text": clipped, "truncated": len(transcript) > len(clipped)}]
 
 
 def _public_video(video: dict[str, Any], index: int) -> dict[str, Any]:
-    public = {k: v for k, v in video.items() if k not in {"video_id", "transcript_status"}}
+    public = {
+        k: v
+        for k, v in video.items()
+        if k not in {"video_id", "transcript_status"} and k not in _HEAVY_VIDEO_FIELDS
+    }
     public.setdefault("video_ref", _video_ref(video, index))
     public["quality_tier"] = _quality_tier(video)
     return public
@@ -231,11 +272,6 @@ def run_chapter_writer(
 ) -> dict[str, Any]:
     """Invoke ChapterWriterOperator-compatible callable and persist draft/final/proof atomically."""
     chapter_id = str(chapter_job.get("chapter_id") or chapter_spec.get("chapter_id") or "chapter")
-    writer = writer_callable or _default_mock_writer
-    result = writer(chapter_spec, evidence_pack, model_name)
-    markdown = sanitize_public_markdown(str(result.get("markdown") or "").strip())
-    if not markdown:
-        raise ValueError(f"chapter_writer_empty_output:{chapter_id}")
     chapters_dir = report_dir / "chapters"
     evidence_dir = report_dir / "evidence-packs"
     proof_dir = report_dir / "proof"
@@ -243,6 +279,33 @@ def run_chapter_writer(
     final_path = chapters_dir / f"{chapter_id}.final.md"
     evidence_path = evidence_dir / f"{chapter_id}.evidence.json"
     proof_path = proof_dir / f"{chapter_id}.writer.proof.json"
+
+    if final_path.exists():
+        cached = sanitize_public_markdown(final_path.read_text(encoding="utf-8", errors="replace").strip())
+        if len(cached) >= 120:
+            atomic_write_json(evidence_path, evidence_pack)
+            proof = {
+                "schema_version": "chapter_writer_proof.v1",
+                "chapter_id": chapter_id,
+                "draft_path": str(draft_path),
+                "final_path": str(final_path),
+                "evidence_path": str(evidence_path),
+                "model": model_name,
+                "backend": "cached_final",
+                "latency_ms": 0,
+                "input_token_count": 0,
+                "output_token_count": 0,
+                "request_dir": "",
+                "reused_existing_final": True,
+            }
+            atomic_write_json(proof_path, proof)
+            return {**proof, "markdown": cached, "proof_path": str(proof_path)}
+
+    writer = writer_callable or _default_mock_writer
+    result = writer(chapter_spec, evidence_pack, model_name)
+    markdown = sanitize_public_markdown(str(result.get("markdown") or "").strip())
+    if not markdown:
+        raise ValueError(f"chapter_writer_empty_output:{chapter_id}")
     atomic_write_json(evidence_path, evidence_pack)
     atomic_write_text(draft_path, markdown + "\n")
     shutil.copyfile(draft_path, final_path)

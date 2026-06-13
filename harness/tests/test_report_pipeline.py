@@ -162,8 +162,9 @@ def test_writer_state_synthesis_and_atomic_concurrent_outputs(tmp_path: Path) ->
     assert (tmp_path / "report" / "chapters" / "ch_01.draft.md").exists()
     assert (tmp_path / "report" / "chapters" / "ch_02.draft.md").exists()
     synthesis = synthesize_report(report_ir, tmp_path / "report")
-    assert "```synthesis_manifest" in synthesis["markdown"]
     assert "Executive Summary" in synthesis["markdown"]
+    assert "```synthesis_manifest" not in synthesis["markdown"]
+    assert synthesis["manifest_payload"]["chapter_count"] == 2
     assert not public_text_has_forbidden_fields(synthesis["markdown"])
 
 
@@ -191,7 +192,18 @@ def test_cli_default_pipeline_and_legacy_branch(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(mod, "render_ai_influence_report_html_anything", lambda markdown, evidence, report: f"<html>{markdown}</html>")
     monkeypatch.setattr(mod, "build_planned_report_evidence_pack", lambda *a, **k: {**_sample_evidence(), "skipped_material_refs": []})
     monkeypatch.setenv("SOLAR_REPORT_CHAPTER_WRITER_MOCK", "1")
-    monkeypatch.setattr(mod, "call_ai_influence_chapter_writer_with_repair", lambda *a, **k: {"markdown": "## Mock Chapter\n\nSome mock text with length more than 120 characters to satisfy the character count validation requirement in the cli logic.", "model": "test-model"})
+    monkeypatch.setattr(
+        mod,
+        "call_ai_influence_chapter_writer_with_repair",
+        lambda *a, **k: {
+            "markdown": (
+                "## 核心趋势\n\n"
+                "Some mock text with length more than 120 characters to satisfy the character count validation "
+                "requirement in the cli logic while preserving the required AI influence chapter heading."
+            ),
+            "model": "test-model",
+        },
+    )
 
     args = argparse.Namespace(
         date="2026-06-01",
