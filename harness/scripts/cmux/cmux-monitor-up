@@ -15,6 +15,7 @@ except ImportError:
 
 SCRIPTS_DIR = Path(__file__).parent
 RENDER_CMD = str(SCRIPTS_DIR / "render-cmux-workspace")
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cmux-workspace-sample.yaml"
 CMUX_BIN_CANDIDATES = [
     "/Applications/cmux.app/Contents/Resources/bin/cmux",
     "/usr/local/bin/cmux",
@@ -29,9 +30,9 @@ def find_cmux():
     return None
 
 
-def build_cmux_layout(tabs: list) -> dict:
-    """Build a cmux JSON layout for multi-tab workspace."""
-    if not tabs:
+def build_cmux_layout(tab: dict) -> dict:
+    """Build a cmux JSON layout for one configured tab/workspace."""
+    if not tab:
         return {}
 
     # cmux layout for a single tab's panes based on layout type
@@ -94,16 +95,22 @@ def build_cmux_layout(tabs: list) -> dict:
         "quad":   quad_split,
     }
 
-    # For now: first tab as main layout (multi-tab via workspace name prefixing)
-    first_tab = tabs[0]
-    builder = layout_builders.get(first_tab["layout"], quad_split)
-    return builder(first_tab["panes"])
+    builder = layout_builders.get(tab["layout"], quad_split)
+    return builder(tab["panes"])
+
+
+def workspace_title(base_name: str, tab: dict, tab_count: int) -> str:
+    """Map each config tab to a cmux workspace, which is cmux's tab-like unit."""
+    if tab_count == 1:
+        return base_name
+    return f"{base_name}: {tab.get('title') or tab['id']}"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Launch cmux monitoring workspace")
-    parser.add_argument("config", help="Path to workspace.yaml")
+    parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG), help="Path to workspace.yaml")
     parser.add_argument("--dry-run", action="store_true", help="Print plan, don't launch")
+    parser.add_argument("--no-select-first", action="store_true", help="Do not select the first launched workspace")
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser()
@@ -126,7 +133,7 @@ def main():
     if args.dry_run:
         print(f"DRY-RUN: would launch workspace '{workspace_name}' with {len(plan['tabs'])} tab(s)")
         for tab in plan["tabs"]:
-            print(f"  Tab: {tab['title']} (layout={tab['layout']})")
+            print(f"  Workspace: {workspace_title(workspace_name, tab, len(plan['tabs']))} (layout={tab['layout']})")
             for p in tab["panes"]:
                 print(f"    pane[{p['title']}]: {p['command']}")
         return
@@ -136,12 +143,22 @@ def main():
         print("ERROR: cmux binary not found. Check CMUX_BIN_CANDIDATES in script.", file=sys.stderr)
         sys.exit(1)
 
-    layout = build_cmux_layout(plan["tabs"])
-    cmd = [cmux_bin, "new-workspace", "--name", workspace_name, "--layout", json.dumps(layout)]
-
     print(f"Launching: {workspace_name}")
-    subprocess.run(cmd, check=True)
-    print(f"OK: workspace '{workspace_name}' launched with {len(plan['tabs'])} tab(s)")
+    launched_refs: list[str] = []
+    for tab in plan["tabs"]:
+        title = workspace_title(workspace_name, tab, len(plan["tabs"]))
+        layout = build_cmux_layout(tab)
+        cmd = [cmux_bin, "workspace", "create", "--name", title, "--layout", json.dumps(layout)]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        for token in (result.stdout or "").split():
+            if token.startswith("workspace:"):
+                launched_refs.append(token)
+                break
+        print(f"OK: workspace '{title}' launched")
+    if launched_refs and not args.no_select_first:
+        subprocess.run([cmux_bin, "workspace", "select", launched_refs[0]], check=False)
+        print(f"OK: selected '{launched_refs[0]}'")
+    print(f"OK: workspace group '{workspace_name}' launched with {len(plan['tabs'])} tab(s)")
 
 
 if __name__ == "__main__":
