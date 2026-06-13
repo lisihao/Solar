@@ -30,11 +30,8 @@ def _coerce_int(value: object, default: int, min_value: int | None = None) -> in
 
 
 def _load_graph_dispatcher() -> Any:
-    path = LIB_DIR / "graph_node_dispatcher.py"
-    if not path.exists():
-        source_path = Path(__file__).resolve().with_name("graph_node_dispatcher.py")
-        if source_path.exists():
-            path = source_path
+    source_path = Path(__file__).resolve().with_name("graph_node_dispatcher.py")
+    path = source_path if source_path.exists() else LIB_DIR / "graph_node_dispatcher.py"
     if not path.exists():
         raise FileNotFoundError(f"graph_node_dispatcher.py not found under {LIB_DIR}")
     if str(path.parent) not in sys.path:
@@ -64,12 +61,100 @@ def _load_graph_scheduler() -> Any | None:
         return None
 
 
+def _load_graph_with_runtime_state(path: Path) -> dict[str, Any]:
+    """Load graph through graph_scheduler when available so durable state wins."""
+    scheduler = _load_graph_scheduler()
+    load_graph = getattr(scheduler, "load_graph", None) if scheduler is not None else None
+    if callable(load_graph):
+        try:
+            graph = load_graph(path)
+            return graph if isinstance(graph, dict) else {}
+        except Exception:
+            pass
+    try:
+        graph = json.loads(path.read_text(encoding="utf-8"))
+        return graph if isinstance(graph, dict) else {}
+    except Exception:
+        return {}
+
+
+def _effective_node_status(graph: dict[str, Any], node: dict[str, Any]) -> str:
+    """Return scheduler-effective status instead of raw spec node.status."""
+    node_id = str(node.get("id") or "")
+    scheduler = _load_graph_scheduler()
+    status_fn = getattr(scheduler, "node_status", None) if scheduler is not None else None
+    if callable(status_fn) and node_id:
+        try:
+            status = status_fn(graph, node_id)
+            if status:
+                return str(status).strip().lower()
+        except Exception:
+            pass
+    results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    result = results.get(node_id) if isinstance(results.get(node_id), dict) else {}
+    return str(result.get("status") or node.get("status") or "pending").strip().lower() or "pending"
+
+
+def _graph_builder_ready_hint(graph: dict[str, Any]) -> int:
+    nodes = _list_nodes(graph)
+    if not nodes:
+        return 0
+    by_id = {str(node.get("id") or ""): node for node in nodes if str(node.get("id") or "")}
+    passed = {node_id for node_id, node in by_id.items() if _effective_node_status(graph, node) == "passed"}
+    ready_statuses = {"pending", "worker_blocked", "assigned"}
+    for node_id, node in by_id.items():
+        if _effective_node_status(graph, node) not in ready_statuses:
+            continue
+        deps = node.get("depends_on") or []
+        if not isinstance(deps, list):
+            continue
+        internal_deps = [str(dep) for dep in deps if str(dep) in by_id]
+        if all(dep in passed for dep in internal_deps):
+            return 1
+    return 0
+
+
+def _graph_path_priority(path: Path) -> tuple[int, int, int, float]:
+    """Prefer eval-closeout/reconcile graphs, then builder-ready graphs, then recency."""
+    mtime = path.stat().st_mtime if path.exists() else 0
+    graph = _load_graph_with_runtime_state(path)
+    if not graph:
+        return (0, 0, 0, mtime)
+    sid = str(graph.get("sprint_id") or path.name.replace(".task_graph.json", ""))
+    hot_eval = 0
+    hot_sidecar_reconcile = 0
+    node_results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    for node in _list_nodes(graph if isinstance(graph, dict) else {}):
+        node_id = str(node.get("id") or "")
+        status = _effective_node_status(graph, node)
+        artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+        disk_handoff = SPRINTS_DIR / f"{sid}.{node_id}-handoff.md"
+        disk_eval_json = SPRINTS_DIR / f"{sid}.{node_id}-eval.json"
+        has_handoff = bool(
+            node.get("handoff_md")
+            or node.get("handoff_path")
+            or artifacts.get("handoff_md")
+            or (node_id and disk_handoff.exists())
+        )
+        has_eval_json = bool(node.get("eval_json") or artifacts.get("eval_json") or (node_id and disk_eval_json.exists()))
+        if node_id and status == "reviewing" and has_handoff and not has_eval_json:
+            hot_eval += 1
+        if node_id and status == "reviewing" and has_handoff and has_eval_json:
+            hot_sidecar_reconcile += 1
+        if node_id and status in {"passed", "failed"} and has_handoff and has_eval_json:
+            result = node_results.get(node_id) if isinstance(node_results.get(node_id), dict) else {}
+            if str(result.get("status") or "").lower() != status:
+                hot_sidecar_reconcile += 1
+    builder_ready = _graph_builder_ready_hint(graph if isinstance(graph, dict) else {})
+    return (hot_eval, hot_sidecar_reconcile, builder_ready, mtime)
+
+
 def _iter_graph_paths(max_graphs: int) -> list[Path]:
     if not SPRINTS_DIR.exists():
         return []
     paths = sorted(
         SPRINTS_DIR.glob("*.task_graph.json"),
-        key=lambda item: item.stat().st_mtime if item.exists() else 0,
+        key=_graph_path_priority,
         reverse=True,
     )
     if max_graphs > 0:
@@ -120,6 +205,64 @@ def _node_eval_needed(gnd: Any, graph: dict[str, Any], sid: str, node: dict[str,
     return str(node.get("status") or "").lower() == "reviewing" and _existing_eval_json(gnd, sid, str(node.get("id") or "")) is None
 
 
+def _node_sidecar_reconcile_ready(gnd: Any, graph: dict[str, Any], sid: str, node: dict[str, Any]) -> bool:
+    """Return true when existing eval sidecars can be reconciled without dispatch.
+
+    The actual verdict validation and graph mutation stay in graph_node_dispatcher.
+    This predicate only ensures GraphDrain calls that reconciliation path even
+    when no fresh evaluator dispatch is needed.
+    """
+    node_id = str(node.get("id") or "")
+    if not node_id:
+        return False
+    if not (_existing_handoff(gnd, sid, node, graph) and _existing_eval_json(gnd, sid, node_id)):
+        return False
+    status = _effective_node_status(graph, node)
+    if status == "reviewing":
+        return True
+    if status not in {"passed", "failed"}:
+        return False
+    results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    result = results.get(node_id) if isinstance(results.get(node_id), dict) else {}
+    return str(result.get("status") or "").lower() != status
+
+
+def _reconcile_existing_sidecars_only(
+    gnd: Any,
+    graph_path: Path,
+    *,
+    dry_run: bool,
+    planned_nodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Run graph dispatcher sidecar reconciliation without dispatching new work."""
+    sid = graph_path.name.replace(".task_graph.json", "")
+    if planned_nodes:
+        sid = str(str(planned_nodes[0].get("sprint_id") or "").strip() or sid)
+    if dry_run:
+        return {
+            "ok": True,
+            "sprint_id": sid,
+            "reconcile_nodes": planned_nodes,
+            "reconciled": [],
+            "dry_run": True,
+        }
+    reconciler = getattr(gnd, "_reconcile_existing_dispatches", None)
+    save_graph = getattr(gnd, "save_graph", None)
+    if not callable(reconciler) or not callable(save_graph):
+        return {"ok": False, "reason": "reconcile_api_missing", "reconciled": []}
+    graph = gnd.load_graph(str(graph_path))
+    reconciled = reconciler(graph, graph_path)
+    if reconciled:
+        save_graph(str(graph_path), graph)
+    return {
+        "ok": True,
+        "sprint_id": str(graph.get("sprint_id") or sid),
+        "reconciled": reconciled if isinstance(reconciled, list) else [],
+        "dispatched": [],
+        "skipped": [],
+    }
+
+
 def _has_builder_ready_nodes(gnd: Any, graph: dict[str, Any]) -> bool:
     autopilot_ready = getattr(gnd, "autopilot_ready_decision", None)
     if not callable(autopilot_ready):
@@ -148,6 +291,47 @@ def _has_builder_ready_nodes(gnd: Any, graph: dict[str, Any]) -> bool:
     return any(str(node.get("status") or "").lower() in {"pending", "queued"} for node in _list_nodes(graph))
 
 
+def _has_assigned_builder_queue_nodes(graph: dict[str, Any]) -> bool:
+    for node in _list_nodes(graph):
+        status = _effective_node_status(graph, node)
+        if status != "assigned":
+            continue
+        if str(node.get("dispatch_id") or "").strip():
+            return True
+    return False
+
+
+def _is_parallelism_quality_error(error: object) -> bool:
+    text = str(error or "")
+    return (
+        "parallelism_quality:" in text
+        and "initial_ready_width=" in text
+        and "min_ready_width=" in text
+    )
+
+
+def _graph_parallelism_quality_block(graph: dict[str, Any]) -> dict[str, Any] | None:
+    scheduler_mod = _load_graph_scheduler()
+    validate = getattr(scheduler_mod, "validate_graph", None) if scheduler_mod is not None else None
+    if not callable(validate):
+        return None
+    try:
+        validation = validate(graph)
+    except Exception:
+        return None
+    if not isinstance(validation, dict):
+        return None
+    errors = validation.get("errors") if isinstance(validation.get("errors"), list) else []
+    for error in errors:
+        if _is_parallelism_quality_error(error):
+            return {
+                "reason": "parallelism_gate_blocked",
+                "error": str(error),
+                "parallelism": validation.get("parallelism") or {},
+            }
+    return None
+
+
 def _count_builder_dispatches(result: dict[str, Any], *, dry_run: bool) -> int:
     drain = result.get("drain") if isinstance(result.get("drain"), dict) else {}
     results = drain.get("results") if isinstance(drain.get("results"), list) else []
@@ -169,6 +353,63 @@ def _count_builder_dispatches(result: dict[str, Any], *, dry_run: bool) -> int:
     if dry_run and not drain and enqueued:
         return len(enqueued)
     return 0
+
+
+def _compact_queue_items(items: list[Any], *, limit: int = 5) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        compacted.append(
+            {
+                "node": item.get("node") or item.get("node_id") or "",
+                "reason": str(item.get("reason") or ""),
+                "details": {
+                    "required_role": details.get("required_role"),
+                    "required_skills": details.get("required_skills") or [],
+                    "required_capabilities": details.get("required_capabilities") or [],
+                    "unavailable_reasons": details.get("unavailable_reasons") or [],
+                    "missing_skills": details.get("missing_skills") or [],
+                    "missing_capabilities": details.get("missing_capabilities") or [],
+                    "role_candidates_seen": details.get("role_candidates_seen"),
+                    "any_worker_seen": details.get("any_worker_seen"),
+                },
+            }
+        )
+        if len(compacted) >= limit:
+            break
+    return compacted
+
+
+def _compact_drain_items(items: list[Any], *, limit: int = 5) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        compacted.append(
+            {
+                "node": item.get("node") or item.get("node_id") or "",
+                "pane": item.get("pane") or "",
+                "reason": str(item.get("reason") or ""),
+                "dispatch_path": item.get("dispatch_path") or item.get("dispatch_mode") or "",
+                "error": item.get("error") or "",
+                "operator_pool_reason": (
+                    ((item.get("operator_pool") or {}).get("reason"))
+                    if isinstance(item.get("operator_pool"), dict)
+                    else ""
+                ),
+                "pm_task_id": (
+                    ((item.get("pm_dispatch") or {}).get("pm_task_id"))
+                    if isinstance(item.get("pm_dispatch"), dict)
+                    else item.get("pm_task_id") or item.get("task_id") or ""
+                ),
+                "instruction_file": item.get("instruction_file") or "",
+            }
+        )
+        if len(compacted) >= limit:
+            break
+    return compacted
 
 
 def run_graph_drain(
@@ -193,6 +434,7 @@ def run_graph_drain(
         "graphs_scanned": 0,
         "eval_candidates": 0,
         "builder_candidates": 0,
+        "builder_queue_candidates": 0,
         "evals_dispatched": 0,
         "builders_dispatched": 0,
         "eval_attempts": 0,
@@ -200,6 +442,7 @@ def run_graph_drain(
         "reconciled": 0,
         "skipped": 0,
         "drain_submitted": 0,
+        "parallelism_gate_blocked": 0,
     }
     actions: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -219,6 +462,7 @@ def run_graph_drain(
             continue
         sid = str(graph.get("sprint_id") or graph_path.name.replace(".task_graph.json", ""))
         eval_nodes: list[dict[str, Any]] = []
+        sidecar_reconcile_nodes: list[dict[str, Any]] = []
         for node in _list_nodes(graph):
             node_id = str(node.get("id") or "")
             if not node_id:
@@ -227,6 +471,15 @@ def run_graph_drain(
             if not handoff:
                 continue
             if not _node_eval_needed(gnd, graph, sid, node):
+                if _node_sidecar_reconcile_ready(gnd, graph, sid, node):
+                    sidecar_reconcile_nodes.append(
+                        {
+                            "node": node_id,
+                            "sprint_id": sid,
+                            "handoff": str(handoff),
+                            "eval_json": str(_existing_eval_json(gnd, sid, node_id) or ""),
+                        }
+                    )
                 continue
             eval_nodes.append(
                 {
@@ -235,22 +488,90 @@ def run_graph_drain(
                     "eval_json": str(_existing_eval_json(gnd, sid, node_id) or ""),
                 }
             )
-        has_builder_ready = _has_builder_ready_nodes(gnd, graph)
+        builder_budget = max(0, int(max_builders) - counters["builder_attempts"])
+        has_builder_ready = _has_builder_ready_nodes(gnd, graph) if builder_budget > 0 else False
+        has_builder_queue = _has_assigned_builder_queue_nodes(graph) if builder_budget > 0 else False
+        builder_quality_block = _graph_parallelism_quality_block(graph) if has_builder_ready else None
         if eval_nodes:
             counters["eval_candidates"] += len(eval_nodes)
-        if has_builder_ready:
+        if sidecar_reconcile_nodes:
+            counters.setdefault("sidecar_reconcile_candidates", 0)
+            counters["sidecar_reconcile_candidates"] += len(sidecar_reconcile_nodes)
+        if has_builder_ready and not builder_quality_block:
             counters["builder_candidates"] += 1
-        if eval_nodes or has_builder_ready:
-            candidates.append(
-                {
-                    "sprint_id": sid,
-                    "graph": str(graph_path),
-                    "eval_nodes": eval_nodes,
-                    "builder_ready": has_builder_ready,
-                }
-            )
+        if has_builder_queue:
+            counters["builder_queue_candidates"] += 1
+        if eval_nodes or sidecar_reconcile_nodes or has_builder_ready or has_builder_queue:
+            candidate = {
+                "sprint_id": sid,
+                "graph": str(graph_path),
+                "eval_nodes": eval_nodes,
+                "sidecar_reconcile_nodes": sidecar_reconcile_nodes,
+                "builder_ready": has_builder_ready,
+                "builder_queue_ready": has_builder_queue,
+            }
+            if builder_quality_block:
+                candidate["builder_quality_block"] = builder_quality_block
+            candidates.append(candidate)
 
         eval_budget = max(0, int(max_evals) - counters["eval_attempts"])
+        if sidecar_reconcile_nodes and not eval_nodes:
+            if dry_run:
+                actions.append(
+                    {
+                        "action_type": "graph_eval_sidecar_reconcile",
+                        "target": sid,
+                        "status": "skipped",
+                        "graph": str(graph_path),
+                        "submitted": 0,
+                        "would_submit": 0,
+                        "reconciled": len(sidecar_reconcile_nodes),
+                        "payload": {
+                            "ok": True,
+                            "sprint_id": sid,
+                            "reconcile_nodes": sidecar_reconcile_nodes,
+                            "dry_run": True,
+                        },
+                    }
+                )
+            else:
+                try:
+                    reconcile_result = _reconcile_existing_sidecars_only(
+                        gnd,
+                        graph_path,
+                        dry_run=False,
+                        planned_nodes=sidecar_reconcile_nodes,
+                    )
+                except Exception as exc:
+                    counters["skipped"] += 1
+                    skipped.append({"graph": str(graph_path), "reason": f"sidecar_reconcile_failed:{type(exc).__name__}"})
+                    reconcile_result = {"ok": False, "error": str(exc), "reconciled": []}
+                reconciled = reconcile_result.get("reconciled") if isinstance(reconcile_result.get("reconciled"), list) else []
+                counters["reconciled"] += len(reconciled)
+                if reconciled:
+                    actions.append(
+                        {
+                            "action_type": "graph_eval_sidecar_reconcile",
+                            "target": sid,
+                            "status": "applied",
+                            "graph": str(graph_path),
+                            "submitted": 0,
+                            "would_submit": 0,
+                            "reconciled": len(reconciled),
+                            "payload": reconcile_result,
+                        }
+                    )
+                elif not reconcile_result.get("ok", True):
+                    counters["skipped"] += 1
+                    skipped.append(
+                        {
+                            "graph": str(graph_path),
+                            "sprint_id": sid,
+                            "reason": "sidecar_reconcile_no_mutation",
+                            "ok": False,
+                        }
+                    )
+
         if eval_nodes and eval_budget > 0:
             counters["eval_attempts"] += 1
             try:
@@ -262,7 +583,13 @@ def run_graph_drain(
                 )
             except Exception as exc:
                 counters["skipped"] += 1
-                skipped.append({"graph": str(graph_path), "reason": f"eval_dispatch_failed:{type(exc).__name__}"})
+                skipped.append(
+                    {
+                        "graph": str(graph_path),
+                        "reason": f"eval_dispatch_failed:{type(exc).__name__}",
+                        "error": str(exc),
+                    }
+                )
                 eval_result = {"ok": False, "error": str(exc)}
             dispatched = eval_result.get("dispatched") if isinstance(eval_result.get("dispatched"), list) else []
             reconciled = eval_result.get("reconciled") if isinstance(eval_result.get("reconciled"), list) else []
@@ -299,8 +626,73 @@ def run_graph_drain(
                     }
                 )
 
-        builder_budget = max(0, int(max_builders) - counters["builder_attempts"])
-        if has_builder_ready and builder_budget > 0:
+        if has_builder_ready and builder_quality_block:
+            counters["parallelism_gate_blocked"] += 1
+            counters["skipped"] += 1
+            skipped.append(
+                {
+                    "graph": str(graph_path),
+                    "sprint_id": sid,
+                    **builder_quality_block,
+                }
+            )
+
+        if has_builder_queue and builder_budget > 0:
+            counters["builder_attempts"] += 1
+            try:
+                queue_result = gnd.drain_queue(
+                    sid,
+                    dry_run=dry_run,
+                    max_items=builder_budget,
+                    ttl=ttl,
+                )
+            except Exception as exc:
+                counters["skipped"] += 1
+                skipped.append(
+                    {
+                        "graph": str(graph_path),
+                        "reason": f"builder_queue_drain_failed:{type(exc).__name__}",
+                        "error": str(exc),
+                    }
+                )
+                queue_result = {"ok": False, "error": str(exc)}
+            builder_would_submit = _count_builder_dispatches({"drain": queue_result}, dry_run=dry_run)
+            builder_submitted = 0 if dry_run else builder_would_submit
+            counters["builders_dispatched"] += builder_submitted
+            if builder_would_submit:
+                actions.append(
+                    {
+                        "action_type": "graph_builder_queue_drain",
+                        "target": sid,
+                        "status": "skipped" if dry_run else "applied",
+                        "graph": str(graph_path),
+                        "submitted": builder_submitted,
+                        "would_submit": builder_would_submit,
+                        "reconciled": 0,
+                        "payload": queue_result,
+                    }
+                )
+            else:
+                results = queue_result.get("results") if isinstance(queue_result.get("results"), list) else []
+                counters["skipped"] += 1
+                skipped.append(
+                    {
+                        "graph": str(graph_path),
+                        "sprint_id": sid,
+                        "reason": "builder_queue_drain_no_dispatch",
+                        "ok": bool(queue_result.get("ok", True)),
+                        "drain_processed": _coerce_int(queue_result.get("processed"), 0, min_value=0),
+                        "drain_reasons": [
+                            str(item.get("reason") or "")
+                            for item in results
+                            if isinstance(item, dict) and str(item.get("reason") or "")
+                        ][:5],
+                        "drain_details": _compact_drain_items(results),
+                    }
+                )
+            builder_budget = max(0, int(max_builders) - counters["builder_attempts"])
+
+        if has_builder_ready and not builder_quality_block and builder_budget > 0:
             counters["builder_attempts"] += 1
             try:
                 ready_result = gnd.dispatch_ready(
@@ -311,7 +703,13 @@ def run_graph_drain(
                 )
             except Exception as exc:
                 counters["skipped"] += 1
-                skipped.append({"graph": str(graph_path), "reason": f"builder_dispatch_failed:{type(exc).__name__}"})
+                skipped.append(
+                    {
+                        "graph": str(graph_path),
+                        "reason": f"builder_dispatch_failed:{type(exc).__name__}",
+                        "error": str(exc),
+                    }
+                )
                 ready_result = {"ok": False, "error": str(exc)}
             builder_would_submit = _count_builder_dispatches(ready_result, dry_run=dry_run)
             builder_submitted = 0 if dry_run else builder_would_submit
@@ -350,15 +748,19 @@ def run_graph_drain(
                             for item in results
                             if isinstance(item, dict) and str(item.get("reason") or "")
                         ][:5],
+                        "drain_details": _compact_drain_items(results),
                         "enqueue_reasons": [
                             str(item.get("reason") or "")
                             for item in queued
                             if isinstance(item, dict) and str(item.get("reason") or "")
                         ][:5],
+                        "enqueue_details": _compact_queue_items(queued),
                     }
                 )
 
-        if counters["eval_attempts"] >= max_evals and counters["builder_attempts"] >= max_builders:
+        eval_budget_exhausted = max_evals > 0 and counters["eval_attempts"] >= max_evals
+        builder_budget_exhausted = max_builders > 0 and counters["builder_attempts"] >= max_builders
+        if eval_budget_exhausted and builder_budget_exhausted:
             break
 
     counters["drain_submitted"] = counters["evals_dispatched"] + counters["builders_dispatched"]

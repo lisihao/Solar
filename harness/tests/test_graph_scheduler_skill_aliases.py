@@ -36,6 +36,23 @@ def test_backend_development_alias_matches_builder_impl_family() -> None:
     assert mod._skills_match(worker, ["backend-development"]) is True
 
 
+def test_targeted_implementation_alias_matches_builder_edit_family() -> None:
+    worker = {
+        "skills": ["code_impl", "python", "integration"],
+        "capabilities": ["code_impl", "edit", "harness.contracts", "harness.dag"],
+    }
+    assert mod._skills_match(worker, ["targeted-implementation"]) is True
+    assert mod._capabilities_match(worker, ["builder", "edit"]) is True
+
+
+def test_requirement_ir_and_quality_gates_aliases_match_control_plane_workers() -> None:
+    worker = {
+        "skills": ["architecture-writing", "testing", "verification", "pm-dispatch"],
+        "capabilities": ["harness.contracts", "harness.dag", "dag.validate"],
+    }
+    assert mod._skills_match(worker, ["requirement-ir", "quality-gates"]) is True
+
+
 def test_assign_workers_prefers_planner_role_before_builder_fallback() -> None:
     node = {
         "id": "N1",

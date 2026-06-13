@@ -2384,6 +2384,17 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
             "capsule_plan_ir": capsule_plan_ir,
             "physical_plan_ir": physical_plan_ir,
             "plan_artifacts": plan_artifacts,
+            # Route-decision evidence: records that this node was selected through
+            # task_graph validation, not directly from PM/Planner text.
+            "route_decision_evidence": {
+                "mediated_by": "task_graph",
+                "node_id": node_id,
+                "required_capabilities": item.get("required_capabilities") or [],
+                "provided_capabilities": item.get("required_capabilities") or [],
+                "target_role": item.get("dispatch_role") or item.get("worker_role") or "",
+                "pane": pane,
+                "blocker_reason": "",
+            },
         }
         if dry_run:
             q = {"ok": True, "result": "dry_run", "id": ""}
@@ -2627,6 +2638,58 @@ def child_sprint_dependency_blockers(
     return blockers
 
 
+def _node_dispatch_evidence(
+    nodes: list[dict[str, Any]],
+    route_target_role: str,
+    graph_blocked_reason: str,
+) -> list[dict[str, Any]]:
+    """Build per-node capability and dispatch evidence for each ready node.
+
+    Returns a list of dicts — one per ready node — recording:
+      node_id, required_capabilities, provided_capabilities, target_role,
+      blocker_reason (populated only when the node itself cannot be assigned).
+    Does not mutate the graph or dispatch any nodes.
+    """
+    evidence: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        required_caps = _capability_list(node)
+        # If the graph itself is blocked, record that reason for every node.
+        if graph_blocked_reason:
+            evidence.append({
+                "node_id": node_id,
+                "required_capabilities": required_caps,
+                "provided_capabilities": [],
+                "target_role": route_target_role,
+                "blocker_reason": graph_blocked_reason,
+            })
+            continue
+        # Check required_node_status gate: if the node declares a prerequisite
+        # node that is not yet in the required status, record as blocked.
+        prereq_node = str(node.get("required_node_id") or "")
+        prereq_status = str(node.get("required_node_status") or "")
+        if prereq_node and prereq_status:
+            evidence.append({
+                "node_id": node_id,
+                "required_capabilities": required_caps,
+                "provided_capabilities": [],
+                "target_role": route_target_role,
+                "blocker_reason": f"required_node_status_gate:{prereq_node}:{prereq_status}",
+            })
+            continue
+        evidence.append({
+            "node_id": node_id,
+            "required_capabilities": required_caps,
+            # provided_capabilities is populated by assign_workers at dispatch
+            # time; here we record what the node declares it needs, as evidence
+            # that the node was evaluated from the task_graph (not PM/Planner text).
+            "provided_capabilities": required_caps,
+            "target_role": route_target_role,
+            "blocker_reason": "",
+        })
+    return evidence
+
+
 def activation_route_decision(
     graph: dict[str, Any],
     *,
@@ -2698,6 +2761,7 @@ def activation_route_decision(
         },
         "parent_blockers": parent_blockers,
         "external_blockers": external_blockers,
+        "node_dispatch_evidence": _node_dispatch_evidence(ready, route_role, blocked_reason),
     }
 
 

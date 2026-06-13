@@ -76,7 +76,11 @@ def test_worker_discovery_ignores_expired_lease(monkeypatch) -> None:
         lambda *a, **kw: b"solar-harness-lab:0.0\tbuilder-glm\n",
     )
     monkeypatch.setattr(gnd, "read_lease", lambda pane: {"expires_at": _ts(-60)})
+    monkeypatch.setattr(gnd, "_pane_cooldown_reason", lambda pane: "")
     monkeypatch.setattr(gnd, "_clear_stale_prompt_residue", lambda pane: False)
+    monkeypatch.setattr(gnd, "_pane_current_command", lambda pane: "bash")
+    monkeypatch.setattr(gnd, "_pane_runtime_unavailable_reason", lambda *args, **kwargs: "")
+    monkeypatch.setattr(gnd, "_pane_hygiene_unavailable_reason", lambda pane: "")
     monkeypatch.setattr(gnd, "_pane_unavailable_reason", lambda pane: "")
     monkeypatch.setattr(gnd, "_pane_tui_busy", lambda pane: False)
     monkeypatch.setattr(gnd, "_pane_health", lambda pane: {})
@@ -335,6 +339,7 @@ def test_worker_discovery_marks_claude_monthly_limit_as_anthropic_quota(monkeypa
     monkeypatch.setattr(gnd, "_clear_stale_prompt_residue", lambda pane: False)
     monkeypatch.setattr(gnd, "_pane_current_command", lambda pane: "bash")
     monkeypatch.setattr(gnd, "_pane_health", lambda pane: {})
+    monkeypatch.setattr(gnd, "_persist_pane_rate_limit_block", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         gnd,
         "_pane_tail",
@@ -557,6 +562,7 @@ def test_reconcile_recoverable_pane_blocker_requeues_pending(monkeypatch, tmp_pa
 def test_assigned_recoverable_pane_unavailable_does_not_cooldown(monkeypatch) -> None:
     marked: list[tuple[str, str, str, bool]] = []
     retryable: list[tuple[str, str]] = []
+    released: list[tuple[str, str, str]] = []
 
     item = {
         "sprint_id": "sprint-test",
@@ -576,6 +582,7 @@ def test_assigned_recoverable_pane_unavailable_does_not_cooldown(monkeypatch) ->
     monkeypatch.setattr(gnd, "_assigned_pane_unavailable_reason", lambda pane: "queued_prompt_residue")
     monkeypatch.setattr(gnd, "_mark_pane_recover_cooldown", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not cooldown")))
     monkeypatch.setattr(gnd, "_mark_pane_recover_retryable", lambda pane, reason, **kw: retryable.append((pane, reason)))
+    monkeypatch.setattr(gnd, "release_lease", lambda pane, dispatch_id, reason: released.append((pane, dispatch_id, reason)) or {"released": True})
     monkeypatch.setattr(
         gnd,
         "_mark_graph_node",
@@ -596,6 +603,13 @@ def test_assigned_recoverable_pane_unavailable_does_not_cooldown(monkeypatch) ->
     assert result["unavailable_reason"] == "queued_prompt_residue"
     assert marked == [("/tmp/sprint-test.task_graph.json", "N1", "pending", True)]
     assert retryable == [("solar-harness-lab:0.3", "assigned_pane_unavailable:queued_prompt_residue")]
+    assert released == [
+        (
+            "solar-harness-lab:0.3",
+            "dispatch-N1",
+            "graph_dispatch_assigned_pane_unavailable:queued_prompt_residue",
+        )
+    ]
 
 
 def test_dispatch_queue_item_dry_run_does_not_reset_busy_active_node(monkeypatch, tmp_path) -> None:
@@ -776,6 +790,7 @@ def test_working_title_still_blocks_when_live_lease_exists(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_pane_hygiene_unavailable_reason", lambda pane: "")
     monkeypatch.setattr(gnd, "read_lease", lambda pane: {"expires_at": _ts(60)})
     monkeypatch.setattr(gnd, "_pane_tail", lambda pane: "────────────────\n● 0 tokens\n❯\u00a0\n")
+    monkeypatch.setattr(gnd, "_pane_tui_busy", lambda pane: True)
 
     reason = gnd._pane_title_active_unavailable_reason(
         "solar-harness-lab:0.3",
@@ -824,6 +839,7 @@ def test_worker_discovery_marks_multi_task_shell_unavailable(monkeypatch) -> Non
 
 def test_dispatch_queue_item_retries_when_assigned_pane_later_hits_quota(monkeypatch) -> None:
     marked: list[tuple[str, str, str, bool]] = []
+    released: list[tuple[str, str, str]] = []
 
     item = {
         "sprint_id": "sprint-test",
@@ -848,6 +864,7 @@ def test_dispatch_queue_item_retries_when_assigned_pane_later_hits_quota(monkeyp
             (graph_path, node_id, status, clear_assignment)
         ),
     )
+    monkeypatch.setattr(gnd, "release_lease", lambda pane, dispatch_id, reason: released.append((pane, dispatch_id, reason)) or {"released": True})
     monkeypatch.setattr(
         gnd,
         "_ensure_lease",
@@ -860,6 +877,13 @@ def test_dispatch_queue_item_retries_when_assigned_pane_later_hits_quota(monkeyp
     assert result["reason"] == "assigned_pane_unavailable_retry_later"
     assert result["unavailable_reason"] == "rate_limit_or_api_error"
     assert marked == [("/tmp/sprint-test.task_graph.json", "N1", "pending", True)]
+    assert released == [
+        (
+            "solar-harness-lab:0.3",
+            "dispatch-N1",
+            "graph_dispatch_assigned_pane_unavailable:rate_limit_or_api_error",
+        )
+    ]
 
 
 def test_evaluator_discovery_ignores_expired_lease(monkeypatch) -> None:
@@ -947,6 +971,29 @@ def test_force_eval_retry_allows_failed_node_after_repair_artifact(monkeypatch, 
 
     assert gnd._node_eval_needed(graph, "sid-force-retry", node, force=False) is False
     assert gnd._node_eval_needed(graph, "sid-force-retry", node, force=True) is True
+
+
+def test_watchdog_eval_retry_signal_allows_failed_node_without_force(monkeypatch, tmp_path) -> None:
+    graph = {
+        "sprint_id": "sid-watchdog-retry",
+        "nodes": [
+            {
+                "id": "N6",
+                "status": "failed",
+                "eval_retry_reason": "stale_eval_assignment_missing_sidecar",
+                "eval_retry_requested_at": "2026-06-12T11:00:00Z",
+            }
+        ],
+        "node_results": {"N6": {"status": "failed"}},
+    }
+    node = graph["nodes"][0]
+    handoff = tmp_path / "sid-watchdog-retry.N6-handoff.md"
+    handoff.write_text("handoff", encoding="utf-8")
+
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sid, node_id: tmp_path / "missing-eval.json")
+    monkeypatch.setattr(gnd, "_existing_node_handoff", lambda sid, node, graph: handoff)
+
+    assert gnd._node_eval_needed(graph, "sid-watchdog-retry", node, force=False) is True
 
 
 def test_node_verdict_rejects_stale_eval_dispatched_before_pm_repair(tmp_path) -> None:

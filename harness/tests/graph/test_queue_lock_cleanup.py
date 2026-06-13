@@ -11,6 +11,7 @@ import graph_node_dispatcher as gnd  # noqa: E402
 
 def test_pop_graph_queue_item_removes_advisory_lock(tmp_path, monkeypatch):
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd._task_queue, "QUEUE_DIR", tmp_path / "run" / "queue")
     qdir = tmp_path / "run" / "queue"
     qdir.mkdir(parents=True)
     qf = qdir / "sprint-lock-cleanup.jsonl"
