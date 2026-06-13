@@ -91,6 +91,21 @@ def test_policy_file_shell_network_git_reason_codes():
     assert denied_push.reason == "push_not_allowed"
     assert "remote" not in denied_push.audit
 
+def test_missing_runtime_scopes_deny_by_default():
+    t = _policy_token(
+        file_scope={},
+        shell_scope={},
+        network={},
+        git={},
+        secrets={},
+    )
+
+    assert t.check_file("write", "/tmp/solar-allowed/file.txt").reason == "deny_by_default"
+    assert t.check_shell("python3", ["-m", "pytest"]).reason == "deny_by_default"
+    assert t.check_network("http", "api.solar.local", 443).reason == "deny_by_default"
+    assert t.check_git("push", "origin").reason == "deny_by_default"
+    assert t.check_secrets("PROD_SECRET_BODY").reason == "deny_by_default"
+
 def test_policy_secret_and_audit_allowlist_redaction():
     t = _policy_token()
 
@@ -120,5 +135,6 @@ if __name__ == "__main__":
     test_allow_path()
     test_deny_path()
     test_policy_file_shell_network_git_reason_codes()
+    test_missing_runtime_scopes_deny_by_default()
     test_policy_secret_and_audit_allowlist_redaction()
-    print("\n6/6 passed")
+    print("\n7/7 passed")

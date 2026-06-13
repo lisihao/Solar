@@ -480,6 +480,51 @@ def _actor_capabilities(actor_dir: Path, state: dict[str, Any]) -> list[str]:
     return []
 
 
+def _actor_id_from_pane(pane: str) -> str:
+    text = str(pane or "").strip()
+    if text.startswith("operator:"):
+        return text.split(":", 1)[1]
+    marker = "operator-pool:evaluator."
+    if text.startswith(marker):
+        return text[len(marker):]
+    marker = "operator-pool:builder."
+    if text.startswith(marker):
+        return text[len(marker):]
+    return ""
+
+
+def _actor_candidates_for_node(node: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        if text and text not in candidates:
+            candidates.append(text)
+
+    for key in ("actor_id", "target_actor_id", "operator_id", "eval_operator_id"):
+        add(node.get(key))
+    for key in ("assigned_to", "eval_assigned_to"):
+        add(_actor_id_from_pane(str(node.get(key) or "")))
+    for assignment in node.get("eval_assignments", []) or []:
+        if not isinstance(assignment, dict):
+            continue
+        for key in ("actor_id", "target_actor_id", "operator_id"):
+            add(assignment.get(key))
+        add(_actor_id_from_pane(str(assignment.get("pane") or "")))
+    return candidates
+
+
+def _resolve_actor_dir(node: dict[str, Any], actor_root: Path) -> tuple[str, Path]:
+    candidates = _actor_candidates_for_node(node)
+    for actor_id in candidates:
+        actor_dir = actor_root / actor_id
+        if actor_dir.exists():
+            return actor_id, actor_dir
+    if candidates:
+        return candidates[0], actor_root / candidates[0]
+    return "", actor_root / "__missing__"
+
+
 def _load_outbox_results(actor_dir: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for path in sorted((actor_dir / "outbox").glob("*.json")):
@@ -511,9 +556,8 @@ def validate_mailbox_evidence(
                 evidence_sources={"upstream_blocker": {"dep_id": dep_id, "status": dep.get("status", "")}},
             )
 
-    actor_id = str(node.get("actor_id") or node.get("target_actor_id") or "")
     actor_root = Path(actor_base_dir) if actor_base_dir else HARNESS_DIR / "actors"
-    actor_dir = actor_root / actor_id if actor_id else actor_root / "__missing__"
+    actor_id, actor_dir = _resolve_actor_dir(node, actor_root)
     state_path = actor_dir / "state.json"
     heartbeat_path = actor_dir / "heartbeat.json"
     state = _read_json(state_path)
@@ -521,7 +565,7 @@ def validate_mailbox_evidence(
     heartbeat_present = heartbeat_path.exists()
 
     required = [str(item) for item in node.get("required_capabilities", []) or []]
-    if required:
+    if required and state_present:
         caps = set(_actor_capabilities(actor_dir, state))
         missing = [cap for cap in required if cap not in caps]
         if missing:
@@ -530,7 +574,7 @@ def validate_mailbox_evidence(
                 blocker_reason="capability_mismatch",
                 state_present=state_present,
                 heartbeat_present=heartbeat_present,
-                evidence_sources={"missing_capabilities": missing},
+                evidence_sources={"actor_id": actor_id, "missing_capabilities": missing},
             )
 
     outbox_results = _load_outbox_results(actor_dir)

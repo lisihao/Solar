@@ -188,7 +188,7 @@ class CapabilityToken:
         mode = str(self.shell_scope.get("mode") or "").strip()
         if not mode:
             if not self.shell_scope:
-                mode = "disabled"
+                return self._decision(False, "deny_by_default", command=str(command), argv_head=argv_head)
             elif not self.shell_scope.get("allowed", False):
                 mode = "disabled"
             elif self.shell_scope.get("allowed_commands"):
