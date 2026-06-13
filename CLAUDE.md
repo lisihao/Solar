@@ -109,6 +109,23 @@
 
 这个模板把执行分成只读分析、确认后执行、强制验收报告三阶段。用户只要说“按 safe-impl 来”或任务存在明显改代码风险，就必须先进入 Phase 1 只读分析；没有计划确认，不进入修改阶段。
 
+## Codex/Claude Code Session Lessons Guardrail
+
+非平凡 Solar、Solar-Harness、自动化、记忆、同步、数据库、commit/push、定时巡检任务，先使用：
+
+- `/Users/lisihao/.claude/skills/agent-operating-guardrails/SKILL.md`
+- `/Users/lisihao/.solar/harness/docs/codex-session-lessons.md`
+
+按问题类型再路由到更窄 skill：
+
+- SQLite / freshness / writer lock: `/Users/lisihao/.claude/skills/sqlite-single-writer-guard/SKILL.md`
+- recurring automation / NOTIFY 噪音: `/Users/lisihao/.claude/skills/automation-notify-gate/SKILL.md`
+- export / commit / push / archive: `/Users/lisihao/.claude/skills/safe-export-commit/SKILL.md`
+- task_graph / eval / handoff truth: `/Users/lisihao/.claude/skills/graph-evidence-doctor/SKILL.md`
+- DNS / SSH / Tailscale / sandbox / permission / runtime: `/Users/lisihao/.claude/skills/environment-blocker-triage/SKILL.md`
+
+这些是 guardrail，不是执行证据。必须用磁盘文件、DB rows、final JSON、eval/handoff、工具输出验证当前状态后再报完成。
+
 ## 任务前强制自检 (防止自己干活)
 
 **任何分析/编码/设计任务开始前，必须先回答三个问题：**
