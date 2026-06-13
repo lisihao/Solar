@@ -3,6 +3,13 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _default_pane_alive(monkeypatch):
+    import pane_doctor as pd
+
+    monkeypatch.setattr(pd.gnd, "_pane_dead", lambda *_: False, raising=False)
+
+
 def test_diagnose_missing_runtime_marks_needs_recover(tmp_path, monkeypatch):
     import pane_doctor as pd
 
@@ -23,6 +30,109 @@ def test_diagnose_missing_runtime_marks_needs_recover(tmp_path, monkeypatch):
     assert finding["status"] == "runtime_missing"
     assert finding["desired_hygiene_state"] == "needs_recover"
     assert finding["recommended_action"] == "mark_needs_recover"
+
+
+def test_pane_visibly_idle_recognizes_bare_claude_prompt(monkeypatch):
+    import pane_doctor as pd
+
+    tail = "\n".join([
+        " ▐▛███▜▌   Claude Code v2.1.42",
+        "❯\u00a0",
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)                                               0 tokens",
+    ])
+    monkeypatch.setattr(pd.gnd, "_pane_visibly_idle", lambda *_: False, raising=False)
+    monkeypatch.setattr(pd.gnd, "_tail_has_idle_prompt_footer", lambda *_: False, raising=False)
+
+    assert pd._pane_visibly_idle("solar-harness:0.3", tail) is True
+
+
+def test_repair_all_clears_idle_eval_send_failed_cooldown(tmp_path, monkeypatch):
+    import pane_doctor as pd
+
+    registry_path = tmp_path / "pane-hygiene.json"
+    registry = pd.PaneHygieneRegistry(str(registry_path))
+    registry.register_pane("solar-harness:0.3", "evaluator", initial_state=pd.PaneState.needs_respawn)
+    cooldown_path = tmp_path / "run" / "graph-dispatch-pane-cooldowns.json"
+    cooldown_path.parent.mkdir(parents=True, exist_ok=True)
+    cooldown_path.write_text(
+        '{"solar-harness:0.3":{"reason":"eval_send_failed","until":"2999-01-01T00:00:00Z"}}\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(pd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pd, "_registry", lambda path=None: pd.PaneHygieneRegistry(str(registry_path)))
+    monkeypatch.setattr(pd, "_pane_rows", lambda: [("solar-harness:0.3", "Evaluator 审判官")])
+    monkeypatch.setattr(pd.gnd, "_pane_tail", lambda *_args, **_kwargs: "❯\u00a0\n⏵⏵ bypass permissions on\n")
+    monkeypatch.setattr(pd.gnd, "_pane_current_command", lambda *_: "bash")
+    monkeypatch.setattr(pd.gnd, "_pane_cooldown_reason", lambda *_: "pane_recover_cooldown:eval_send_failed")
+    monkeypatch.setattr(pd.gnd, "_pane_runtime_unavailable_reason", lambda *_args: "")
+    monkeypatch.setattr(pd.gnd, "_pane_unavailable_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_tui_busy", lambda *_: False)
+    monkeypatch.setattr(pd, "_pane_visibly_idle", lambda *_: True)
+    monkeypatch.setattr(pd, "read_lease", lambda *_: None)
+
+    result = pd.repair_all(dry_run=False, include_protected=True)
+    entry = pd.PaneHygieneRegistry(str(registry_path)).get_pane_state("solar-harness:0.3")
+
+    assert result["repairs"][0]["to"] == "clean"
+    assert result["repairs"][0]["cooldown_cleared"] is True
+    assert entry.state == pd.PaneState.clean
+    assert "solar-harness:0.3" not in cooldown_path.read_text(encoding="utf-8")
+
+
+def test_diagnose_dead_pane_overrides_live_lease(tmp_path, monkeypatch):
+    import pane_doctor as pd
+
+    registry = pd.PaneHygieneRegistry(str(tmp_path / "pane-hygiene.json"))
+    registry.register_pane("solar-harness-lab:0.2", "builder")
+
+    monkeypatch.setattr(pd.gnd, "_pane_tail", lambda *_args, **_kwargs: "Pane is dead\n")
+    monkeypatch.setattr(pd.gnd, "_pane_current_command", lambda *_: "TMUX_PANE=%5")
+    monkeypatch.setattr(pd.gnd, "_pane_cooldown_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_runtime_unavailable_reason", lambda *_args: "")
+    monkeypatch.setattr(pd.gnd, "_pane_unavailable_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_tui_busy", lambda *_: False)
+    monkeypatch.setattr(pd.gnd, "_pane_dead", lambda *_: True)
+    monkeypatch.setattr(pd, "_pane_visibly_idle", lambda *_: False)
+    monkeypatch.setattr(pd, "read_lease", lambda *_: {"dispatch_id": "d1", "sprint_id": "s1", "expires_at": "2999-01-01T00:00:00Z"})
+
+    finding = pd.diagnose_pane("solar-harness-lab:0.2", "Builder", registry)
+
+    assert finding["status"] == "respawn_required"
+    assert finding["reason"] == "pane_dead"
+    assert finding["desired_hygiene_state"] == "needs_respawn"
+    assert finding["pane_dead"] is True
+
+
+def test_respawn_lab_allows_dead_pane_even_with_live_lease(tmp_path, monkeypatch):
+    import pane_doctor as pd
+
+    registry_path = tmp_path / "pane-hygiene.json"
+    registry = pd.PaneHygieneRegistry(str(registry_path))
+    registry.register_pane("solar-harness-lab:0.2", "builder", initial_state=pd.PaneState.clean)
+
+    monkeypatch.setattr(pd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pd, "_registry", lambda path=None: pd.PaneHygieneRegistry(str(registry_path)))
+    monkeypatch.setattr(pd, "_pane_rows", lambda: [("solar-harness-lab:0.2", "Builder")])
+    monkeypatch.setattr(pd, "_lab_model_matrix", lambda: "glm")
+    monkeypatch.setattr(pd, "_lab_work_dir", lambda: tmp_path)
+    monkeypatch.setattr(pd, "_tmux_pane_id", lambda _pane: "%5")
+    monkeypatch.setattr(pd.gnd, "_pane_tail", lambda *_args, **_kwargs: "Pane is dead\n")
+    monkeypatch.setattr(pd.gnd, "_pane_current_command", lambda *_: "TMUX_PANE=%5")
+    monkeypatch.setattr(pd.gnd, "_pane_cooldown_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_runtime_unavailable_reason", lambda *_args: "")
+    monkeypatch.setattr(pd.gnd, "_pane_unavailable_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_tui_busy", lambda *_: False)
+    monkeypatch.setattr(pd.gnd, "_pane_dead", lambda *_: True)
+    monkeypatch.setattr(pd, "_pane_visibly_idle", lambda *_: False)
+    monkeypatch.setattr(pd, "read_lease", lambda *_: {"dispatch_id": "d1", "sprint_id": "s1", "expires_at": "2999-01-01T00:00:00Z"})
+
+    result = pd.respawn_lab(dry_run=True, pane_filter="solar-harness-lab:0.2")
+
+    assert result["actions"][0]["eligible"] is True
+    assert result["actions"][0]["reason"] == "pane_dead"
+    assert result["actions"][0]["skipped"] is False
+    assert "respawn-pane" not in result["actions"][0]["command"]
 
 
 def test_diagnose_idle_huge_context_requires_respawn(tmp_path, monkeypatch):
@@ -126,6 +236,43 @@ def test_repair_all_does_not_downgrade_more_severe_state(tmp_path, monkeypatch):
     assert result["repairs"][0]["skipped"] is True
     assert result["repairs"][0]["skip_reason"] == "existing_state_more_severe"
     assert entry.state == pd.PaneState.needs_respawn
+
+
+def test_repair_all_dismisses_recoverable_prompt_before_preserving_severe_state(tmp_path, monkeypatch):
+    import pane_doctor as pd
+
+    registry_path = tmp_path / "pane-hygiene.json"
+    registry = pd.PaneHygieneRegistry(str(registry_path))
+    registry.register_pane("solar-harness:0.2", "builder", initial_state=pd.PaneState.needs_respawn)
+    prompt_active = {"value": True}
+
+    def unavailable_reason(_pane):
+        return "rewind_prompt_blocked" if prompt_active["value"] else ""
+
+    def dismiss_prompt(_pane, reason):
+        assert reason == "rewind_prompt_blocked"
+        prompt_active["value"] = False
+        return True
+
+    monkeypatch.setattr(pd, "_registry", lambda path=None: pd.PaneHygieneRegistry(str(registry_path)))
+    monkeypatch.setattr(pd, "_pane_rows", lambda: [("solar-harness:0.2", "Builder")])
+    monkeypatch.setattr(pd.gnd, "_pane_tail", lambda *_args, **_kwargs: "❯ Try \"help\"\n")
+    monkeypatch.setattr(pd.gnd, "_pane_current_command", lambda *_: "bash")
+    monkeypatch.setattr(pd.gnd, "_pane_cooldown_reason", lambda *_: "")
+    monkeypatch.setattr(pd.gnd, "_pane_runtime_unavailable_reason", lambda *_args: "")
+    monkeypatch.setattr(pd.gnd, "_pane_unavailable_reason", unavailable_reason)
+    monkeypatch.setattr(pd.gnd, "_pane_tui_busy", lambda *_: False)
+    monkeypatch.setattr(pd.gnd, "_dismiss_dispatch_prompt", dismiss_prompt)
+    monkeypatch.setattr(pd, "_pane_visibly_idle", lambda *_: not prompt_active["value"])
+    monkeypatch.setattr(pd, "read_lease", lambda *_: None)
+
+    result = pd.repair_all(dry_run=False, include_protected=True)
+    entry = pd.PaneHygieneRegistry(str(registry_path)).get_pane_state("solar-harness:0.2")
+
+    assert result["ok"] is True
+    assert result["repairs"][0]["prompt_recovery"]["dismissed"] is True
+    assert result["repairs"][0]["to"] == "clean"
+    assert entry.state == pd.PaneState.clean
 
 
 def test_repair_all_clears_stale_needs_respawn_when_pane_is_clean(tmp_path, monkeypatch):
@@ -348,6 +495,7 @@ def test_respawn_lab_allows_busy_needs_respawn_but_skips_leased_panes(tmp_path, 
     monkeypatch.setattr(pd.gnd, "_pane_unavailable_reason", lambda *_: "")
     monkeypatch.setattr(pd.gnd, "_pane_tui_busy", lambda pane: pane.endswith(".0"))
     monkeypatch.setattr(pd, "_pane_visibly_idle", lambda *_: True)
+    monkeypatch.setattr(pd, "_tmux_pane_id", lambda pane: "%0" if pane.endswith(".0") else "%1")
     monkeypatch.setattr(pd, "read_lease", lambda pane: {"expires_at": "2999-01-01T00:00:00Z"} if pane.endswith(".1") else None)
 
     result = pd.respawn_lab(dry_run=True, max_items=2)

@@ -17,9 +17,9 @@ from actor_mailbox import ActorMailbox
 from actor_profiles import ActorProfile, load_profiles
 from logical_operator_router import LogicalOperatorRouter
 from operator_score import OperatorScoreResult, rank_actors, TaskEvidence
-from evidence_ledger import EvidenceLedger, build_scheduler_decision
+from evidence_ledger import EvidenceLedger, RunMaterializer, NoopMaterializer, build_scheduler_decision
 from context_store import ContextStore
-from capability_token import CapabilityToken
+from capability_token import CapabilityToken, PolicyDecision
 from verification_gate import VerificationGate
 from apo_plan_compiler import compile_execution_plan_for_node, materialize_execution_plan_artifacts
 
@@ -39,6 +39,9 @@ class SubmitResult:
         evidence_ledger_path: Optional[str] = None,
         scheduler_decision: Optional[Dict] = None,
         error: Optional[str] = None,
+        run_dir: Optional[str] = None,
+        artifact_refs: Optional[Dict[str, str]] = None,
+        policy_decisions: Optional[List[Dict[str, Any]]] = None,
     ):
         self.success = success
         self.lease = lease
@@ -47,6 +50,9 @@ class SubmitResult:
         self.evidence_ledger_path = evidence_ledger_path
         self.scheduler_decision = scheduler_decision
         self.error = error
+        self.run_dir = run_dir
+        self.artifact_refs = artifact_refs or {}
+        self.policy_decisions = policy_decisions or []
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -57,6 +63,9 @@ class SubmitResult:
             "evidence_ledger_path": self.evidence_ledger_path,
             "scheduler_decision": self.scheduler_decision,
             "error": self.error,
+            "run_dir": self.run_dir,
+            "artifact_refs": self.artifact_refs,
+            "policy_decisions": self.policy_decisions,
         }
 
 
@@ -72,14 +81,44 @@ class ActorRuntime:
         context_store: Optional[ContextStore] = None,
         profiles_path: Optional[Path] = None,
         bindings_path: Optional[Path] = None,
+        run_materializer: Optional[RunMaterializer] = None,
     ):
         self.harness_dir = harness_dir or HARNESS_DIR
         self.broker = lease_broker or LeaseBroker(self.harness_dir / "run" / "actor-leases")
         self.mailbox_base = mailbox_base or self.harness_dir / "actors"
-        self.ledger = evidence_ledger or EvidenceLedger()
+        self.ledger = evidence_ledger or EvidenceLedger(self.harness_dir / "run" / "actor-evidence")
         self.ctx_store = context_store or ContextStore()
         self.profiles = load_profiles(profiles_path)
         self.router = LogicalOperatorRouter(bindings_path)
+        if run_materializer is not None:
+            self._materializer = run_materializer
+        else:
+            runs_root = self.harness_dir / "run" / "runs"
+            self._materializer = RunMaterializer(runs_root)
+
+    def _materialize_run_dir(
+        self,
+        dag_id: str,
+        node_id: str,
+        actor_id: str,
+        task_id: str,
+        lease: Any,
+        scheduler_decision: Dict[str, Any],
+        task_envelope: Dict[str, Any],
+    ) -> Tuple[Optional[str], Dict[str, str]]:
+        """Materialize runs/<dag-id>/ seed. Non-fatal on failure."""
+        try:
+            return self._materializer.materialize(
+                dag_id=dag_id,
+                node_id=node_id,
+                actor_id=actor_id,
+                task_id=task_id,
+                lease=lease,
+                scheduler_decision=scheduler_decision,
+                task_envelope=task_envelope,
+            )
+        except Exception:
+            return None, {}
 
     def _ensure_execution_plan_metadata(
         self,
@@ -168,6 +207,17 @@ class ActorRuntime:
         if requires_approval and not task_envelope.get("human_approved"):
             return SubmitResult(success=False, error="human_approval_required")
 
+        # Policy requests check (before lease acquisition)
+        policy_passed, policy_error, policy_decisions = self._check_policy_requests(
+            task_envelope, capability_token
+        )
+        if not policy_passed:
+            return SubmitResult(
+                success=False,
+                error=policy_error,
+                policy_decisions=policy_decisions,
+            )
+
         # Resolve actor
         if not actor_id and logical_operator:
             is_browser_op = (
@@ -219,6 +269,30 @@ class ActorRuntime:
         if not lease:
             return SubmitResult(success=False, error=f"lease_acquisition_failed_for_{actor_id}")
 
+        # Build a preliminary scheduler decision for materialization seed
+        # (will be rebuilt after mailbox write with same fields)
+        pre_sched = build_scheduler_decision(
+            selected_actor=actor_id,
+            logical_operator=logical_operator or "",
+            score_factors={},
+            penalties={},
+            rejected=[],
+            dag_id=sprint_id,
+            node_id=node_id,
+        )
+
+        # Materialize runs/<dag-id>/ evidence seed (after lease, before mailbox)
+        dag_id = sprint_id
+        run_dir, artifact_refs = self._materialize_run_dir(
+            dag_id=dag_id,
+            node_id=node_id,
+            actor_id=actor_id,
+            task_id=task_id,
+            lease=lease,
+            scheduler_decision=pre_sched,
+            task_envelope=task_envelope,
+        )
+
         # Write to mailbox
         mailbox = ActorMailbox(actor_id, self.mailbox_base)
         # Load context packet if referenced
@@ -231,20 +305,28 @@ class ActorRuntime:
         inbox_path = mailbox.submit_task(task_envelope)
         outbox_dir = str(mailbox.outbox)
 
-        # Build scheduler decision
+        # Build scheduler decision (with S03 extended fields)
         sched_decision = build_scheduler_decision(
             selected_actor=actor_id,
             logical_operator=logical_operator or "",
             score_factors={},
             penalties={},
             rejected=[],
+            dag_id=sprint_id,
+            node_id=node_id,
         )
 
         resolved_capsule = task_envelope.get("resolved_capability_capsule") or {}
         if not isinstance(resolved_capsule, dict):
             resolved_capsule = {}
 
-        # Write evidence ledger
+        # Verification gate: critical tasks must pass evidence check
+        if self._is_critical_task(task_envelope):
+            gate_error = self._check_verification_gate(task_envelope, actor_id)
+            if gate_error:
+                return SubmitResult(success=False, error=gate_error)
+
+        # Write evidence ledger (with S03 run_dir / artifact_refs if materialized)
         ledger_path = self.ledger.write_run_entry(
             task_id=task_id,
             sprint_id=sprint_id,
@@ -263,6 +345,8 @@ class ActorRuntime:
             capsule_plan_ir=task_envelope.get("capsule_plan_ir") if isinstance(task_envelope.get("capsule_plan_ir"), dict) else None,
             physical_plan_ir=task_envelope.get("physical_plan_ir") if isinstance(task_envelope.get("physical_plan_ir"), dict) else None,
             plan_artifacts=task_envelope.get("plan_artifacts") if isinstance(task_envelope.get("plan_artifacts"), dict) else None,
+            run_dir=run_dir,
+            artifact_refs=artifact_refs if artifact_refs else None,
         )
 
         return SubmitResult(
@@ -272,7 +356,88 @@ class ActorRuntime:
             outbox_path=outbox_dir,
             evidence_ledger_path=ledger_path,
             scheduler_decision=sched_decision,
+            run_dir=run_dir,
+            artifact_refs=artifact_refs,
+            policy_decisions=policy_decisions,
         )
+
+    def _is_critical_task(self, task_envelope: Dict[str, Any]) -> bool:
+        """Determine if a task is critical based on task_graph node fields.
+
+        Reads explicit node fields (gate, risk) — not inferred ad hoc.
+        Non-critical tasks return False (fail-open to legacy path).
+        """
+        graph_node = task_envelope.get("task_graph_node")
+        if not isinstance(graph_node, dict):
+            return False
+
+        # Critical if gate is a verification gate or risk is high
+        gate = str(graph_node.get("gate", "")).upper()
+        risk = str(graph_node.get("risk", "")).lower()
+        node_type = str(graph_node.get("type", "")).lower()
+
+        if risk == "high":
+            return True
+        # Code/implementation/review nodes with non-trivial gates are critical
+        if gate.startswith("G_") and node_type in ("implementation", "review"):
+            return True
+        # approval_gate explicitly set
+        if graph_node.get("approval_gate"):
+            return True
+        return False
+
+    def _check_verification_gate(
+        self,
+        task_envelope: Dict[str, Any],
+        actor_id: str,
+    ) -> Optional[str]:
+        """Run VerificationGate checks for critical tasks.
+
+        Returns None if gate passes, or an error string if blocked.
+        """
+        graph_node = task_envelope.get("task_graph_node", {})
+        if not isinstance(graph_node, dict):
+            graph_node = {}
+
+        is_code = graph_node.get("type", "") in ("implementation", "code")
+        high_risk = str(graph_node.get("risk", "")).lower() == "high"
+        available_providers = ["claude", "gemini", "glm", "deepseek", "antigravity"]
+
+        vg = VerificationGate()
+
+        # Gather evidence flags from the task envelope
+        has_patch = bool(task_envelope.get("has_patch") or task_envelope.get("patch_artifact"))
+        has_test = bool(
+            task_envelope.get("has_test_evidence")
+            or task_envelope.get("test_log")
+            or task_envelope.get("test_artifact")
+        )
+        verifier_decision = task_envelope.get("verifier_decision")
+        verifier_actor_id = task_envelope.get("verifier_actor_id")
+        writer_actor_id = actor_id
+
+        if is_code:
+            gate_result = vg.check_code_task(
+                has_patch=has_patch,
+                has_test_evidence=has_test,
+                writer_actor_id=writer_actor_id,
+                verifier_actor_id=verifier_actor_id,
+                verifier_decision=verifier_decision,
+            )
+        else:
+            gate_result = vg.check_dag_done(
+                has_patch=has_patch,
+                has_test_or_benchmark=has_test,
+                verifier_decision=verifier_decision,
+                verifier_actor_id=verifier_actor_id,
+                writer_actor_id=writer_actor_id,
+                high_risk=high_risk,
+                available_providers=available_providers,
+            )
+
+        if not gate_result["passed"]:
+            return f"verification_gate_blocked: {gate_result['reasons']}"
+        return None
 
     def check_safety_boundaries(
         self,
@@ -327,3 +492,83 @@ class ActorRuntime:
                 return True, None, True
 
         return True, None, False
+
+    def _check_policy_requests(
+        self,
+        task_envelope: Dict[str, Any],
+        capability_token: Optional[CapabilityToken],
+    ) -> Tuple[bool, Optional[str], List[Dict[str, Any]]]:
+        """Check policy_requests against CapabilityToken PolicyEngine.
+
+        Returns (passed, error_message, policy_decisions).
+        """
+        policy_requests = task_envelope.get("policy_requests") or []
+        if not policy_requests:
+            return True, None, []
+
+        enforcement = os.environ.get("SOLAR_CAPABILITY_ENFORCEMENT", "on").strip().lower()
+        audit_only = os.environ.get("SOLAR_CAPABILITY_AUDIT_ONLY", "").strip() in ("1", "true", "yes")
+
+        if capability_token is None:
+            if enforcement == "off":
+                return True, None, []
+            return True, None, []
+
+        decisions: List[Dict[str, Any]] = []
+        for req in policy_requests:
+            kind = str(req.get("kind", "")).strip()
+            decision = self._dispatch_policy_check(capability_token, kind, req)
+            decisions.append({
+                "kind": kind,
+                "allowed": decision.allowed,
+                "reason": decision.reason,
+                "rule": decision.rule,
+                "audit": decision.audit,
+            })
+            if not decision.allowed:
+                if enforcement == "off":
+                    decisions[-1]["bypass"] = "enforcement_off"
+                    continue
+                if audit_only:
+                    decisions[-1]["bypass"] = "audit_only"
+                    continue
+                return False, f"capability_denied:{decision.reason}", decisions
+
+        return True, None, decisions
+
+    @staticmethod
+    def _dispatch_policy_check(
+        token: CapabilityToken,
+        kind: str,
+        req: Dict[str, Any],
+    ) -> PolicyDecision:
+        if kind == "file":
+            return token.check_file(
+                op=str(req.get("op", "read")),
+                path=str(req.get("path", "")),
+            )
+        if kind == "shell":
+            return token.check_shell(
+                command=str(req.get("command", "")),
+                argv=req.get("argv") or [],
+            )
+        if kind == "network":
+            return token.check_network(
+                mode=str(req.get("mode", "http")),
+                host=str(req.get("host", "")),
+                port=req.get("port"),
+            )
+        if kind == "git":
+            return token.check_git(
+                op=str(req.get("op", "push")),
+                remote=req.get("remote"),
+            )
+        if kind == "secrets":
+            return token.check_secrets(
+                ref=str(req.get("ref", "")),
+            )
+        return PolicyDecision(
+            allowed=False,
+            reason="unknown_policy_kind",
+            detail=f"kind={kind}",
+        )

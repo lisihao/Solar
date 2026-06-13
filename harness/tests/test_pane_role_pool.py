@@ -56,3 +56,91 @@ def test_ensure_clean_for_dispatch_registers_and_clears_ready_footer(tmp_path) -
 
     assert result["ok"] is True
     assert result["final_state"] == "clean"
+
+
+def test_ensure_clean_for_dispatch_skips_clear_when_prompt_already_idle(tmp_path) -> None:
+    registry_path = tmp_path / "pane-hygiene.json"
+    reg = PaneHygieneRegistry(str(registry_path))
+    reg.register_pane("solar-harness:0.3", "evaluator", initial_state=PaneState.clean)
+
+    idle_prompt = """
+────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+"""
+
+    import pane_clear_manager as pcm
+    import pane_role_pool as mod
+
+    original_detector = mod.RecoverDetector
+    original_send = pcm._tmux_send_keys
+    try:
+        mod.RecoverDetector = lambda: original_detector(capture_fn=lambda _pane: idle_prompt)
+        pcm._tmux_send_keys = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("/clear should not be sent for an already-idle prompt")
+        )
+        result = ensure_clean_for_dispatch(
+            "solar-harness:0.3",
+            "evaluator",
+            registry_path=registry_path,
+        )
+    finally:
+        mod.RecoverDetector = original_detector
+        pcm._tmux_send_keys = original_send
+
+    entry = PaneHygieneRegistry(str(registry_path)).get_pane_state("solar-harness:0.3")
+    assert result["ok"] is True
+    assert result["reason"] == "already_clear_visible_idle"
+    assert result["attempts"] == 0
+    assert entry.state == PaneState.clean
+
+
+def test_ensure_clean_for_dispatch_recovers_dirty_when_prompt_already_idle(tmp_path) -> None:
+    registry_path = tmp_path / "pane-hygiene.json"
+    reg = PaneHygieneRegistry(str(registry_path))
+    reg.register_pane("solar-harness:0.3", "evaluator", initial_state=PaneState.clean)
+    reg.transition_state("solar-harness:0.3", PaneState.running, reason="test")
+    reg.transition_state("solar-harness:0.3", PaneState.dirty, reason="test")
+
+    idle_prompt = """
+────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+
+
+
+
+
+
+
+
+
+"""
+
+    import pane_clear_manager as pcm
+    import pane_role_pool as mod
+
+    original_detector = mod.RecoverDetector
+    original_send = pcm._tmux_send_keys
+    try:
+        mod.RecoverDetector = lambda: original_detector(capture_fn=lambda _pane: idle_prompt)
+        pcm._tmux_send_keys = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("/clear should not be sent when dirty state is stale")
+        )
+        result = ensure_clean_for_dispatch(
+            "solar-harness:0.3",
+            "evaluator",
+            registry_path=registry_path,
+        )
+    finally:
+        mod.RecoverDetector = original_detector
+        pcm._tmux_send_keys = original_send
+
+    entry = PaneHygieneRegistry(str(registry_path)).get_pane_state("solar-harness:0.3")
+    assert result["ok"] is True
+    assert result["reason"] == "already_clear_visible_idle"
+    assert result["final_state"] == "clean"
+    assert entry.state == PaneState.clean

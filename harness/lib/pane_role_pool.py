@@ -11,9 +11,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pane_clear_manager import PaneClearManager
+from pane_clear_manager import (
+    PASSIVE_PERMISSIONS_FOOTER_RE,
+    PATTERN_EMPTY_PROMPT,
+    PaneClearManager,
+)
 from pane_hygiene_registry import PaneHygieneRegistry, PaneState
 from recover_detector import RecoverDetector
+from recover_detector import DET_PERMISSION, DET_PROCEED, DET_QUEUED
 
 
 def harness_dir() -> Path:
@@ -237,12 +242,68 @@ def _entry_for_boundary(registry: PaneHygieneRegistry, pane: str, role: str):
     return entry
 
 
+def _pane_already_clear_for_dispatch(pane: str, detector: RecoverDetector | None = None) -> bool:
+    """Return true when the visible TUI already satisfies clear-boundary signals.
+
+    Claude Code 2.x can show a bare ``❯`` prompt plus the passive
+    "bypass permissions on" footer after a successful /clear. Re-running
+    /clear in that state is unnecessary and, when verification lags, can
+    incorrectly escalate a healthy pane to needs_respawn.
+    """
+    detector = detector or RecoverDetector()
+    try:
+        output = detector._capture(pane)
+    except Exception:
+        return False
+    lines = output.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    window = lines[-12:]
+    if not window:
+        return False
+    normalized = [line.replace("\u00a0", " ") for line in window]
+    signal_empty = any(PATTERN_EMPTY_PROMPT.match(line.strip()) for line in reversed(normalized))
+    signal_no_queued = not any(DET_QUEUED.search(line) for line in normalized)
+    signal_no_confirm = not any(
+        DET_PROCEED.search(line)
+        or (
+            DET_PERMISSION.search(line)
+            and not PASSIVE_PERMISSIONS_FOOTER_RE.search(line)
+        )
+        for line in normalized
+    )
+    return signal_empty and signal_no_queued and signal_no_confirm
+
+
 def ensure_clean_for_dispatch(pane: str, role: str, registry_path: Path | None = None) -> dict[str, Any]:
     registry = PaneHygieneRegistry(str((registry_path or REGISTRY_PATH).expanduser()))
+    entry = registry.ensure_pane(pane, role)
+    detector = RecoverDetector()
+    if entry.state in {PaneState.clean, PaneState.running, PaneState.dirty} and _pane_already_clear_for_dispatch(pane, detector):
+        final_state = entry.state
+        if entry.state == PaneState.dirty:
+            final_state = registry.transition_state(
+                pane,
+                PaneState.clean,
+                reason="dispatch_boundary_already_clear_visible_idle",
+                reset_fail=True,
+            ).state
+        registry.update_context_fields(pane, persona=role)
+        return {
+            "ok": True,
+            "pane": pane,
+            "role": role,
+            "reason": "already_clear_visible_idle",
+            "attempts": 0,
+            "final_state": final_state.value,
+            "signal_empty": True,
+            "signal_no_queued": True,
+            "signal_no_confirm": True,
+        }
     entry = _entry_for_boundary(registry, pane, role)
     if entry.state in {PaneState.cooling, PaneState.needs_recover, PaneState.needs_respawn}:
         return {"ok": False, "pane": pane, "role": role, "reason": entry.state.value}
-    manager = PaneClearManager(registry, RecoverDetector())
+    manager = PaneClearManager(registry, detector)
     result = manager.clear_with_retry(pane)
     if result.success:
         registry.update_context_fields(pane, persona=role)
