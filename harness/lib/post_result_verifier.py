@@ -91,14 +91,23 @@ def verify_operator_result(result: dict[str, Any], verifier_dir: str | Path) -> 
     covered_artifacts: list[dict[str, str]] = []
     rules: list[dict[str, Any]] = []
 
+    eval_artifact = _existing_artifact(str(result.get("eval_path") or "").strip())
     handoff = _existing_artifact(str(result.get("handoff_path") or "").strip())
     if handoff:
         covered_artifacts.append(handoff)
         rules.append(_rule("solar.post_result.handoff_exists", "passed", "handoff artifact exists", path=handoff["path"]))
+    elif eval_artifact:
+        rules.append(
+            _rule(
+                "solar.post_result.handoff_exists",
+                "passed",
+                "handoff artifact is optional when eval artifact exists",
+                severity="warn",
+            )
+        )
     else:
         rules.append(_rule("solar.post_result.handoff_exists", "failed", "handoff artifact is missing"))
 
-    eval_artifact = _existing_artifact(str(result.get("eval_path") or "").strip())
     if eval_artifact:
         covered_artifacts.append(eval_artifact)
         rules.append(_rule("solar.post_result.eval_artifact_exists", "passed", "eval artifact exists", path=eval_artifact["path"]))

@@ -1357,6 +1357,33 @@ def build_pm_dispatch_text(
     if context.strip():
         ctx_block = f"\n## PM Context\n\n{context.strip()}\n"
 
+    eval_closeout_block = ""
+    if normalize_role(persona_name) == "evaluator" and sprint_id and node_id:
+        eval_md = SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.md"
+        eval_json = SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.json"
+        eval_closeout_block = f"""
+        评审任务还必须写入 graph eval sidecars，PM closeout 会强制检查：
+
+        - Eval Markdown: `{eval_md}`
+        - Eval JSON: `{eval_json}`
+
+        `eval.json` 至少包含：
+        ```json
+        {{
+          "sprint_id": "{sprint_id}",
+          "node_id": "{node_id}",
+          "verdict": "PASS|FAIL",
+          "failed_conditions": [],
+          "passed_conditions": [],
+          "errors": [],
+          "tokens_used": 0,
+          "eval_md_path": "{eval_md.name}",
+          "verify_all_invoked": false,
+          "verify_all_verdict": "SKIPPED"
+        }}
+        ```
+"""
+
     return textwrap.dedent(f"""\
         <!-- SOLAR_PM_DISPATCH -->
         # Solar PM Dispatch
@@ -1395,6 +1422,7 @@ def build_pm_dispatch_text(
         ## Required Closeout
 
         把结论写到：`{result_path}`
+{eval_closeout_block}
 
         格式：
         ```
@@ -4026,13 +4054,14 @@ def _run_pm_completion_gate(task_id: str, record: dict[str, Any]) -> dict[str, A
     sprint_id = str(record.get("sprint_id") or task_id)
     node_id = str(record.get("node_id") or "pm")
     handoff_path = _pm_completion_handoff_path(record, sprint_id, node_id)
+    eval_path = _pm_completion_eval_path(record, sprint_id, node_id)
     return submit_result(
         OperatorResult(
             session_id=sprint_id,
             node_id=node_id,
             attempt_id=str(record.get("dispatch_id") or record.get("task_id") or task_id),
             handoff_path=handoff_path,
-            eval_path=str(record.get("eval_path") or ""),
+            eval_path=eval_path,
             write_scope=list(record.get("write_scope") or []),
             operator_status=str(record.get("status") or "done"),
             run_dir=str(HARNESS_DIR / "run" / "pm-completion-gate" / task_id),
@@ -4060,6 +4089,27 @@ def _pm_completion_handoff_path(record: dict[str, Any], sprint_id: str, node_id:
     result_path = Path(str(record.get("result_path") or "")).expanduser()
     if result_path.exists() and result_path.is_file() and "handoff" in result_path.name:
         return str(result_path)
+    return ""
+
+
+def _pm_completion_eval_path(record: dict[str, Any], sprint_id: str, node_id: str) -> str:
+    for key in ("eval_path", "eval", "eval_json", "eval_md"):
+        raw = str(record.get(key) or "").strip()
+        if not raw:
+            continue
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = SPRINTS_DIR / raw
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+
+    if sprint_id and node_id and node_id != "pm":
+        for candidate in (
+            SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.json",
+            SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.md",
+        ):
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
     return ""
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shlex
 import signal
@@ -77,6 +78,13 @@ def _pm_result_ready(started_wall: float) -> bool:
         return False
 
 
+def _pm_result_path() -> Path | None:
+    result_path = os.environ.get("PM_RESULT_PATH") or os.environ.get("RESULT_PATH")
+    if not result_path:
+        return None
+    return Path(result_path).expanduser()
+
+
 _ABS_EVAL_ARTIFACT_RE = re.compile(r"(/[^`'\"\s]+-eval\.(?:md|json))")
 _ABS_EVAL_DISPATCH_RE = re.compile(r"(/[^`'\"\s]+-eval-dispatch[^`'\"\s]*\.md)")
 
@@ -115,6 +123,120 @@ def _artifacts_ready(paths: list[Path], started_wall: float) -> bool:
         except OSError:
             return False
     return True
+
+
+def _missing_artifacts(paths: list[Path], started_wall: float) -> list[str]:
+    missing: list[str] = []
+    for path in paths:
+        try:
+            if not path.exists() or path.stat().st_size <= 0:
+                missing.append(str(path))
+                continue
+            if path.stat().st_mtime < started_wall:
+                missing.append(str(path))
+        except OSError:
+            missing.append(str(path))
+    return missing
+
+
+def _verdict_from_pm_result(text: str) -> str:
+    upper = text.upper()
+    negative_markers = (
+        "NOT ACCEPTABLE",
+        "UNACCEPTABLE",
+        "## 总判定: FAIL",
+        "VERDICT: FAIL",
+        '"VERDICT": "FAIL"',
+        "判定：FAIL",
+        "判定: FAIL",
+    )
+    positive_markers = (
+        "ACCEPTABLE AS FRESH REPAIR PACKAGE",
+        "## 总判定: PASS",
+        "VERDICT: PASS",
+        '"VERDICT": "PASS"',
+        "判定：PASS",
+        "判定: PASS",
+    )
+    if any(marker in upper for marker in negative_markers):
+        return "FAIL"
+    if any(marker in upper for marker in positive_markers):
+        return "PASS"
+    return "FAIL"
+
+
+def _synthesize_eval_sidecars_from_pm_result(paths: list[Path], started_wall: float) -> bool:
+    """Backfill graph-eval sidecars from an evaluator PM result.
+
+    This is deliberately conservative: it only runs after the evaluator has
+    written a fresh PM result, preserves the PM result text verbatim in eval.md,
+    and marks eval.json as generated_from_pm_result so downstream audit can see
+    the fallback.
+    """
+    if not paths:
+        return False
+    result_path = _pm_result_path()
+    if result_path is None:
+        return False
+    try:
+        if not result_path.exists() or result_path.stat().st_size <= 0:
+            return False
+        if result_path.stat().st_mtime < started_wall:
+            return False
+        pm_text = result_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return False
+    if not pm_text:
+        return False
+
+    eval_md_paths = [path for path in paths if path.suffix == ".md"]
+    eval_json_paths = [path for path in paths if path.suffix == ".json"]
+    verdict = _verdict_from_pm_result(pm_text)
+    task_id = os.environ.get("TASK_ID", "")
+    sprint_id = os.environ.get("SID", "")
+    node_id = os.environ.get("NODE_ID", "")
+
+    for path in eval_md_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            (
+                f"# Eval Sidecar — {task_id or path.stem}\n\n"
+                "@GENERATED_FROM_PM_RESULT\n\n"
+                "The evaluator wrote the PM result but did not materialize the "
+                "required graph eval markdown sidecar. This file preserves the "
+                "fresh PM result verbatim for machine closeout.\n\n"
+                f"{pm_text}\n"
+            ),
+            encoding="utf-8",
+        )
+
+    eval_md_name = eval_md_paths[0].name if eval_md_paths else ""
+    payload = {
+        "sprint_id": sprint_id,
+        "node_id": node_id,
+        "round": 1,
+        "verdict": verdict,
+        "failed_conditions": [] if verdict == "PASS" else ["PM_RESULT_INCONCLUSIVE"],
+        "passed_conditions": ["PM_RESULT_EVALUATOR_VERDICT"] if verdict == "PASS" else [],
+        "errors": [] if verdict == "PASS" else [
+            {
+                "cond": "PM_RESULT_INCONCLUSIVE",
+                "severity": "high",
+                "evidence": "PM result did not contain a clear PASS marker.",
+                "fix_hint": "Write explicit eval.md/eval.json or rerun evaluator.",
+            }
+        ],
+        "tokens_used": 0,
+        "eval_md_path": eval_md_name,
+        "verify_all_invoked": False,
+        "verify_all_verdict": "SKIPPED",
+        "generated_from_pm_result": True,
+        "pm_result_path": str(result_path),
+    }
+    for path in eval_json_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return _artifacts_ready(paths, started_wall)
 
 
 def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
@@ -190,7 +312,10 @@ def main() -> int:
             if proc.poll() is not None:
                 break
             elapsed = time.monotonic() - started
-            if _pm_result_ready(started_wall) and _artifacts_ready(required_eval_artifacts, started_wall):
+            if _pm_result_ready(started_wall) and (
+                _artifacts_ready(required_eval_artifacts, started_wall)
+                or _synthesize_eval_sidecars_from_pm_result(required_eval_artifacts, started_wall)
+            ):
                 pm_ready_since = pm_ready_since or time.monotonic()
                 if (time.monotonic() - pm_ready_since) >= pm_result_grace:
                     print(
@@ -233,6 +358,16 @@ def main() -> int:
     combined = cli_log.read_text(encoding="utf-8", errors="replace") if cli_log.exists() else ""
     if combined:
         print(combined, end="" if combined.endswith("\n") else "\n")
+    if _pm_result_ready(started_wall):
+        _synthesize_eval_sidecars_from_pm_result(required_eval_artifacts, started_wall)
+    missing_artifacts = _missing_artifacts(required_eval_artifacts, started_wall)
+    if proc.returncode == 0 and missing_artifacts:
+        print(
+            "ERROR: codex graph eval finished without required sidecar artifacts: "
+            + ", ".join(missing_artifacts),
+            file=sys.stderr,
+        )
+        return 68
     if proc.returncode == 0:
         _write_pm_result(task_dir, output_file, combined, int(proc.returncode))
     return int(proc.returncode or 0)

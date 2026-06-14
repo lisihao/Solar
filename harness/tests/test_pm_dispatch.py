@@ -325,6 +325,32 @@ def test_multi_role_operator_uses_requested_role_persona(monkeypatch, tmp_path):
     assert "# Builder" not in dispatch_text
 
 
+def test_evaluator_dispatch_declares_required_eval_sidecars(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "PERSONAS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", tmp_path / "sprints")
+    (tmp_path / "evaluator.md").write_text("# Evaluator\n", encoding="utf-8")
+
+    dispatch_text = pm_dispatch.build_pm_dispatch_text(
+        "task-eval",
+        "gpt55-eval",
+        {
+            "operator_id": "gpt55-eval",
+            "role": "evaluator",
+            "model": "gpt-5.5",
+        },
+        "review the repair package",
+        "sprint-x",
+        "N2",
+        str(tmp_path / "result.md"),
+    )
+
+    assert str(tmp_path / "sprints" / "sprint-x.N2-eval.md") in dispatch_text
+    assert str(tmp_path / "sprints" / "sprint-x.N2-eval.json") in dispatch_text
+    assert '"node_id": "N2"' in dispatch_text
+    assert "PM closeout 会强制检查" in dispatch_text
+
+
 def test_is_dispatchable_inherits_shared_billing_pool_cooldown(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(
