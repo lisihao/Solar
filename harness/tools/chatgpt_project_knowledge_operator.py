@@ -47,11 +47,17 @@ CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
 () => {
   const out = [];
   const seen = new Set();
-  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+  const isGlobalNav = (el) => Boolean(el.closest('aside, nav, [data-testid*="sidebar"], [class*="sidebar"]'));
+  const projectMatch = location.pathname.match(/^\/g\/([^/]+)\/project\b/);
+  const projectSlug = projectMatch ? projectMatch[1] : '';
+  const searchRoots = [document];
+  for (const root of searchRoots) for (const a of Array.from(root.querySelectorAll('a[href]'))) {
     const href = String(a.href || '');
+    if (projectSlug && !href.includes('/g/' + projectSlug + '/c/')) continue;
+    if (!projectSlug && isGlobalNav(a)) continue;
     const match = href.match(/https:\/\/chatgpt\.com\/(?:g\/[^/]+\/)?c\/([a-zA-Z0-9-]+)/);
     if (!match) continue;
-    const url = 'https://chatgpt.com/c/' + match[1];
+    const url = projectSlug ? 'https://chatgpt.com/g/' + projectSlug + '/c/' + match[1] : 'https://chatgpt.com/c/' + match[1];
     if (seen.has(url)) continue;
     seen.add(url);
     out.push({
@@ -63,6 +69,8 @@ CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
   return {
     url: location.href,
     title: document.title || '',
+    project_slug: projectSlug,
+    project_scoped_only: Boolean(projectSlug),
     project_label: (
       document.querySelector('[data-testid="project-name"]')?.textContent ||
       document.querySelector('h1')?.textContent ||
@@ -70,6 +78,65 @@ CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
     ).trim(),
     conversations: out,
   };
+}
+"""
+
+
+CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS = r"""
+() => {
+  const cleanText = (value) => String(value || '').replace(/\u00a0/g, ' ').trim();
+  const visible = (el) => {
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const expandPattern = /(show\s+more|load\s+more|view\s+more|see\s+more|see\s+all|more|older|previous|展开|更多|显示更多|加载更多|查看全部|查看更多|展开更多|历史记录|较早)/i;
+  const isGlobalNav = (el) => Boolean(el.closest('aside, nav, [data-testid*="sidebar"], [class*="sidebar"]'));
+  const roots = Array.from(document.querySelectorAll('main, [role="main"]'));
+  const searchRoots = roots.length ? roots : [document];
+  let clicked = 0;
+  for (const root of searchRoots) for (const details of Array.from(root.querySelectorAll('details:not([open])'))) {
+    if (isGlobalNav(details)) continue;
+    if (visible(details)) {
+      details.open = true;
+      clicked += 1;
+    }
+  }
+  const candidates = searchRoots.flatMap((root) => Array.from(root.querySelectorAll('button,[role="button"],summary,a[href]')));
+  for (const el of candidates) {
+    if (isGlobalNav(el)) continue;
+    if (!visible(el)) continue;
+    const text = cleanText([
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.textContent,
+    ].filter(Boolean).join(' '));
+    const ariaExpanded = String(el.getAttribute('aria-expanded') || '').toLowerCase();
+    const shouldClick = expandPattern.test(text);
+    if (!shouldClick) continue;
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      el.click();
+      clicked += 1;
+    } catch {}
+  }
+  const scrollers = [
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+    ...searchRoots,
+    ...searchRoots.flatMap((root) => Array.from(root.querySelectorAll('[data-radix-scroll-area-viewport], div')))
+      .filter((el) => !isGlobalNav(el))
+      .filter((el) => el.scrollHeight > el.clientHeight + 80)
+      .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))
+      .slice(0, 8)
+  ].filter(Boolean);
+  for (const el of scrollers) {
+    try {
+      el.scrollTop = Math.min(el.scrollTop + Math.max(el.clientHeight || 800, 1200), el.scrollHeight);
+    } catch {}
+  }
+  return { clicked, scroller_count: scrollers.length };
 }
 """
 
@@ -303,6 +370,9 @@ def normalize_conversation_url(value: str) -> str:
     parsed = urllib.parse.urlparse(raw)
     if not parsed.scheme:
         parsed = urllib.parse.urlparse("https://chatgpt.com" + (raw if raw.startswith("/") else "/" + raw))
+    project_match = re.search(r"/g/([^/]+)/c/([a-zA-Z0-9-]+)", parsed.path)
+    if project_match:
+        return f"https://chatgpt.com/g/{project_match.group(1)}/c/{project_match.group(2)}"
     match = re.search(r"/c/([a-zA-Z0-9-]+)", parsed.path)
     if not match:
         return raw
@@ -571,11 +641,15 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
     await goto_page(page, project_url)
     seen: dict[str, dict[str, Any]] = {}
     discovery: dict[str, Any] = {}
-    for _ in range(8):
+    stable_rounds = 0
+    expand_events: list[dict[str, Any]] = []
+    max_rounds = 30
+    for _ in range(max_rounds):
         discovery = ensure_json_object(
             await page.evaluate(CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS),
             context="discover_project_conversations",
         )
+        before_count = len(seen)
         for item in discovery.get("conversations") or []:
             url = normalize_conversation_url(str(item.get("url") or ""))
             if url:
@@ -583,10 +657,22 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
                 seen[url] = item
         if len(seen) >= limit:
             break
-        await page.evaluate("() => window.scrollBy(0, Math.max(document.body.scrollHeight, 1600))")
+        expand_result = ensure_json_object(
+            await page.evaluate(CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS),
+            context="expand_project_conversations",
+        )
+        expand_events.append(expand_result)
         await wait_page(page, 1200)
+        if len(seen) == before_count and not int(expand_result.get("clicked") or 0):
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+        if stable_rounds >= 4:
+            break
     conversations = list(seen.values())[:limit]
     discovery["conversations"] = conversations
+    discovery["discovery_rounds"] = len(expand_events) + 1
+    discovery["expand_events"] = expand_events
     return discovery
 
 

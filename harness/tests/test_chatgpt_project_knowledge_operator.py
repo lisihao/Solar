@@ -82,6 +82,38 @@ def test_build_qa_pairs_merges_consecutive_user_messages_before_answer():
     assert pairs[0]["answer_markdown"] == "统一回答"
 
 
+def test_normalize_conversation_url_preserves_project_context():
+    mod = _load_module()
+    url = mod.normalize_conversation_url(
+        "https://chatgpt.com/g/g-p-abc-project/c/6a2c58e1-5798-83e8-a67c-3fdce1fb0396"
+    )
+    assert url == "https://chatgpt.com/g/g-p-abc-project/c/6a2c58e1-5798-83e8-a67c-3fdce1fb0396"
+
+
+def test_project_discovery_expands_folded_conversation_lists():
+    mod = _load_module()
+    js = mod.CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS
+    assert "aria-expanded" in js
+    assert "show\\s+more" in js
+    assert "加载更多" in js
+    assert "scrollTop" in js
+    assert "ariaExpanded === 'false' ||" not in js
+
+
+def test_project_discovery_scopes_to_project_main_content_not_global_sidebar():
+    mod = _load_module()
+    discover_js = mod.CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS
+    expand_js = mod.CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS
+    assert "main, [role=\"main\"]" in expand_js
+    assert "projectSlug" in discover_js
+    assert "'/g/' + projectSlug + '/c/'" in discover_js
+    assert "project_scoped_only" in discover_js
+    assert "isGlobalNav" in discover_js
+    assert "isGlobalNav" in expand_js
+    assert "aside, nav" in discover_js
+    assert "aside, nav" in expand_js
+
+
 def test_write_artifacts_outputs_manifest_jsonl_markdown_and_html(tmp_path):
     mod = _load_module()
     conversation = mod.normalize_conversation(
